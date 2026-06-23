@@ -1,0 +1,9 @@
+pub const generated = @import("diagnostics_generated.zig");
+pub const Category = generated.Category;
+pub const Message = generated.Message;
+
+pub const Diagnostic = struct {
+    message: *const Message,
+    nodeIndex: u32,
+    args: [][]const u8 = &[_][]const u8{},
+};
