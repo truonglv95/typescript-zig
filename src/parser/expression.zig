@@ -448,32 +448,6 @@ pub fn parseSimpleUnaryExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIn
             const expr = try parseSimpleUnaryExpression(p);
             return p.ast.pushNode(.{ .AwaitExpression = .{ .Flags = 0, .Expression = expr } });
         },
-        kind.Kind.LessThanToken => {
-            // JSX or TypeAssertion stub
-            const startPos = p.scanner.state.pos;
-            var ltCount: i32 = 0;
-            while (p.token != kind.Kind.EndOfFile) {
-                if (p.token == kind.Kind.LessThanToken) {
-                    ltCount += 1;
-                } else if (p.token == kind.Kind.GreaterThanToken) {
-                    ltCount -= 1;
-                    if (ltCount == 0) {
-                        p.nextToken();
-                        break;
-                    }
-                }
-                const currentPos = p.scanner.state.pos;
-                p.nextToken();
-                if (p.scanner.state.pos == currentPos) {
-                    break;
-                }
-            }
-            if (p.scanner.state.pos == startPos) p.nextToken();
-            
-            // Skip the expression part for the stub as well if we can
-            // Just return Unknown so it stops processing
-            return p.ast.pushNode(.{ .Unknown = void{} });
-        },
         else => return parseUpdateExpression(p),
     }
 }
@@ -591,21 +565,11 @@ pub fn parseCallExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.NodeIn
 
         if (p.token == kind.Kind.OpenParenToken) {
             p.nextToken();
-            var args_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-            defer args_arr.deinit(p.allocator);
             
-            while (p.token != kind.Kind.CloseParenToken and p.token != kind.Kind.EndOfFile) {
-                const arg = try parseAssignmentExpressionOrHigher(p);
-                try args_arr.append(p.allocator, arg);
-                
-                if (p.token != kind.Kind.CommaToken) {
-                    break;
-                }
-                p.nextToken();
-            }
+            const argsList = p.parseDelimitedList(.ArgumentExpressions, parseArgumentExpressionWrapper);
+            
             _ = p.parseExpected(kind.Kind.CloseParenToken);
             
-            const argsList = try p.ast.pushNodeList(args_arr.items);
             currentExpr = try p.ast.pushNode(.{ .CallExpression = .{
                 .Flags = 0,
                 .Symbol = 0,
@@ -670,69 +634,48 @@ pub fn parseLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex 
     }
 }
 
+pub fn parseArgumentExpressionWrapper(p: *parser_pkg.Parser) ast_gen.NodeIndex {
+    if (p.token == kind.Kind.DotDotDotToken) {
+        p.nextToken();
+        const expr = parseAssignmentExpressionOrHigher(p) catch return 0;
+        return p.ast.pushNode(.{ .SpreadElement = .{ .Flags = 0, .Expression = expr } }) catch 0;
+    }
+    return parseAssignmentExpressionOrHigher(p) catch 0;
+}
+
+pub fn parseArgumentOrArrayLiteralElement(p: *parser_pkg.Parser) ast_gen.NodeIndex {
+    if (p.token == kind.Kind.CommaToken) {
+        return p.ast.pushNode(.{ .OmittedExpression = .{ .Flags = 0 } }) catch 0;
+    }
+    if (p.token == kind.Kind.DotDotDotToken) {
+        p.nextToken();
+        const expr = parseAssignmentExpressionOrHigher(p) catch return 0;
+        return p.ast.pushNode(.{ .SpreadElement = .{ .Flags = 0, .Expression = expr } }) catch 0;
+    }
+    return parseAssignmentExpressionOrHigher(p) catch 0;
+}
+
 pub fn parseArrayLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     _ = p.parseExpected(kind.Kind.OpenBracketToken);
     
-    var elements_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-    defer elements_arr.deinit(p.allocator);
-    
-    while (p.token != kind.Kind.CloseBracketToken and p.token != kind.Kind.EndOfFile) {
-        if (p.token == kind.Kind.CommaToken) {
-            const omitted = try p.ast.pushNode(.{ .OmittedExpression = .{ .Flags = 0 } });
-            try elements_arr.append(p.allocator, omitted);
-            p.nextToken();
-            continue;
-        }
-        
-        var element: ast_gen.NodeIndex = 0;
-        if (p.token == kind.Kind.DotDotDotToken) {
-            p.nextToken();
-            const expr = try parseAssignmentExpressionOrHigher(p);
-            element = try p.ast.pushNode(.{ .SpreadElement = .{ .Flags = 0, .Expression = expr } });
-        } else {
-            element = try parseAssignmentExpressionOrHigher(p);
-        }
-        try elements_arr.append(p.allocator, element);
-        
-        if (p.token != kind.Kind.CommaToken) {
-            break;
-        }
-        p.nextToken(); // Consume comma
-    }
+    const elementsList = p.parseDelimitedList(.ArrayLiteralMembers, parseArgumentOrArrayLiteralElement);
     
     _ = p.parseExpected(kind.Kind.CloseBracketToken);
     
-    const elementsList = try p.ast.pushNodeList(elements_arr.items);
     return p.ast.pushNode(.{ .ArrayLiteralExpression = .{ .Flags = 0, .Elements = elementsList, .MultiLine = 0 } });
+}
+
+pub fn parseObjectLiteralElementWrapper(p: *parser_pkg.Parser) ast_gen.NodeIndex {
+    return parseObjectLiteralElement(p) catch 0;
 }
 
 pub fn parseObjectLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     _ = p.parseExpected(kind.Kind.OpenBraceToken);
     
-    var properties_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-    defer properties_arr.deinit(p.allocator);
-    
-    while (p.token != kind.Kind.CloseBraceToken and p.token != kind.Kind.EndOfFile) {
-        const startPos = p.scanner.state.pos;
-
-        const prop = parseObjectLiteralElement(p) catch blk: {
-            break :blk try p.ast.pushNode(.{ .Unknown = void{} });
-        };
-        try properties_arr.append(p.allocator, prop);
-        
-        if (p.token != kind.Kind.CommaToken) {
-            break;
-        }
-        p.nextToken(); // consume comma
-
-        if (p.scanner.state.pos == startPos) {
-            p.nextToken();
-        }
-    }
+    const propertiesList = p.parseDelimitedList(.ObjectLiteralMembers, parseObjectLiteralElementWrapper);
     
     _ = p.parseExpected(kind.Kind.CloseBraceToken);
     
-    const propertiesList = try p.ast.pushNodeList(properties_arr.items);
     return p.ast.pushNode(.{ .ObjectLiteralExpression = .{ .Flags = 0, .Symbol = 0, .Properties = propertiesList, .MultiLine = 0 } });
 }
 
@@ -857,20 +800,8 @@ pub fn parseNewExpressionOrNewDotTarget(p: *parser_pkg.Parser) anyerror!ast_gen.
     var arguments: ?ast_gen.NodeListIndex = null;
     if (p.token == kind.Kind.OpenParenToken) {
         p.nextToken();
-        var args_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        defer args_arr.deinit(p.allocator);
-        
-        while (p.token != kind.Kind.CloseParenToken and p.token != kind.Kind.EndOfFile) {
-            const arg = try parseAssignmentExpressionOrHigher(p);
-            try args_arr.append(p.allocator, arg);
-            
-            if (p.token != kind.Kind.CommaToken) {
-                break;
-            }
-            p.nextToken();
-        }
+        arguments = p.parseDelimitedList(.ArgumentExpressions, parseArgumentExpressionWrapper);
         _ = p.parseExpected(kind.Kind.CloseParenToken);
-        arguments = try p.ast.pushNodeList(args_arr.items);
     }
     
     return p.ast.pushNode(.{ .NewExpression = .{

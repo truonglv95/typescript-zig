@@ -4,6 +4,36 @@ const ast_gen = @import("../ast/ast_generated.zig");
 const kind = @import("../ast/kind.zig");
 const scanner_pkg = @import("../scanner/scanner.zig");
 
+pub const ParsingContext = enum(u32) {
+    SourceElements = 0,
+    BlockStatements,
+    SwitchClauses,
+    SwitchClauseStatements,
+    TypeMembers,
+    ClassMembers,
+    EnumMembers,
+    HeritageClauseElement,
+    VariableDeclarations,
+    ObjectBindingElements,
+    ArrayBindingElements,
+    ArgumentExpressions,
+    ObjectLiteralMembers,
+    JsxAttributes,
+    JsxChildren,
+    ArrayLiteralMembers,
+    Parameters,
+    JSDocParameters,
+    RestProperties,
+    TypeParameters,
+    TypeArguments,
+    TupleElementTypes,
+    HeritageClauses,
+    ImportOrExportSpecifiers,
+    ImportAttributes,
+    JSDocComment,
+    Count,
+};
+
 pub const Parser = struct {
     allocator: std.mem.Allocator,
     scanner: scanner_pkg.Scanner,
@@ -13,6 +43,7 @@ pub const Parser = struct {
     token: kind.Kind,
     parseDiagnosticsCount: u32 = 0,
     lastErrorPos: i32 = -1,
+    parsingContexts: u32 = 0,
 
         pub const Mark = struct {
         scanner: scanner_pkg.Scanner,
@@ -20,6 +51,7 @@ pub const Parser = struct {
         nodes_len: usize,
         extraData_len: usize,
         parseDiagnosticsCount: u32,
+        lastErrorPos: i32,
     };
 
     pub fn mark(self: *Parser) Mark {
@@ -29,6 +61,7 @@ pub const Parser = struct {
             .nodes_len = self.ast.nodes.len,
             .extraData_len = self.ast.extraData.items.len,
             .parseDiagnosticsCount = self.parseDiagnosticsCount,
+            .lastErrorPos = self.lastErrorPos,
         };
     }
 
@@ -38,6 +71,186 @@ pub const Parser = struct {
         self.ast.nodes.len = m.nodes_len;
         self.ast.extraData.items.len = m.extraData_len;
         self.parseDiagnosticsCount = m.parseDiagnosticsCount;
+        self.lastErrorPos = m.lastErrorPos;
+    }
+
+    // =========================================================================
+    // Go 1:1 Parity - Speculative Parsing
+    // =========================================================================
+
+    /// Executes a callback in a speculative state. If it returns false, or we just want
+    /// to peek ahead without committing, we rewind the state.
+    pub fn lookAhead(self: *Parser, comptime callback: fn (*Parser) bool) bool {
+        const state = self.mark();
+        const result = callback(self);
+        self.rewind(state);
+        return result;
+    }
+
+    /// Tries to parse using the callback. If it fails (returns 0 or null NodeIndex),
+    /// it rewinds. If it succeeds, it commits the parse.
+    pub fn tryParse(self: *Parser, comptime callback: fn (*Parser) ast_gen.NodeIndex) ast_gen.NodeIndex {
+        const state = self.mark();
+        const result = callback(self);
+        if (result == 0) {
+            self.rewind(state);
+        }
+        return result;
+    }
+
+    /// Try to parse a list. If fails, rewind.
+    pub fn tryParseList(self: *Parser, comptime callback: fn (*Parser) u32) u32 {
+        const state = self.mark();
+        const result = callback(self);
+        if (result == 0) {
+            self.rewind(state);
+        }
+        return result;
+    }
+
+    pub fn isListElement(self: *Parser, parsingContext: ParsingContext, inErrorRecovery: bool) bool {
+        switch (parsingContext) {
+            .SourceElements, .BlockStatements, .SwitchClauseStatements => {
+                // If we're in error recovery, then we don't want to treat ';' as an empty statement.
+                return !(self.token == kind.Kind.SemicolonToken and inErrorRecovery) and self.isStartOfStatement();
+            },
+            .ArgumentExpressions => {
+                return self.token == kind.Kind.DotDotDotToken or self.isStartOfExpression();
+            },
+            .ArrayLiteralMembers => {
+                if (self.token == kind.Kind.CommaToken or self.token == kind.Kind.DotToken) return true;
+                return self.token == kind.Kind.DotDotDotToken or self.isStartOfExpression();
+            },
+            .ObjectLiteralMembers => {
+                if (self.token == kind.Kind.OpenBracketToken or self.token == kind.Kind.AsteriskToken or self.token == kind.Kind.DotDotDotToken or self.token == kind.Kind.DotToken) return true;
+                return self.isLiteralPropertyName();
+            },
+            .TypeParameters => {
+                return self.token == kind.Kind.InKeyword or self.token == kind.Kind.ConstKeyword or self.isIdentifier();
+            },
+            .Parameters => {
+                return self.isStartOfParameter();
+            },
+            .VariableDeclarations => {
+                return self.isIdentifier() or self.token == kind.Kind.OpenBraceToken or self.token == kind.Kind.OpenBracketToken;
+            },
+            else => return false, // Stubbed for other contexts
+        }
+    }
+
+    pub fn isListTerminator(self: *Parser, parsingContext: ParsingContext) bool {
+        switch (parsingContext) {
+            .BlockStatements, .SwitchClauseStatements => return self.token == kind.Kind.CloseBraceToken,
+            .VariableDeclarations => return self.token == kind.Kind.InKeyword or self.token == kind.Kind.OfKeyword or self.token == kind.Kind.EqualsGreaterThanToken or self.canParseSemicolon(),
+            .ArgumentExpressions => return self.token == kind.Kind.CloseParenToken,
+            .ArrayLiteralMembers => return self.token == kind.Kind.CloseBracketToken,
+            .ObjectLiteralMembers => return self.token == kind.Kind.CloseBraceToken,
+            .TypeParameters => return self.token == kind.Kind.GreaterThanToken,
+            .Parameters => return self.token == kind.Kind.CloseParenToken,
+            .SourceElements => return self.token == kind.Kind.EndOfFile,
+            else => return false,
+        }
+    }
+
+    pub fn abortParsingListOrMoveToNextToken(self: *Parser, parsingContext: ParsingContext) bool {
+        _ = parsingContext; // Stub
+        self.parseError("Expected token in delimited list");
+        self.nextToken();
+        return false;
+    }
+
+    pub fn isIdentifierOrKeyword(self: *Parser) bool {
+        return self.isIdentifier() or kind.isKeyword(self.token);
+    }
+
+    pub fn isLiteralPropertyName(self: *Parser) bool {
+        return self.isIdentifierOrKeyword() or self.token == kind.Kind.StringLiteral or self.token == kind.Kind.NumericLiteral;
+    }
+
+    pub fn canParseSemicolon(self: *Parser) bool {
+        return self.token == kind.Kind.SemicolonToken or self.token == kind.Kind.CloseBraceToken or self.token == kind.Kind.EndOfFile or self.scanner.hasPrecedingLineBreak();
+    }
+
+    pub fn isStartOfStatement(self: *Parser) bool {
+        switch (self.token) {
+            .SemicolonToken, .OpenBraceToken, .VarKeyword, .LetKeyword,
+            .ConstKeyword, .IfKeyword, .DoKeyword, .WhileKeyword,
+            .ForKeyword, .ContinueKeyword, .BreakKeyword, .ReturnKeyword,
+            .WithKeyword, .SwitchKeyword, .ThrowKeyword, .TryKeyword,
+            .FunctionKeyword, .ClassKeyword, .DebuggerKeyword, .AtToken => return true,
+            else => return self.isStartOfExpression(),
+        }
+    }
+
+    pub fn isStartOfExpression(self: *Parser) bool {
+        if (self.isIdentifier()) return true;
+        switch (self.token) {
+            .ThisKeyword, .SuperKeyword, .NullKeyword, .TrueKeyword, .FalseKeyword,
+            .NumericLiteral, .BigIntLiteral, .StringLiteral, .NoSubstitutionTemplateLiteral,
+            .TemplateHead, .OpenParenToken, .OpenBracketToken, .OpenBraceToken,
+            .FunctionKeyword, .ClassKeyword, .NewKeyword, .SlashToken, .SlashEqualsToken,
+            .PlusToken, .MinusToken, .TildeToken, .ExclamationToken, .DeleteKeyword,
+            .TypeOfKeyword, .VoidKeyword, .PlusPlusToken, .MinusMinusToken, .LessThanToken,
+            .AwaitKeyword, .YieldKeyword, .ImportKeyword => return true,
+            else => return false,
+        }
+    }
+
+    pub fn isStartOfParameter(self: *Parser) bool {
+        return self.token == kind.Kind.AtToken or self.token == kind.Kind.DotDotDotToken or self.isIdentifier() or self.token == kind.Kind.ThisKeyword or self.token == kind.Kind.OpenBracketToken or self.token == kind.Kind.OpenBraceToken;
+    }
+
+    pub fn parseDelimitedList(self: *Parser, parsingContext: ParsingContext, comptime parseElement: fn (*Parser) ast_gen.NodeIndex) ast_gen.NodeIndex {
+        const saveParsingContexts = self.parsingContexts;
+        self.parsingContexts |= @as(u32, 1) << @as(u5, @intCast(@intFromEnum(parsingContext)));
+        
+        var list = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        defer list.deinit(self.allocator);
+
+        while (true) {
+            if (self.isListElement(parsingContext, false)) {
+                const startPos = self.scanner.state.pos;
+                const element = parseElement(self);
+                if (element == 0) {
+                    self.parsingContexts = saveParsingContexts;
+                    return 0; // Failed to parse element
+                }
+                list.append(self.allocator, element) catch return 0;
+                
+                if (self.parseOptional(kind.Kind.CommaToken)) {
+                    continue;
+                }
+                if (self.isListTerminator(parsingContext)) {
+                    break;
+                }
+                
+                if (self.token != kind.Kind.CommaToken and parsingContext == .EnumMembers) {
+                    self.parseError("An enum member must be followed by a comma");
+                } else {
+                    _ = self.parseExpected(kind.Kind.CommaToken);
+                }
+                
+                // Error recovery trick: Semicolon object literal members
+                if ((parsingContext == .ObjectLiteralMembers or parsingContext == .ImportAttributes) and self.token == kind.Kind.SemicolonToken and !self.scanner.hasPrecedingLineBreak()) {
+                    self.nextToken();
+                }
+                
+                if (startPos == self.scanner.state.pos) {
+                    self.nextToken(); // Prevent infinite loop
+                }
+                continue;
+            }
+            if (self.isListTerminator(parsingContext)) {
+                break;
+            }
+            if (self.abortParsingListOrMoveToNextToken(parsingContext)) {
+                break;
+            }
+        }
+        
+        self.parsingContexts = saveParsingContexts;
+        if (list.items.len == 0) return 0;
+        return self.ast.pushNodeList(list.items) catch 0;
     }
 
     pub fn init(allocator: std.mem.Allocator, text: []const u8) Parser {
@@ -359,27 +572,16 @@ pub const Parser = struct {
         return self.parseDeclarationWorker(modifiers, modifierFlags);
     }
 
+    pub fn parseTypeParameterWrapper(self: *Parser) ast_gen.NodeIndex {
+        return self.parseTypeParameter() catch 0;
+    }
+
     pub fn parseTypeParameters(self: *Parser) anyerror!?ast_gen.NodeListIndex {
         if (self.token == kind.Kind.LessThanToken) {
             self.nextToken(); // consume `<`
-            var typeParameters_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-            defer typeParameters_arr.deinit(self.allocator);
-
-            while (self.token != kind.Kind.GreaterThanToken and self.token != kind.Kind.EndOfFile) {
-                const startPos = self.scanner.state.pos;
-                const typeParamNode = try self.parseTypeParameter();
-                try typeParameters_arr.append(self.allocator, typeParamNode);
-                
-                if (self.token == kind.Kind.CommaToken) {
-                    self.nextToken();
-                }
-
-                if (self.scanner.state.pos == startPos) {
-                    self.nextToken();
-                }
-            }
+            const typeParametersList = self.parseDelimitedList(.TypeParameters, parseTypeParameterWrapper);
             _ = self.parseExpected(kind.Kind.GreaterThanToken);
-            return try self.ast.pushNodeList(typeParameters_arr.items);
+            return typeParametersList;
         }
         return null;
     }
@@ -1080,18 +1282,7 @@ pub const Parser = struct {
             self.nextToken();
         }
 
-        var declarations_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        defer declarations_arr.deinit(self.allocator);
-
-        while (true) {
-            const decl = try self.parseVariableDeclaration();
-            try declarations_arr.append(self.allocator, decl);
-            if (!self.parseOptional(kind.Kind.CommaToken)) {
-                break;
-            }
-        }
-
-        const declarations = try self.ast.pushNodeList(declarations_arr.items);
+        const declarations = self.parseDelimitedList(.VariableDeclarations, parseVariableDeclarationWrapper);
 
         return self.ast.pushNode(.{ .VariableDeclarationList = .{
             .Flags = flags,
@@ -1099,36 +1290,22 @@ pub const Parser = struct {
         } });
     }
 
-    pub fn parseBindingElement(self: *Parser) anyerror!ast_gen.NodeIndex {
+    pub fn parseObjectBindingElement(self: *Parser) anyerror!ast_gen.NodeIndex {
         var dotDotDotToken: ?ast_gen.NodeIndex = null;
-        if (self.token == kind.Kind.DotDotDotToken) {
+        if (self.parseOptional(kind.Kind.DotDotDotToken)) {
             dotDotDotToken = try self.ast.pushNode(.{ .Unknown = void{} });
-            self.nextToken();
-            const name = try self.parseIdentifierOrPattern();
-            return self.ast.pushNode(.{ .BindingElement = .{
-                .Symbol = 0,
-                .Flags = 0,
-                .DotDotDotToken = dotDotDotToken,
-                .PropertyName = null,
-                .name = name,
-                .Initializer = null,
-            } });
         }
         
-        var propertyName: ?ast_gen.NodeIndex = null;
+        const tokenIsIdentifier = self.isIdentifier();
+        var propertyName: ?ast_gen.NodeIndex = try self.parsePropertyName();
         var name: ?ast_gen.NodeIndex = null;
         
-        if (self.token == kind.Kind.OpenBraceToken or self.token == kind.Kind.OpenBracketToken) {
-            name = try self.parseIdentifierOrPattern();
+        if (tokenIsIdentifier and self.token != kind.Kind.ColonToken) {
+            name = propertyName;
+            propertyName = null;
         } else {
-            const prop = try self.parsePropertyName();
-            if (self.token == kind.Kind.ColonToken) {
-                self.nextToken();
-                propertyName = prop;
-                name = try self.parseIdentifierOrPattern();
-            } else {
-                name = prop; // Identifier
-            }
+            _ = self.parseExpected(kind.Kind.ColonToken);
+            name = try self.parseIdentifierOrPattern();
         }
         
         var initializer: ?ast_gen.NodeIndex = null;
@@ -1141,6 +1318,28 @@ pub const Parser = struct {
             .Flags = 0,
             .DotDotDotToken = dotDotDotToken,
             .PropertyName = propertyName,
+            .name = name.?,
+            .Initializer = initializer,
+        } });
+    }
+
+    pub fn parseArrayBindingElement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        var dotDotDotToken: ?ast_gen.NodeIndex = null;
+        if (self.parseOptional(kind.Kind.DotDotDotToken)) {
+            dotDotDotToken = try self.ast.pushNode(.{ .Unknown = void{} });
+        }
+        const name = try self.parseIdentifierOrPattern();
+        
+        var initializer: ?ast_gen.NodeIndex = null;
+        if (self.parseOptional(kind.Kind.EqualsToken)) {
+            initializer = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
+        }
+        
+        return self.ast.pushNode(.{ .BindingElement = .{
+            .Symbol = 0,
+            .Flags = 0,
+            .DotDotDotToken = dotDotDotToken,
+            .PropertyName = null,
             .name = name,
             .Initializer = initializer,
         } });
@@ -1153,7 +1352,7 @@ pub const Parser = struct {
         
         while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
             const startPos = self.scanner.state.pos;
-            const element = try self.parseBindingElement();
+            const element = try self.parseObjectBindingElement();
             try elements.append(self.allocator, element);
             
             if (self.scanner.state.pos == startPos) {
@@ -1182,7 +1381,7 @@ pub const Parser = struct {
             }
             
             const startPos = self.scanner.state.pos;
-            const element = try self.parseBindingElement();
+            const element = try self.parseArrayBindingElement();
             try elements.append(self.allocator, element);
             
             if (self.scanner.state.pos == startPos) {
@@ -1237,6 +1436,10 @@ pub const Parser = struct {
                 .Initializer = initializer,
             },
         });
+    }
+
+    pub fn parseVariableDeclarationWrapper(self: *Parser) ast_gen.NodeIndex {
+        return self.parseVariableDeclaration() catch self.ast.pushNode(.{ .Unknown = void{} }) catch 0;
     }
 
     pub fn parseIfStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
@@ -1422,25 +1625,15 @@ pub const Parser = struct {
         } });
     }
 
+    pub fn parseParameterWrapper(self: *Parser) ast_gen.NodeIndex {
+        return self.parseParameter() catch 0;
+    }
+
     pub fn parseParameters(self: *Parser) anyerror!ast_gen.NodeListIndex {
         _ = self.parseExpected(kind.Kind.OpenParenToken);
-        var parameters_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        defer parameters_arr.deinit(self.allocator);
-        
-        while (self.token != kind.Kind.CloseParenToken and self.token != kind.Kind.EndOfFile) {
-            const startPos = self.scanner.state.pos;
-
-            const paramNode = try self.parseParameter();
-            try parameters_arr.append(self.allocator, paramNode);
-            
-            _ = self.parseOptional(kind.Kind.CommaToken);
-
-            if (self.scanner.state.pos == startPos) {
-                self.nextToken(); // force advance to avoid infinite loop
-            }
-        }
+        const parametersList = self.parseDelimitedList(.Parameters, parseParameterWrapper);
         _ = self.parseExpected(kind.Kind.CloseParenToken);
-        return self.ast.pushNodeList(parameters_arr.items);
+        return parametersList;
     }
 
     pub fn parseFunctionDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
@@ -2272,15 +2465,33 @@ pub const Parser = struct {
         return false;
     }
 
+    pub fn parseOptionalToken(self: *Parser, t: kind.Kind) ast_gen.NodeIndex {
+        if (self.token == t) {
+            const tokenKind = self.token;
+            self.nextToken();
+            return self.ast.pushNode(.{ .Token = .{ .Kind = tokenKind } }) catch 0;
+        }
+        return 0;
+    }
+
     pub fn parseExpected(self: *Parser, t: kind.Kind) bool {
         if (self.token == t) {
             self.nextToken();
             return true;
         }
+        self.parseError("Expected token"); // We will expand this to use diagnostics format later
         return false;
     }
 
-    
+    pub fn parseExpectedToken(self: *Parser, t: kind.Kind) ast_gen.NodeIndex {
+        const token = self.parseOptionalToken(t);
+        if (token == 0) {
+            self.parseError("Expected token");
+            return self.ast.pushNode(.{ .Token = .{ .Kind = t } }) catch 0;
+        }
+        return token;
+    }
+
     pub fn parsePropertyName(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.token == kind.Kind.StringLiteral) {
             const text = self.scanner.state.tokenValue;
@@ -2340,13 +2551,9 @@ pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
     pub fn parseError(self: *Parser, msg: []const u8) void {
         const pos = @as(i32, @intCast(self.scanner.state.pos));
         if (pos == self.lastErrorPos) return;
-        self.lastErrorPos = pos;
-        
+        std.debug.print("parseError at pos {d}: {s} at token {s}\n", .{pos, msg, @tagName(self.token)});
         self.parseDiagnosticsCount += 1;
-        std.debug.print("parseError at pos {d}: {s} at token .{s}\n", .{ pos, msg, @tagName(self.token) });
-        if (pos == 6583 or pos == 6584) {
-            std.debug.dumpCurrentStackTrace(.{});
-        }
+        self.lastErrorPos = pos;
     }
 
     pub fn isIndexSignature(self: *Parser) bool {
