@@ -60,6 +60,66 @@ pub const Scanner = struct {
         };
     }
 
+    // =========================================================================
+    // Go 1:1 Parity - State Management & Getters
+    // =========================================================================
+
+    pub fn mark(self: *Scanner) ScannerState {
+        return self.state;
+    }
+
+    pub fn rewind(self: *Scanner, state: ScannerState) void {
+        self.state = state;
+    }
+
+    pub fn reset(self: *Scanner) void {
+        self.state.pos = 0;
+        self.state.fullStartPos = 0;
+        self.state.tokenStart = 0;
+        self.state.token = kind.Kind.Unknown;
+        self.state.tokenValue = "";
+        self.state.tokenFlags = 0;
+        self.state.skipJSDocLeadingAsterisks = 0;
+        self.containsNonASCII = false;
+    }
+
+    pub fn resetPos(self: *Scanner, pos: usize) void {
+        self.state.pos = pos;
+        self.state.fullStartPos = pos;
+        self.state.tokenStart = pos;
+        self.state.token = kind.Kind.Unknown;
+        self.state.tokenValue = "";
+        self.state.tokenFlags = 0;
+    }
+
+    pub fn getToken(self: *const Scanner) kind.Kind {
+        return self.state.token;
+    }
+
+    pub fn getTokenValue(self: *const Scanner) []const u8 {
+        return self.state.tokenValue;
+    }
+
+    pub fn getTokenFlags(self: *const Scanner) u16 {
+        return self.state.tokenFlags;
+    }
+
+    pub fn getTokenStart(self: *const Scanner) usize {
+        return self.state.tokenStart;
+    }
+
+    pub fn getTokenEnd(self: *const Scanner) usize {
+        return self.state.pos;
+    }
+
+    pub fn getTokenFullStart(self: *const Scanner) usize {
+        return self.state.fullStartPos;
+    }
+
+    pub fn getTokenText(self: *const Scanner) []const u8 {
+        return self.text[self.state.tokenStart..self.state.pos];
+    }
+
     inline fn char(self: *Scanner) u8 {
         if (self.state.pos >= self.end) return 0;
         return self.text[self.state.pos];
@@ -695,5 +755,114 @@ pub const Scanner = struct {
             }
         }
         return self.state.token;
+    }
+
+    // =========================================================================
+    // Go 1:1 Parity - JSDoc Scanning
+    // =========================================================================
+
+    pub fn scanJSDocToken(self: *Scanner) kind.Kind {
+        self.state.fullStartPos = self.state.pos;
+        self.state.tokenFlags = TokenFlags.None;
+
+        if (self.state.pos >= self.end) {
+            self.state.token = kind.Kind.EndOfFileToken;
+            return self.state.token;
+        }
+
+        self.state.tokenStart = self.state.pos;
+        const ch = self.char();
+        self.state.pos += 1;
+
+        switch (ch) {
+            '\t', '\x0B', '\x0C', ' ' => {
+                while (self.state.pos < self.end) {
+                    const ch2 = self.char();
+                    if (ch2 != '\t' and ch2 != '\x0B' and ch2 != '\x0C' and ch2 != ' ') break;
+                    self.state.pos += 1;
+                }
+                self.state.token = kind.Kind.WhitespaceTrivia;
+                return self.state.token;
+            },
+            '@' => {
+                self.state.token = kind.Kind.AtToken;
+                return self.state.token;
+            },
+            '\r' => {
+                if (self.char() == '\n') {
+                    self.state.pos += 1;
+                }
+                self.state.tokenFlags |= TokenFlags.PrecedingLineBreak;
+                self.state.token = kind.Kind.NewLineTrivia;
+                return self.state.token;
+            },
+            '\n' => {
+                self.state.tokenFlags |= TokenFlags.PrecedingLineBreak;
+                self.state.token = kind.Kind.NewLineTrivia;
+                return self.state.token;
+            },
+            '*' => {
+                self.state.token = kind.Kind.AsteriskToken;
+                return self.state.token;
+            },
+            '{' => {
+                self.state.token = kind.Kind.OpenBraceToken;
+                return self.state.token;
+            },
+            '}' => {
+                self.state.token = kind.Kind.CloseBraceToken;
+                return self.state.token;
+            },
+            '[' => {
+                self.state.token = kind.Kind.OpenBracketToken;
+                return self.state.token;
+            },
+            ']' => {
+                self.state.token = kind.Kind.CloseBracketToken;
+                return self.state.token;
+            },
+            '<' => {
+                self.state.token = kind.Kind.LessThanToken;
+                return self.state.token;
+            },
+            '>' => {
+                self.state.token = kind.Kind.GreaterThanToken;
+                return self.state.token;
+            },
+            '=' => {
+                self.state.token = kind.Kind.EqualsToken;
+                return self.state.token;
+            },
+            ',' => {
+                self.state.token = kind.Kind.CommaToken;
+                return self.state.token;
+            },
+            '.' => {
+                self.state.token = kind.Kind.DotToken;
+                return self.state.token;
+            },
+            '`' => {
+                self.state.token = kind.Kind.BacktickToken;
+                return self.state.token;
+            },
+            'a'...'z', 'A'...'Z', '_', '$' => {
+                // Simplified identifier scanning for JSDoc
+                while (self.state.pos < self.end) {
+                    const ch2 = self.char();
+                    if ((ch2 >= 'a' and ch2 <= 'z') or (ch2 >= 'A' and ch2 <= 'Z') or (ch2 >= '0' and ch2 <= '9') or ch2 == '_' or ch2 == '$') {
+                        self.state.pos += 1;
+                    } else {
+                        break;
+                    }
+                }
+                self.state.tokenValue = self.text[self.state.tokenStart..self.state.pos];
+                self.state.token = kind.Kind.Identifier;
+                return self.state.token;
+            },
+            else => {
+                self.state.token = kind.Kind.Unknown;
+                return self.state.token;
+            }
+        }
     }
 };

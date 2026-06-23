@@ -12,9 +12,9 @@ test {
     _ = @import("ast/ast.zig");
     _ = @import("scanner/scanner.zig");
     _ = @import("parser/parser.zig");
-    _ = @import("parser/parser.zig");
     _ = @import("binder/binder.zig");
     _ = @import("checker/checker.zig");
+    _ = @import("printer/printer.zig");
 }
 
 test "basic parser integration" {
@@ -75,4 +75,36 @@ test "basic parser integration" {
     
     try c.checkStatement(astIndex);
 }
+
+test "basic printer" {
+    const parser = @import("parser/parser.zig");
+    const printer_pkg = @import("printer/printer.zig");
+
+    const sourceText =
+        \\function greet(name: string): string {
+        \\    return "Hello, " + name;
+        \\}
+        \\const x: number = 42;
+    ;
+
+    var p = parser.Parser.init(std.testing.allocator, sourceText);
+    defer p.deinit();
+
+    const astIndex = try p.parseSourceFile();
+
+    var pr = printer_pkg.Printer.init(std.testing.allocator, &p.ast);
+    defer pr.deinit();
+
+    try pr.printSourceFile(astIndex);
+    const output = pr.getOutput();
+
+    std.debug.print("\n[basic printer test output]\n{s}\n", .{output});
+
+    // Must contain 'function' keyword in emitted JS
+    try std.testing.expect(std.mem.indexOf(u8, output, "function") != null);
+    // Must NOT contain TypeScript type annotations
+    try std.testing.expect(std.mem.indexOf(u8, output, ": string") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output, ": number") == null);
+}
+
 pub const diagnostics = @import("diagnostics/diagnostics.zig");
