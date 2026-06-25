@@ -3,6 +3,7 @@ const parser_pkg = @import("../parser/parser.zig");
 const binder_pkg = @import("../binder/binder.zig");
 const checker_pkg = @import("../checker/checker.zig");
 const diagnostics_pkg = @import("../diagnostics/diagnostics.zig");
+const printer_pkg = @import("../printer/printer.zig");
 
 /// C API: Khởi tạo và phân tích mã nguồn TypeScript
 /// Hàm này được Go (qua CGO) gọi trực tiếp. Nó nhận chuỗi và trả về mã lỗi (0 = success).
@@ -47,6 +48,50 @@ pub export fn zig_ts_parse(source: [*]const u8, length: usize) i32 {
 
     _ = parser.parseSourceFile() catch return -1;
 
+    return 0; // Success
+}
+
+/// C API: Phân tích và sinh mã JavaScript (Code Generation)
+/// Caller phải giải phóng buffer với zig_ts_free_buffer
+pub export fn zig_ts_print(
+    source: [*]const u8,
+    length: usize,
+    out_buf: *[*]u8,
+    out_len: *usize,
+) i32 {
+    const src = source[0..length];
+
+    const allocator = std.heap.page_allocator;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    var parser = parser_pkg.Parser.init(arena_alloc, src);
+    defer parser.deinit();
+
+    const sourceFileIndex = parser.parseSourceFile() catch {
+        return -1;
+    };
+
+    if (parser.parseDiagnosticsCount > 0) {
+        return -2; // Syntax errors present
+    }
+
+    // Note: Need to initialize context and writer correctly based on printer.zig
+    var factory = @import("../printer/factory.zig").NodeFactory.init(allocator, &parser.ast);
+    defer factory.deinit();
+    var emit_ctx = @import("../printer/emitcontext.zig").EmitContext.init(allocator, &parser.ast, &factory);
+    var text_writer = @import("../printer/textwriter.zig").TextWriter.init(allocator, "\n", 4);
+    defer text_writer.deinit();
+    var emit_writer = text_writer.getEmitTextWriter();
+    var printer = printer_pkg.Printer.init(&parser.ast, &emit_ctx, &emit_writer);
+
+    printer.printSourceFile(sourceFileIndex) catch return -3;
+    const output = text_writer.string();
+    const buf = allocator.dupe(u8, output) catch return -4;
+    out_buf.* = buf.ptr;
+    out_len.* = buf.len;
     return 0; // Success
 }
 
@@ -158,6 +203,213 @@ pub export fn zig_ts_get_diagnostics(
     return 0;
 }
 
+/// C API: Export Binder state as JSON
+pub export fn zig_ts_get_binder_state(
+    source: [*]const u8,
+    length: usize,
+    out_buf: *[*]u8,
+    out_len: *usize,
+) i32 {
+    const src = source[0..length];
+    const allocator = std.heap.page_allocator;
+    
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+    
+    var parser = parser_pkg.Parser.init(arena_alloc, src);
+    defer parser.deinit();
+    
+    const sourceFileIndex = parser.parseSourceFile() catch {
+        const err = "{\"nodes\":[]}";
+        const buf = allocator.dupe(u8, err) catch return -1;
+        out_buf.* = buf.ptr;
+        out_len.* = buf.len;
+        return -1;
+    };
+    
+    var binder = binder_pkg.Binder.init(arena_alloc, &parser.ast) catch {
+        const err = "{\"nodes\":[]}";
+        const buf = allocator.dupe(u8, err) catch return -2;
+        out_buf.* = buf.ptr;
+        out_len.* = buf.len;
+        return -2;
+    };
+    defer binder.deinit();
+    binder.bindSourceFile(sourceFileIndex) catch {};
+    
+    var json = std.ArrayListUnmanaged(u8).empty;
+    
+    json.appendSlice(arena_alloc, "{\"nodes\":[") catch return -3;
+    
+    var first = true;
+    for (0..parser.ast.nodes.len) |i| {
+        if (!first) {
+            json.append(arena_alloc, ',') catch return -3;
+        }
+        first = false;
+        
+        json.appendSlice(arena_alloc, "{\"index\":") catch return -3;
+        var idx_buf: [32]u8 = undefined;
+        json.appendSlice(arena_alloc, std.fmt.bufPrint(&idx_buf, "{d}", .{i}) catch "0") catch return -3;
+        
+        json.appendSlice(arena_alloc, ",\"kind\":") catch return -3;
+        var kind_buf: [32]u8 = undefined;
+        json.appendSlice(arena_alloc, std.fmt.bufPrint(&kind_buf, "{d}", .{@intFromEnum(parser.ast.nodes.items(.tags)[i])}) catch "0") catch return -3;
+        
+        // Symbol
+        const symIdx = parser.ast.getNodeSymbol(@as(u32, @intCast(i)));
+        if (symIdx != null and symIdx.? != 0) {
+            const sym = binder.symbols.items[symIdx.?];
+            json.appendSlice(arena_alloc, ",\"symbolName\":\"") catch return -3;
+            for (sym.Name) |c| {
+                if (c == '"') {
+                    json.appendSlice(arena_alloc, "\\\"") catch return -3;
+                } else if (c == '\\') {
+                    json.appendSlice(arena_alloc, "\\\\") catch return -3;
+                } else if (c == 0xFE) {
+                    json.appendSlice(arena_alloc, "__") catch return -3;
+                } else {
+                    json.append(arena_alloc, c) catch return -3;
+                }
+            }
+            json.appendSlice(arena_alloc, "\",\"symbolFlags\":") catch return -3;
+            var flag_buf: [32]u8 = undefined;
+            json.appendSlice(arena_alloc, std.fmt.bufPrint(&flag_buf, "{d}", .{sym.Flags}) catch "0") catch return -3;
+        }
+        
+        // LocalSymbol
+        const localSymIdx = parser.ast.localSymbols.get(@as(u32, @intCast(i)));
+        if (localSymIdx != null and localSymIdx.? != 0) {
+            const sym = binder.symbols.items[localSymIdx.?];
+            json.appendSlice(arena_alloc, ",\"localSymName\":\"") catch return -3;
+            for (sym.Name) |c| {
+                if (c == '"') {
+                    json.appendSlice(arena_alloc, "\\\"") catch return -3;
+                } else if (c == '\\') {
+                    json.appendSlice(arena_alloc, "\\\\") catch return -3;
+                } else if (c == 0xFE) {
+                    json.appendSlice(arena_alloc, "__") catch return -3;
+                } else {
+                    json.append(arena_alloc, c) catch return -3;
+                }
+            }
+            json.appendSlice(arena_alloc, "\",\"localSymFlags\":") catch return -3;
+            var flag_buf: [32]u8 = undefined;
+            json.appendSlice(arena_alloc, std.fmt.bufPrint(&flag_buf, "{d}", .{sym.Flags}) catch "0") catch return -3;
+        }
+        
+        // LocalsCount
+        if (binder.nodeLocals.get(@as(u32, @intCast(i)))) |localsMap| {
+            json.appendSlice(arena_alloc, ",\"localsCount\":") catch return -3;
+            var count_buf: [32]u8 = undefined;
+            json.appendSlice(arena_alloc, std.fmt.bufPrint(&count_buf, "{d}", .{localsMap.count()}) catch "0") catch return -3;
+
+            json.appendSlice(arena_alloc, ",\"localsKeys\":[") catch return -3;
+            var it = localsMap.iterator();
+            var first_key = true;
+            // Collect keys and sort them so they match Go
+            var keys = std.ArrayListUnmanaged([]const u8).empty;
+            while (it.next()) |entry| {
+                keys.append(arena_alloc, entry.key_ptr.*) catch return -3;
+            }
+            std.mem.sort([]const u8, keys.items, {}, struct {
+                fn lessThan(ctx: void, a: []const u8, b: []const u8) bool {
+                    _ = ctx;
+                    return std.mem.order(u8, a, b) == .lt;
+                }
+            }.lessThan);
+            for (keys.items) |k| {
+                if (!first_key) json.append(arena_alloc, ',') catch return -3;
+                first_key = false;
+                json.append(arena_alloc, '"') catch return -3;
+                
+                // Escape __ (we use internal name missing here directly)
+                const is_missing = std.mem.eql(u8, k, "__missing");
+                if (is_missing) {
+                    json.appendSlice(arena_alloc, "__missing") catch return -3;
+                } else {
+                    // escape \xFE to __
+                    var out_k = std.ArrayListUnmanaged(u8).empty;
+                    var k_i: usize = 0;
+                    while (k_i < k.len) {
+                        if (k[k_i] == 0xFE) {
+                            out_k.appendSlice(arena_alloc, "__") catch return -3;
+                            k_i += 1;
+                        } else {
+                            out_k.append(arena_alloc, k[k_i]) catch return -3;
+                            k_i += 1;
+                        }
+                    }
+                    json.appendSlice(arena_alloc, out_k.items) catch return -3;
+                }
+                json.append(arena_alloc, '"') catch return -3;
+            }
+            json.append(arena_alloc, ']') catch return -3;
+        }
+        
+        json.append(arena_alloc, '}') catch return -3;
+    }
+    
+    json.appendSlice(arena_alloc, "]}") catch return -3;
+    
+    const result = allocator.dupe(u8, json.items) catch return -3;
+    out_buf.* = result.ptr;
+    out_len.* = result.len;
+    
+    return 0;
+}
+
+pub const TokenInfo = extern struct {
+    kind: i32,
+    start: i32,
+    end: i32,
+};
+
+pub export fn zig_ts_scan(
+    source: [*]const u8,
+    length: usize,
+    out_tokens: *[*]TokenInfo,
+    out_count: *usize,
+) i32 {
+    const src = source[0..length];
+    const allocator = std.heap.page_allocator;
+    
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+    
+    const scanner_pkg = @import("../scanner/scanner.zig");
+    var scanner = scanner_pkg.Scanner.init(arena_alloc, src);
+    scanner.skipTrivia = false; 
+    
+    var tokenList = std.ArrayListUnmanaged(TokenInfo).empty;
+    
+    while (true) {
+        const k = scanner.scan();
+        tokenList.append(arena_alloc, .{
+            .kind = @intFromEnum(k),
+            .start = @as(i32, @intCast(scanner.state.tokenStart)),
+            .end = @as(i32, @intCast(scanner.state.pos)),
+        }) catch return -1;
+        
+        if (k == .EndOfFile) {
+            break;
+        }
+    }
+    
+    const final_tokens = allocator.dupe(TokenInfo, tokenList.items) catch return -2;
+    out_tokens.* = final_tokens.ptr;
+    out_count.* = final_tokens.len;
+    
+    return 0; 
+}
+
+pub export fn zig_ts_free_tokens(buf: [*]TokenInfo, len: usize) void {
+    const allocator = std.heap.page_allocator;
+    allocator.free(buf[0..len]);
+}
+
 /// C API: Free buffer allocated by zig_ts_get_diagnostics
 pub export fn zig_ts_free_buffer(buf: [*]u8, len: usize) void {
     std.heap.page_allocator.free(buf[0..len]);
@@ -178,3 +430,44 @@ pub export fn zig_ts_get_node_count(source: [*]const u8, length: usize) i32 {
 
     return @as(i32, @intCast(parser.ast.nodes.len));
 }
+
+/// C API: Export AST node kinds to verify creation order
+pub export fn zig_ts_get_ast_node_kinds(
+    source: [*]const u8,
+    length: usize,
+    out_kinds: *[*]u16,
+    out_count: *usize,
+) i32 {
+    const src = source[0..length];
+    const allocator = std.heap.page_allocator;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
+    var parser = parser_pkg.Parser.init(arena_alloc, src);
+    defer parser.deinit();
+
+    _ = parser.parseSourceFile() catch return -1;
+
+    const count = parser.ast.nodes.len;
+    
+    // index 0 is Unknown reserve. Let's just dump ALL including 0.
+    var kinds = allocator.alloc(u16, count) catch return -2;
+    
+    const tags = parser.ast.nodes.items(.tags);
+    for (tags, 0..) |tag, i| {
+        kinds[i] = @intFromEnum(tag);
+    }
+
+    out_kinds.* = kinds.ptr;
+    out_count.* = kinds.len;
+
+    return 0;
+}
+
+pub export fn zig_ts_free_ast_node_kinds(buf: [*]u16, len: usize) void {
+    const allocator = std.heap.page_allocator;
+    allocator.free(buf[0..len]);
+}
+

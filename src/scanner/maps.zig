@@ -21,6 +21,7 @@ pub const textToKeyword = std.StaticStringMap(kind.Kind).initComptime(.{
     .{ "debugger", kind.Kind.DebuggerKeyword },
     .{ "declare", kind.Kind.DeclareKeyword },
     .{ "default", kind.Kind.DefaultKeyword },
+    .{ "defer", kind.Kind.DeferKeyword },
     .{ "delete", kind.Kind.DeleteKeyword },
     .{ "do", kind.Kind.DoKeyword },
     .{ "else", kind.Kind.ElseKeyword },

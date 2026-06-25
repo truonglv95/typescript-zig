@@ -1,6 +1,24 @@
 const std = @import("std");
+
+pub fn getECMALineOfPosition(text: []const u8, pos: usize) i64 {
+    const end = if (pos > text.len) text.len else pos;
+    const slice = text[0..end];
+    var line: i64 = 0;
+    for (slice) |c| {
+        if (c == '\n') {
+            line += 1;
+        }
+    }
+    return line;
+}
+const stringutil = @import("../stringutil/stringutil.zig");
+const ast = @import("../ast/ast.zig");
 const kind = @import("../ast/kind.zig");
 const maps = @import("maps.zig");
+const core = @import("../core/core.zig");
+const diagnostics = @import("../diagnostics/diagnostics.zig");
+
+pub const ErrorCallback = *const fn (ctx: ?*anyopaque, diagnostic: *const diagnostics.Message, start: usize, length: usize, args: []const []const u8) void;
 
 pub const TokenFlags = struct {
     pub const None: u16 = 0;
@@ -36,6 +54,10 @@ pub const Scanner = struct {
     allocator: std.mem.Allocator,
     text: []const u8,
     end: usize,
+    languageVariant: core.LanguageVariant,
+    scriptTarget: core.ScriptTarget,
+    onError: ?ErrorCallback,
+    onErrorCtx: ?*anyopaque,
     skipTrivia: bool,
     
     state: ScannerState,
@@ -46,6 +68,10 @@ pub const Scanner = struct {
             .allocator = allocator,
             .text = text,
             .end = text.len,
+            .languageVariant = .Standard,
+            .scriptTarget = .Latest,
+            .onError = null,
+            .onErrorCtx = null,
             .skipTrivia = true,
             .containsNonASCII = false,
             .state = .{
@@ -123,6 +149,63 @@ pub const Scanner = struct {
     inline fn char(self: *Scanner) u8 {
         if (self.state.pos >= self.end) return 0;
         return self.text[self.state.pos];
+    }
+
+    pub fn emitError(self: *Scanner, diagnostic: *const diagnostics.Message) void {
+        self.errorAt(diagnostic, self.state.pos, 0, &[_][]const u8{});
+    }
+
+    pub fn errorAt(self: *Scanner, diagnostic: *const diagnostics.Message, pos: usize, length: usize, args: []const []const u8) void {
+        if (self.onError) |cb| {
+            cb(self.onErrorCtx, diagnostic, pos, length, args);
+        }
+    }
+
+    pub fn scanInvalidCharacter(self: *Scanner) void {
+        const size = if (self.state.pos < self.end) @as(usize, 1) else @as(usize, 0); // utf8 decode size needed later
+        self.errorAt(&diagnostics.generated.Invalid_character, self.state.pos, size, &[_][]const u8{});
+        self.state.pos += size;
+        self.state.token = kind.Kind.Unknown;
+    }
+
+    fn isConflictMarkerTrivia(self: *Scanner, pos: usize) bool {
+        if (pos + 1 >= self.end or self.text[pos + 1] != self.text[pos]) return false;
+        
+        const atLineStart = pos == 0 or self.text[pos - 1] == '\n' or self.text[pos - 1] == '\r';
+        if (atLineStart) {
+            const ch = self.text[pos];
+            const markerLength = 7;
+            if (pos + markerLength < self.end) {
+                for (0..markerLength) |i| {
+                    if (self.text[pos + i] != ch) return false;
+                }
+                return ch == '=' or self.text[pos + markerLength] == ' ';
+            }
+        }
+        return false;
+    }
+
+    fn scanConflictMarkerTrivia(self: *Scanner, pos: usize) usize {
+        self.errorAt(&diagnostics.generated.Merge_conflict_marker_encountered, pos, 7, &[_][]const u8{});
+        const ch = self.text[pos];
+        var current_pos = pos;
+        
+        if (ch == '<' or ch == '>') {
+            while (current_pos < self.end) {
+                const c = self.text[current_pos];
+                if (c == '\n' or c == '\r') break;
+                current_pos += 1;
+            }
+        } else {
+            while (current_pos < self.end) {
+                const c = self.text[current_pos];
+                if ((c == '=' or c == '>') and c != ch and self.isConflictMarkerTrivia(current_pos)) {
+                    break;
+                }
+                current_pos += 1;
+            }
+        }
+        return current_pos;
     }
 
     inline fn charAt(self: *Scanner, offset: usize) u8 {
@@ -373,11 +456,29 @@ pub const Scanner = struct {
                     return self.state.token;
                 },
                 '#' => {
+                    if (self.charAt(1) == '!') {
+                        if (self.state.pos == 0) {
+                            self.state.pos += 2;
+                            while (self.state.pos < self.end) {
+                                const c = self.char();
+                                if (c == '\n' or c == '\r') {
+                                    break;
+                                }
+                                self.state.pos += 1;
+                            }
+                            continue;
+                        }
+                        self.errorAt(&diagnostics.generated.X_can_only_be_used_at_the_start_of_a_file, self.state.pos, 2, &[_][]const u8{"#!"});
+                        self.state.pos += 1;
+                        self.state.token = kind.Kind.Unknown;
+                        return self.state.token;
+                    }
+
                     const start = self.state.pos;
                     self.state.pos += 1;
                     if (self.state.pos < self.end) {
                         const b = self.char();
-                        if ((b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z') or b == '_' or b == '$') {
+                        if (b == ' ' or b == '\t' or (b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z') or b == '_' or b == '$') {
                             while (self.state.pos < self.end) {
                                 const c = self.char();
                                 if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_' or c == '$') {
@@ -398,10 +499,14 @@ pub const Scanner = struct {
                     const next = self.charAt(1);
                     if (next == '/') {
                         self.state.pos += 2;
-                        while (self.state.pos < self.end and self.char() != '\n') {
+                        while (self.state.pos < self.end) {
+                            const c = self.char();
+                            if (c == '\n' or c == '\r') break;
                             self.state.pos += 1;
                         }
-                        continue;
+                        if (self.skipTrivia) continue;
+                        self.state.token = kind.Kind.SingleLineCommentTrivia;
+                        return self.state.token;
                     } else if (next == '*') {
                         self.state.pos += 2;
                         while (self.state.pos < self.end) {
@@ -411,7 +516,9 @@ pub const Scanner = struct {
                             }
                             self.state.pos += 1;
                         }
-                        continue;
+                        if (self.skipTrivia) continue;
+                        self.state.token = kind.Kind.MultiLineCommentTrivia;
+                        return self.state.token;
                     } else if (next == '=') {
                         self.state.pos += 2;
                         self.state.token = kind.Kind.SlashEqualsToken;
@@ -422,17 +529,56 @@ pub const Scanner = struct {
                     return self.state.token;
                 },
                 'a'...'z', 'A'...'Z', '_', '$', '\\', '\x80'...'\xff' => {
+                    if (ch == '\\') {
+                        if (self.charAt(1) != 'u') {
+                            self.state.pos += 1;
+                            self.state.token = kind.Kind.Unknown;
+                            return self.state.token;
+                        }
+                        const c2 = self.charAt(2);
+                        if (c2 != '{' and !((c2 >= '0' and c2 <= '9') or (c2 >= 'a' and c2 <= 'f') or (c2 >= 'A' and c2 <= 'F'))) {
+                            self.state.pos += 1;
+                            self.state.token = kind.Kind.Unknown;
+                            return self.state.token;
+                        }
+                    } else if (ch >= 0x80) {
+                        const len = std.unicode.utf8ByteSequenceLength(self.text[self.state.pos]) catch 0;
+                        if (len == 0 or self.state.pos + len > self.end) {
+                            self.state.pos = self.end;
+                            self.state.token = kind.Kind.NonTextFileMarkerTrivia;
+                            return self.state.token;
+                        }
+                        _ = std.unicode.utf8Decode(self.text[self.state.pos .. self.state.pos + len]) catch {
+                            self.state.pos = self.end;
+                            self.state.token = kind.Kind.NonTextFileMarkerTrivia;
+                            return self.state.token;
+                        };
+                    }
                     const start = self.state.pos;
-                    self.state.pos += 1;
                     while (self.state.pos < self.end) {
                         const b = self.char();
-                        if ((b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z') or (b >= '0' and b <= '9') or b == '_' or b == '$' or b == '\\' or b >= 0x80) {
+                        if ((b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z') or (b >= '0' and b <= '9') or b == '_' or b == '$' or (self.languageVariant == .JSX and (b == '-' or b == ':'))) {
                             self.state.pos += 1;
+                        } else if (b == '\\') {
+                            if (self.charAt(1) == 'u') {
+                                const c2 = self.charAt(2);
+                                if (c2 != '{' and !((c2 >= '0' and c2 <= '9') or (c2 >= 'a' and c2 <= 'f') or (c2 >= 'A' and c2 <= 'F'))) {
+                                    break;
+                                }
+                                self.state.pos += 2;
+                            } else {
+                                break;
+                            }
+                        } else if (b >= 0x80) {
+                            const len = std.unicode.utf8ByteSequenceLength(self.text[self.state.pos]) catch 0;
+                            if (len == 0 or self.state.pos + len > self.end) break;
+                            _ = std.unicode.utf8Decode(self.text[self.state.pos .. self.state.pos + len]) catch break;
+                            self.state.pos += len;
                         } else {
                             break;
                         }
                     }
-                    self.state.tokenValue = self.text[start..self.state.pos];
+                    self.state.tokenValue = self.unescapeIdentifier(self.text[start..self.state.pos]);
                     if (maps.textToKeyword.get(self.state.tokenValue)) |kw| {
                         self.state.token = kw;
                     } else {
@@ -504,24 +650,39 @@ pub const Scanner = struct {
         
         while (self.state.pos < self.end) {
             const b = self.char();
-            if ((b >= '0' and b <= '9') or b == '.') {
+            if ((b >= '0' and b <= '9') or b == '_') {
                 self.state.pos += 1;
-            } else if (b == 'e' or b == 'E') {
-                self.state.pos += 1;
-                const sign = self.char();
-                if (sign == '+' or sign == '-') self.state.pos += 1;
-                while (self.state.pos < self.end) {
-                    const eb = self.char();
-                    if (eb >= '0' and eb <= '9') {
-                        self.state.pos += 1;
-                    } else {
-                        break;
-                    }
-                }
-                self.state.tokenFlags |= TokenFlags.Scientific;
             } else {
                 break;
             }
+        }
+        
+        if (self.char() == '.') {
+            self.state.pos += 1;
+            while (self.state.pos < self.end) {
+                const b = self.char();
+                if ((b >= '0' and b <= '9') or b == '_') {
+                    self.state.pos += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        
+        const c = self.char();
+        if (c == 'e' or c == 'E') {
+            self.state.pos += 1;
+            const sign = self.char();
+            if (sign == '+' or sign == '-') self.state.pos += 1;
+            while (self.state.pos < self.end) {
+                const eb = self.char();
+                if ((eb >= '0' and eb <= '9') or eb == '_') {
+                    self.state.pos += 1;
+                } else {
+                    break;
+                }
+            }
+            self.state.tokenFlags |= TokenFlags.Scientific;
         }
         
         if (self.char() == 'n') {
@@ -536,7 +697,7 @@ pub const Scanner = struct {
     fn scanHexDigits(self: *Scanner) void {
         while (self.state.pos < self.end) {
             const b = self.char();
-            if ((b >= '0' and b <= '9') or (b >= 'a' and b <= 'f') or (b >= 'A' and b <= 'F')) {
+            if ((b >= '0' and b <= '9') or (b >= 'a' and b <= 'f') or (b >= 'A' and b <= 'F') or b == '_') {
                 self.state.pos += 1;
             } else {
                 break;
@@ -547,7 +708,7 @@ pub const Scanner = struct {
     fn scanBinaryDigits(self: *Scanner) void {
         while (self.state.pos < self.end) {
             const b = self.char();
-            if (b == '0' or b == '1') {
+            if (b == '0' or b == '1' or b == '_') {
                 self.state.pos += 1;
             } else {
                 break;
@@ -558,7 +719,7 @@ pub const Scanner = struct {
     fn scanOctalDigits(self: *Scanner) void {
         while (self.state.pos < self.end) {
             const b = self.char();
-            if (b >= '0' and b <= '7') {
+            if ((b >= '0' and b <= '7') or b == '_') {
                 self.state.pos += 1;
             } else {
                 break;
@@ -658,6 +819,7 @@ pub const Scanner = struct {
         self.state.pos += 1;
         var start = self.state.pos;
         var parts = std.ArrayListUnmanaged([]const u8).empty;
+        defer parts.deinit(self.allocator);
         var token: kind.Kind = undefined;
         
         while (true) {
@@ -855,7 +1017,7 @@ pub const Scanner = struct {
                         break;
                     }
                 }
-                self.state.tokenValue = self.text[self.state.tokenStart..self.state.pos];
+                self.state.tokenValue = self.unescapeIdentifier(self.text[self.state.tokenStart..self.state.pos]);
                 self.state.token = kind.Kind.Identifier;
                 return self.state.token;
             },
@@ -865,4 +1027,84 @@ pub const Scanner = struct {
             }
         }
     }
+
+    pub fn unescapeIdentifier(self: *Scanner, value: []const u8) []const u8 {
+        var has_escape = false;
+        for (value) |c| {
+            if (c == '\\') {
+                has_escape = true;
+                break;
+            }
+        }
+        if (!has_escape) return value;
+        var buf = std.ArrayListUnmanaged(u8).empty;
+        var i: usize = 0;
+        while (i < value.len) {
+            if (value[i] == '\\' and i + 1 < value.len and value[i + 1] == 'u') {
+                i += 2;
+                var cp: u32 = 0;
+                if (i < value.len and value[i] == '{') {
+                    i += 1;
+                    while (i < value.len and value[i] != '}') : (i += 1) {
+                        const c = value[i];
+                        cp = cp * 16 + (if (c >= '0' and c <= '9') c - '0' else if (c >= 'a' and c <= 'f') c - 'a' + 10 else if (c >= 'A' and c <= 'F') c - 'A' + 10 else @as(u32, 0));
+                    }
+                    if (i < value.len and value[i] == '}') i += 1;
+                } else {
+                    var j: usize = 0;
+                    while (j < 4 and i < value.len) : (j += 1) {
+                        const c = value[i];
+                        cp = cp * 16 + (if (c >= '0' and c <= '9') c - '0' else if (c >= 'a' and c <= 'f') c - 'a' + 10 else if (c >= 'A' and c <= 'F') c - 'A' + 10 else @as(u32, 0));
+                        i += 1;
+                    }
+                }
+                if (cp > 0 and cp <= 0x10FFFF) {
+                    var out: [4]u8 = undefined;
+                    if (std.unicode.utf8Encode(@as(u21, @intCast(cp)), &out)) |len| {
+                        buf.appendSlice(self.allocator, out[0..len]) catch {};
+                    } else |_| {}
+                }
+            } else {
+                buf.append(self.allocator, value[i]) catch {};
+                i += 1;
+            }
+        }
+        return buf.toOwnedSlice(self.allocator) catch value;
+    }
 };
+
+pub fn skipTrivia(text: []const u8, pos: usize) usize {
+    var p = pos;
+    while (p < text.len) {
+        const c = text[p];
+        if (c == ' ' or c == '\t' or c == '\r' or c == '\n') {
+            p += 1;
+        } else {
+            break;
+        }
+    }
+    return p;
+}
+
+pub const SkipTriviaOptions = struct {
+    stopAtComments: bool = false,
+    inJSDoc: bool = false,
+};
+
+pub fn skipTriviaEx(text: []const u8, pos: usize, options: SkipTriviaOptions) usize {
+    _ = options;
+    return skipTrivia(text, pos);
+}
+
+pub fn getTokenPosOfNode(tree: *ast.Ast, node: ast.NodeIndex, includeJSDoc: bool) u32 {
+    _ = includeJSDoc; // JSDoc not fully supported yet in AST nodes
+    if (tree.positions.items[node].pos == tree.positions.items[node].end) {
+        return tree.positions.items[node].pos;
+    }
+    const nodeTag = std.meta.activeTag(tree.getNode(node));
+    if (nodeTag == .JsxText) {
+        return skipTriviaEx(tree.sourceText, tree.positions.items[node].pos, .{ .stopAtComments = true });
+    }
+    const inJSDoc = tree.flags.items[node] & ast.NodeFlagsJSDoc != 0;
+    return skipTriviaEx(tree.sourceText, tree.positions.items[node].pos, .{ .inJSDoc = inJSDoc });
+}

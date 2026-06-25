@@ -150,7 +150,7 @@ pub const ExpressionStatementNode = struct {
 pub const BlockNode = struct {
     Flags: u32,
     Statements: u32,
-    MultiLine: u32,
+    MultiLine: bool,
 };
 
 pub const VariableStatementNode = struct {
@@ -472,8 +472,8 @@ pub const PropertySignatureDeclarationNode = struct {
     modifierFlags: u32,
     name: u32,
     PostfixToken: ?u32,
-    Type: u32,
-    Initializer: u32,
+    Type: ?u32,
+    Initializer: ?u32,
 };
 
 pub const PropertyDeclarationNode = struct {
@@ -550,6 +550,8 @@ pub const BinaryExpressionNode = struct {
     Type: ?u32,
     OperatorToken: u32,
     Right: u32,
+    linesBeforeOperator: u32,
+    linesAfterOperator: u32,
 };
 
 pub const PrefixUnaryExpressionNode = struct {
@@ -615,8 +617,12 @@ pub const ConditionalExpressionNode = struct {
     Condition: u32,
     QuestionToken: u32,
     WhenTrue: u32,
-    ColonToken: u32,
-    WhenFalse: u32,
+    ColonToken: NodeIndex,
+    WhenFalse: NodeIndex,
+    linesBeforeQuestion: u32,
+    linesAfterQuestion: u32,
+    linesBeforeColon: u32,
+    linesAfterColon: u32,
 };
 
 pub const PropertyAccessExpressionNode = struct {
@@ -680,7 +686,7 @@ pub const TemplateSpanNode = struct {
 pub const TaggedTemplateExpressionNode = struct {
     Flags: u32,
     Tag: u32,
-    QuestionDotToken: u32,
+    QuestionDotToken: ?u32,
     TypeArguments: ?u32,
     Template: u32,
 };
@@ -716,7 +722,7 @@ pub const PropertyAssignmentNode = struct {
     modifierFlags: u32,
     name: u32,
     PostfixToken: ?u32,
-    Type: u32,
+    Type: ?u32,
     Initializer: u32,
 };
 
@@ -1525,6 +1531,7 @@ pub const NodeData = union(kind.Kind) {
     BigIntKeyword: void,
     OverrideKeyword: void,
     OfKeyword: void,
+    DeferKeyword: void,
     QualifiedName: QualifiedNameNode,
     ComputedPropertyName: ComputedPropertyNameNode,
     TypeParameter: TypeParameterDeclarationNode,
@@ -1535,7 +1542,7 @@ pub const NodeData = union(kind.Kind) {
     MethodSignature: MethodSignatureDeclarationNode,
     MethodDeclaration: MethodDeclarationNode,
     ClassStaticBlockDeclaration: ClassStaticBlockDeclarationNode,
-    Constructor: void,
+    Constructor: ConstructorDeclarationNode,
     GetAccessor: GetAccessorDeclarationNode,
     SetAccessor: SetAccessorDeclarationNode,
     CallSignature: CallSignatureDeclarationNode,
@@ -1556,7 +1563,7 @@ pub const NodeData = union(kind.Kind) {
     ConditionalType: ConditionalTypeNodeNode,
     InferType: InferTypeNodeNode,
     ParenthesizedType: ParenthesizedTypeNodeNode,
-    ThisType: void,
+    ThisType: ThisTypeNodeNode,
     TypeOperator: TypeOperatorNodeNode,
     IndexedAccessType: IndexedAccessTypeNodeNode,
     MappedType: MappedTypeNodeNode,
@@ -1564,7 +1571,7 @@ pub const NodeData = union(kind.Kind) {
     NamedTupleMember: NamedTupleMemberNode,
     TemplateLiteralType: TemplateLiteralTypeNodeNode,
     TemplateLiteralTypeSpan: TemplateLiteralTypeSpanNode,
-    ImportType: void,
+    ImportType: ImportTypeNodeNode,
     ObjectBindingPattern: BindingPatternNode,
     ArrayBindingPattern: BindingPatternNode,
     BindingElement: BindingElementNode,
@@ -1668,6 +1675,7 @@ pub const NodeData = union(kind.Kind) {
     SourceFile: SourceFileNode,
     JSDocTypeExpression: JSDocTypeExpressionNode,
     JSDocNameReference: JSDocNameReferenceNode,
+    JSDocAllType: void,
     JSDocNullableType: JSDocNullableTypeNode,
     JSDocNonNullableType: JSDocNonNullableTypeNode,
     JSDocOptionalType: JSDocOptionalTypeNode,
@@ -1690,20 +1698,20 @@ pub const NodeData = union(kind.Kind) {
     JSDocOverrideTag: JSDocOverrideTagNode,
     JSDocCallbackTag: JSDocCallbackTagNode,
     JSDocOverloadTag: JSDocOverloadTagNode,
-    JSDocParameterTag: void,
+    JSDocParameterTag: JSDocParameterOrPropertyTagNode,
     JSDocReturnTag: JSDocReturnTagNode,
     JSDocThisTag: JSDocThisTagNode,
     JSDocTypeTag: JSDocTypeTagNode,
     JSDocTemplateTag: JSDocTemplateTagNode,
     JSDocTypedefTag: JSDocTypedefTagNode,
     JSDocSeeTag: JSDocSeeTagNode,
-    JSDocPropertyTag: void,
+    JSDocPropertyTag: JSDocParameterOrPropertyTagNode,
     JSDocThrowsTag: JSDocThrowsTagNode,
     JSDocSatisfiesTag: JSDocSatisfiesTagNode,
     JSDocImportTag: JSDocImportTagNode,
     SyntaxList: SyntaxListNode,
-    JSTypeAliasDeclaration: void,
-    JSImportDeclaration: void,
+    JSTypeAliasDeclaration: TypeAliasDeclarationNode,
+    JSImportDeclaration: ImportDeclarationNode,
     NotEmittedStatement: NotEmittedStatementNode,
     PartiallyEmittedExpression: PartiallyEmittedExpressionNode,
     SyntheticReferenceExpression: SyntheticReferenceExpressionNode,

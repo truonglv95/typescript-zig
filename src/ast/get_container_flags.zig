@@ -1,47 +1,81 @@
-pub fn getContainerFlags(nodeType: ast_gen.SyntaxKind) u32 {
-    switch (nodeType) {
+const ast_utils = @import("ast_utils.zig");
+const kind = @import("kind.zig");
+const ast_pkg = @import("ast.zig");
+const ast_gen = @import("ast_generated.zig");
+
+pub fn isObjectLiteralOrClassExpressionMethodOrAccessor(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .MethodDeclaration, .GetAccessor, .SetAccessor => {
+            const parentIndex = tree.getNodeParent(nodeIndex);
+            if (parentIndex != 0) {
+                const parentNode = tree.getNode(parentIndex);
+                if (parentNode == .ObjectLiteralExpression or parentNode == .ClassExpression) {
+                    return true;
+                }
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
+pub fn getContainerFlags(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) u32 {
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
         .ClassExpression, .ClassDeclaration, .EnumDeclaration, .ObjectLiteralExpression, .TypeLiteral, .JsxAttributes => {
-            return 1; // IsContainer
+            return ast_utils.ContainerFlags.IsContainer;
         },
         .InterfaceDeclaration => {
-            return 1 | 64; // IsContainer | IsInterface
+            return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.IsInterface;
         },
-        .ModuleDeclaration, .TypeAliasDeclaration, .JSDocTypeAlias, .MappedType, .IndexSignature => {
-            return 1 | 32; // IsContainer | HasLocals
+        .ModuleDeclaration, .TypeAliasDeclaration, .JSTypeAliasDeclaration, .MappedType, .IndexSignature => {
+            return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.HasLocals;
         },
         .SourceFile => {
-            return 1 | 4 | 32; // IsContainer | IsControlFlowContainer | HasLocals
+            return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.IsControlFlowContainer | ast_utils.ContainerFlags.HasLocals;
         },
         .GetAccessor, .SetAccessor, .MethodDeclaration => {
-            // Need to know if IsObjectLiteralOrClassExpressionMethodOrAccessor but let's assume no for now
-            return 1 | 4 | 32 | 8 | 256; // IsContainer | IsControlFlowContainer | HasLocals | IsFunctionLike | IsThisContainer
+            if (isObjectLiteralOrClassExpressionMethodOrAccessor(tree, nodeIndex)) {
+                return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.IsControlFlowContainer | ast_utils.ContainerFlags.HasLocals | ast_utils.ContainerFlags.IsFunctionLike | ast_utils.ContainerFlags.IsObjectLiteralOrClassExpressionMethodOrAccessor | ast_utils.ContainerFlags.IsThisContainer;
+            }
+            return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.IsControlFlowContainer | ast_utils.ContainerFlags.HasLocals | ast_utils.ContainerFlags.IsFunctionLike | ast_utils.ContainerFlags.IsThisContainer;
         },
-        .Constructor, .FunctionDeclaration => { // ClassStaticBlockDeclaration
-            return 1 | 4 | 32 | 8 | 256;
+        .Constructor, .FunctionDeclaration, .ClassStaticBlockDeclaration => {
+            return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.IsControlFlowContainer | ast_utils.ContainerFlags.HasLocals | ast_utils.ContainerFlags.IsFunctionLike | ast_utils.ContainerFlags.IsThisContainer;
         },
         .MethodSignature, .CallSignature, .FunctionType, .ConstructSignature, .ConstructorType => {
-            return 1 | 4 | 32 | 8 | 512; // ... | PropagatesThisKeyword
+            return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.IsControlFlowContainer | ast_utils.ContainerFlags.HasLocals | ast_utils.ContainerFlags.IsFunctionLike | ast_utils.ContainerFlags.PropagatesThisKeyword;
         },
         .FunctionExpression => {
-            return 1 | 4 | 32 | 8 | 16 | 256; // IsFunctionExpression
+            return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.IsControlFlowContainer | ast_utils.ContainerFlags.HasLocals | ast_utils.ContainerFlags.IsFunctionLike | ast_utils.ContainerFlags.IsFunctionExpression | ast_utils.ContainerFlags.IsThisContainer;
         },
         .ArrowFunction => {
-            return 1 | 4 | 32 | 8 | 16 | 512;
+            return ast_utils.ContainerFlags.IsContainer | ast_utils.ContainerFlags.IsControlFlowContainer | ast_utils.ContainerFlags.HasLocals | ast_utils.ContainerFlags.IsFunctionLike | ast_utils.ContainerFlags.IsFunctionExpression | ast_utils.ContainerFlags.PropagatesThisKeyword;
         },
         .ModuleBlock => {
-            return 4; // IsControlFlowContainer
+            return ast_utils.ContainerFlags.IsControlFlowContainer;
         },
-        .PropertyDeclaration => {
-            // Need nodeInitializer check, let's assume false
-            return 0;
+        .PropertyDeclaration => |n| {
+            if (n.Initializer != 0) {
+                return ast_utils.ContainerFlags.IsControlFlowContainer | ast_utils.ContainerFlags.IsThisContainer;
+            } else {
+                return ast_utils.ContainerFlags.None;
+            }
         },
         .CatchClause, .ForStatement, .ForInStatement, .ForOfStatement, .CaseBlock => {
-            return 2 | 32; // IsBlockScopedContainer | HasLocals
+            return ast_utils.ContainerFlags.IsBlockScopedContainer | ast_utils.ContainerFlags.HasLocals;
         },
         .Block => {
-            // Need parent check, let's assume IsBlockScopedContainer
-            return 2 | 32;
+            const parentIndex = tree.getNodeParent(nodeIndex);
+            if (parentIndex != 0) {
+                const parentNode = tree.getNode(parentIndex);
+                if (ast_utils.isFunctionLike(parentNode) or parentNode == .ClassStaticBlockDeclaration) {
+                    return ast_utils.ContainerFlags.None;
+                }
+            }
+            return ast_utils.ContainerFlags.IsBlockScopedContainer | ast_utils.ContainerFlags.HasLocals;
         },
-        else => return 0,
+        else => return ast_utils.ContainerFlags.None,
     }
 }
