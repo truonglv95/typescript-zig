@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast_gen = @import("../ast/ast_generated.zig");
+const ast = @import("../ast/ast.zig");
 
 pub const TypeIndex = u32;
 
@@ -94,7 +95,9 @@ pub const ObjectFlags = struct {
 /// TypeData - data payload của từng type variant
 pub const TypeData = union(enum) {
     /// Primitive/Intrinsic types (any, number, string, boolean, void, null, undefined, unknown, never)
-    Intrinsic: void,
+    Intrinsic: struct {
+        intrinsicName: []const u8 = "",
+    },
 
     /// Object type (class, interface, object literal)
     Object: ObjectTypeData,
@@ -142,7 +145,7 @@ pub const TypeData = union(enum) {
 };
 
 pub const ObjectTypeData = struct {
-    symbol: ?ast_gen.SymbolIndex = null,
+    Symbol: ?ast_gen.SymbolIndex = null,
     /// Index vào bảng properties (future use)
     propertiesStart: u32 = 0,
     propertiesLen: u32 = 0,
@@ -158,83 +161,85 @@ pub const FunctionTypeData = struct {
 };
 
 pub const Type = struct {
-    Flags: u32,
-    ObjectFlags: u32,
-    Symbol: ?ast_gen.SymbolIndex,
-    Data: TypeData,
+    flags: u32,
+    objectFlags: u32,
+    id: u32 = 0,
+    symbol: ?ast_gen.SymbolIndex = null,
+    alias: ?ast_gen.SymbolIndex = null,
+    data: TypeData,
 };
 
 /// Kiểm tra xem typeA có thể assign vào typeB không (basic implementation)
 /// Tuân theo TypeScript structural typing rules
 pub fn isAssignableTo(typeA: *const Type, typeB: *const Type) bool {
     // any là assignable đến bất cứ đâu và nhận được bất cứ gì
-    if (typeA.Flags & TypeFlags.Any != 0 or typeB.Flags & TypeFlags.Any != 0) return true;
+    if (typeA.flags & TypeFlags.Any != 0 or typeB.flags & TypeFlags.Any != 0) return true;
 
     // never không thể assign vào bất cứ đâu (ngoài never)
-    if (typeA.Flags & TypeFlags.Never != 0) {
-        return typeB.Flags & TypeFlags.Never != 0;
+    if (typeA.flags & TypeFlags.Never != 0) {
+        return typeB.flags & TypeFlags.Never != 0;
     }
 
     // Exact same flags = assignable
-    if (typeA.Flags == typeB.Flags) return true;
+    if (typeA.flags == typeB.flags) return true;
 
     // Number literal assignable to number
-    if (typeA.Flags & TypeFlags.NumberLiteral != 0 and typeB.Flags & TypeFlags.Number != 0) return true;
+    if (typeA.flags & TypeFlags.NumberLiteral != 0 and typeB.flags & TypeFlags.Number != 0) return true;
 
     // String literal assignable to string
-    if (typeA.Flags & TypeFlags.StringLiteral != 0 and typeB.Flags & TypeFlags.String != 0) return true;
+    if (typeA.flags & TypeFlags.StringLiteral != 0 and typeB.flags & TypeFlags.String != 0) return true;
 
     // Boolean literal assignable to boolean
-    if (typeA.Flags & TypeFlags.BooleanLiteral != 0 and typeB.Flags & TypeFlags.Boolean != 0) return true;
+    if (typeA.flags & TypeFlags.BooleanLiteral != 0 and typeB.flags & TypeFlags.Boolean != 0) return true;
 
     // Enum literal assignable to enum
-    if (typeA.Flags & TypeFlags.EnumLiteral != 0 and typeB.Flags & TypeFlags.Enum != 0) return true;
+    if (typeA.flags & TypeFlags.EnumLiteral != 0 and typeB.flags & TypeFlags.Enum != 0) return true;
 
     // Union: A | B assignable to C nếu A assignable to C AND B assignable to C
     // (simplified - không check recursively)
-    if (typeB.Flags & TypeFlags.Union != 0) {
+    if (typeB.flags & TypeFlags.Union != 0) {
         // If typeA matches any member of union - but we don't have member info yet
         // Conservative: return true for now
         return true;
     }
 
     // undefined | null assignable to respective targets
-    if (typeA.Flags & TypeFlags.Undefined != 0 and typeB.Flags & TypeFlags.Undefined != 0) return true;
-    if (typeA.Flags & TypeFlags.Null != 0 and typeB.Flags & TypeFlags.Null != 0) return true;
+    if (typeA.flags & TypeFlags.Undefined != 0 and typeB.flags & TypeFlags.Undefined != 0) return true;
+    if (typeA.flags & TypeFlags.Null != 0 and typeB.flags & TypeFlags.Null != 0) return true;
 
     return false;
 }
 
 /// Lấy tên human-readable của type (cho diagnostics)
 pub fn typeToString(t: *const Type, buf: []u8) []u8 {
-    const s: []const u8 = if (t.Flags & TypeFlags.Any != 0)
+    const s: []const u8 = if (t.flags & TypeFlags.Any != 0)
         "any"
-    else if (t.Flags & TypeFlags.Unknown != 0)
+    else if (t.flags & TypeFlags.Unknown != 0)
         "unknown"
-    else if (t.Flags & TypeFlags.Number != 0)
+    else if (t.flags & TypeFlags.Number != 0)
         "number"
-    else if (t.Flags & TypeFlags.String != 0)
+    else if (t.flags & TypeFlags.String != 0)
         "string"
-    else if (t.Flags & TypeFlags.Boolean != 0)
+    else if (t.flags & TypeFlags.Boolean != 0)
         "boolean"
-    else if (t.Flags & TypeFlags.Void != 0)
+    else if (t.flags & TypeFlags.Void != 0)
         "void"
-    else if (t.Flags & TypeFlags.Undefined != 0)
+    else if (t.flags & TypeFlags.Undefined != 0)
         "undefined"
-    else if (t.Flags & TypeFlags.Null != 0)
+    else if (t.flags & TypeFlags.Null != 0)
         "null"
-    else if (t.Flags & TypeFlags.Never != 0)
+    else if (t.flags & TypeFlags.Never != 0)
         "never"
-    else if (t.Flags & TypeFlags.BigInt != 0)
+    else if (t.flags & TypeFlags.BigInt != 0)
         "bigint"
-    else if (t.Flags & TypeFlags.StringLiteral != 0)
-        t.Data.StringLiteral.text
-    else if (t.Flags & TypeFlags.NumberLiteral != 0) blk: {
-        const result = std.fmt.bufPrint(buf, "{d}", .{t.Data.NumberLiteral.value}) catch "number";
+    else if (t.flags & TypeFlags.StringLiteral != 0)
+        t.data.StringLiteral.text
+    else if (t.flags & TypeFlags.NumberLiteral != 0) blk: {
+        const result = std.fmt.bufPrint(buf, "{d}", .{t.data.NumberLiteral.value}) catch "number";
         break :blk result;
-    } else if (t.Flags & TypeFlags.Object != 0)
+    } else if (t.flags & TypeFlags.Object != 0)
         "object"
-    else if (t.Flags & TypeFlags.Union != 0)
+    else if (t.flags & TypeFlags.Union != 0)
         "union"
     else
         "unknown";
@@ -246,3 +251,62 @@ pub fn typeToString(t: *const Type, buf: []u8) []u8 {
     }
     return s;
 }
+
+pub const InferenceContext = struct {
+    inferences: std.ArrayListUnmanaged(u32) = .empty,
+    intraExpressionInferenceSites: std.ArrayListUnmanaged(u32) = .empty,
+};
+pub const InferenceContextInfo = struct {};
+pub const InferenceInfo = struct {
+    candidates: std.ArrayListUnmanaged(TypeIndex) = .empty,
+    contraCandidates: std.ArrayListUnmanaged(TypeIndex) = .empty,
+};
+pub const InferenceInfoIndex = u32;
+
+pub const CacheHashKey = u64;
+
+pub const EnumMemberLink = struct {
+    value: @import("../ast/ast_generated.zig").NodeIndex = 0,
+};
+
+pub const ContainingSymbolLinks = struct {
+    extendedContainersByFile: ?std.AutoHashMapUnmanaged(@import("../ast/ast_generated.zig").NodeIndex, []const @import("../ast/ast_generated.zig").symbolIndex) = null,
+    extendedContainers: ?[]const @import("../ast/ast_generated.zig").symbolIndex = null,
+    accessibleChainCache: ?std.AutoArrayHashMapUnmanaged(CacheHashKey, []const @import("../ast/ast_generated.zig").symbolIndex) = null,
+};
+
+pub const TypeFacts = struct {
+    pub const NEUndefinedOrNull = 1;
+    pub const EQUndefinedOrNull = 2;
+    pub const Truthy = 3;
+    pub const Falsy = 4;
+};
+
+pub const NodeIndexPair = struct {
+    node1: @import("../ast/ast_generated.zig").NodeIndex,
+    node2: @import("../ast/ast_generated.zig").NodeIndex,
+};
+
+pub const InferencePriority = struct {
+    pub const None: i32 = 0;
+    pub const MaxValue: i32 = 0x7FFFFFFF;
+};
+
+pub const TypePredicateKind = enum(u32) {
+    This = 0,
+    Identifier = 1,
+    AssertsThis = 2,
+    AssertsIdentifier = 3,
+};
+
+pub const TypePredicate = struct {
+    t: ?TypeIndex = null,
+    kind: TypePredicateKind = .Identifier,
+    parameterIndex: i32 = -1,
+};
+
+pub const ExpandingFlags = struct {
+    pub const None: u8 = 0;
+};
+
+pub const SignatureIndex = u32;

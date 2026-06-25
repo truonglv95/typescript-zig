@@ -1,0 +1,10 @@
+pub const aliasresolver = @import("aliasresolver.zig");
+pub const export_module = @import("export.zig");
+pub const extract = @import("extract.zig");
+pub const fix = @import("fix.zig");
+pub const import_adder = @import("import_adder.zig");
+pub const index = @import("index.zig");
+pub const registry = @import("registry.zig");
+pub const specifiers = @import("specifiers.zig");
+pub const util = @import("util.zig");
+pub const view = @import("view.zig");

@@ -17,7 +17,8 @@ pub const SymbolFlags = struct {
     pub const TypeLiteral: u32 = 1 << 11;
     pub const ObjectLiteral: u32 = 1 << 12;
     pub const Method: u32 = 1 << 13;
-    pub const All: u32 = 0x1FFFFFFF;
+    pub const All: u32 = (1 << 30) - 1;
+    pub const GlobalLookup: u32 = 1 << 30;
     pub const Constructor: u32 = 1 << 14;
     pub const GetAccessor: u32 = 1 << 15;
     pub const SetAccessor: u32 = 1 << 16;
@@ -34,10 +35,13 @@ pub const SymbolFlags = struct {
     pub const ModuleExports: u32 = 1 << 27;
 
     // Derived flags
+    pub const ExportHasLocal = 1 << 20;
     pub const Variable: u32 = FunctionScopedVariable | BlockScopedVariable;
     pub const Value: u32 = Variable | Property | EnumMember | ObjectLiteral | Function | Class | Enum | ValueModule | Method | GetAccessor | SetAccessor;
 
     pub const Type: u32 = Class | Interface | Enum | EnumMember | TypeLiteral | TypeParameter | TypeAlias;
+    pub const Namespace: u32 = ValueModule | NamespaceModule | Enum;
+    pub const Module: u32 = ValueModule | NamespaceModule;
     pub const Accessor: u32 = GetAccessor | SetAccessor;
     pub const PropertyOrAccessor: u32 = Property | Accessor;
     pub const Enum: u32 = RegularEnum | ConstEnum;
@@ -60,21 +64,27 @@ pub const SymbolFlags = struct {
     pub const TypeParameterExcludes: u32 = Type & ~TypeParameter;
     pub const TypeAliasExcludes: u32 = Type;
     pub const AliasExcludes: u32 = Alias;
+    pub const ModuleMember: u32 = Variable | Function | Class | Interface | Enum | Module | TypeAlias | Alias;
 };
 
 pub const InternalSymbolNamePrefix = "\xFE";
 pub const InternalSymbolNameMissing = InternalSymbolNamePrefix ++ "missing";
+pub const InternalSymbolNameClass = InternalSymbolNamePrefix ++ "class";
 pub const InternalSymbolNameObject = InternalSymbolNamePrefix ++ "object";
 pub const InternalSymbolNameComputed = InternalSymbolNamePrefix ++ "computed";
 pub const InternalSymbolNameExportStar = InternalSymbolNamePrefix ++ "export";
 pub const InternalSymbolNameExportEquals = "export=";
+pub const InternalSymbolNameCall = InternalSymbolNamePrefix ++ "call";
+pub const InternalSymbolNameNew = InternalSymbolNamePrefix ++ "new";
+pub const InternalSymbolNameIndex = InternalSymbolNamePrefix ++ "index";
+pub const InternalSymbolNameType = InternalSymbolNamePrefix ++ "type";
+pub const InternalSymbolNameDefault = "default"; // Default export symbol (technically not wholly internal)
+pub const InternalSymbolNameConstructor = InternalSymbolNamePrefix ++ "constructor";
+pub const InternalSymbolNameGlobal = InternalSymbolNamePrefix ++ "global";
+pub const InternalSymbolNameFunction = InternalSymbolNamePrefix ++ "function";
+pub const InternalSymbolNameJSXAttributes = InternalSymbolNamePrefix ++ "jsxAttributes";
 
-pub const SymbolTableEntry = struct {
-    name: []const u8,
-    symbolIndex: ast_gen.SymbolIndex,
-};
-
-pub const SymbolTable = std.ArrayListUnmanaged(SymbolTableEntry);
+pub const SymbolTable = std.StringHashMapUnmanaged(ast_gen.SymbolIndex);
 
 pub const Symbol = struct {
     Flags: u32,
@@ -94,16 +104,11 @@ pub const Symbol = struct {
 };
 
 pub fn symbolTableGet(table: *const SymbolTable, name: []const u8) ?ast_gen.SymbolIndex {
-    for (table.items) |entry| {
-        if (std.mem.eql(u8, entry.name, name)) {
-            return entry.symbolIndex;
-        }
-    }
-    return null;
+    return table.get(name);
 }
 
 pub fn symbolTablePut(table: *SymbolTable, allocator: std.mem.Allocator, name: []const u8, symbolIndex: ast_gen.SymbolIndex) !void {
-    if (symbolTableGet(table, name) == null) {
-        try table.append(allocator, .{ .name = name, .symbolIndex = symbolIndex });
+    if (!table.contains(name)) {
+        try table.put(allocator, name, symbolIndex);
     }
 }

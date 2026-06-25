@@ -1,0 +1,10 @@
+const std = @import("std");
+pub const paths = @import("paths.zig");
+pub const SkipIfNoTypeScriptSubmodule = paths.SkipIfNoTypeScriptSubmodule;
+pub const rootPath = paths.rootPath;
+pub const RootPath = paths.rootPath;
+pub const typeScriptSubmodulePath = paths.typeScriptSubmodulePath;
+pub const TypeScriptSubmodulePath = paths.typeScriptSubmodulePath;
+pub const testDataPath = paths.testDataPath;
+pub const TestDataPath = paths.testDataPath;
+pub const typeScriptSubmoduleExists = paths.typeScriptSubmoduleExists;

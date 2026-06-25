@@ -3,6 +3,7 @@ const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 const kind = @import("../ast/kind.zig");
 const scanner_pkg = @import("../scanner/scanner.zig");
+const core = @import("../core/core.zig");
 
 pub const ParsingContext = enum(u32) {
     SourceElements = 0,
@@ -38,12 +39,14 @@ pub const Parser = struct {
     allocator: std.mem.Allocator,
     scanner: scanner_pkg.Scanner,
     ast: ast.Ast,
+    languageVariant: core.LanguageVariant,
 
     // Trạng thái Parser
     token: kind.Kind,
     parseDiagnosticsCount: u32 = 0,
     lastErrorPos: i32 = -1,
     parsingContexts: u32 = 0,
+    disallowInContext: bool = false,
 
         pub const Mark = struct {
         scanner: scanner_pkg.Scanner,
@@ -108,59 +111,306 @@ pub const Parser = struct {
         return result;
     }
 
+    // =========================================================================
+    // isListElement — Full Go 1:1 parity
+    // =========================================================================
     pub fn isListElement(self: *Parser, parsingContext: ParsingContext, inErrorRecovery: bool) bool {
         switch (parsingContext) {
             .SourceElements, .BlockStatements, .SwitchClauseStatements => {
-                // If we're in error recovery, then we don't want to treat ';' as an empty statement.
                 return !(self.token == kind.Kind.SemicolonToken and inErrorRecovery) and self.isStartOfStatement();
             },
-            .ArgumentExpressions => {
-                return self.token == kind.Kind.DotDotDotToken or self.isStartOfExpression();
+            .SwitchClauses => {
+                return self.token == kind.Kind.CaseKeyword or self.token == kind.Kind.DefaultKeyword;
+            },
+            .TypeMembers => {
+                return self.lookAhead(struct {
+                    fn run(p: *Parser) bool { return p.scanTypeMemberStart(); }
+                }.run);
+            },
+            .ClassMembers => {
+                return self.lookAhead(struct {
+                    fn run(p: *Parser) bool { return p.scanClassMemberStart(); }
+                }.run) or (self.token == kind.Kind.SemicolonToken and !inErrorRecovery);
+            },
+            .EnumMembers => {
+                return self.token == kind.Kind.OpenBracketToken or self.isLiteralPropertyName();
+            },
+            .ObjectLiteralMembers => {
+                switch (self.token) {
+                    .OpenBracketToken, .AsteriskToken, .DotDotDotToken, .DotToken => return true,
+                    else => return self.isLiteralPropertyName(),
+                }
+            },
+            .RestProperties => {
+                return self.isLiteralPropertyName();
+            },
+            .ObjectBindingElements => {
+                return self.token == kind.Kind.OpenBracketToken or self.token == kind.Kind.DotDotDotToken or self.isLiteralPropertyName();
+            },
+            .ImportAttributes => {
+                return self.isImportAttributeName();
+            },
+            .HeritageClauseElement => {
+                if (self.token == kind.Kind.OpenBraceToken) {
+                    return self.isValidHeritageClauseObjectLiteral();
+                }
+                if (!inErrorRecovery) {
+                    return self.isStartOfLeftHandSideExpression() and !self.isHeritageClauseExtendsOrImplementsKeyword();
+                }
+                return self.isIdentifier() and !self.isHeritageClauseExtendsOrImplementsKeyword();
+            },
+            .VariableDeclarations => {
+                return self.isIdentifier() or self.token == kind.Kind.OpenBraceToken or self.token == kind.Kind.OpenBracketToken;
+            },
+            .ArrayBindingElements => {
+                return self.token == kind.Kind.CommaToken or self.token == kind.Kind.DotDotDotToken or self.isIdentifier() or self.token == kind.Kind.OpenBracketToken or self.token == kind.Kind.OpenBraceToken;
+            },
+            .TypeParameters => {
+                return self.token == kind.Kind.InKeyword or self.token == kind.Kind.ConstKeyword or self.isIdentifier();
             },
             .ArrayLiteralMembers => {
                 if (self.token == kind.Kind.CommaToken or self.token == kind.Kind.DotToken) return true;
                 return self.token == kind.Kind.DotDotDotToken or self.isStartOfExpression();
             },
-            .ObjectLiteralMembers => {
-                if (self.token == kind.Kind.OpenBracketToken or self.token == kind.Kind.AsteriskToken or self.token == kind.Kind.DotDotDotToken or self.token == kind.Kind.DotToken) return true;
-                return self.isLiteralPropertyName();
+            .ArgumentExpressions => {
+                return self.token == kind.Kind.DotDotDotToken or self.isStartOfExpression();
             },
-            .TypeParameters => {
-                return self.token == kind.Kind.InKeyword or self.token == kind.Kind.ConstKeyword or self.isIdentifier();
-            },
-            .Parameters => {
+            .Parameters, .JSDocParameters => {
                 return self.isStartOfParameter();
             },
-            .VariableDeclarations => {
-                return self.isIdentifier() or self.token == kind.Kind.OpenBraceToken or self.token == kind.Kind.OpenBracketToken;
+            .TypeArguments, .TupleElementTypes => {
+                return self.token == kind.Kind.CommaToken or self.isStartOfType();
             },
-            else => return false, // Stubbed for other contexts
+            .HeritageClauses => {
+                return self.isHeritageClause();
+            },
+            .ImportOrExportSpecifiers => {
+                // bail out if the next token is [FromKeyword StringLiteral].
+                if (self.token == kind.Kind.FromKeyword) {
+                    var tmp = self.scanner;
+                    const next = tmp.scan();
+                    if (next == kind.Kind.StringLiteral) return false;
+                }
+                if (self.token == kind.Kind.StringLiteral) return true;
+                return self.isTokenOrKeyword();
+            },
+            .JsxAttributes => {
+                return self.isTokenOrKeyword() or self.token == kind.Kind.OpenBraceToken;
+            },
+            .JsxChildren, .JSDocComment => {
+                return true;
+            },
+            .Count => return false,
         }
     }
 
+    // =========================================================================
+    // isListTerminator — Full Go 1:1 parity
+    // =========================================================================
     pub fn isListTerminator(self: *Parser, parsingContext: ParsingContext) bool {
+        // EOF always terminates any list
+        if (self.token == kind.Kind.EndOfFile) return true;
         switch (parsingContext) {
-            .BlockStatements, .SwitchClauseStatements => return self.token == kind.Kind.CloseBraceToken,
-            .VariableDeclarations => return self.token == kind.Kind.InKeyword or self.token == kind.Kind.OfKeyword or self.token == kind.Kind.EqualsGreaterThanToken or self.canParseSemicolon(),
-            .ArgumentExpressions => return self.token == kind.Kind.CloseParenToken,
-            .ArrayLiteralMembers => return self.token == kind.Kind.CloseBracketToken,
-            .ObjectLiteralMembers => return self.token == kind.Kind.CloseBraceToken,
-            .TypeParameters => return self.token == kind.Kind.GreaterThanToken,
-            .Parameters => return self.token == kind.Kind.CloseParenToken,
+            .BlockStatements, .SwitchClauses, .TypeMembers, .ClassMembers,
+            .EnumMembers, .ObjectLiteralMembers, .ObjectBindingElements,
+            .ImportOrExportSpecifiers, .ImportAttributes => {
+                return self.token == kind.Kind.CloseBraceToken;
+            },
+            .SwitchClauseStatements => {
+                return self.token == kind.Kind.CloseBraceToken or self.token == kind.Kind.CaseKeyword or self.token == kind.Kind.DefaultKeyword;
+            },
+            .HeritageClauseElement => {
+                return self.token == kind.Kind.OpenBraceToken or self.token == kind.Kind.ExtendsKeyword or self.token == kind.Kind.ImplementsKeyword;
+            },
+            .VariableDeclarations => {
+                return self.canParseSemicolon() or self.token == kind.Kind.InKeyword or self.token == kind.Kind.OfKeyword or self.token == kind.Kind.EqualsGreaterThanToken;
+            },
+            .TypeParameters => {
+                return self.token == kind.Kind.GreaterThanToken or self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.OpenBraceToken or self.token == kind.Kind.ExtendsKeyword or self.token == kind.Kind.ImplementsKeyword;
+            },
+            .ArgumentExpressions => {
+                return self.token == kind.Kind.CloseParenToken or self.token == kind.Kind.SemicolonToken;
+            },
+            .ArrayLiteralMembers, .TupleElementTypes, .ArrayBindingElements => {
+                return self.token == kind.Kind.CloseBracketToken;
+            },
+            .JSDocParameters, .Parameters, .RestProperties => {
+                return self.token == kind.Kind.CloseParenToken or self.token == kind.Kind.CloseBracketToken;
+            },
+            .TypeArguments => {
+                return self.token != kind.Kind.CommaToken;
+            },
+            .HeritageClauses => {
+                return self.token == kind.Kind.OpenBraceToken or self.token == kind.Kind.CloseBraceToken;
+            },
+            .JsxAttributes => {
+                return self.token == kind.Kind.GreaterThanToken or self.token == kind.Kind.SlashToken;
+            },
+            .JsxChildren => {
+                // terminates on </
+                if (self.token == kind.Kind.LessThanToken) {
+                    var tmp = self.scanner;
+                    const next = tmp.scan();
+                    return next == kind.Kind.SlashToken;
+                }
+                return false;
+            },
             .SourceElements => return self.token == kind.Kind.EndOfFile,
+            .JSDocComment => return false,
+            .Count => return false,
+        }
+    }
+
+    // =========================================================================
+    // Helper predicates
+    // =========================================================================
+
+    /// Returns true if current token is an identifier or keyword (for tokenIsIdentifierOrKeyword Go parity)
+    pub fn isTokenOrKeyword(self: *Parser) bool {
+        return self.isIdentifier() or kind.isKeyword(self.token);
+    }
+
+    pub fn isIdentifierOrKeyword(self: *Parser) bool {
+        return self.isIdentifier() or kind.isKeyword(self.token);
+    }
+
+    /// Checks if the current token starts a type (simplified but parity with Go's isStartOfType)
+    pub fn isStartOfType(self: *Parser) bool {
+        switch (self.token) {
+            .AnyKeyword, .UnknownKeyword, .StringKeyword, .NumberKeyword,
+            .BigIntKeyword, .BooleanKeyword, .ReadonlyKeyword, .SymbolKeyword,
+            .UniqueKeyword, .VoidKeyword, .UndefinedKeyword, .NullKeyword,
+            .ThisKeyword, .TypeOfKeyword, .NeverKeyword, .OpenBraceToken,
+            .OpenBracketToken, .LessThanToken, .BarToken, .AmpersandToken,
+            .NewKeyword, .StringLiteral, .NumericLiteral, .BigIntLiteral,
+            .TrueKeyword, .FalseKeyword, .ObjectKeyword, .AsteriskToken,
+            .QuestionToken, .ExclamationToken, .DotDotDotToken, .InferKeyword,
+            .ImportKeyword, .IntrinsicKeyword, .NoSubstitutionTemplateLiteral,
+            .TemplateHead => return true,
+            .FunctionKeyword => return true,
+            .OpenParenToken => return true, // (type) or (params) =>
+            else => return self.isIdentifier(),
+        }
+    }
+
+    /// isHeritageClause: current token is 'extends' or 'implements'
+    pub fn isHeritageClause(self: *Parser) bool {
+        return self.token == kind.Kind.ExtendsKeyword or self.token == kind.Kind.ImplementsKeyword;
+    }
+
+    /// isHeritageClauseExtendsOrImplementsKeyword: 'extends'/'implements' followed by expression start
+    pub fn isHeritageClauseExtendsOrImplementsKeyword(self: *Parser) bool {
+        if (!self.isHeritageClause()) return false;
+        return self.lookAhead(struct {
+            fn run(p: *Parser) bool {
+                p.nextToken();
+                return p.isStartOfExpression();
+            }
+        }.run);
+    }
+
+    /// isImportAttributeName: identifier, keyword, or string literal
+    pub fn isImportAttributeName(self: *Parser) bool {
+        return self.isTokenOrKeyword() or self.token == kind.Kind.StringLiteral;
+    }
+
+    /// isBindingIdentifierOrPrivateIdentifierOrPattern
+    pub fn isBindingIdentifierOrPrivateIdentifierOrPattern(self: *Parser) bool {
+        return self.token == kind.Kind.OpenBraceToken or self.token == kind.Kind.OpenBracketToken or self.token == kind.Kind.PrivateIdentifier or self.isIdentifier();
+    }
+
+    /// scanTypeMemberStart: lookAhead predicate for TypeMembers list
+    fn scanTypeMemberStart(self: *Parser) bool {
+        if (self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.LessThanToken or
+            self.token == kind.Kind.GetKeyword or self.token == kind.Kind.SetKeyword)
+        {
+            return true;
+        }
+        var idToken = false;
+        // Eat modifiers
+        while (self.isModifierKind(self.token)) {
+            idToken = true;
+            self.nextToken();
+        }
+        if (self.token == kind.Kind.OpenBracketToken) return true;
+        if (self.isLiteralPropertyName()) {
+            idToken = true;
+            self.nextToken();
+        }
+        if (idToken) {
+            return self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.LessThanToken or
+                   self.token == kind.Kind.QuestionToken or self.token == kind.Kind.ColonToken or
+                   self.token == kind.Kind.CommaToken or self.canParseSemicolon();
+        }
+        return false;
+    }
+
+    pub fn nextTokenIsIdentifierOrKeywordOrGreaterThan(self: *Parser) bool {
+        self.nextToken();
+        return self.isIdentifier() or kind.isKeyword(self.token) or self.token == kind.Kind.GreaterThanToken;
+    }
+
+    /// scanClassMemberStart: lookAhead predicate for ClassMembers list
+    fn scanClassMemberStart(self: *Parser) bool {
+        if (self.token == kind.Kind.AtToken) return true;
+        var idToken = kind.Kind.Unknown;
+        // Eat modifiers; if class modifier found → definitely a member
+        while (self.isModifierKind(self.token)) {
+            idToken = self.token;
+            if (self.isClassMemberModifier(idToken)) return true;
+            self.nextToken();
+        }
+        if (self.token == kind.Kind.AsteriskToken) return true;
+        if (self.isLiteralPropertyName()) {
+            idToken = self.token;
+            self.nextToken();
+        }
+        if (self.token == kind.Kind.OpenBracketToken) return true;
+        if (idToken != kind.Kind.Unknown) {
+            if (!kind.isKeyword(idToken) or idToken == kind.Kind.SetKeyword or idToken == kind.Kind.GetKeyword) {
+                return true;
+            }
+            switch (self.token) {
+                .OpenParenToken, .LessThanToken, .ExclamationToken,
+                .ColonToken, .EqualsToken, .QuestionToken => return true,
+                else => return self.canParseSemicolon(),
+            }
+        }
+        return false;
+    }
+
+
+    /// isClassMemberModifier: protected/private/public/static
+    pub fn isClassMemberModifier(self: *Parser, k: kind.Kind) bool {
+        _ = self;
+        switch (k) {
+            .PrivateKeyword, .ProtectedKeyword, .PublicKeyword, .StaticKeyword,
+            .AccessorKeyword => return true,
             else => return false,
         }
     }
 
     pub fn abortParsingListOrMoveToNextToken(self: *Parser, parsingContext: ParsingContext) bool {
-        _ = parsingContext; // Stub
-        self.parseError("Expected token in delimited list");
+        _ = parsingContext;
+        self.parseError("Expected token in delimited list"); // Stub for parsingContextErrors
+        if (self.isInSomeParsingContext()) {
+            return true;
+        }
         self.nextToken();
         return false;
     }
 
-    pub fn isIdentifierOrKeyword(self: *Parser) bool {
-        return self.isIdentifier() or kind.isKeyword(self.token);
+    pub fn isInSomeParsingContext(self: *Parser) bool {
+        var i: u32 = 0;
+        while (i < @intFromEnum(ParsingContext.Count)) : (i += 1) {
+            if ((self.parsingContexts & (@as(u32, 1) << @as(u5, @intCast(i)))) != 0) {
+                const ctx: ParsingContext = @enumFromInt(i);
+                if (self.isListElement(ctx, true) or self.isListTerminator(ctx)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     pub fn isLiteralPropertyName(self: *Parser) bool {
@@ -173,11 +423,26 @@ pub const Parser = struct {
 
     pub fn isStartOfStatement(self: *Parser) bool {
         switch (self.token) {
-            .SemicolonToken, .OpenBraceToken, .VarKeyword, .LetKeyword,
-            .ConstKeyword, .IfKeyword, .DoKeyword, .WhileKeyword,
-            .ForKeyword, .ContinueKeyword, .BreakKeyword, .ReturnKeyword,
-            .WithKeyword, .SwitchKeyword, .ThrowKeyword, .TryKeyword,
-            .FunctionKeyword, .ClassKeyword, .DebuggerKeyword, .AtToken => return true,
+            .AtToken, .SemicolonToken, .OpenBraceToken, .VarKeyword, .LetKeyword,
+            .UsingKeyword, .FunctionKeyword, .ClassKeyword, .EnumKeyword, .IfKeyword,
+            .DoKeyword, .WhileKeyword, .ForKeyword, .ContinueKeyword, .BreakKeyword,
+            .ReturnKeyword, .WithKeyword, .SwitchKeyword, .ThrowKeyword, .TryKeyword,
+            .DebuggerKeyword, .CatchKeyword, .FinallyKeyword => return true,
+
+            .ImportKeyword => return self.isStartOfDeclaration() or self.isNextTokenOpenParenOrLessThanOrDot(),
+
+            .ConstKeyword, .ExportKeyword => return self.isStartOfDeclaration(),
+
+            .AsyncKeyword, .DeclareKeyword, .InterfaceKeyword, .ModuleKeyword, .NamespaceKeyword,
+            .TypeKeyword, .GlobalKeyword => return true,
+
+            .AccessorKeyword, .PublicKeyword, .PrivateKeyword, .ProtectedKeyword, .StaticKeyword,
+            .ReadonlyKeyword => {
+                return self.isStartOfDeclaration() or !self.lookAhead(struct {
+                    fn run(p: *Parser) bool { return p.nextTokenIsIdentifierOrKeywordOnSameLine(); }
+                }.run);
+            },
+
             else => return self.isStartOfExpression(),
         }
     }
@@ -192,12 +457,48 @@ pub const Parser = struct {
             .PlusToken, .MinusToken, .TildeToken, .ExclamationToken, .DeleteKeyword,
             .TypeOfKeyword, .VoidKeyword, .PlusPlusToken, .MinusMinusToken, .LessThanToken,
             .AwaitKeyword, .YieldKeyword, .ImportKeyword => return true,
-            else => return false,
+            else => {},
         }
+        
+        const opPrec = @import("expression.zig").getBinaryOperatorPrecedence(self.token);
+        if (opPrec != .Invalid) {
+            return true;
+        }
+        
+        return false;
     }
 
     pub fn isStartOfParameter(self: *Parser) bool {
         return self.token == kind.Kind.AtToken or self.token == kind.Kind.DotDotDotToken or self.isIdentifier() or self.token == kind.Kind.ThisKeyword or self.token == kind.Kind.OpenBracketToken or self.token == kind.Kind.OpenBraceToken;
+    }
+
+    pub fn isNextTokenOpenParenOrLessThanOrDot(self: *Parser) bool {
+        const saved = self.mark();
+        defer self.rewind(saved);
+        self.nextToken();
+        return self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.LessThanToken or self.token == kind.Kind.DotToken;
+    }
+
+    pub fn parseList(self: *Parser, parsingContext: ParsingContext, comptime parseElement: fn (*Parser) anyerror!ast_gen.NodeIndex) anyerror!ast_gen.NodeListIndex {
+        const saveParsingContexts = self.parsingContexts;
+        self.parsingContexts |= @as(u32, 1) << @as(u5, @intCast(@intFromEnum(parsingContext)));
+        
+        var list = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        defer list.deinit(self.allocator);
+
+        while (!self.isListTerminator(parsingContext)) {
+            if (self.isListElement(parsingContext, false)) {
+                const element = try parseElement(self);
+                try list.append(self.allocator, element);
+                continue;
+            }
+            if (self.abortParsingListOrMoveToNextToken(parsingContext)) {
+                break;
+            }
+        }
+        
+        self.parsingContexts = saveParsingContexts;
+        return self.ast.pushNodeList(list.items);
     }
 
     pub fn parseDelimitedList(self: *Parser, parsingContext: ParsingContext, comptime parseElement: fn (*Parser) ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -206,6 +507,7 @@ pub const Parser = struct {
         
         var list = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         defer list.deinit(self.allocator);
+        var hasTrailingComma = false;
 
         while (true) {
             if (self.isListElement(parsingContext, false)) {
@@ -217,7 +519,8 @@ pub const Parser = struct {
                 }
                 list.append(self.allocator, element) catch return 0;
                 
-                if (self.parseOptional(kind.Kind.CommaToken)) {
+                hasTrailingComma = self.parseOptional(kind.Kind.CommaToken);
+                if (hasTrailingComma) {
                     continue;
                 }
                 if (self.isListTerminator(parsingContext)) {
@@ -238,32 +541,38 @@ pub const Parser = struct {
                 if (startPos == self.scanner.state.pos) {
                     self.nextToken(); // Prevent infinite loop
                 }
-                continue;
-            }
-            if (self.isListTerminator(parsingContext)) {
-                break;
-            }
-            if (self.abortParsingListOrMoveToNextToken(parsingContext)) {
-                break;
+            } else {
+                if (self.isListTerminator(parsingContext)) {
+                    break;
+                }
+                if (self.abortParsingListOrMoveToNextToken(parsingContext)) {
+                    break;
+                }
             }
         }
         
         self.parsingContexts = saveParsingContexts;
-        if (list.items.len == 0) return 0;
-        return self.ast.pushNodeList(list.items) catch 0;
+        return self.ast.pushNodeListWithTrailingComma(list.items, hasTrailingComma) catch 0;
     }
 
     pub fn init(allocator: std.mem.Allocator, text: []const u8) Parser {
+        const scanner = scanner_pkg.Scanner.init(allocator, text);
         var p = Parser{
             .allocator = allocator,
-            .scanner = scanner_pkg.Scanner.init(allocator, text),
+            .scanner = scanner,
             .ast = ast.Ast.init(allocator),
+            .languageVariant = .Standard,
             .token = kind.Kind.Unknown,
             .parseDiagnosticsCount = 0,
         };
         // Quét token đầu tiên mồi cho quá trình parse
         p.nextToken();
         return p;
+    }
+
+    pub fn setLanguageVariant(self: *Parser, variant: core.LanguageVariant) void {
+        self.languageVariant = variant;
+        self.scanner.languageVariant = variant;
     }
 
     pub fn deinit(self: *Parser) void {
@@ -280,18 +589,7 @@ pub const Parser = struct {
     }
 
     pub fn parseSourceFile(self: *Parser) anyerror!ast_gen.NodeIndex {
-        // Trong Typescript-Go:
-        // func (p *Parser) parseSourceFileWorker() *ast.SourceFile { ... }
-
-        var statements_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        defer statements_arr.deinit(self.allocator);
-
-        while (self.token != kind.Kind.EndOfFile) {
-            const stmt = try self.parseStatement();
-            try statements_arr.append(self.allocator, stmt); 
-        }
-
-        const statements = try self.ast.pushNodeList(statements_arr.items);
+        const statements = try self.parseList(.SourceElements, parseStatement);
         const endOfFileToken = try self.ast.pushNode(.{ .EndOfFile = void{} });
 
         const sourceFileIndex = try self.ast.pushNode(.{ .SourceFile = .{
@@ -312,39 +610,79 @@ pub const Parser = struct {
 
 
     pub fn isStartOfDeclaration(self: *Parser) bool {
-        if (self.token == kind.Kind.EnumKeyword) {
-            return true;
-        }
-        if (self.token == kind.Kind.DeclareKeyword or self.token == kind.Kind.ModuleKeyword or self.token == kind.Kind.NamespaceKeyword or self.token == kind.Kind.InterfaceKeyword or self.token == kind.Kind.TypeKeyword or self.token == kind.Kind.GlobalKeyword) {
-            var tempScanner = self.scanner;
-            const next = tempScanner.scan();
-            if (next == kind.Kind.Identifier or next == kind.Kind.StringLiteral or kind.isKeyword(next) or next == kind.Kind.OpenBraceToken) {
-                if (!tempScanner.hasPrecedingLineBreak()) {
-                    return true;
+        return self.lookAhead(struct {
+            fn run(p: *Parser) bool {
+                var tempScanner = p.scanner;
+                var tok = p.token;
+                while (true) {
+                    switch (tok) {
+                        kind.Kind.VarKeyword,
+                        kind.Kind.LetKeyword,
+                        kind.Kind.ConstKeyword,
+                        kind.Kind.FunctionKeyword,
+                        kind.Kind.ClassKeyword,
+                        kind.Kind.EnumKeyword => return true,
+                        kind.Kind.InterfaceKeyword,
+                        kind.Kind.TypeKeyword => {
+                            tok = tempScanner.scan();
+                            if (tempScanner.hasPrecedingLineBreak()) return false;
+                            return tok == kind.Kind.Identifier;
+                        },
+                        kind.Kind.ModuleKeyword,
+                        kind.Kind.NamespaceKeyword => {
+                            tok = tempScanner.scan();
+                            if (tempScanner.hasPrecedingLineBreak()) return false;
+                            return tok == kind.Kind.Identifier or tok == kind.Kind.StringLiteral;
+                        },
+                        kind.Kind.AbstractKeyword,
+                        kind.Kind.AwaitKeyword => {
+                            tok = tempScanner.scan();
+                            if (tempScanner.hasPrecedingLineBreak()) return false;
+                            if (tok == kind.Kind.UsingKeyword) {
+                                tok = tempScanner.scan();
+                                if (tempScanner.hasPrecedingLineBreak()) return false;
+                                return tok == kind.Kind.Identifier or tok == kind.Kind.OpenBraceToken or tok == kind.Kind.OpenBracketToken;
+                            }
+                            continue;
+                        },
+                        kind.Kind.AccessorKeyword,
+                        kind.Kind.AsyncKeyword,
+                        kind.Kind.DeclareKeyword,
+                        kind.Kind.PrivateKeyword,
+                        kind.Kind.ProtectedKeyword,
+                        kind.Kind.PublicKeyword,
+                        kind.Kind.ReadonlyKeyword,
+                        kind.Kind.StaticKeyword => {
+                            tok = tempScanner.scan();
+                            if (tempScanner.hasPrecedingLineBreak()) return false;
+                            continue;
+                        },
+                        kind.Kind.GlobalKeyword => {
+                            tok = tempScanner.scan();
+                            return tok == kind.Kind.OpenBraceToken or tok == kind.Kind.Identifier or tok == kind.Kind.ExportKeyword;
+                        },
+                        kind.Kind.ExportKeyword => {
+                            tok = tempScanner.scan();
+                            if (tok == kind.Kind.EqualsToken or tok == kind.Kind.AsteriskToken or tok == kind.Kind.OpenBraceToken or
+                                tok == kind.Kind.DefaultKeyword or tok == kind.Kind.AsKeyword or tok == kind.Kind.AtToken) {
+                                return true;
+                            }
+                            if (tok == kind.Kind.TypeKeyword) {
+                                tok = tempScanner.scan();
+                                if (tok == kind.Kind.AsteriskToken or tok == kind.Kind.OpenBraceToken) return true;
+                                if ((kind.isKeyword(tok) or tok == kind.Kind.Identifier) and !tempScanner.hasPrecedingLineBreak()) return true;
+                            }
+                            continue;
+                        },
+                        kind.Kind.ImportKeyword => {
+                            tok = tempScanner.scan();
+                            return tok != kind.Kind.OpenParenToken and tok != kind.Kind.LessThanToken and tok != kind.Kind.DotToken;
+                        },
+                        else => return false,
+                    }
                 }
             }
-        }
-        if (self.token == kind.Kind.ExportKeyword) { 
-            var tempScanner = self.scanner;
-            const next = tempScanner.scan();
-            if (next == kind.Kind.EqualsToken or next == kind.Kind.AsteriskToken or next == kind.Kind.OpenBraceToken or
-                next == kind.Kind.DefaultKeyword or next == kind.Kind.AsKeyword or next == kind.Kind.AtToken) {
-                return true;
-            }
-            if (next == kind.Kind.TypeKeyword) {
-                const next2 = tempScanner.scan();
-                if (next2 == kind.Kind.AsteriskToken or next2 == kind.Kind.OpenBraceToken) {
-                    return true;
-                }
-                if ((kind.isKeyword(next2) or next2 == kind.Kind.Identifier) and !tempScanner.hasPrecedingLineBreak()) {
-                    return true;
-                }
-            }
-        }
-        if (self.isModifierKind(self.token)) {
-            return true;
-        }
-        return false;
+        }.run);
     }
 
     pub fn parseStatement(self: *Parser) anyerror!ast_gen.NodeIndex { 
@@ -353,11 +691,20 @@ pub const Parser = struct {
             kind.Kind.OpenBraceToken => return self.parseBlock(),
             kind.Kind.VarKeyword => return self.parseVariableStatement(null, 0),
             kind.Kind.LetKeyword => {
-                // TODO: if (p.isLetDeclaration()) return p.parseVariableStatement()
-                return self.parseVariableStatement(null, 0);
+                if (self.isLetDeclaration()) {
+                    return self.parseVariableStatement(null, 0);
+                }
+                return self.parseExpressionStatement();
             },
             kind.Kind.UsingKeyword => {
                 if (self.isUsingDeclaration()) {
+                    return self.parseVariableStatement(null, 0);
+                } else {
+                    return self.parseExpressionStatement();
+                }
+            },
+            kind.Kind.AwaitKeyword => {
+                if (self.nextIsUsingDeclaration()) {
                     return self.parseVariableStatement(null, 0);
                 } else {
                     return self.parseExpressionStatement();
@@ -406,15 +753,21 @@ pub const Parser = struct {
     }
 
     pub fn parseExpressionStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
-        const startPos = self.scanner.state.pos;
         const expr = try @import("expression.zig").parseExpression(self);
+        
+        if (self.token == kind.Kind.ColonToken and std.meta.activeTag(self.ast.getNode(expr)) == .Identifier) {
+            _ = self.nextToken(); // consume ':'
+            const statement = try self.parseStatement();
+            return self.ast.pushNode(.{ .LabeledStatement = .{
+                .Flags = 0,
+                .Label = expr,
+                .Statement = statement,
+            } });
+        }
         
         self.parseSemicolon();
 
-        if (self.scanner.state.pos == startPos) {
-            // Error recovery: Nếu chưa tiêu thụ được token nào, ép buộc nhảy qua token tiếp theo để tránh vòng lặp vô hạn
-            self.nextToken();
-        }
+
 
         return self.ast.pushNode(.{ .ExpressionStatement = .{
             .Flags = 0,
@@ -489,26 +842,12 @@ pub const Parser = struct {
             self.nextToken();
             const expression = try @import("expression.zig").parseExpression(self);
             _ = self.parseExpected(kind.Kind.ColonToken);
-            
-            var statements_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-            defer statements_arr.deinit(self.allocator);
-            while (self.token != kind.Kind.CaseKeyword and self.token != kind.Kind.DefaultKeyword and self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
-                const stmt = try self.parseStatement();
-                try statements_arr.append(self.allocator, stmt); 
-            }
-            const statements = try self.ast.pushNodeList(statements_arr.items);
+            const statements = try self.parseList(.SwitchClauseStatements, parseStatement);
             return self.ast.pushNode(.{ .CaseClause = .{ .Flags = 0, .Expression = expression, .Statements = statements } });
         } else {
             _ = self.parseExpected(kind.Kind.DefaultKeyword);
             _ = self.parseExpected(kind.Kind.ColonToken);
-            
-            var statements_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-            defer statements_arr.deinit(self.allocator);
-            while (self.token != kind.Kind.CaseKeyword and self.token != kind.Kind.DefaultKeyword and self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
-                const stmt = try self.parseStatement();
-                try statements_arr.append(self.allocator, stmt); 
-            }
-            const statements = try self.ast.pushNodeList(statements_arr.items);
+            const statements = try self.parseList(.SwitchClauseStatements, parseStatement);
             return self.ast.pushNode(.{ .DefaultClause = .{ .Flags = 0, .Expression = 0, .Statements = statements } }); // 0 for missing expression
         }
     }
@@ -528,7 +867,7 @@ pub const Parser = struct {
         if (!self.scanner.hasPrecedingLineBreak()) {
             expression = try @import("expression.zig").parseExpression(self);
         } else {
-            // stub missing identifier
+            expression = try self.ast.pushNode(.{ .Identifier = .{ .Flags = 0, .Text = "" } });
         }
         self.parseSemicolon();
         return self.ast.pushNode(.{ .ThrowStatement = .{ .Flags = 0, .Expression = expression } });
@@ -592,7 +931,7 @@ pub const Parser = struct {
         
         while (true) {
             if (self.token == kind.Kind.ConstKeyword or self.token == kind.Kind.InKeyword or self.token == kind.Kind.OutKeyword) {
-                const modNode = try self.ast.pushNode(.{ .Unknown = void{} });
+                const modNode = try self.ast.pushTokenNode(self.token);
                 try modifierList.append(self.allocator, modNode);
                 self.nextToken();
             } else {
@@ -686,24 +1025,46 @@ pub const Parser = struct {
         }
     }
 
-    pub fn parseTypeMember(self: *Parser) anyerror!ast_gen.NodeIndex {
-        if (self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.LessThanToken) {
-            const typeParameters = try self.parseTypeParameters();
-            const parameters = try self.parseParameters();
-            const returnType = try self.parseReturnTypeAnnotation();
-            self.parseTypeMemberSemicolon();
-            return self.ast.pushNode(.{ .MethodSignature = .{
+    pub fn parseSignatureMember(self: *Parser, kindTag: kind.Kind) anyerror!ast_gen.NodeIndex {
+        if (kindTag == .ConstructSignature) {
+            _ = self.parseExpected(kind.Kind.NewKeyword);
+        }
+        const typeParameters = try self.parseTypeParameters();
+        const parameters = try self.parseParameters();
+        const returnType = try self.parseReturnTypeAnnotation();
+        self.parseTypeMemberSemicolon();
+        
+        if (kindTag == .ConstructSignature) {
+            return self.ast.pushNode(.{ .ConstructSignature = .{
                 .Flags = 0,
                 .Symbol = 0,
-                .modifiers = null,
-                .modifierFlags = 0,
-                .name = 0,
-                .PostfixToken = null,
                 .TypeParameters = typeParameters,
                 .Parameters = parameters,
                 .Type = returnType,
                 .FullSignature = null,
             } });
+        } else {
+            return self.ast.pushNode(.{ .CallSignature = .{
+                .Flags = 0,
+                .Symbol = 0,
+                .TypeParameters = typeParameters,
+                .Parameters = parameters,
+                .Type = returnType,
+                .FullSignature = null,
+            } });
+        }
+    }
+
+    pub fn parseTypeMember(self: *Parser) anyerror!ast_gen.NodeIndex {
+        if (self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.LessThanToken) {
+            return self.parseSignatureMember(.CallSignature);
+        }
+        if (self.token == kind.Kind.NewKeyword) {
+            var tempScanner = self.scanner;
+            const nextTok = tempScanner.scan();
+            if (nextTok == kind.Kind.OpenParenToken or nextTok == kind.Kind.LessThanToken) {
+                return self.parseSignatureMember(.ConstructSignature);
+            }
         }
         
         const modifiers = try self.parseModifiers();
@@ -727,11 +1088,15 @@ pub const Parser = struct {
             }
         }
         
+        if (self.isIndexSignature()) {
+            return self.parseIndexSignatureDeclaration(modifiers, modifierFlags);
+        }
+        
         const name = try self.parsePropertyName();
         
         var questionToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.QuestionToken)) {
-            questionToken = try self.ast.pushNode(.{ .Unknown = void{} });
+            questionToken = try self.ast.pushTokenNode(kind.Kind.QuestionToken);
         }
         
         if (self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.LessThanToken) {
@@ -905,15 +1270,7 @@ pub const Parser = struct {
     fn parseModuleBlock(self: *Parser) anyerror!ast_gen.NodeIndex {
         _ = self.parseExpected(kind.Kind.OpenBraceToken);
 
-        var statements_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        defer statements_arr.deinit(self.allocator);
-
-        while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
-            const stmt = try self.parseStatement();
-            try statements_arr.append(self.allocator, stmt); 
-        }
-
-        const statements = try self.ast.pushNodeList(statements_arr.items);
+        const statements = try self.parseList(.BlockStatements, parseStatement);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
 
         return self.ast.pushNode(.{ .ModuleBlock = .{
@@ -923,15 +1280,20 @@ pub const Parser = struct {
     }
 
     pub fn parseModuleDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
-        var keyword: ast_gen.NodeIndex = 0;
+        var keyword: kind.Kind = undefined;
+        var flags: u32 = 0;
         var name: ?ast_gen.NodeIndex = null;
         if (self.token == kind.Kind.GlobalKeyword) {
-            keyword = try self.ast.pushNode(.{ .Unknown = void{} });
+            keyword = kind.Kind.GlobalKeyword;
+            flags |= @import("../ast/ast_utils.zig").NodeFlags.GlobalAugmentation;
             name = try self.parseIdentifier(); // global is parsed as identifier
         } else {
-            keyword = try self.ast.pushNode(.{ .Unknown = void{} });
-            if (!self.parseOptional(kind.Kind.NamespaceKeyword)) {
+            if (self.parseOptional(kind.Kind.NamespaceKeyword)) {
+                keyword = kind.Kind.NamespaceKeyword;
+                flags |= @import("../ast/ast_utils.zig").NodeFlags.Namespace;
+            } else {
                 _ = self.parseExpected(kind.Kind.ModuleKeyword);
+                keyword = kind.Kind.ModuleKeyword;
                 if (self.token == kind.Kind.StringLiteral) {
                     name = try @import("expression.zig").parseLiteralExpression(self);
                 }
@@ -944,17 +1306,26 @@ pub const Parser = struct {
         var body: ?ast_gen.NodeIndex = null;
         if (self.token == kind.Kind.OpenBraceToken) {
             body = try self.parseModuleBlock();
+        } else if (self.parseOptional(kind.Kind.DotToken)) {
+            body = try self.parseModuleDeclaration(null, 0);
+            if (body != null and body.? != 0) {
+                var inner_node = self.ast.getNode(body.?);
+                if (inner_node == .ModuleDeclaration) {
+                    inner_node.ModuleDeclaration.Flags |= @import("../ast/ast_utils.zig").NodeFlags.NestedNamespace; // NestedNamespace
+                    self.ast.nodes.set(body.?, inner_node);
+                }
+            }
         } else {
             self.parseSemicolon();
         }
         return self.ast.pushNode(.{ .ModuleDeclaration = .{
             .Symbol = 0,
-            .Flags = 0,
+            .Flags = flags,
             .modifiers = modifiers,
             .modifierFlags = modifierFlags,
             .AsteriskToken = null,
             .Body = body,
-            .Keyword = keyword,
+            .Keyword = @intFromEnum(keyword),
             .name = name.?,
         } });
     }
@@ -970,7 +1341,7 @@ pub const Parser = struct {
             const nextTok = tempScanner.scan();
             if (nextTok == kind.Kind.AsteriskToken or nextTok == kind.Kind.OpenBraceToken or ((nextTok == kind.Kind.Identifier or kind.isKeyword(nextTok)) and nextTok != kind.Kind.FromKeyword and nextTok != kind.Kind.EqualsToken and nextTok != kind.Kind.CommaToken)) {
                 isTypeOnly = 1;
-                phaseModifier = try self.ast.pushNode(.{ .Unknown = void{} });
+                phaseModifier = @intFromEnum(kind.Kind.TypeKeyword);
                 self.nextToken(); // consume type keyword
             }
         }
@@ -989,7 +1360,11 @@ pub const Parser = struct {
                     self.nextToken(); // consume 'require'
                     _ = self.parseExpected(kind.Kind.OpenParenToken);
                     if (self.token == kind.Kind.StringLiteral) {
-                        moduleReference = try @import("expression.zig").parseExpression(self);
+                        const str_expr = try @import("expression.zig").parseExpression(self);
+                        moduleReference = try self.ast.pushNode(.{ .ExternalModuleReference = .{
+                            .Flags = 0,
+                            .Expression = str_expr,
+                        } });
                     }
                     _ = self.parseExpected(kind.Kind.CloseParenToken);
                     self.parseSemicolon();
@@ -1038,19 +1413,7 @@ pub const Parser = struct {
 
         const moduleSpecifier = if (self.token == kind.Kind.StringLiteral) try @import("expression.zig").parseExpression(self) else 0;
 
-        // Skip import attributes
-        if (self.token == kind.Kind.AssertKeyword or self.token == kind.Kind.WithKeyword or (self.token == kind.Kind.Identifier and std.mem.eql(u8, self.scanner.state.tokenValue, "with"))) {
-            self.nextToken();
-            if (self.token == kind.Kind.OpenBraceToken) {
-                var braceCount: u32 = 1;
-                self.nextToken();
-                while (braceCount > 0 and self.token != kind.Kind.EndOfFile) {
-                    if (self.token == kind.Kind.OpenBraceToken) braceCount += 1;
-                    if (self.token == kind.Kind.CloseBraceToken) braceCount -= 1;
-                    self.nextToken();
-                }
-            }
-        }
+        const attributes = try self.parseImportAttributes();
 
         self.parseSemicolon();
         return self.ast.pushNode(.{ .ImportDeclaration = .{
@@ -1060,8 +1423,46 @@ pub const Parser = struct {
             .modifierFlags = modifierFlags,
             .ImportClause = importClause orelse 0,
             .ModuleSpecifier = moduleSpecifier,
-            .Attributes = null,
+            .Attributes = attributes,
         } });
+    }
+
+    pub fn parseImportAttributes(self: *Parser) anyerror!?ast_gen.NodeIndex {
+        var attributes: ?ast_gen.NodeIndex = null;
+        if (self.token == kind.Kind.AssertKeyword or self.token == kind.Kind.WithKeyword or (self.token == kind.Kind.Identifier and std.mem.eql(u8, self.scanner.state.tokenValue, "with"))) {
+            const attrToken = self.token;
+            self.nextToken();
+            if (self.token == kind.Kind.OpenBraceToken) {
+                self.nextToken();
+                var elements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+                defer elements.deinit(self.allocator);
+                while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
+                    const nameNode = try self.parsePropertyName();
+                    _ = self.parseExpected(kind.Kind.ColonToken);
+                    const valueNode = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
+                    const attrNode = try self.ast.pushNode(.{ .ImportAttribute = .{
+                        .Flags = 0,
+                        .name = nameNode,
+                        .Value = valueNode,
+                    }});
+                    try elements.append(self.allocator, attrNode);
+                    if (self.token == kind.Kind.CommaToken) {
+                        self.nextToken();
+                    } else {
+                        break;
+                    }
+                }
+                const elementsList = try self.ast.pushNodeList(elements.items);
+                _ = self.parseExpected(kind.Kind.CloseBraceToken);
+                attributes = try self.ast.pushNode(.{ .ImportAttributes = .{
+                    .Flags = 0,
+                    .Token = @intFromEnum(attrToken),
+                    .Attributes = elementsList,
+                    .MultiLine = 0,
+                }});
+            }
+        }
+        return attributes;
     }
 
     fn parseImportClause(self: *Parser, phaseModifier: ?ast_gen.NodeIndex) anyerror!ast_gen.NodeIndex {
@@ -1092,13 +1493,34 @@ pub const Parser = struct {
             defer elements.deinit(self.allocator);
             
             while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
+                var specIsTypeOnly: u32 = 0;
                 var propertyName: ?ast_gen.NodeIndex = null;
-                var specName = try self.parseIdentifierName();
+                var specName = try self.parseModuleExportName();
                 
-                if (self.token == kind.Kind.AsKeyword) {
-                    self.nextToken();
-                    propertyName = specName;
-                    specName = try self.parseIdentifier();
+                var isTypeKeyword = false;
+                const specNode = self.ast.getNode(specName);
+                if (specNode == .Identifier) {
+                    if (std.mem.eql(u8, specNode.Identifier.Text, "type")) {
+                        isTypeKeyword = true;
+                    }
+                }
+
+                if (isTypeKeyword and self.token != kind.Kind.CommaToken and self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.AsKeyword) {
+                    specIsTypeOnly = 1;
+                    propertyName = try self.parseModuleExportName();
+                    if (self.token == kind.Kind.AsKeyword) {
+                        self.nextToken();
+                        specName = try self.parseModuleExportName();
+                    } else {
+                        specName = propertyName.?;
+                        propertyName = null;
+                    }
+                } else {
+                    if (self.token == kind.Kind.AsKeyword) {
+                        self.nextToken();
+                        propertyName = specName;
+                        specName = try self.parseModuleExportName();
+                    }
                 }
 
                 const specifier = try self.ast.pushNode(.{ .ImportSpecifier = .{
@@ -1106,7 +1528,7 @@ pub const Parser = struct {
                     .PropertyName = propertyName,
                     .name = specName,
                     .Flags = 0,
-                    .IsTypeOnly = 0,
+                    .IsTypeOnly = specIsTypeOnly,
                 }});
                 try elements.append(self.allocator, specifier);
                 
@@ -1162,6 +1584,18 @@ pub const Parser = struct {
                 .Type = 0,
                 .Expression = expression,
             } });
+        } else if (self.token == kind.Kind.AsKeyword) {
+            self.nextToken();
+            _ = self.parseExpected(kind.Kind.NamespaceKeyword);
+            const name = try self.parseIdentifier();
+            self.parseSemicolon();
+            return self.ast.pushNode(.{ .NamespaceExportDeclaration = .{
+                .Symbol = 0,
+                .Flags = 0,
+                .modifiers = modifiers,
+                .modifierFlags = modifierFlags,
+                .name = name,
+            } });
         } else {
             var exportClause: ?ast_gen.NodeIndex = null;
             var isTypeOnly: u1 = 0;
@@ -1173,13 +1607,43 @@ pub const Parser = struct {
                 var elements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
                 while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
                     const startPos = self.scanner.state.pos;
-                    const nameNode = try self.parseIdentifierName();
+                    
+                    var specIsTypeOnly: u32 = 0;
+                    var propertyName: ?ast_gen.NodeIndex = null;
+                    var specName = try self.parseModuleExportName();
+
+                    var isTypeKeyword = false;
+                    const specNode = self.ast.getNode(specName);
+                    if (specNode == .Identifier) {
+                        if (std.mem.eql(u8, specNode.Identifier.Text, "type")) {
+                            isTypeKeyword = true;
+                        }
+                    }
+                    
+                    if (isTypeKeyword and self.token != kind.Kind.CommaToken and self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.AsKeyword) {
+                        specIsTypeOnly = 1;
+                        propertyName = try self.parseModuleExportName();
+                        if (self.token == kind.Kind.AsKeyword) {
+                            self.nextToken();
+                            specName = try self.parseModuleExportName();
+                        } else {
+                            specName = propertyName.?;
+                            propertyName = null;
+                        }
+                    } else {
+                        if (self.token == kind.Kind.AsKeyword) {
+                            self.nextToken();
+                            propertyName = specName;
+                            specName = try self.parseModuleExportName();
+                        }
+                    }
+
                     const specifier = try self.ast.pushNode(.{ .ExportSpecifier = .{
                         .Flags = 0,
                         .Symbol = 0,
-                        .name = nameNode,
-                        .PropertyName = null,
-                        .IsTypeOnly = 0,
+                        .name = specName,
+                        .PropertyName = propertyName,
+                        .IsTypeOnly = specIsTypeOnly,
                     } });
                     try elements.append(self.allocator, specifier);
                     if (self.token == kind.Kind.CommaToken) {
@@ -1223,19 +1687,7 @@ pub const Parser = struct {
                 }
             }
 
-            // Skip import attributes
-            if (self.token == kind.Kind.AssertKeyword or self.token == kind.Kind.WithKeyword or (self.token == kind.Kind.Identifier and std.mem.eql(u8, self.scanner.state.tokenValue, "with"))) {
-                self.nextToken();
-                if (self.token == kind.Kind.OpenBraceToken) {
-                    var braceCount: u32 = 1;
-                    self.nextToken();
-                    while (braceCount > 0 and self.token != kind.Kind.EndOfFile) {
-                        if (self.token == kind.Kind.OpenBraceToken) braceCount += 1;
-                        if (self.token == kind.Kind.CloseBraceToken) braceCount -= 1;
-                        self.nextToken();
-                    }
-                }
-            }
+            const attributes = try self.parseImportAttributes();
 
             self.parseSemicolon();
             return self.ast.pushNode(.{ .ExportDeclaration = .{
@@ -1246,7 +1698,7 @@ pub const Parser = struct {
                 .IsTypeOnly = isTypeOnly,
                 .ExportClause = exportClause orelse 0,
                 .ModuleSpecifier = moduleSpecifier,
-                .Attributes = null,
+                .Attributes = attributes,
             } });
         }
     }
@@ -1278,6 +1730,13 @@ pub const Parser = struct {
         } else if (self.token == kind.Kind.UsingKeyword) {
             flags |= @import("../ast/ast_utils.zig").NodeFlags.Using;
             self.nextToken();
+        } else if (self.token == kind.Kind.AwaitKeyword) {
+            flags |= @import("../ast/ast_utils.zig").NodeFlags.AwaitUsing;
+            self.nextToken();
+            // Should be UsingKeyword now
+            if (self.token == kind.Kind.UsingKeyword) {
+                self.nextToken();
+            }
         } else if (self.token == kind.Kind.VarKeyword) {
             self.nextToken();
         }
@@ -1293,7 +1752,7 @@ pub const Parser = struct {
     pub fn parseObjectBindingElement(self: *Parser) anyerror!ast_gen.NodeIndex {
         var dotDotDotToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.DotDotDotToken)) {
-            dotDotDotToken = try self.ast.pushNode(.{ .Unknown = void{} });
+            dotDotDotToken = try self.ast.pushTokenNode(kind.Kind.DotDotDotToken);
         }
         
         const tokenIsIdentifier = self.isIdentifier();
@@ -1325,14 +1784,18 @@ pub const Parser = struct {
 
     pub fn parseArrayBindingElement(self: *Parser) anyerror!ast_gen.NodeIndex {
         var dotDotDotToken: ?ast_gen.NodeIndex = null;
-        if (self.parseOptional(kind.Kind.DotDotDotToken)) {
-            dotDotDotToken = try self.ast.pushNode(.{ .Unknown = void{} });
-        }
-        const name = try self.parseIdentifierOrPattern();
-        
+        var name: ?ast_gen.NodeIndex = null;
         var initializer: ?ast_gen.NodeIndex = null;
-        if (self.parseOptional(kind.Kind.EqualsToken)) {
-            initializer = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
+
+        if (self.token != kind.Kind.CommaToken and self.token != kind.Kind.CloseBracketToken) {
+            if (self.parseOptional(kind.Kind.DotDotDotToken)) {
+                dotDotDotToken = try self.ast.pushTokenNode(kind.Kind.DotDotDotToken);
+            }
+            name = try self.parseIdentifierOrPattern();
+            
+            if (self.parseOptional(kind.Kind.EqualsToken)) {
+                initializer = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
+            }
         }
         
         return self.ast.pushNode(.{ .BindingElement = .{
@@ -1345,55 +1808,26 @@ pub const Parser = struct {
         } });
     }
 
+    pub fn parseObjectBindingElementWrapper(self: *Parser) ast_gen.NodeIndex {
+        return self.parseObjectBindingElement() catch 0;
+    }
+
     pub fn parseObjectBindingPattern(self: *Parser) anyerror!ast_gen.NodeIndex {
         _ = self.parseExpected(kind.Kind.OpenBraceToken);
-        var elements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        defer elements.deinit(self.allocator);
-        
-        while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
-            const startPos = self.scanner.state.pos;
-            const element = try self.parseObjectBindingElement();
-            try elements.append(self.allocator, element);
-            
-            if (self.scanner.state.pos == startPos) {
-                self.nextToken();
-            }
-            if (!self.parseOptional(kind.Kind.CommaToken)) {
-                break;
-            }
-        }
+        const elements = self.parseDelimitedList(.ObjectBindingElements, parseObjectBindingElementWrapper);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
-        const elementsList = try self.ast.pushNodeList(elements.items);
-        return self.ast.pushNode(.{ .ObjectBindingPattern = .{ .Flags = 0, .Elements = elementsList } });
+        return self.ast.pushNode(.{ .ObjectBindingPattern = .{ .Flags = 0, .Elements = elements } });
+    }
+
+    pub fn parseArrayBindingElementWrapper(self: *Parser) ast_gen.NodeIndex {
+        return self.parseArrayBindingElement() catch 0;
     }
 
     pub fn parseArrayBindingPattern(self: *Parser) anyerror!ast_gen.NodeIndex {
         _ = self.parseExpected(kind.Kind.OpenBracketToken);
-        var elements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        defer elements.deinit(self.allocator);
-        
-        while (self.token != kind.Kind.CloseBracketToken and self.token != kind.Kind.EndOfFile) {
-            if (self.token == kind.Kind.CommaToken) {
-                const omitted = try self.ast.pushNode(.{ .OmittedExpression = .{ .Flags = 0 } });
-                try elements.append(self.allocator, omitted);
-                self.nextToken();
-                continue;
-            }
-            
-            const startPos = self.scanner.state.pos;
-            const element = try self.parseArrayBindingElement();
-            try elements.append(self.allocator, element);
-            
-            if (self.scanner.state.pos == startPos) {
-                self.nextToken();
-            }
-            if (!self.parseOptional(kind.Kind.CommaToken)) {
-                break;
-            }
-        }
+        const elements = self.parseDelimitedList(.ArrayBindingElements, parseArrayBindingElementWrapper);
         _ = self.parseExpected(kind.Kind.CloseBracketToken);
-        const elementsList = try self.ast.pushNodeList(elements.items);
-        return self.ast.pushNode(.{ .ArrayBindingPattern = .{ .Flags = 0, .Elements = elementsList } });
+        return self.ast.pushNode(.{ .ArrayBindingPattern = .{ .Flags = 0, .Elements = elements } });
     }
 
     pub fn parseIdentifierOrPattern(self: *Parser) anyerror!ast_gen.NodeIndex {
@@ -1480,17 +1914,9 @@ pub const Parser = struct {
 
     pub fn parseBlock(self: *Parser) anyerror!ast_gen.NodeIndex {
         _ = self.parseExpected(kind.Kind.OpenBraceToken);
-        const multiLine = if (self.scanner.hasPrecedingLineBreak()) @as(u32, 1) else 0;
+        const multiLine = self.scanner.hasPrecedingLineBreak();
 
-        var statements_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        defer statements_arr.deinit(self.allocator);
-
-        while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
-            const stmt = try self.parseStatement();
-            try statements_arr.append(self.allocator, stmt); 
-        }
-
-        const statements = try self.ast.pushNodeList(statements_arr.items);
+        const statements = try self.parseList(.BlockStatements, parseStatement);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
 
         return self.ast.pushNode(.{ .Block = .{
@@ -1519,17 +1945,23 @@ pub const Parser = struct {
         _ = self.parseExpected(kind.Kind.ForKeyword);
         var awaitToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.AwaitKeyword)) {
-            awaitToken = try self.ast.pushNode(.{ .Unknown = void{} });
+            awaitToken = try self.ast.pushNode(.{ .AwaitKeyword = void{} });
         }
         
         _ = self.parseExpected(kind.Kind.OpenParenToken);
 
         var initializer: ?ast_gen.NodeIndex = null;
         if (self.token != kind.Kind.SemicolonToken) {
-            if (self.token == kind.Kind.LetKeyword or self.token == kind.Kind.ConstKeyword or self.token == kind.Kind.VarKeyword) {
+            if (self.token == kind.Kind.LetKeyword or self.token == kind.Kind.ConstKeyword or self.token == kind.Kind.VarKeyword or self.isUsingDeclaration() or self.nextIsUsingDeclaration()) {
+                const savedDisallowIn = self.disallowInContext;
+                self.disallowInContext = true;
                 initializer = try self.parseVariableDeclarationList();
+                self.disallowInContext = savedDisallowIn;
             } else {
+                const savedDisallowIn = self.disallowInContext;
+                self.disallowInContext = true;
                 initializer = try @import("expression.zig").parseExpression(self);
+                self.disallowInContext = savedDisallowIn;
             }
         }
         
@@ -1590,7 +2022,7 @@ pub const Parser = struct {
 
         var dotDotDotToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.DotDotDotToken)) {
-            dotDotDotToken = try self.ast.pushNode(.{ .Unknown = void{} });
+            dotDotDotToken = try self.ast.pushTokenNode(kind.Kind.DotDotDotToken);
         }
 
         // Handle `this` as a special parameter name (e.g., `this: T`)
@@ -1602,7 +2034,7 @@ pub const Parser = struct {
 
         var questionToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.QuestionToken)) {
-            questionToken = try self.ast.pushNode(.{ .Unknown = void{} });
+            questionToken = try self.ast.pushTokenNode(kind.Kind.QuestionToken);
         }
 
         const paramType = try self.parseTypeAnnotation();
@@ -1640,8 +2072,8 @@ pub const Parser = struct {
         _ = self.parseExpected(kind.Kind.FunctionKeyword);
         var asteriskToken: ?ast_gen.NodeIndex = null;
         if (self.token == kind.Kind.AsteriskToken) {
-            asteriskToken = try self.ast.pushNode(.{ .Unknown = void{} });
-            self.nextToken();
+            asteriskToken = try self.ast.pushNode(.{ .AsteriskToken = void{} });
+            _ = self.nextToken();
         }
 
         var name: ?ast_gen.NodeIndex = null;
@@ -1678,10 +2110,15 @@ pub const Parser = struct {
     }
 
     pub fn parseFunctionExpression(self: *Parser) anyerror!ast_gen.NodeIndex {
+        var modifiers: ?ast_gen.NodeListIndex = null;
+        if (self.token == kind.Kind.AsyncKeyword) {
+            modifiers = try self.parseModifiers();
+        }
+        const modifierFlags = self.modifiersToFlags(modifiers);
         _ = self.parseExpected(kind.Kind.FunctionKeyword);
         var asteriskToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.AsteriskToken)) {
-            asteriskToken = try self.ast.pushNode(.{ .Unknown = void{} });
+            asteriskToken = try self.ast.pushNode(.{ .AsteriskToken = void{} });
         }
         var name: ?ast_gen.NodeIndex = null;
         if (self.isIdentifier()) {
@@ -1699,10 +2136,10 @@ pub const Parser = struct {
         }
         
         return self.ast.pushNode(.{ .FunctionExpression = .{
-            .Symbol = 0,
             .Flags = 0,
-            .modifiers = null,
-            .modifierFlags = 0,
+            .Symbol = 0,
+            .modifiers = modifiers,
+            .modifierFlags = modifierFlags,
             .TypeParameters = typeParameters,
             .Parameters = parameters,
             .Type = returnType,
@@ -1780,7 +2217,8 @@ pub const Parser = struct {
                     kind.Kind.AccessorKeyword => .{ .AccessorKeyword = void{} },
                     kind.Kind.AbstractKeyword => .{ .AbstractKeyword = void{} },
                     kind.Kind.AsyncKeyword => .{ .AsyncKeyword = void{} },
-                    else => .{ .Unknown = void{} },
+                    kind.Kind.ConstKeyword => .{ .ConstKeyword = void{} },
+                    else => .{ .Unknown = void{} }, // Fallback for other modifiers if any
                 });
                 try list.append(self.allocator, modNode);
                 self.nextToken();
@@ -1800,6 +2238,19 @@ pub const Parser = struct {
         return tempScanner.scan();
     }
 
+    pub fn isBindingIdentifier(self: *Parser) bool {
+        return self.token == kind.Kind.Identifier or @intFromEnum(self.token) > @intFromEnum(kind.Kind.WithKeyword);
+    }
+
+    fn isLetDeclaration(self: *Parser) bool {
+        return self.lookAhead(struct {
+            pub fn run(p: *Parser) bool {
+                _ = p.nextToken();
+                return p.isBindingIdentifier() or p.token == kind.Kind.OpenBraceToken or p.token == kind.Kind.OpenBracketToken;
+            }
+        }.run);
+    }
+
     fn isUsingDeclaration(self: *Parser) bool {
         var tempScanner = self.scanner;
         const next = tempScanner.scan();
@@ -1807,6 +2258,19 @@ pub const Parser = struct {
             return false;
         }
         return next == kind.Kind.Identifier or next == kind.Kind.OpenBraceToken or next == kind.Kind.OpenBracketToken;
+    }
+
+    fn nextIsUsingDeclaration(self: *Parser) bool {
+        var tempScanner = self.scanner;
+        const next = tempScanner.scan();
+        if (next != kind.Kind.UsingKeyword or tempScanner.hasPrecedingLineBreak()) {
+            return false;
+        }
+        const nextNext = tempScanner.scan();
+        if (tempScanner.hasPrecedingLineBreak()) {
+            return false;
+        }
+        return nextNext == kind.Kind.Identifier or nextNext == kind.Kind.OpenBraceToken or nextNext == kind.Kind.OpenBracketToken;
     }
 
     fn isModifierKind(self: *Parser, token: kind.Kind) bool {
@@ -1884,7 +2348,7 @@ pub const Parser = struct {
 
     fn parseAccessorDeclaration(self: *Parser, modifiers: ?ast_gen.NodeIndex, modifierFlags: u32, isGetAccessor: bool) anyerror!ast_gen.NodeIndex {
         const memberName = try self.parsePropertyName();
-        // Accessors do not have type parameters in TS, but we can parse them just in case or skip
+        const typeParameters = try self.parseTypeParameters();
         const parameters = try self.parseParameters();
         const returnType = try self.parseReturnTypeAnnotation();
         var body: ?ast_gen.NodeIndex = null;
@@ -1894,9 +2358,9 @@ pub const Parser = struct {
             self.parseSemicolon();
         }
         if (isGetAccessor) {
-            return self.ast.pushNode(.{ .GetAccessor = .{ .Symbol = 0, .Flags = 0, .modifiers = modifiers, .modifierFlags = modifierFlags, .name = memberName, .Parameters = parameters, .Type = returnType, .Body = body, .AsteriskToken = null, .PostfixToken = null, .TypeParameters = null, .FullSignature = null } });
+            return self.ast.pushNode(.{ .GetAccessor = .{ .Symbol = 0, .Flags = 0, .modifiers = modifiers, .modifierFlags = modifierFlags, .name = memberName, .Parameters = parameters, .Type = returnType, .Body = body, .AsteriskToken = null, .PostfixToken = null, .TypeParameters = typeParameters, .FullSignature = null } });
         } else {
-            return self.ast.pushNode(.{ .SetAccessor = .{ .Symbol = 0, .Flags = 0, .modifiers = modifiers, .modifierFlags = modifierFlags, .name = memberName, .Parameters = parameters, .Type = returnType, .Body = body, .AsteriskToken = null, .PostfixToken = null, .TypeParameters = null, .FullSignature = null } });
+            return self.ast.pushNode(.{ .SetAccessor = .{ .Symbol = 0, .Flags = 0, .modifiers = modifiers, .modifierFlags = modifierFlags, .name = memberName, .Parameters = parameters, .Type = returnType, .Body = body, .AsteriskToken = null, .PostfixToken = null, .TypeParameters = typeParameters, .FullSignature = null } });
         }
     }
 
@@ -1933,12 +2397,52 @@ pub const Parser = struct {
             return self.parseAccessorDeclaration(modifiers, modifierFlags, false);
         }
 
+        if (self.token == kind.Kind.ConstructorKeyword or (self.token == kind.Kind.StringLiteral and std.mem.eql(u8, self.scanner.state.tokenValue, "constructor")) or (self.token == kind.Kind.Identifier and std.mem.eql(u8, self.scanner.state.tokenValue, "constructor"))) {
+            const isConstructor = if (self.token != kind.Kind.ConstructorKeyword) self.lookAhead(struct {
+                fn run(p1: *Parser) bool {
+                    p1.nextToken();
+                    return p1.token == kind.Kind.OpenParenToken;
+                }
+            }.run) else true;
+            
+            if (isConstructor) {
+                self.nextToken(); // consume constructor keyword or identifier
+                const typeParameters = try self.parseTypeParameters();
+                const parameters = try self.parseParameters();
+                const returnType = try self.parseReturnTypeAnnotation();
+                
+                var body: ?ast_gen.NodeIndex = null;
+                if (self.token == kind.Kind.OpenBraceToken) {
+                    body = try self.parseBlock();
+                } else {
+                    self.parseSemicolon();
+                }
+                
+                return self.ast.pushNode(.{ .Constructor = .{
+                    .Flags = 0,
+                    .Symbol = 0,
+                    .modifiers = modifiers,
+                    .modifierFlags = modifierFlags,
+                    .TypeParameters = typeParameters,
+                    .Parameters = parameters,
+                    .Type = returnType,
+                    .FullSignature = null,
+                    .AsteriskToken = null,
+                    .Body = body,
+                } });
+            }
+        }
+
+        if (self.isIndexSignature()) {
+            return self.parseIndexSignatureDeclaration(modifiers, modifierFlags);
+        }
+
         // Simple property or method declaration for now.
         const memberName = try self.parsePropertyName();
         
         var postfixToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.QuestionToken)) {
-            postfixToken = try self.ast.pushNode(.{ .Unknown = void{} });
+            postfixToken = try self.ast.pushTokenNode(kind.Kind.QuestionToken);
         }
         
         // Method vs Property
@@ -1973,7 +2477,7 @@ pub const Parser = struct {
             // Property
             if (postfixToken == null and !self.scanner.hasPrecedingLineBreak()) {
                 if (self.parseOptional(kind.Kind.ExclamationToken)) {
-                    postfixToken = try self.ast.pushNode(.{ .Unknown = void{} });
+                    postfixToken = try self.ast.pushTokenNode(kind.Kind.ExclamationToken);
                 }
             }
             const typeNode = try self.parseTypeAnnotation();
@@ -2001,7 +2505,7 @@ pub const Parser = struct {
     pub fn parseClassExpression(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
         _ = self.parseExpected(kind.Kind.ClassKeyword);
         var name: ?ast_gen.NodeIndex = null;
-        if (self.isIdentifier()) {
+        if (self.isIdentifier() and self.token != kind.Kind.ExtendsKeyword and self.token != kind.Kind.ImplementsKeyword) {
             name = try self.parseIdentifier();
         }
 
@@ -2040,15 +2544,17 @@ pub const Parser = struct {
 
     pub fn parseExpressionWithTypeArguments(self: *Parser) anyerror!ast_gen.NodeIndex {
         const expression = try @import("expression.zig").parseLeftHandSideExpressionOrHigher(self);
+        const expressionNode = self.ast.getNode(expression);
+        if (std.meta.activeTag(expressionNode) == .ExpressionWithTypeArguments) {
+            return expression;
+        }
+
         var typeArguments: ?ast_gen.NodeListIndex = null;
         if (self.token == kind.Kind.LessThanToken) {
             typeArguments = try self.parseTypeArguments();
         }
         
-        if (typeArguments != null) {
-            return self.ast.pushNode(.{ .ExpressionWithTypeArguments = .{ .Flags = 0, .Expression = expression, .TypeArguments = typeArguments } });
-        }
-        return expression;
+        return self.ast.pushNode(.{ .ExpressionWithTypeArguments = .{ .Flags = 0, .Expression = expression, .TypeArguments = typeArguments } });
     }
 
     pub fn isStartOfLeftHandSideExpression(self: *Parser) bool {
@@ -2135,7 +2641,7 @@ pub const Parser = struct {
     pub fn parseClassDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
         _ = self.parseExpected(kind.Kind.ClassKeyword);
         var name: ?ast_gen.NodeIndex = null;
-        if (self.isIdentifier()) {
+        if (self.isIdentifier() and self.token != kind.Kind.ExtendsKeyword and self.token != kind.Kind.ImplementsKeyword) {
             name = try self.parseIdentifier();
         }
 
@@ -2223,7 +2729,7 @@ pub const Parser = struct {
         
         var parameterName: ast_gen.NodeIndex = 0;
         if (self.token == kind.Kind.ThisKeyword) {
-            parameterName = try self.ast.pushNode(.{ .ThisType = void{} });
+            parameterName = try self.ast.pushNode(.{ .ThisType = .{ .Flags = 0 } });
             self.nextToken();
         } else {
             parameterName = try self.parseIdentifier();
@@ -2323,24 +2829,51 @@ pub const Parser = struct {
         } else if (self.token == kind.Kind.SymbolKeyword) {
             self.nextToken();
             return try self.ast.pushNode(.{ .SymbolKeyword = void{} });
+        } else if (self.token == kind.Kind.ThisKeyword) {
+            self.nextToken();
+            return try self.ast.pushNode(.{ .ThisType = .{ .Flags = 0 } });
         } else if (self.token == kind.Kind.ObjectKeyword) {
             self.nextToken();
             return try self.ast.pushNode(.{ .ObjectKeyword = void{} });
+        } else if (self.token == kind.Kind.BigIntKeyword) {
+            self.nextToken();
+            return try self.ast.pushNode(.{ .BigIntKeyword = void{} });
+        } else if (self.token == kind.Kind.IntrinsicKeyword) {
+            self.nextToken();
+            return try self.ast.pushNode(.{ .IntrinsicKeyword = void{} });
         } else if (self.token == kind.Kind.NoSubstitutionTemplateLiteral or self.token == kind.Kind.StringLiteral or self.token == kind.Kind.NumericLiteral or self.token == kind.Kind.BigIntLiteral) {
-            const text = self.scanner.state.tokenValue;
             const tokenKind = self.token;
+            const text = self.scanner.state.tokenValue;
+            const tokenFlags = self.scanner.getTokenFlags();
             self.nextToken();
             var literal: ast_gen.NodeIndex = 0;
             if (tokenKind == kind.Kind.NoSubstitutionTemplateLiteral) {
-                literal = try self.ast.pushNode(.{ .NoSubstitutionTemplateLiteral = .{ .Symbol = 0, .Flags = 0, .Text = text, .TokenFlags = 0, .RawText = "", .TemplateFlags = 0 } });
+                literal = try self.ast.pushNode(.{ .NoSubstitutionTemplateLiteral = .{ .Symbol = 0, .Flags = 0, .Text = text, .TokenFlags = tokenFlags, .RawText = "", .TemplateFlags = 0 } });
             } else if (tokenKind == kind.Kind.StringLiteral) {
-                literal = try self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = 0 } });
+                literal = try self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
             } else if (tokenKind == kind.Kind.NumericLiteral) {
-                literal = try self.ast.pushNode(.{ .NumericLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = 0 } });
+                literal = try self.ast.pushNode(.{ .NumericLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
             } else if (tokenKind == kind.Kind.BigIntLiteral) {
-                literal = try self.ast.pushNode(.{ .BigIntLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = 0 } });
+                literal = try self.ast.pushNode(.{ .BigIntLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
             }
             return try self.ast.pushNode(.{ .LiteralType = .{ .Flags = 0, .Literal = literal } });
+        } else if (self.token == kind.Kind.PlusToken or self.token == kind.Kind.MinusToken) {
+            const operator = self.token;
+            self.nextToken();
+            const tokenKind = self.token;
+            const text = self.scanner.state.tokenValue;
+            const tokenFlags = self.scanner.getTokenFlags();
+            self.nextToken();
+            var operand: ast_gen.NodeIndex = 0;
+            if (tokenKind == kind.Kind.NumericLiteral) {
+                operand = try self.ast.pushNode(.{ .NumericLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
+            } else if (tokenKind == kind.Kind.BigIntLiteral) {
+                operand = try self.ast.pushNode(.{ .BigIntLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
+            } else {
+                operand = try self.ast.pushNode(.{ .Unknown = void{} });
+            }
+            const prefix = try self.ast.pushNode(.{ .PrefixUnaryExpression = .{ .Flags = 0, .Operator = @intFromEnum(operator), .Operand = operand } });
+            return try self.ast.pushNode(.{ .LiteralType = .{ .Flags = 0, .Literal = prefix } });
         } else if (self.token == kind.Kind.TrueKeyword or self.token == kind.Kind.FalseKeyword or self.token == kind.Kind.NullKeyword) {
             const tokenKind = self.token;
             self.nextToken();
@@ -2358,6 +2891,14 @@ pub const Parser = struct {
         } else if (self.token == kind.Kind.AssertsKeyword and self.nextTokenIsIdentifierOrKeywordOnSameLine()) {
             return try self.parseAssertsTypePredicate();
         } else if (self.token == kind.Kind.TypeOfKeyword) {
+            if (self.lookAhead(struct {
+                fn run(p: *Parser) bool {
+                    p.nextToken();
+                    return p.token == kind.Kind.ImportKeyword;
+                }
+            }.run)) {
+                return try self.parseImportType();
+            }
             self.nextToken();
             
             // Should be parseEntityName, and optionally typeArguments
@@ -2367,6 +2908,8 @@ pub const Parser = struct {
                 typeArguments = try self.parseTypeArguments();
             }
             return try self.ast.pushNode(.{ .TypeQuery = .{ .Flags = 0, .ExprName = exprName, .TypeArguments = typeArguments } });
+        } else if (self.token == kind.Kind.ImportKeyword) {
+            return try self.parseImportType();
         } else if (self.isIdentifier() or kind.isKeyword(self.token)) {
             const typeName = try self.parseEntityName();
 
@@ -2404,7 +2947,7 @@ pub const Parser = struct {
             self.nextToken();
             const typeNode = try self.parseType();
             _ = self.parseExpected(kind.Kind.CloseParenToken);
-            return typeNode;
+            return try self.ast.pushNode(.{ .ParenthesizedType = .{ .Flags = 0, .Type = typeNode } });
         }
 
         self.nextToken();
@@ -2494,9 +3037,10 @@ pub const Parser = struct {
 
     pub fn parsePropertyName(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.token == kind.Kind.StringLiteral) {
-            const text = self.scanner.state.tokenValue;
+            const text = self.scanner.getTokenValue();
+            const tokenFlags = self.scanner.getTokenFlags();
             self.nextToken();
-            return self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = 0 } });
+            return self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
         } else if (self.token == kind.Kind.NumericLiteral or self.token == kind.Kind.BigIntLiteral) {
             const text = self.scanner.state.tokenValue;
             const tokenKind = self.token;
@@ -2519,6 +3063,16 @@ pub const Parser = struct {
             return self.parseIdentifierName();
         }
     }
+
+pub fn parseModuleExportName(self: *Parser) anyerror!ast_gen.NodeIndex {
+    if (self.token == kind.Kind.StringLiteral) {
+        const text = self.scanner.state.tokenValue;
+        const tokenFlags = self.scanner.getTokenFlags();
+        self.nextToken();
+        return self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
+    }
+    return self.parseIdentifierName();
+}
 
 pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
     if (self.token == kind.Kind.Identifier or kind.isKeyword(self.token)) {
@@ -2549,46 +3103,47 @@ pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
     }
 
     pub fn parseError(self: *Parser, msg: []const u8) void {
+        _ = msg; // Ignore unused variable
         const pos = @as(i32, @intCast(self.scanner.state.pos));
         if (pos == self.lastErrorPos) return;
-        std.debug.print("parseError at pos {d}: {s} at token {s}\n", .{pos, msg, @tagName(self.token)});
+        // Commenting out the debug print so we don't spam stdout during backtracking
+        // std.debug.print("parseError at pos {d}: {s} at token {s}\n", .{pos, msg, @tagName(self.token)});
         self.parseDiagnosticsCount += 1;
         self.lastErrorPos = pos;
     }
 
     pub fn isIndexSignature(self: *Parser) bool {
         if (self.token != kind.Kind.OpenBracketToken) return false;
-        
-        var tempScanner = self.scanner;
-        var tok = tempScanner.scan();
-        
-        // [id: ...
-        // [id, ...
-        // [id?, ...
-        // [id?: ...
-        // [id?]
-        
-        // Skip identifier
-        if (tok == kind.Kind.Identifier or tok == kind.Kind.StringLiteral or tok == kind.Kind.NumericLiteral or tok == kind.Kind.BigIntLiteral or @intFromEnum(tok) > @intFromEnum(kind.Kind.WithKeyword)) {
-            tok = tempScanner.scan();
-        } else if (tok == kind.Kind.DotDotDotToken) {
+        return self.lookAhead(nextIsUnambiguouslyIndexSignature);
+    }
+    
+    fn nextIsUnambiguouslyIndexSignature(self: *Parser) bool {
+        self.nextToken();
+        if (self.token == kind.Kind.DotDotDotToken or self.token == kind.Kind.CloseBracketToken) {
             return true;
+        }
+        
+        if (self.isModifierKind(self.token)) {
+            self.nextToken();
+            if (self.isIdentifier()) {
+                return true;
+            }
+        } else if (!self.isIdentifier()) {
+            return false;
         } else {
+            self.nextToken();
+        }
+        
+        if (self.token == kind.Kind.ColonToken or self.token == kind.Kind.CommaToken) {
+            return true;
+        }
+        
+        if (self.token != kind.Kind.QuestionToken) {
             return false;
         }
         
-        if (tok == kind.Kind.ColonToken or tok == kind.Kind.CommaToken) {
-            return true;
-        }
-        
-        if (tok == kind.Kind.QuestionToken) {
-            tok = tempScanner.scan();
-            if (tok == kind.Kind.ColonToken or tok == kind.Kind.CommaToken or tok == kind.Kind.CloseBracketToken) {
-                return true;
-            }
-        }
-        
-        return false;
+        self.nextToken();
+        return self.token == kind.Kind.ColonToken or self.token == kind.Kind.CommaToken or self.token == kind.Kind.CloseBracketToken;
     }
 
 
@@ -2643,7 +3198,79 @@ pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
         return false;
     }
 
-    pub fn parseFunctionOrConstructorType(self: *Parser) anyerror!ast_gen.NodeIndex {
+    pub fn parseImportType(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const isTypeOf = self.parseOptional(kind.Kind.TypeOfKeyword);
+        _ = self.parseExpected(kind.Kind.ImportKeyword);
+        _ = self.parseExpected(kind.Kind.OpenParenToken);
+        const typeNode = try self.parseType();
+        var attributes: ?ast_gen.NodeIndex = null;
+        if (self.parseOptional(kind.Kind.CommaToken)) {
+            _ = self.parseExpected(kind.Kind.OpenBraceToken);
+            const currentToken = self.token;
+            if (currentToken == kind.Kind.WithKeyword or currentToken == kind.Kind.AssertKeyword) {
+                self.nextToken();
+            }
+            _ = self.parseExpected(kind.Kind.ColonToken);
+            
+            if (self.token == kind.Kind.OpenBraceToken) {
+                self.nextToken();
+                var elements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+                defer elements.deinit(self.allocator);
+                while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
+                    const nameNode = try self.parsePropertyName();
+                    _ = self.parseExpected(kind.Kind.ColonToken);
+                    const valueNode = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
+                    const attrNode = try self.ast.pushNode(.{ .ImportAttribute = .{
+                        .Flags = 0,
+                        .name = nameNode,
+                        .Value = valueNode,
+                    }});
+                    try elements.append(self.allocator, attrNode);
+                    if (self.token == kind.Kind.CommaToken) {
+                        self.nextToken();
+                    } else {
+                        break;
+                    }
+                }
+                _ = self.parseExpected(kind.Kind.CloseBraceToken);
+                const attributesList = try self.ast.pushNodeList(elements.items);
+                attributes = try self.ast.pushNode(.{ .ImportAttributes = .{
+                    .Flags = 0,
+                    .Token = @intFromEnum(currentToken),
+                    .Attributes = attributesList,
+                    .MultiLine = 0,
+                }});
+            }
+            
+            _ = self.parseOptional(kind.Kind.CommaToken);
+            _ = self.parseExpected(kind.Kind.CloseBraceToken);
+        }
+        _ = self.parseExpected(kind.Kind.CloseParenToken);
+        var qualifier: ?ast_gen.NodeIndex = null;
+        if (self.parseOptional(kind.Kind.DotToken)) {
+            qualifier = try self.parseEntityName();
+        }
+        var typeArguments: ?ast_gen.NodeListIndex = null;
+        if (self.token == kind.Kind.LessThanToken) {
+            typeArguments = try self.parseTypeArguments();
+        }
+        return self.ast.pushNode(.{ .ImportType = .{
+            .Flags = 0,
+            .IsTypeOf = if (isTypeOf) 1 else 0,
+            .Argument = typeNode,
+            .Attributes = attributes,
+            .Qualifier = qualifier,
+            .TypeArguments = typeArguments,
+        } });
+    }
+
+    pub fn parseFunctionOrConstructorType(self: *Parser, hasAbstractModifier: bool) anyerror!ast_gen.NodeIndex {
+        var modifiers: ?ast_gen.NodeListIndex = null;
+        if (hasAbstractModifier) {
+            const abstractMod = try self.ast.pushNode(.{ .AbstractKeyword = void{} });
+            modifiers = try self.ast.pushNodeList(&[_]ast_gen.NodeIndex{abstractMod});
+        }
+        
         const isConstructorType = self.parseOptional(kind.Kind.NewKeyword);
         const typeParameters = try self.parseTypeParameters();
         const parameters = try self.parseParameters();
@@ -2656,7 +3283,7 @@ pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
             return self.ast.pushNode(.{ .ConstructorType = .{
                 .Symbol = 0,
                 .Flags = 0,
-                .modifiers = null,
+                .modifiers = modifiers,
                 .modifierFlags = 0,
                 .TypeParameters = typeParameters,
                 .Parameters = parameters,
@@ -2667,7 +3294,7 @@ pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
             return self.ast.pushNode(.{ .FunctionType = .{
                 .Symbol = 0,
                 .Flags = 0,
-                .modifiers = null,
+                .modifiers = modifiers,
                 .modifierFlags = 0,
                 .TypeParameters = typeParameters,
                 .Parameters = parameters,
@@ -2678,8 +3305,9 @@ pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
     }
 
     pub fn parseType(self: *Parser) anyerror!ast_gen.NodeIndex {
-        if (self.isStartOfFunctionTypeOrConstructorType()) {
-            return self.parseFunctionOrConstructorType();
+        const hasAbstractModifier = self.parseOptional(kind.Kind.AbstractKeyword);
+        if (hasAbstractModifier or self.isStartOfFunctionTypeOrConstructorType()) {
+            return self.parseFunctionOrConstructorType(hasAbstractModifier);
         }
 
         const typeNode = try self.parseUnionTypeOrHigher();
@@ -2972,22 +3600,22 @@ pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
             }
         }
         
-        if (self.token == kind.Kind.OpenBracketToken) {
-            self.nextToken();
-            var nesting: u32 = 1;
-            while (nesting > 0 and self.token != kind.Kind.EndOfFile) {
-                if (self.token == kind.Kind.OpenBracketToken) nesting += 1;
-                if (self.token == kind.Kind.CloseBracketToken) nesting -= 1;
-                self.nextToken();
-            }
+        if (self.isIndexSignature()) {
+            _ = self.parseExpected(kind.Kind.OpenBracketToken);
+            const parameter = try self.parseParameter();
+            _ = self.parseExpected(kind.Kind.CloseBracketToken);
             const returnType = try self.parseTypeAnnotation();
             _ = self.parseOptional(kind.Kind.SemicolonToken) or self.parseOptional(kind.Kind.CommaToken);
+            var parametersList = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+            defer parametersList.deinit(self.allocator);
+            try parametersList.append(self.allocator, parameter);
+            const parameters = try self.ast.pushNodeList(parametersList.items);
             return self.ast.pushNode(.{ .IndexSignature = .{
                 .Flags = 0,
                 .modifiers = null,
                 .modifierFlags = 0,
                 .TypeParameters = null,
-                .Parameters = 0,
+                .Parameters = parameters,
                 .Type = returnType orelse 0,
                 .FullSignature = null,
             } });
@@ -3100,6 +3728,30 @@ pub fn isIdentifier(self: *Parser) bool {
 
     /// Type members can be separated by commas OR (possibly ASI) semicolons.
     /// See: https://www.typescriptlang.org/docs/handbook/2/objects.html
+    pub fn parseIndexSignatureDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        _ = self.parseExpected(kind.Kind.OpenBracketToken);
+        const parameter = try self.parseParameter();
+        _ = self.parseExpected(kind.Kind.CloseBracketToken);
+        const returnType = try self.parseTypeAnnotation();
+        self.parseTypeMemberSemicolon();
+        
+        var parametersList = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        defer parametersList.deinit(self.allocator);
+        try parametersList.append(self.allocator, parameter);
+        const parameters = try self.ast.pushNodeList(parametersList.items);
+        
+        return self.ast.pushNode(.{ .IndexSignature = .{
+            .Flags = 0,
+            .Symbol = 0,
+            .modifiers = modifiers,
+            .modifierFlags = modifierFlags,
+            .TypeParameters = null,
+            .Parameters = parameters,
+            .Type = returnType orelse 0,
+            .FullSignature = null,
+        } });
+    }
+
     pub fn parseTypeMemberSemicolon(self: *Parser) void {
         // We allow type members to be separated by commas or (possibly ASI) semicolons.
         // First check if it was a comma. If so, we're done with the member.
@@ -3144,14 +3796,14 @@ pub fn isIdentifier(self: *Parser) bool {
 
     fn parseTupleElementNameOrTupleElementType(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.scanStartOfNamedTupleElement()) {
-            var dotDotDotToken: ?u32 = null;
+            var dotDotDotToken: ?ast_gen.NodeIndex = null;
             if (self.parseOptional(kind.Kind.DotDotDotToken)) {
-                dotDotDotToken = try self.ast.pushNode(.{ .Unknown = void{} });
+                dotDotDotToken = try self.ast.pushNode(.{ .DotDotDotToken = void{} });
             }
             const name = try self.parseIdentifierName();
-            var questionToken: ?u32 = null;
+            var questionToken: ?ast_gen.NodeIndex = null;
             if (self.parseOptional(kind.Kind.QuestionToken)) {
-                questionToken = try self.ast.pushNode(.{ .Unknown = void{} });
+                questionToken = try self.ast.pushNode(.{ .QuestionToken = void{} });
             }
             _ = self.parseExpected(kind.Kind.ColonToken);
             const typeNode = try self.parseTupleElementType();
@@ -3184,3 +3836,11 @@ pub fn isIdentifier(self: *Parser) bool {
         return false;
     }
 };
+
+pub fn parseSourceFile(allocator: std.mem.Allocator, options: ast.SourceFileParseOptions, text: []const u8, scriptKind: core.ScriptKind) anyerror!ast_gen.NodeIndex {
+    _ = allocator;
+    _ = options;
+    _ = text;
+    _ = scriptKind;
+    return 0;
+}

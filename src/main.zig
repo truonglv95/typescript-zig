@@ -1,29 +1,22 @@
 const std = @import("std");
-const parser = @import("parser/parser.zig");
+const core = @import("core/core.zig");
+const program = @import("compiler/program.zig");
+const execute = @import("execute/tsc.zig");
+const sys = @import("sys.zig");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const sourceText = 
-        \\function add(x: number, y: number): number {
-        \\    return x + y;
-        \\}
-        \\let a: number = 42;
-        \\let b = 100;
-        \\class Calculator {
-        \\    result: number;
-        \\    compute() {
-        \\        let z = a + b;
-        \\    }
-        \\}
-    ;
+    var osSys = sys.OsSystem.init(allocator);
+    var system = osSys.sys();
 
-    var p = parser.Parser.init(allocator, sourceText);
-    defer p.deinit();
+    // Setup args
+    const argsList: [][]const u8 = &[_][]const u8{};
 
-    const astIndex = try p.parseSourceFile();
-    _ = astIndex;
-
+    const result = execute.commandLine(undefined, &system, argsList, null);
+    if (result.status != .Success) {
+        std.process.exit(1);
+    }
 }
