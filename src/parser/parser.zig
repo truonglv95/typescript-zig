@@ -3012,7 +3012,7 @@ pub const Parser = struct {
         if (self.token == t) {
             const tokenKind = self.token;
             self.nextToken();
-            return self.ast.pushNode(.{ .Token = .{ .Kind = tokenKind } }) catch 0;
+            return self.ast.pushTokenNode(tokenKind) catch 0;
         }
         return 0;
     }

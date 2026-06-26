@@ -7,6 +7,17 @@ comptime {
     _ = capi.zig_ts_parse;
 }
 
+// Export for internal tools (cmd/*)
+pub const parser_pkg = @import("parser/parser.zig");
+pub const printer_pkg = @import("printer/printer.zig");
+pub const factory = @import("printer/factory.zig");
+pub const emitcontext = @import("printer/emitcontext.zig");
+pub const textwriter = @import("printer/textwriter.zig");
+pub const transformers_pkg = @import("transformers/transformers.zig");
+pub const typeeraser = @import("transformers/tstransforms/typeeraser.zig");
+pub const core = @import("core/core.zig");
+pub const emitresolver = @import("printer/emitresolver.zig");
+
 test {
     _ = @import("ast/kind.zig");
     _ = @import("ast/ast.zig");
@@ -105,8 +116,8 @@ test "basic parser integration" {
 
 test "basic printer" {
     const parser = @import("parser/parser.zig");
-    const printer_pkg = @import("printer/printer.zig");
-    _ = printer_pkg;
+    const p_pkg = @import("printer/printer.zig");
+    _ = p_pkg;
 
     const sourceText =
         \\function greet(name: string): string {
