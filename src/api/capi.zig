@@ -348,6 +348,12 @@ pub export fn zig_ts_get_binder_state(
                         if (k[k_i] == 0xFE) {
                             out_k.appendSlice(arena_alloc, "__") catch return -3;
                             k_i += 1;
+                        } else if (k[k_i] == '"') {
+                            out_k.appendSlice(arena_alloc, "\\\"") catch return -3;
+                            k_i += 1;
+                        } else if (k[k_i] == '\\') {
+                            out_k.appendSlice(arena_alloc, "\\\\") catch return -3;
+                            k_i += 1;
                         } else {
                             out_k.append(arena_alloc, k[k_i]) catch return -3;
                             k_i += 1;

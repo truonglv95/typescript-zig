@@ -223,6 +223,9 @@ pub fn hasSyntacticModifier(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex, flag: u32
                 .DefaultKeyword => {
                     if ((flag & ModifierFlags.Default) != 0) return true;
                 },
+                .ConstKeyword => {
+                    if ((flag & ModifierFlags.Const) != 0) return true;
+                },
                 else => {},
             }
         }
@@ -479,9 +482,31 @@ pub fn isGlobalScopeAugmentation(astTree: *@import("ast.zig").Ast, nodeIndex: @i
 }
 pub const ModuleInstanceState = enum {
     NonInstantiated,
-    Instantiated,
     ConstEnumOnly,
+    Instantiated,
     Unknown,
+};
+
+const AncestorsArray = struct {
+    items: [256]ast_gen.NodeIndex,
+    len: usize,
+
+    pub fn append(self: *@This(), value: ast_gen.NodeIndex) void {
+        if (self.len < self.items.len) {
+            self.items[self.len] = value;
+            self.len += 1;
+        }
+    }
+
+    pub fn appendSlice(self: *@This(), s: []const ast_gen.NodeIndex) void {
+        for (s) |item| {
+            self.append(item);
+        }
+    }
+
+    pub fn slice(self: *const @This()) []const ast_gen.NodeIndex {
+        return self.items[0..self.len];
+    }
 };
 
 pub fn getModuleInstanceState(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ModuleInstanceState {
@@ -489,17 +514,26 @@ pub fn getModuleInstanceState(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) Modu
     if (node != .ModuleDeclaration) return .Instantiated;
     const body = tree.getNode(nodeIndex).ModuleDeclaration.Body;
     if (body) |b| {
-        return getModuleInstanceStateCached(tree, b);
+        var ancestors: AncestorsArray = .{ .items = undefined, .len = 0 };
+        ancestors.append(nodeIndex);
+        var visited: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ModuleInstanceState) = .empty;
+        defer visited.deinit(tree.allocator);
+        return getModuleInstanceStateCached(tree, b, &ancestors, &visited);
     }
     return .Instantiated;
 }
 
-fn getModuleInstanceStateCached(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ModuleInstanceState {
-    // Basic implementation that avoids caching/recursion limit for now
-    return getModuleInstanceStateWorker(tree, nodeIndex);
+fn getModuleInstanceStateCached(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, ancestors: *AncestorsArray, visited: *std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ModuleInstanceState)) ModuleInstanceState {
+    if (visited.get(nodeIndex)) |state| {
+        return state;
+    }
+    visited.put(tree.allocator, nodeIndex, .NonInstantiated) catch {};
+    const state = getModuleInstanceStateWorker(tree, nodeIndex, ancestors, visited);
+    visited.put(tree.allocator, nodeIndex, state) catch {};
+    return state;
 }
 
-fn getModuleInstanceStateWorker(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ModuleInstanceState {
+fn getModuleInstanceStateWorker(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, ancestors: *AncestorsArray, visited: *std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ModuleInstanceState)) ModuleInstanceState {
     const node = tree.getNode(nodeIndex);
     switch (node) {
         .InterfaceDeclaration, .TypeAliasDeclaration, .JSTypeAliasDeclaration => return .NonInstantiated,
@@ -511,23 +545,152 @@ fn getModuleInstanceStateWorker(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) Mo
             if (!hasSyntacticModifier(tree, nodeIndex, ModifierFlags.Export)) return .NonInstantiated;
             return .Instantiated;
         },
-        .ExportDeclaration => {
-            // Simplified for now
+        .ExportDeclaration => |n| {
+            if (n.ModuleSpecifier == null or n.ModuleSpecifier.? == 0) {
+                if (n.ExportClause != null and n.ExportClause.? != 0) {
+                    const exportClauseNode = tree.getNode(n.ExportClause.?);
+                    if (exportClauseNode == .NamedExports) {
+                        var state: ModuleInstanceState = .NonInstantiated;
+                        const save_len = ancestors.len;
+                        ancestors.append(nodeIndex);
+                        ancestors.append(n.ExportClause.?);
+                        defer ancestors.len = save_len;
+
+                        const elements = exportClauseNode.NamedExports.Elements;
+                        if (elements != 0) {
+                            for (tree.getNodeList(elements)) |specifier| {
+                                const specifierState = getModuleInstanceStateForAliasTarget(tree, specifier, ancestors, visited);
+                                if (@intFromEnum(specifierState) > @intFromEnum(state)) {
+                                    state = specifierState;
+                                }
+                                if (state == .Instantiated) return state;
+                            }
+                        }
+                        return state;
+                    }
+                }
+            }
             return .Instantiated;
         },
         .ModuleBlock => {
             var state: ModuleInstanceState = .NonInstantiated;
             const block = tree.getNode(nodeIndex).ModuleBlock;
+            const save_len = ancestors.len;
+            ancestors.append(nodeIndex);
+            defer ancestors.len = save_len;
             for (tree.getNodeList(block.Statements)) |stmt| {
-                const childState = getModuleInstanceStateCached(tree, stmt);
+                const childState = getModuleInstanceStateCached(tree, stmt, ancestors, visited);
                 if (childState == .Instantiated) return .Instantiated;
                 if (childState == .ConstEnumOnly) state = .ConstEnumOnly;
             }
             return state;
         },
-        .ModuleDeclaration => return getModuleInstanceState(tree, nodeIndex),
+        .ModuleDeclaration => |n| {
+            if (n.Body) |b| {
+                const save_len = ancestors.len;
+                ancestors.append(nodeIndex);
+                defer ancestors.len = save_len;
+                return getModuleInstanceStateCached(tree, b, ancestors, visited);
+            }
+            return .Instantiated;
+        },
         else => return .Instantiated,
     }
+}
+
+fn getModuleInstanceStateForAliasTarget(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, ancestors: *AncestorsArray, visited: *std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ModuleInstanceState)) ModuleInstanceState {
+    const nameIndex = getPropertyNameOrName(tree, nodeIndex);
+    if (nameIndex == 0 or tree.getNode(nameIndex) != .Identifier) {
+        return .Instantiated;
+    }
+
+    var current_node = nodeIndex;
+    var i: usize = ancestors.len;
+    while (true) {
+        var p: ast_gen.NodeIndex = 0;
+        if (i > 0) {
+            i -= 1;
+            p = ancestors.items[i];
+        } else {
+            p = tree.getNodeParent(current_node);
+        }
+        if (p == 0) break;
+        current_node = p;
+
+        const parentNode = tree.getNode(p);
+        if (parentNode == .Block or parentNode == .ModuleBlock or parentNode == .SourceFile) {
+            var found: ModuleInstanceState = .Unknown;
+            const statements = switch (parentNode) {
+                .Block => parentNode.Block.Statements,
+                .ModuleBlock => parentNode.ModuleBlock.Statements,
+                .SourceFile => parentNode.SourceFile.Statements,
+                else => 0,
+            };
+            if (statements != 0) {
+                var new_ancestors: AncestorsArray = .{ .items = undefined, .len = 0 };
+                new_ancestors.appendSlice(ancestors.items[0..i]);
+                new_ancestors.append(p);
+
+                const stmtList = tree.getNodeList(statements);
+                for (stmtList) |stmt| {
+                    if (nodeHasName(tree, stmt, nameIndex)) {
+                        const state = getModuleInstanceStateCached(tree, stmt, &new_ancestors, visited);
+                        if (found == .Unknown or @intFromEnum(state) > @intFromEnum(found)) {
+                            found = state;
+                        }
+                        if (found == .Instantiated) return found;
+                        if (tree.getNode(stmt) == .ImportEqualsDeclaration) {
+                            found = .Instantiated;
+                        }
+                    }
+                }
+            }
+            if (found != .Unknown) return found;
+        }
+    }
+    return .Instantiated;
+}
+
+fn getPropertyNameOrName(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .ObjectLiteralExpression => return 0,
+        .ExportSpecifier => |n| return if (n.PropertyName != null and n.PropertyName.? != 0) n.PropertyName.? else n.name,
+        .ImportSpecifier => |n| return if (n.PropertyName != null and n.PropertyName.? != 0) n.PropertyName.? else n.name,
+        .PropertyAssignment => |n| return n.name,
+        .ShorthandPropertyAssignment => |n| return n.name,
+        .PropertyDeclaration => |n| return n.name,
+        .MethodDeclaration => |n| return n.name,
+        .GetAccessor => |n| return n.name,
+        .SetAccessor => |n| return n.name,
+        .EnumMember => |n| return n.name,
+        .PropertySignature => |n| return n.name,
+        .MethodSignature => |n| return n.name,
+        .ClassDeclaration => |n| return if (n.name) |n_idx| n_idx else 0,
+        .FunctionDeclaration => |n| return if (n.name) |n_idx| n_idx else 0,
+        .VariableDeclaration => |n| return n.name,
+        .Parameter => |n| return n.name,
+        .ModuleDeclaration => |n| return n.name,
+        .ImportEqualsDeclaration => |n| return n.name,
+        .TypeAliasDeclaration => |n| return n.name,
+        .InterfaceDeclaration => |n| return n.name,
+        .EnumDeclaration => |n| return n.name,
+        .TypeParameter => |n| return n.name,
+        .BindingElement => |n| return if (n.PropertyName != null and n.PropertyName.? != 0) n.PropertyName.? else if (n.name) |n_idx| n_idx else 0,
+        else => return 0,
+    }
+}
+
+fn nodeHasName(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, nameIndex: ast_gen.NodeIndex) bool {
+    if (tree.getNode(nameIndex) == .Identifier) {
+        const nodeName = getPropertyNameOrName(tree, nodeIndex);
+        if (nodeName != 0 and tree.getNode(nodeName) == .Identifier) {
+            const id1 = getText(tree, nameIndex);
+            const id2 = getText(tree, nodeName);
+            return std.mem.eql(u8, id1, id2);
+        }
+    }
+    return false;
 }
 
 pub fn unescapeIdentifier(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
@@ -1412,6 +1575,14 @@ pub fn isStringLiteralLike(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) boo
 pub fn isBooleanLiteral(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const node = tree.getNode(nodeIndex);
     return node == .TrueKeyword or node == .FalseKeyword;
+}
+
+pub fn isLocalsContainer(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .SourceFile, .Block, .ModuleBlock, .CatchClause, .ForStatement, .ForInStatement, .ForOfStatement, .WithStatement, .ClassDeclaration, .ClassExpression, .FunctionDeclaration, .FunctionExpression, .ArrowFunction, .MethodDeclaration, .MethodSignature, .GetAccessor, .SetAccessor, .Constructor, .TypeAliasDeclaration, .InterfaceDeclaration, .EnumDeclaration, .ModuleDeclaration, .MappedType, .JsxElement, .JsxFragment => return true,
+        else => return false,
+    }
 }
 
 pub fn skipParentheses(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {

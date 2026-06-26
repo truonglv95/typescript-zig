@@ -71,6 +71,7 @@ pub const Binder = struct {
     nodeLocals: std.AutoHashMap(ast_gen.NodeIndex, std.StringHashMap(ast_gen.SymbolIndex)),
     symbolExports: std.AutoHashMap(ast_gen.SymbolIndex, std.StringHashMap(ast_gen.SymbolIndex)),
     symbolMembers: std.AutoHashMap(ast_gen.SymbolIndex, std.StringHashMap(ast_gen.SymbolIndex)),
+    notConstEnumOnlyModules: std.AutoHashMap(ast_gen.SymbolIndex, void),
 
     diagnosticsList: std.ArrayListUnmanaged(diagnostics.Diagnostic) = .empty,
     expandoAssignments: std.ArrayListUnmanaged(ExpandoAssignmentInfo) = .empty,
@@ -108,6 +109,7 @@ pub const Binder = struct {
             .nodeLocals = std.AutoHashMap(ast_gen.NodeIndex, std.StringHashMap(ast_gen.SymbolIndex)).init(allocator),
             .symbolExports = std.AutoHashMap(ast_gen.SymbolIndex, std.StringHashMap(ast_gen.SymbolIndex)).init(allocator),
             .symbolMembers = std.AutoHashMap(ast_gen.SymbolIndex, std.StringHashMap(ast_gen.SymbolIndex)).init(allocator),
+            .notConstEnumOnlyModules = std.AutoHashMap(ast_gen.SymbolIndex, void).init(allocator),
             .parentNodeIndex = 0,
             .parent = null,
             .container = null,
@@ -148,6 +150,7 @@ pub const Binder = struct {
         }
         self.symbolMembers.deinit();
 
+        self.notConstEnumOnlyModules.deinit();
         self.diagnosticsList.deinit(self.allocator);
         self.expandoAssignments.deinit(self.allocator);
         self.flowNodes.deinit(self.allocator);
@@ -606,11 +609,12 @@ pub const Binder = struct {
                     try self.bind(n.name);
                 }
                 if (n.Type) |t| try self.bind(t);
+                if (n.Initializer != 0) try self.bind(n.Initializer);
                 try self.bindVariableDeclarationFlow(nodeIndex);
             },
             .FunctionDeclaration => |n| {
                 self.checkStrictModeFunctionName(nodeIndex);
-                const nameStr = if (n.name != null and n.name.? != 0) self.getIdentifierName(n.name.?) else if (ast_utils.hasSyntacticModifier(self.ast, nodeIndex, ast_utils.ModifierFlags.Default)) symbol.InternalSymbolNameDefault else symbol.InternalSymbolNameMissing;
+                const nameStr = if (n.name != null and n.name.? != 0) self.getIdentifierName(n.name.?) else symbol.InternalSymbolNameMissing;
                 _ = try self.bindBlockScopedDeclaration(nodeIndex, symbol.SymbolFlags.Function, symbol.SymbolFlags.FunctionExcludes, nameStr);
 
                 const saveContainer = self.container;
@@ -691,7 +695,7 @@ pub const Binder = struct {
                 self.blockScopeContainer = saveBlockScopeContainer;
             },
             .ClassDeclaration => |n| {
-                const nameStr = if (n.name != null and n.name.? != 0) self.getIdentifierName(n.name.?) else if (ast_utils.hasSyntacticModifier(self.ast, nodeIndex, ast_utils.ModifierFlags.Default)) "default" else symbol.InternalSymbolNameMissing;
+                const nameStr = if (n.name != null and n.name.? != 0) self.getIdentifierName(n.name.?) else symbol.InternalSymbolNameMissing;
                 _ = try self.bindBlockScopedDeclaration(nodeIndex, symbol.SymbolFlags.Class, symbol.SymbolFlags.ClassExcludes, nameStr);
                 const classSymbolId = self.ast.getNodeSymbol(nodeIndex).?;
 
@@ -797,7 +801,21 @@ pub const Binder = struct {
                 const instantiated = state != .NonInstantiated;
                 const flags = if (instantiated) symbol.SymbolFlags.ValueModule else symbol.SymbolFlags.NamespaceModule;
                 const excludes = if (instantiated) symbol.SymbolFlags.ValueModuleExcludes else symbol.SymbolFlags.NamespaceModuleExcludes;
-                _ = try self.declareSymbolAndAddToSymbolTable(nodeIndex, flags, excludes, nameStr);
+                const symIndex = try self.declareSymbolAndAddToSymbolTable(nodeIndex, flags, excludes, nameStr);
+
+                if (instantiated) {
+                    var sym = &self.symbols.items[symIndex];
+                    const constEnumOnlyModule = (sym.Flags & (symbol.SymbolFlags.Function | symbol.SymbolFlags.Class | symbol.SymbolFlags.RegularEnum) == 0) and
+                        state == .ConstEnumOnly and
+                        !self.notConstEnumOnlyModules.contains(symIndex);
+
+                    if (constEnumOnlyModule) {
+                        sym.Flags |= symbol.SymbolFlags.ConstEnumOnlyModule;
+                    } else {
+                        sym.Flags &= ~symbol.SymbolFlags.ConstEnumOnlyModule;
+                        try self.notConstEnumOnlyModules.put(symIndex, {});
+                    }
+                }
                 // if (allocated_name) |an| {
                 //     self.allocator.free(an);
                 // }
@@ -1178,7 +1196,7 @@ pub const Binder = struct {
                         flags = symbol.SymbolFlags.Alias;
                     }
                 }
-                const excludes = symbol.SymbolFlags.None;
+                const excludes = symbol.SymbolFlags.All;
                 if (n.IsExportEquals != 0) {
                     _ = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, excludes, symbol.InternalSymbolNameExportEquals, false, false);
                 } else {
@@ -1854,13 +1872,18 @@ pub const Binder = struct {
         if (!ast_utils.isAmbientModule(self.ast, nodeIndex) and (hasExportModifier or isExportContext)) {
             const isDefaultExport = ast_utils.hasSyntacticModifier(self.ast, nodeIndex, ast_utils.ModifierFlags.Default);
             const exportKind = if ((flags & symbol.SymbolFlags.Value) != 0) symbol.SymbolFlags.ExportValue else symbol.SymbolFlags.None;
-            // For "export default class X" or "export default function foo", the export symbol name should be "default"
-            // but the local symbol name (if any) remains the original name
             const exportName = if (isDefaultExport) symbol.InternalSymbolNameDefault else name;
+
+            if (!ast_utils.isLocalsContainer(self.ast, self.container.?) or (isDefaultExport and std.mem.eql(u8, name, symbol.InternalSymbolNameMissing))) {
+                const containerSym = self.ast.getNodeSymbol(self.container.?) orelse 0;
+                return try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, excludes, exportName, false, false);
+            }
+
             const local = try self.declareSymbolEx(.Locals, self.container.?, nodeIndex, exportKind, excludes, name, false, false);
             const containerSym = self.ast.getNodeSymbol(self.container.?) orelse 0;
-            const exportSymbol = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, excludes, exportName, false, false);
-            self.symbols.items[local].ExportSymbol = exportSymbol;
+            const exportSym = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, excludes, exportName, false, false);
+            const localSymbol = &self.symbols.items[local];
+            localSymbol.ExportSymbol = exportSym;
             try self.ast.localSymbols.put(self.allocator, nodeIndex, local);
             return local;
         }
@@ -1872,6 +1895,29 @@ pub const Binder = struct {
         _ = isComputedName;
 
         var existingSymIndex: ?ast_gen.SymbolIndex = null;
+
+        if (std.mem.eql(u8, name, symbol.InternalSymbolNameMissing)) {
+            const symIndex: ast_gen.SymbolIndex = @intCast(self.symbols.items.len);
+            try self.symbols.append(self.allocator, .{
+                .Flags = flags,
+                .Name = try self.allocator.dupe(u8, name),
+                .Declarations = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty,
+                .ValueDeclaration = if ((flags & symbol.SymbolFlags.Value) != 0 and nodeIndex != 0) nodeIndex else null,
+                .Members = symbol.SymbolTable.empty,
+                .Exports = symbol.SymbolTable.empty,
+                .Parent = null,
+                .ExportSymbol = null,
+            });
+            if (nodeIndex != 0) {
+                var sym = &self.symbols.items[symIndex];
+                try sym.Declarations.append(self.allocator, nodeIndex);
+            }
+            self.symbolCount += 1;
+            if (nodeIndex != 0) {
+                self.ast.setNodeSymbol(nodeIndex, symIndex);
+            }
+            return symIndex;
+        }
 
         switch (tableType) {
             .Locals => {
@@ -2419,14 +2465,19 @@ pub const Binder = struct {
     pub fn bindDestructuringAssignmentFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
         const expr = self.ast.getNode(nodeIndex).BinaryExpression;
         if (self.inAssignmentPattern) {
-            try self.bindAssignmentTargetFlow(expr.Left);
-        } else {
-            const saveInAssignmentPattern = self.inAssignmentPattern;
+            self.inAssignmentPattern = false;
+            try self.bind(expr.OperatorToken);
+            try self.bind(expr.Right);
             self.inAssignmentPattern = true;
-            try self.bindAssignmentTargetFlow(expr.Left);
-            self.inAssignmentPattern = saveInAssignmentPattern;
+            try self.bind(expr.Left);
+        } else {
+            self.inAssignmentPattern = true;
+            try self.bind(expr.Left);
+            self.inAssignmentPattern = false;
+            try self.bind(expr.OperatorToken);
+            try self.bind(expr.Right);
         }
-        try self.bind(expr.Right);
+        try self.bindAssignmentTargetFlow(expr.Left);
     }
 
     pub fn bindBinaryExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
