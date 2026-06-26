@@ -5,5 +5,5 @@ pub const Message = generated.Message;
 pub const Diagnostic = struct {
     message: *const Message,
     nodeIndex: u32,
-    args: [][]const u8 = &[_][]const u8{},
+    args: []const []const u8 = &[_][]const u8{},
 };

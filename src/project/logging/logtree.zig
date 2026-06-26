@@ -7,14 +7,23 @@ pub const LogEntry = struct {
     child: ?*LogTree,
 };
 
+pub const Mutex = struct {
+    pub fn lock(self: *Mutex) void {
+        _ = self;
+    }
+    pub fn unlock(self: *Mutex) void {
+        _ = self;
+    }
+};
+
 pub const LogTree = struct {
     name: []const u8,
-    mu: std.Thread.Mutex = .{},
+    mu: Mutex = .{},
     logs: std.ArrayList(*LogEntry),
     root: *LogTree,
     level: usize = 0,
     verbose: bool = false,
-    
+
     count: std.atomic.Value(i32) = std.atomic.Value(i32).init(0),
     stringLength: std.atomic.Value(i32) = std.atomic.Value(i32).init(0),
     allocator: std.mem.Allocator,
@@ -23,7 +32,7 @@ pub const LogTree = struct {
         const tree = try allocator.create(LogTree);
         tree.* = .{
             .name = name,
-            .logs = std.ArrayList(*LogEntry).init(allocator),
+            .logs = std.ArrayList(*LogEntry).empty,
             .root = tree,
             .allocator = allocator,
         };
@@ -35,7 +44,7 @@ pub const LogTree = struct {
         _ = self.root.count.fetchAdd(1, .monotonic);
         self.mu.lock();
         defer self.mu.unlock();
-        self.logs.append(logEntry) catch @panic("OOM");
+        self.logs.append(self.allocator, logEntry) catch @panic("OOM");
     }
 
     pub fn log(self: *LogTree, message: []const u8) void {
@@ -48,7 +57,7 @@ pub const LogTree = struct {
         };
         self.add(entry);
     }
-    
+
     pub fn embed(self: *LogTree, logs: *LogTree) void {
         const c = logs.count.load(.monotonic);
         _ = self.root.stringLength.fetchAdd(logs.stringLength.load(.monotonic) + c * @as(i32, @intCast(self.level)), .monotonic);
@@ -67,7 +76,7 @@ pub const LogTree = struct {
         const child = try self.allocator.create(LogTree);
         child.* = .{
             .name = message,
-            .logs = std.ArrayList(*LogEntry).init(self.allocator),
+            .logs = std.ArrayList(*LogEntry).empty,
             .root = self.root,
             .level = self.level + 1,
             .verbose = self.verbose,
@@ -76,7 +85,7 @@ pub const LogTree = struct {
         const entry = try self.allocator.create(LogEntry);
         entry.* = .{
             .seq = 0,
-            .time = std.time.milliTimestamp(),
+            .time = 0,
             .message = self.allocator.dupe(u8, message) catch @panic("OOM"),
             .child = child,
         };

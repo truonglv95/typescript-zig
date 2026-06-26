@@ -1857,6 +1857,261 @@ pub fn forEachChild(tree: *Ast, nodeIndex: ast_gen.NodeIndex, visitor: anytype) 
                 if (n.ThisArg) |child| try visitor.visitNode(child);
             }
         },
-        else => {}
+        .TypeReference => |n| {
+            if (@TypeOf(n.TypeArguments) == u32) {
+                if (n.TypeArguments != 0) try visitor.visitList(n.TypeArguments);
+            } else {
+                if (n.TypeArguments) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.TypeName) == u32) {
+                if (n.TypeName != 0) try visitor.visitNode(n.TypeName);
+            } else {
+                if (n.TypeName) |child| try visitor.visitNode(child);
+            }
+        },
+        .FunctionType => |n| {
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.Parameters) == u32) {
+                if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            } else {
+                if (n.Parameters) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.FullSignature) == u32) {
+                if (n.FullSignature != 0) try visitor.visitNode(n.FullSignature);
+            } else {
+                if (n.FullSignature) |child| try visitor.visitNode(child);
+            }
+        },
+        .ConstructorType => |n| {
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.Parameters) == u32) {
+                if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            } else {
+                if (n.Parameters) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.FullSignature) == u32) {
+                if (n.FullSignature != 0) try visitor.visitNode(n.FullSignature);
+            } else {
+                if (n.FullSignature) |child| try visitor.visitNode(child);
+            }
+        },
+        .TypeQuery => |n| {
+            if (@TypeOf(n.TypeArguments) == u32) {
+                if (n.TypeArguments != 0) try visitor.visitList(n.TypeArguments);
+            } else {
+                if (n.TypeArguments) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.ExprName) == u32) {
+                if (n.ExprName != 0) try visitor.visitNode(n.ExprName);
+            } else {
+                if (n.ExprName) |child| try visitor.visitNode(child);
+            }
+        },
+        .TypeLiteral => |n| {
+            if (@TypeOf(n.Members) == u32) {
+                if (n.Members != 0) try visitor.visitList(n.Members);
+            } else {
+                if (n.Members) |child| try visitor.visitList(child);
+            }
+        },
+        .ArrayType => |n| {
+            if (@TypeOf(n.ElementType) == u32) {
+                if (n.ElementType != 0) try visitor.visitNode(n.ElementType);
+            } else {
+                if (n.ElementType) |child| try visitor.visitNode(child);
+            }
+        },
+        .TupleType => |n| {
+            if (@TypeOf(n.Elements) == u32) {
+                if (n.Elements != 0) try visitor.visitList(n.Elements);
+            } else {
+                if (n.Elements) |child| try visitor.visitList(child);
+            }
+        },
+        .OptionalType => |n| {
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+        },
+        .RestType => |n| {
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+        },
+        .UnionType => |n| {
+            if (@TypeOf(n.Types) == u32) {
+                if (n.Types != 0) try visitor.visitList(n.Types);
+            } else {
+                if (n.Types) |child| try visitor.visitList(child);
+            }
+        },
+        .IntersectionType => |n| {
+            if (@TypeOf(n.Types) == u32) {
+                if (n.Types != 0) try visitor.visitList(n.Types);
+            } else {
+                if (n.Types) |child| try visitor.visitList(child);
+            }
+        },
+        .ConditionalType => |n| {
+            if (@TypeOf(n.CheckType) == u32) {
+                if (n.CheckType != 0) try visitor.visitNode(n.CheckType);
+            } else {
+                if (n.CheckType) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.ExtendsType) == u32) {
+                if (n.ExtendsType != 0) try visitor.visitNode(n.ExtendsType);
+            } else {
+                if (n.ExtendsType) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.TrueType) == u32) {
+                if (n.TrueType != 0) try visitor.visitNode(n.TrueType);
+            } else {
+                if (n.TrueType) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.FalseType) == u32) {
+                if (n.FalseType != 0) try visitor.visitNode(n.FalseType);
+            } else {
+                if (n.FalseType) |child| try visitor.visitNode(child);
+            }
+        },
+        .InferType => |n| {
+            if (@TypeOf(n.TypeParameter) == u32) {
+                if (n.TypeParameter != 0) try visitor.visitNode(n.TypeParameter);
+            } else {
+                if (n.TypeParameter) |child| try visitor.visitNode(child);
+            }
+        },
+        .ParenthesizedType => |n| {
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+        },
+        .TypeOperator => |n| {
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+        },
+        .IndexedAccessType => |n| {
+            if (@TypeOf(n.ObjectType) == u32) {
+                if (n.ObjectType != 0) try visitor.visitNode(n.ObjectType);
+            } else {
+                if (n.ObjectType) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.IndexType) == u32) {
+                if (n.IndexType != 0) try visitor.visitNode(n.IndexType);
+            } else {
+                if (n.IndexType) |child| try visitor.visitNode(child);
+            }
+        },
+        .MappedType => |n| {
+            if (@TypeOf(n.ReadonlyToken) == u32) {
+                if (n.ReadonlyToken != 0) try visitor.visitNode(n.ReadonlyToken);
+            } else {
+                if (n.ReadonlyToken) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.TypeParameter) == u32) {
+                if (n.TypeParameter != 0) try visitor.visitNode(n.TypeParameter);
+            } else {
+                if (n.TypeParameter) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.NameType) == u32) {
+                if (n.NameType != 0) try visitor.visitNode(n.NameType);
+            } else {
+                if (n.NameType) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.QuestionToken) == u32) {
+                if (n.QuestionToken != 0) try visitor.visitNode(n.QuestionToken);
+            } else {
+                if (n.QuestionToken) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Members) == u32) {
+                if (n.Members != 0) try visitor.visitList(n.Members);
+            } else {
+                if (n.Members) |child| try visitor.visitList(child);
+            }
+        },
+        .LiteralType => |n| {
+            if (@TypeOf(n.Literal) == u32) {
+                if (n.Literal != 0) try visitor.visitNode(n.Literal);
+            } else {
+                if (n.Literal) |child| try visitor.visitNode(child);
+            }
+        },
+        .TemplateLiteralType => |n| {
+            if (@TypeOf(n.Head) == u32) {
+                if (n.Head != 0) try visitor.visitNode(n.Head);
+            } else {
+                if (n.Head) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.TemplateSpans) == u32) {
+                if (n.TemplateSpans != 0) try visitor.visitList(n.TemplateSpans);
+            } else {
+                if (n.TemplateSpans) |child| try visitor.visitList(child);
+            }
+        },
+        .ImportType => |n| {
+            if (@TypeOf(n.TypeArguments) == u32) {
+                if (n.TypeArguments != 0) try visitor.visitList(n.TypeArguments);
+            } else {
+                if (n.TypeArguments) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.Argument) == u32) {
+                if (n.Argument != 0) try visitor.visitNode(n.Argument);
+            } else {
+                if (n.Argument) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Attributes) == u32) {
+                if (n.Attributes != 0) try visitor.visitNode(n.Attributes);
+            } else {
+                if (n.Attributes) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Qualifier) == u32) {
+                if (n.Qualifier != 0) try visitor.visitNode(n.Qualifier);
+            } else {
+                if (n.Qualifier) |child| try visitor.visitNode(child);
+            }
+        },
+        else => {},
     }
 }

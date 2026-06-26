@@ -7,37 +7,7 @@ pub fn isLeftHandSideExpression(p: *parser_pkg.Parser, expr: ast_gen.NodeIndex) 
     if (expr == 0) return false;
     const node = p.ast.nodes.get(expr);
     return switch (node) {
-        .PropertyAccessExpression,
-        .ElementAccessExpression,
-        .NewExpression,
-        .CallExpression,
-        .JsxElement,
-        .JsxSelfClosingElement,
-        .JsxFragment,
-        .TaggedTemplateExpression,
-        .ArrayLiteralExpression,
-        .ParenthesizedExpression,
-        .ObjectLiteralExpression,
-        .ClassExpression,
-        .FunctionExpression,
-        .Identifier,
-        .PrivateIdentifier,
-        .RegularExpressionLiteral,
-        .NumericLiteral,
-        .BigIntLiteral,
-        .StringLiteral,
-        .NoSubstitutionTemplateLiteral,
-        .TemplateExpression,
-        .FalseKeyword,
-        .NullKeyword,
-        .ThisKeyword,
-        .TrueKeyword,
-        .SuperKeyword,
-        .NonNullExpression,
-        .ExpressionWithTypeArguments,
-        .MetaProperty,
-        .ImportKeyword,
-        .MissingDeclaration => true,
+        .PropertyAccessExpression, .ElementAccessExpression, .NewExpression, .CallExpression, .JsxElement, .JsxSelfClosingElement, .JsxFragment, .TaggedTemplateExpression, .ArrayLiteralExpression, .ParenthesizedExpression, .ObjectLiteralExpression, .ClassExpression, .FunctionExpression, .Identifier, .PrivateIdentifier, .RegularExpressionLiteral, .NumericLiteral, .BigIntLiteral, .StringLiteral, .NoSubstitutionTemplateLiteral, .TemplateExpression, .FalseKeyword, .NullKeyword, .ThisKeyword, .TrueKeyword, .SuperKeyword, .NonNullExpression, .ExpressionWithTypeArguments, .MetaProperty, .ImportKeyword, .MissingDeclaration => true,
         else => false,
     };
 }
@@ -95,47 +65,30 @@ pub fn parseExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
         if (!p.parseOptional(kind.Kind.CommaToken)) {
             break;
         }
-        
+
         const opNodeIndex = try p.ast.pushNode(.{ .CommaToken = void{} });
         const right = try parseAssignmentExpressionOrHigher(p);
-        
+
         // Push CommaListExpression or BinaryExpression with Comma
-        expr = try p.ast.pushNode(.{
-            .BinaryExpression = .{
-                .Flags = 0,
-                .Symbol = 0,
-                .modifiers = null,
-                .modifierFlags = 0,
-                .Left = expr,
-                .Type = null,
-                .OperatorToken = opNodeIndex,
-                .Right = right,
-                .linesBeforeOperator = 0,
-                .linesAfterOperator = 0,
-            }
-        });
+        expr = try p.ast.pushNode(.{ .BinaryExpression = .{
+            .Flags = 0,
+            .Symbol = 0,
+            .modifiers = null,
+            .modifierFlags = 0,
+            .Left = expr,
+            .Type = null,
+            .OperatorToken = opNodeIndex,
+            .Right = right,
+            .linesBeforeOperator = 0,
+            .linesAfterOperator = 0,
+        } });
     }
     return expr;
 }
 
 pub fn isAssignmentOperator(token: kind.Kind) bool {
     return switch (token) {
-        kind.Kind.EqualsToken,
-        kind.Kind.PlusEqualsToken,
-        kind.Kind.MinusEqualsToken,
-        kind.Kind.AsteriskAsteriskEqualsToken,
-        kind.Kind.AsteriskEqualsToken,
-        kind.Kind.SlashEqualsToken,
-        kind.Kind.PercentEqualsToken,
-        kind.Kind.LessThanLessThanEqualsToken,
-        kind.Kind.GreaterThanGreaterThanEqualsToken,
-        kind.Kind.GreaterThanGreaterThanGreaterThanEqualsToken,
-        kind.Kind.AmpersandEqualsToken,
-        kind.Kind.BarEqualsToken,
-        kind.Kind.BarBarEqualsToken,
-        kind.Kind.AmpersandAmpersandEqualsToken,
-        kind.Kind.QuestionQuestionEqualsToken,
-        kind.Kind.CaretEqualsToken => true,
+        kind.Kind.EqualsToken, kind.Kind.PlusEqualsToken, kind.Kind.MinusEqualsToken, kind.Kind.AsteriskAsteriskEqualsToken, kind.Kind.AsteriskEqualsToken, kind.Kind.SlashEqualsToken, kind.Kind.PercentEqualsToken, kind.Kind.LessThanLessThanEqualsToken, kind.Kind.GreaterThanGreaterThanEqualsToken, kind.Kind.GreaterThanGreaterThanGreaterThanEqualsToken, kind.Kind.AmpersandEqualsToken, kind.Kind.BarEqualsToken, kind.Kind.BarBarEqualsToken, kind.Kind.AmpersandAmpersandEqualsToken, kind.Kind.QuestionQuestionEqualsToken, kind.Kind.CaretEqualsToken => true,
         else => false,
     };
 }
@@ -148,14 +101,14 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
         if (p.parseOptional(kind.Kind.AsteriskToken)) {
             asteriskToken = try p.ast.pushTokenNode(kind.Kind.AsteriskToken);
         }
-        
+
         var yieldExpr: ?u32 = null;
         if (!p.scanner.hasPrecedingLineBreak() and p.token != kind.Kind.ColonToken and p.token != kind.Kind.CommaToken and p.token != kind.Kind.CloseBraceToken and p.token != kind.Kind.CloseBracketToken and p.token != kind.Kind.CloseParenToken) {
             if (p.token != kind.Kind.EndOfFile) {
                 yieldExpr = try parseAssignmentExpressionOrHigher(p);
             }
         }
-        
+
         return p.ast.pushNode(.{ .YieldExpression = .{
             .Flags = 0,
             .AsteriskToken = asteriskToken,
@@ -171,7 +124,7 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
             const asyncMod = try p.ast.pushNode(.{ .AsyncKeyword = void{} });
             modifiers = try p.ast.pushNodeList(&.{asyncMod});
         }
-        
+
         if (isAsync and p.scanner.hasPrecedingLineBreak()) {
             p.rewind(mark);
         } else if (isAsync and p.token == kind.Kind.Identifier and !p.scanner.hasPrecedingLineBreak()) {
@@ -186,7 +139,7 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
             }.run);
             if (isSimpleAsync) {
                 const paramExpr = try p.parseIdentifier();
-                
+
                 const param = try p.ast.pushNode(.{ .Parameter = .{
                     .Symbol = 0,
                     .Flags = 0,
@@ -239,7 +192,7 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
             if (p.parseOptional(kind.Kind.ColonToken)) {
                 returnType = p.parseTypeOrTypePredicate() catch null;
             }
-            
+
             if (!paramParseHadErrors and !p.scanner.hasPrecedingLineBreak() and p.token == kind.Kind.EqualsGreaterThanToken and parameters != null) {
                 // It IS a ParenthesizedArrowFunctionExpression!
                 p.nextToken(); // consume =>
@@ -250,7 +203,7 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
                 } else {
                     body = try parseAssignmentExpressionOrHigher(p);
                 }
-                
+
                 return p.ast.pushNode(.{ .ArrowFunction = .{
                     .Flags = 0,
                     .Symbol = 0,
@@ -269,9 +222,9 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
             }
         }
     }
-    
+
     const expr = try parseBinaryExpressionOrHigher(p, .Invalid);
-    
+
     if (p.token == kind.Kind.EqualsGreaterThanToken) {
         // Simple Arrow function (e.g. `x => x`)
         p.nextToken();
@@ -298,22 +251,24 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
         } else {
             body = try parseAssignmentExpressionOrHigher(p);
         }
-        
-        return p.ast.pushNode(.{ .ArrowFunction = .{
-            .Flags = 1 << 29, // Custom flag to indicate simple arrow head
-            .Symbol = 0,
-            .modifiers = null,
-            .modifierFlags = 0,
-            .TypeParameters = null,
-            .Parameters = parameters,
-            .Type = null,
-            .FullSignature = null,
-            .AsteriskToken = null,
-            .EqualsGreaterThanToken = equalsGreaterThanToken,
-            .Body = body,
-        } });
+
+        return p.ast.pushNode(.{
+            .ArrowFunction = .{
+                .Flags = 1 << 29, // Custom flag to indicate simple arrow head
+                .Symbol = 0,
+                .modifiers = null,
+                .modifierFlags = 0,
+                .TypeParameters = null,
+                .Parameters = parameters,
+                .Type = null,
+                .FullSignature = null,
+                .AsteriskToken = null,
+                .EqualsGreaterThanToken = equalsGreaterThanToken,
+                .Body = body,
+            },
+        });
     }
-    
+
     if (isLeftHandSideExpression(p, expr) and isAssignmentOperator(p.reScanGreaterThanToken())) {
         const opKind = p.token;
         var opTokenNode: ast_gen.NodeIndex = 0;
@@ -336,10 +291,10 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
             .QuestionQuestionEqualsToken => opTokenNode = try p.ast.pushNode(.{ .QuestionQuestionEqualsToken = void{} }),
             else => opTokenNode = try p.ast.pushTokenNode(opKind),
         }
-        
+
         p.nextToken();
         const right = try parseAssignmentExpressionOrHigher(p);
-        
+
         return p.ast.pushNode(.{ .BinaryExpression = .{
             .Flags = 0,
             .Symbol = 0,
@@ -353,7 +308,7 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
             .linesAfterOperator = 0,
         } });
     }
-    
+
     const linesBeforeQuestion: u8 = if (p.scanner.hasPrecedingLineBreak()) 1 else 0;
     if (p.parseOptional(kind.Kind.QuestionToken)) {
         const questionTokenNode = try p.ast.pushNode(.{ .QuestionToken = void{} });
@@ -364,7 +319,7 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
         const colonTokenNode = try p.ast.pushNode(.{ .ColonToken = void{} });
         const linesAfterColon: u8 = if (p.scanner.hasPrecedingLineBreak()) 1 else 0;
         const falseBranch = try parseAssignmentExpressionOrHigher(p);
-        
+
         return p.ast.pushNode(.{ .ConditionalExpression = .{
             .Flags = 0,
             .Condition = expr,
@@ -378,7 +333,7 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
             .linesAfterColon = linesAfterColon,
         } });
     }
-    
+
     return expr;
 }
 
@@ -389,14 +344,14 @@ pub fn parseBinaryExpressionOrHigher(p: *parser_pkg.Parser, precedence: Operator
     while (true) {
         const operator = p.reScanGreaterThanToken();
         const newPrecedence = getBinaryOperatorPrecedence(operator);
-        
+
         var consumeCurrentOperator = false;
         if (operator == kind.Kind.AsteriskAsteriskToken) {
             consumeCurrentOperator = @intFromEnum(newPrecedence) >= @intFromEnum(precedence);
         } else {
             consumeCurrentOperator = @intFromEnum(newPrecedence) > @intFromEnum(precedence);
         }
-        
+
         if (!consumeCurrentOperator) {
             break;
         }
@@ -449,21 +404,17 @@ pub fn parseBinaryExpressionOrHigher(p: *parser_pkg.Parser, precedence: Operator
             const typeNode = try p.parseType();
 
             if (operator == kind.Kind.SatisfiesKeyword) {
-                leftOperand = try p.ast.pushNode(.{
-                    .SatisfiesExpression = .{
-                        .Flags = 0,
-                        .Expression = leftOperand,
-                        .Type = typeNode,
-                    }
-                });
+                leftOperand = try p.ast.pushNode(.{ .SatisfiesExpression = .{
+                    .Flags = 0,
+                    .Expression = leftOperand,
+                    .Type = typeNode,
+                } });
             } else {
-                leftOperand = try p.ast.pushNode(.{
-                    .AsExpression = .{
-                        .Flags = 0,
-                        .Expression = leftOperand,
-                        .Type = typeNode,
-                    }
-                });
+                leftOperand = try p.ast.pushNode(.{ .AsExpression = .{
+                    .Flags = 0,
+                    .Expression = leftOperand,
+                    .Type = typeNode,
+                } });
             }
 
             if (@intFromEnum(getBinaryOperatorPrecedence(p.reScanGreaterThanToken())) > @intFromEnum(lastPrecedence)) {
@@ -477,37 +428,27 @@ pub fn parseBinaryExpressionOrHigher(p: *parser_pkg.Parser, precedence: Operator
         p.nextToken();
         const linesAfterOperator: u8 = if (p.scanner.hasPrecedingLineBreak()) 1 else 0;
         const rightOperand = try parseBinaryExpressionOrHigher(p, newPrecedence);
-        leftOperand = try p.ast.pushNode(.{
-            .BinaryExpression = .{
-                .Flags = 0,
-                .Symbol = 0,
-                .modifiers = null,
-                .modifierFlags = 0,
-                .Left = leftOperand,
-                .Type = null,
-                .OperatorToken = opNodeIndex,
-                .Right = rightOperand,
-                .linesBeforeOperator = linesBeforeOperator,
-                .linesAfterOperator = linesAfterOperator,
-            }
-        });
+        leftOperand = try p.ast.pushNode(.{ .BinaryExpression = .{
+            .Flags = 0,
+            .Symbol = 0,
+            .modifiers = null,
+            .modifierFlags = 0,
+            .Left = leftOperand,
+            .Type = null,
+            .OperatorToken = opNodeIndex,
+            .Right = rightOperand,
+            .linesBeforeOperator = linesBeforeOperator,
+            .linesAfterOperator = linesAfterOperator,
+        } });
         lastOperand = leftOperand;
     }
-    
+
     return leftOperand;
 }
 
 pub fn isUpdateExpression(p: *parser_pkg.Parser) bool {
     switch (p.token) {
-        kind.Kind.PlusToken,
-        kind.Kind.MinusToken,
-        kind.Kind.TildeToken,
-        kind.Kind.ExclamationToken,
-        kind.Kind.DeleteKeyword,
-        kind.Kind.TypeOfKeyword,
-        kind.Kind.VoidKeyword,
-        kind.Kind.AwaitKeyword,
-        kind.Kind.LessThanToken => return false,
+        kind.Kind.PlusToken, kind.Kind.MinusToken, kind.Kind.TildeToken, kind.Kind.ExclamationToken, kind.Kind.DeleteKeyword, kind.Kind.TypeOfKeyword, kind.Kind.VoidKeyword, kind.Kind.AwaitKeyword, kind.Kind.LessThanToken => return false,
         else => return true,
     }
 }
@@ -521,9 +462,9 @@ pub fn parseUpdateExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     } else if (p.languageVariant == .JSX and p.token == kind.Kind.LessThanToken and p.lookAhead(parser_pkg.Parser.nextTokenIsIdentifierOrKeywordOrGreaterThan)) {
         return jsx.parseJsxElementOrSelfClosingElementOrFragment(p, true, -1, null, false);
     }
-    
+
     var expression = try parseLeftHandSideExpressionOrHigher(p);
-    
+
     while (true) {
         if (p.token == kind.Kind.ExclamationToken and !p.scanner.hasPrecedingLineBreak()) {
             p.nextToken();
@@ -536,7 +477,7 @@ pub fn parseUpdateExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
             break;
         }
     }
-    
+
     return expression;
 }
 
@@ -587,14 +528,8 @@ pub fn parseSimpleUnaryExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIn
 
 pub fn parseUnaryExpressionOrHigher(p: *parser_pkg.Parser) !ast_gen.NodeIndex {
     if (isUpdateExpression(p)) {
-        const updateExpression = try parseUpdateExpression(p);
-        if (p.token == kind.Kind.AsteriskAsteriskToken) {
-            // TODO: parseBinaryExpressionRest
-            return updateExpression;
-        }
-        return updateExpression;
+        return try parseUpdateExpression(p);
     }
-    
     const simpleUnaryExpression = try parseSimpleUnaryExpression(p);
     return simpleUnaryExpression;
 }
@@ -604,13 +539,13 @@ pub fn parseMemberExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen.Nod
     return parseMemberExpressionRest(p, expr, true);
 }
 
-    fn isStartOfOptionalPropertyOrElementAccessChain(p: *parser_pkg.Parser) bool {
-        if (p.token != kind.Kind.QuestionDotToken) return false;
-        const snapshot = p.mark();
-        defer p.rewind(snapshot);
-        p.nextToken();
-        return p.token == kind.Kind.OpenBracketToken or p.isIdentifier() or kind.isKeyword(p.token) or p.token == kind.Kind.NoSubstitutionTemplateLiteral or p.token == kind.Kind.TemplateHead;
-    }
+fn isStartOfOptionalPropertyOrElementAccessChain(p: *parser_pkg.Parser) bool {
+    if (p.token != kind.Kind.QuestionDotToken) return false;
+    const snapshot = p.mark();
+    defer p.rewind(snapshot);
+    p.nextToken();
+    return p.token == kind.Kind.OpenBracketToken or p.isIdentifier() or kind.isKeyword(p.token) or p.token == kind.Kind.NoSubstitutionTemplateLiteral or p.token == kind.Kind.TemplateHead;
+}
 
 pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.NodeIndex, allowOptionalChain: bool) anyerror!ast_gen.NodeIndex {
     var currentExpr = expression;
@@ -618,7 +553,7 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
         var questionDotToken: ?ast_gen.NodeIndex = null;
         var isPropertyAccess = false;
         const hasNewlineBeforeDot = p.scanner.hasPrecedingLineBreak();
-        
+
         if (allowOptionalChain and isStartOfOptionalPropertyOrElementAccessChain(p)) {
             questionDotToken = try p.ast.pushNode(.{ .QuestionDotToken = void{} });
             p.nextToken();
@@ -648,14 +583,14 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
             } });
             continue;
         }
-        
+
         if (questionDotToken != null or p.token == kind.Kind.OpenBracketToken) {
             if (questionDotToken == null) {
                 p.nextToken();
             } else {
                 if (p.token == kind.Kind.OpenBracketToken) p.nextToken();
             }
-            
+
             const arg = try parseExpression(p);
             _ = p.parseExpected(kind.Kind.CloseBracketToken);
             currentExpr = try p.ast.pushNode(.{ .ElementAccessExpression = .{
@@ -666,7 +601,7 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
             } });
             continue;
         }
-        
+
         break;
     }
     return currentExpr;
@@ -676,19 +611,19 @@ pub fn parseCallExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.NodeIn
     var currentExpr = expression;
     while (true) {
         currentExpr = try parseMemberExpressionRest(p, currentExpr, true);
-        
+
         var typeArguments: ?ast_gen.NodeListIndex = null;
         var questionDotToken: ?ast_gen.NodeIndex = null;
-        
+
         if (p.token == kind.Kind.QuestionDotToken) {
             questionDotToken = try p.ast.pushNode(.{ .QuestionDotToken = void{} });
             p.nextToken();
         }
-        
+
         if (p.token == kind.Kind.LessThanToken) {
             const mark = p.mark();
             typeArguments = p.parseTypeArguments() catch null;
-            
+
             if (typeArguments == null or (p.token != kind.Kind.OpenParenToken and p.token != kind.Kind.NoSubstitutionTemplateLiteral and p.token != kind.Kind.TemplateHead)) {
                 // Not a call expression, rollback!
                 p.rewind(mark);
@@ -703,11 +638,11 @@ pub fn parseCallExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.NodeIn
 
         if (p.token == kind.Kind.OpenParenToken) {
             p.nextToken();
-            
+
             const argsList = p.parseDelimitedList(.ArgumentExpressions, parseArgumentExpressionWrapper);
-            
+
             _ = p.parseExpected(kind.Kind.CloseParenToken);
-            
+
             currentExpr = try p.ast.pushNode(.{ .CallExpression = .{
                 .Flags = 0,
                 .Symbol = 0,
@@ -718,7 +653,7 @@ pub fn parseCallExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.NodeIn
             } });
             continue;
         }
-        
+
         break;
     }
     return currentExpr;
@@ -732,7 +667,7 @@ pub fn parseTaggedTemplateRest(p: *parser_pkg.Parser, tag: ast_gen.NodeIndex, qu
     } else {
         template = try parseTemplateExpression(p, true);
     }
-    
+
     return p.ast.pushNode(.{ .TaggedTemplateExpression = .{
         .Flags = 0,
         .Tag = tag,
@@ -744,7 +679,7 @@ pub fn parseTaggedTemplateRest(p: *parser_pkg.Parser, tag: ast_gen.NodeIndex, qu
 
 pub fn parseLeftHandSideExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     var expression: ast_gen.NodeIndex = 0;
-    
+
     // Simplification of Import, Super, Member logic
     if (p.token == kind.Kind.SuperKeyword) {
         p.nextToken();
@@ -752,7 +687,7 @@ pub fn parseLeftHandSideExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_g
     } else {
         expression = try parseMemberExpressionOrHigher(p);
     }
-    
+
     return parseCallExpressionRest(p, expression);
 }
 
@@ -761,7 +696,7 @@ pub fn parseLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex 
     const tokenFlags = p.scanner.state.tokenFlags; // Assuming this exists or similar
     const token = p.token;
     p.nextToken();
-    
+
     switch (token) {
         kind.Kind.StringLiteral => return p.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
         kind.Kind.NumericLiteral => return p.ast.pushNode(.{ .NumericLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
@@ -795,11 +730,11 @@ pub fn parseArgumentOrArrayLiteralElement(p: *parser_pkg.Parser) ast_gen.NodeInd
 
 pub fn parseArrayLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     _ = p.parseExpected(kind.Kind.OpenBracketToken);
-    
+
     const elementsList = p.parseDelimitedList(.ArrayLiteralMembers, parseArgumentOrArrayLiteralElement);
-    
+
     _ = p.parseExpected(kind.Kind.CloseBracketToken);
-    
+
     return p.ast.pushNode(.{ .ArrayLiteralExpression = .{ .Flags = 0, .Elements = elementsList, .MultiLine = 0 } });
 }
 
@@ -809,11 +744,11 @@ pub fn parseObjectLiteralElementWrapper(p: *parser_pkg.Parser) ast_gen.NodeIndex
 
 pub fn parseObjectLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     _ = p.parseExpected(kind.Kind.OpenBraceToken);
-    
+
     const propertiesList = p.parseDelimitedList(.ObjectLiteralMembers, parseObjectLiteralElementWrapper);
-    
+
     _ = p.parseExpected(kind.Kind.CloseBraceToken);
-    
+
     return p.ast.pushNode(.{ .ObjectLiteralExpression = .{ .Flags = 0, .Symbol = 0, .Properties = propertiesList, .MultiLine = 0 } });
 }
 
@@ -822,7 +757,7 @@ pub fn parseObjectLiteralElement(p: *parser_pkg.Parser) anyerror!ast_gen.NodeInd
         const expr = try parseAssignmentExpressionOrHigher(p);
         return p.ast.pushNode(.{ .SpreadAssignment = .{ .Flags = 0, .Symbol = 0, .Expression = expr } });
     }
-    
+
     var isGet = false;
     var isSet = false;
     if (p.token == kind.Kind.GetKeyword) {
@@ -842,7 +777,7 @@ pub fn parseObjectLiteralElement(p: *parser_pkg.Parser) anyerror!ast_gen.NodeInd
     }
 
     const name = try p.parsePropertyName();
-    
+
     if (p.token == kind.Kind.ColonToken) {
         // PropertyAssignment
         p.nextToken();
@@ -864,10 +799,18 @@ pub fn parseObjectLiteralElement(p: *parser_pkg.Parser) anyerror!ast_gen.NodeInd
             const returnType = try p.parseReturnTypeAnnotation();
             const body = try p.parseBlock();
             return p.ast.pushNode(.{ .GetAccessor = .{
-                .Flags = 0, .Symbol = 0, .modifiers = null, .modifierFlags = 0,
-                .name = name, .TypeParameters = typeParameters, .Parameters = parameters,
-                .Type = returnType orelse 0, .Body = body, .PostfixToken = 0,
-                .FullSignature = null, .AsteriskToken = 0,
+                .Flags = 0,
+                .Symbol = 0,
+                .modifiers = null,
+                .modifierFlags = 0,
+                .name = name,
+                .TypeParameters = typeParameters,
+                .Parameters = parameters,
+                .Type = returnType orelse 0,
+                .Body = body,
+                .PostfixToken = 0,
+                .FullSignature = null,
+                .AsteriskToken = 0,
             } });
         } else if (isSet) {
             const typeParameters = try p.parseTypeParameters();
@@ -875,10 +818,18 @@ pub fn parseObjectLiteralElement(p: *parser_pkg.Parser) anyerror!ast_gen.NodeInd
             const returnType = try p.parseReturnTypeAnnotation();
             const body = try p.parseBlock();
             return p.ast.pushNode(.{ .SetAccessor = .{
-                .Flags = 0, .Symbol = 0, .modifiers = null, .modifierFlags = 0,
-                .name = name, .TypeParameters = typeParameters, .Parameters = parameters,
-                .Type = returnType orelse 0, .Body = body, .PostfixToken = 0,
-                .FullSignature = null, .AsteriskToken = 0,
+                .Flags = 0,
+                .Symbol = 0,
+                .modifiers = null,
+                .modifierFlags = 0,
+                .name = name,
+                .TypeParameters = typeParameters,
+                .Parameters = parameters,
+                .Type = returnType orelse 0,
+                .Body = body,
+                .PostfixToken = 0,
+                .FullSignature = null,
+                .AsteriskToken = 0,
             } });
         } else {
             return p.parseMethodDeclaration(null, 0, null, name, null);
@@ -921,7 +872,7 @@ pub fn parseKeywordExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex 
 
 pub fn parseNewExpressionOrNewDotTarget(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     _ = p.parseExpected(kind.Kind.NewKeyword);
-    
+
     if (p.parseOptional(kind.Kind.DotToken)) {
         const name = try p.parseIdentifierName();
         // MetaProperty for new.target
@@ -931,22 +882,22 @@ pub fn parseNewExpressionOrNewDotTarget(p: *parser_pkg.Parser) anyerror!ast_gen.
             .name = name,
         } });
     }
-    
+
     var expression = try parsePrimaryExpression(p);
     expression = try parseMemberExpressionRest(p, expression, false);
-    
+
     var typeArguments: ?ast_gen.NodeListIndex = null;
     if (!p.scanner.hasPrecedingLineBreak() and p.token == kind.Kind.LessThanToken) {
         typeArguments = try p.parseTypeArguments();
     }
-    
+
     var arguments: ?ast_gen.NodeListIndex = null;
     if (p.token == kind.Kind.OpenParenToken) {
         p.nextToken();
         arguments = p.parseDelimitedList(.ArgumentExpressions, parseArgumentExpressionWrapper);
         _ = p.parseExpected(kind.Kind.CloseParenToken);
     }
-    
+
     return p.ast.pushNode(.{ .NewExpression = .{
         .Flags = 0,
         .Expression = expression,
@@ -963,22 +914,14 @@ pub fn parsePrimaryExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex 
             }
             return parseLiteralExpression(p);
         },
-        kind.Kind.NumericLiteral, 
-        kind.Kind.BigIntLiteral, 
-        kind.Kind.StringLiteral,
-        kind.Kind.RegularExpressionLiteral => {
+        kind.Kind.NumericLiteral, kind.Kind.BigIntLiteral, kind.Kind.StringLiteral, kind.Kind.RegularExpressionLiteral => {
             return parseLiteralExpression(p);
         },
-        kind.Kind.SlashToken,
-        kind.Kind.SlashEqualsToken => {
+        kind.Kind.SlashToken, kind.Kind.SlashEqualsToken => {
             p.token = p.scanner.reScanSlashToken();
             return parseLiteralExpression(p);
         },
-        kind.Kind.ThisKeyword,
-        kind.Kind.SuperKeyword,
-        kind.Kind.NullKeyword,
-        kind.Kind.TrueKeyword,
-        kind.Kind.FalseKeyword => {
+        kind.Kind.ThisKeyword, kind.Kind.SuperKeyword, kind.Kind.NullKeyword, kind.Kind.TrueKeyword, kind.Kind.FalseKeyword => {
             return parseKeywordExpression(p);
         },
         kind.Kind.ImportKeyword => {
@@ -1066,7 +1009,7 @@ pub fn parsePrimaryExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex 
         },
         else => {
             return p.parseIdentifier();
-        }
+        },
     }
 }
 

@@ -129,7 +129,7 @@ pub const Binder = struct {
             sym.Exports.deinit(self.allocator);
         }
         self.symbols.deinit(self.allocator);
-        
+
         var it = self.nodeLocals.iterator();
         while (it.next()) |entry| {
             entry.value_ptr.deinit();
@@ -210,10 +210,10 @@ pub const Binder = struct {
             }
             return self.unreachableFlow;
         }
-        
+
         // Skip KindTrueKeyword/FalseKeyword logic for brevity or add it
         // ...
-        
+
         if (!self.emitConditionFlow(flags, expression)) {
             return antecedent;
         }
@@ -285,18 +285,18 @@ pub const Binder = struct {
 
         const thenFlow = self.createFlowCondition(ast.flow.FlowFlags.TrueCondition, self.currentFlow, expression);
         const elseFlow = self.createFlowCondition(ast.flow.FlowFlags.FalseCondition, self.currentFlow, expression);
-        
+
         self.currentFlow = thenFlow;
         try self.bind(thenStatement);
         const thenEndFlow = self.currentFlow;
-        
+
         self.currentFlow = elseFlow;
         if (elseStatement != 0) {
             try self.bind(elseStatement);
         }
-        
+
         const elseEndFlow = self.currentFlow;
-        
+
         const endLabel = self.createBranchLabel();
         self.addAntecedent(endLabel, thenEndFlow);
         self.addAntecedent(endLabel, elseEndFlow);
@@ -310,28 +310,28 @@ pub const Binder = struct {
         const loopLabel = self.createLoopLabel();
         self.addAntecedent(loopLabel, self.currentFlow);
         self.currentFlow = loopLabel;
-        
+
         const preBreakTarget = self.currentBreakTarget;
         const preContinueTarget = self.currentContinueTarget;
-        
+
         self.currentBreakTarget = self.createBranchLabel();
         self.currentContinueTarget = self.createBranchLabel();
-        
+
         try self.bind(statement);
-        
+
         self.addAntecedent(self.currentContinueTarget, self.currentFlow);
         self.currentFlow = self.finishFlowLabel(self.currentContinueTarget);
-        
+
         try self.bind(expression);
-        
+
         const thenFlow = self.createFlowCondition(ast.flow.FlowFlags.TrueCondition, self.currentFlow, expression);
         const elseFlow = self.createFlowCondition(ast.flow.FlowFlags.FalseCondition, self.currentFlow, expression);
-        
+
         self.addAntecedent(loopLabel, thenFlow);
         self.addAntecedent(self.currentBreakTarget, elseFlow);
-        
+
         self.currentFlow = self.finishFlowLabel(self.currentBreakTarget);
-        
+
         self.currentBreakTarget = preBreakTarget;
         self.currentContinueTarget = preContinueTarget;
     }
@@ -343,28 +343,28 @@ pub const Binder = struct {
         const loopLabel = self.createLoopLabel();
         self.addAntecedent(loopLabel, self.currentFlow);
         self.currentFlow = loopLabel;
-        
+
         try self.bind(expression);
-        
+
         const thenFlow = self.createFlowCondition(ast.flow.FlowFlags.TrueCondition, self.currentFlow, expression);
         const elseFlow = self.createFlowCondition(ast.flow.FlowFlags.FalseCondition, self.currentFlow, expression);
-        
+
         const preBreakTarget = self.currentBreakTarget;
         const preContinueTarget = self.currentContinueTarget;
-        
+
         self.currentBreakTarget = self.createBranchLabel();
         self.currentContinueTarget = self.createBranchLabel();
-        
+
         self.currentFlow = thenFlow;
         try self.bind(statement);
-        
+
         self.addAntecedent(self.currentContinueTarget, self.currentFlow);
         self.currentFlow = self.finishFlowLabel(self.currentContinueTarget);
         self.addAntecedent(loopLabel, self.currentFlow);
-        
+
         self.addAntecedent(self.currentBreakTarget, elseFlow);
         self.currentFlow = self.finishFlowLabel(self.currentBreakTarget);
-        
+
         self.currentBreakTarget = preBreakTarget;
         self.currentContinueTarget = preContinueTarget;
     }
@@ -399,79 +399,33 @@ pub const Binder = struct {
         const caseBlock = self.ast.getNode(nodeIndex).data.SwitchStatement.caseBlock;
 
         try self.bind(expression);
-        
+
         const preBreakTarget = self.currentBreakTarget;
         self.currentBreakTarget = self.createBranchLabel();
         self.preSwitchCaseFlow = self.currentFlow;
-        
+
         self.currentFlow = self.unreachableFlow;
         try self.bind(caseBlock);
-        
+
         self.addAntecedent(self.currentBreakTarget, self.currentFlow);
-        
+
         self.currentFlow = self.finishFlowLabel(self.currentBreakTarget);
         self.currentBreakTarget = preBreakTarget;
-    }
-
-    pub fn bindBinaryExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
-        const op = self.ast.getNode(nodeIndex).data.BinaryExpression.operatorToken;
-        const left = self.ast.getNode(nodeIndex).data.BinaryExpression.left;
-        const right = self.ast.getNode(nodeIndex).data.BinaryExpression.right;
-        
-        const opKind = self.ast.getNode(op).kind;
-        
-        if (opKind == kind.AmpersandAmpersandToken or opKind == kind.BarBarToken or opKind == kind.QuestionQuestionToken) {
-            try self.bind(left);
-            
-            const isAnd = opKind == kind.AmpersandAmpersandToken;
-            const flowFlags = if (isAnd) ast.flow.FlowFlags.TrueCondition else ast.flow.FlowFlags.FalseCondition;
-            
-            const rightFlow = self.createFlowCondition(flowFlags, self.currentFlow, left);
-            const elseFlow = self.createFlowCondition(if (isAnd) ast.flow.FlowFlags.FalseCondition else ast.flow.FlowFlags.TrueCondition, self.currentFlow, left);
-            
-            self.currentFlow = rightFlow;
-            try self.bind(right);
-            
-            const endLabel = self.createBranchLabel();
-            self.addAntecedent(endLabel, self.currentFlow);
-            self.addAntecedent(endLabel, elseFlow);
-            self.currentFlow = self.finishFlowLabel(endLabel);
-        } else if (opKind == kind.EqualsToken) {
-            try self.bind(right);
-            try self.bind(left);
-            self.currentFlow = self.createFlowMutation(ast.flow.FlowFlags.Assignment, self.currentFlow, nodeIndex);
-        } else {
-            try self.bind(left);
-            try self.bind(right);
-        }
-    }
-
-    pub fn bindCallExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
-        const expression = self.ast.getNode(nodeIndex).data.CallExpression.expression;
-        try self.bind(expression);
-        const args = self.ast.getNode(nodeIndex).data.CallExpression.arguments;
-        if (args != 0) {
-            const list = self.ast.getNodeList(args);
-            for (list) |arg| {
-                try self.bind(arg);
-            }
-        }
-        self.currentFlow = self.createFlowCall(self.currentFlow, nodeIndex);
     }
 
     pub fn bindTryStatementFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
         const tryBlock = self.ast.getNode(nodeIndex).data.TryStatement.tryBlock;
         const catchClause = self.ast.getNode(nodeIndex).data.TryStatement.catchClause;
         const finallyBlock = self.ast.getNode(nodeIndex).data.TryStatement.finallyBlock;
-        
+
         const preExceptionTarget = self.currentExceptionTarget;
-        
+
         self.currentExceptionTarget = self.createBranchLabel();
         try self.bind(tryBlock);
         self.addAntecedent(self.currentExceptionTarget, self.currentFlow);
-        
+
         const finallyReturnFlow: ast.flow.FlowNodeIndex = 0;
-        
+
         if (catchClause != 0) {
             self.currentFlow = self.currentExceptionTarget;
             self.currentExceptionTarget = preExceptionTarget;
@@ -479,7 +433,7 @@ pub const Binder = struct {
         } else {
             self.currentExceptionTarget = preExceptionTarget;
         }
-        
+
         if (finallyBlock != 0) {
             try self.bind(finallyBlock);
         }
@@ -490,7 +444,6 @@ pub const Binder = struct {
         const block = self.ast.getNode(nodeIndex).data.CatchClause.block;
         try self.bind(block);
     }
-
 
     pub fn bindSourceFile(self: *Binder, sourceFileIndex: ast_gen.NodeIndex) !void {
         self.file = sourceFileIndex;
@@ -593,7 +546,7 @@ pub const Binder = struct {
         }
     }
 
-    pub fn bind(self: *Binder, optNodeIndex: ?ast_gen.NodeIndex) !void {
+    pub fn bind(self: *Binder, optNodeIndex: ?ast_gen.NodeIndex) anyerror!void {
         if (optNodeIndex == null or optNodeIndex.? == 0) return;
         const nodeIndex = optNodeIndex.?;
         self.depth += 1;
@@ -611,28 +564,6 @@ pub const Binder = struct {
         defer self.parentNodeIndex = saveParent;
 
         const node = self.ast.getNode(nodeIndex);
-        
-        const containerFlags = @import("../ast/get_container_flags.zig").getContainerFlags(self.ast, nodeIndex);
-        
-        const topSaveContainer = self.container;
-        const topSaveBlockScopeContainer = self.blockScopeContainer;
-        const topSaveThisContainer = self.thisContainer;
-        
-        if ((containerFlags & @import("../ast/ast_utils.zig").ContainerFlags.IsContainer) != 0) {
-            self.container = nodeIndex;
-        }
-        if ((containerFlags & @import("../ast/ast_utils.zig").ContainerFlags.IsBlockScopedContainer) != 0) {
-            self.blockScopeContainer = nodeIndex;
-        }
-        if ((containerFlags & @import("../ast/ast_utils.zig").ContainerFlags.IsThisContainer) != 0) {
-            self.thisContainer = nodeIndex;
-        }
-        
-        defer {
-            self.container = topSaveContainer;
-            self.blockScopeContainer = topSaveBlockScopeContainer;
-            self.thisContainer = topSaveThisContainer;
-        }
 
         switch (node) {
             .SourceFile => |n| {
@@ -642,7 +573,7 @@ pub const Binder = struct {
                 self.container = nodeIndex;
                 self.blockScopeContainer = nodeIndex;
                 self.file = nodeIndex;
-                
+
                 try self.bindSourceFileIfExternalModule();
 
                 if (n.Statements != 0) {
@@ -650,15 +581,12 @@ pub const Binder = struct {
                 }
 
                 if (ast_utils.isExternalOrCommonJSModule(self.ast, self.file)) {
-                    std.debug.print("ZIG isExternalOrCommonJSModule is TRUE\n", .{});
                     if (self.ast.getNodeSymbol(nodeIndex)) |sym| {
-                        std.debug.print("ZIG got node symbol: {}\n", .{sym});
                         try self.bindCommonJSTypeExports(sym);
-                    } else {
-                        std.debug.print("ZIG NO node symbol for SourceFile\n", .{});
                     }
-                } else {
-                    std.debug.print("ZIG isExternalOrCommonJSModule is FALSE\n", .{});
+                    if (n.CommonJSModuleIndicator) |indicator| {
+                        self.setExportContextFlag(indicator);
+                    }
                 }
 
                 self.container = saveContainer;
@@ -678,13 +606,11 @@ pub const Binder = struct {
                     try self.bind(n.name);
                 }
                 if (n.Type) |t| try self.bind(t);
-                if (n.Initializer) |i| try self.bind(i);
+                try self.bindVariableDeclarationFlow(nodeIndex);
             },
             .FunctionDeclaration => |n| {
                 self.checkStrictModeFunctionName(nodeIndex);
-                const nameStr = if (n.name != null and n.name.? != 0) self.getIdentifierName(n.name.?)
-                                else if (ast_utils.hasSyntacticModifier(self.ast, nodeIndex, ast_utils.ModifierFlags.Default)) symbol.InternalSymbolNameDefault
-                                else symbol.InternalSymbolNameMissing;
+                const nameStr = if (n.name != null and n.name.? != 0) self.getIdentifierName(n.name.?) else if (ast_utils.hasSyntacticModifier(self.ast, nodeIndex, ast_utils.ModifierFlags.Default)) symbol.InternalSymbolNameDefault else symbol.InternalSymbolNameMissing;
                 _ = try self.bindBlockScopedDeclaration(nodeIndex, symbol.SymbolFlags.Function, symbol.SymbolFlags.FunctionExcludes, nameStr);
 
                 const saveContainer = self.container;
@@ -765,9 +691,7 @@ pub const Binder = struct {
                 self.blockScopeContainer = saveBlockScopeContainer;
             },
             .ClassDeclaration => |n| {
-                const nameStr = if (n.name != null and n.name.? != 0) self.getIdentifierName(n.name.?) 
-                                else if (ast_utils.hasSyntacticModifier(self.ast, nodeIndex, ast_utils.ModifierFlags.Default)) "default" 
-                                else symbol.InternalSymbolNameMissing;
+                const nameStr = if (n.name != null and n.name.? != 0) self.getIdentifierName(n.name.?) else if (ast_utils.hasSyntacticModifier(self.ast, nodeIndex, ast_utils.ModifierFlags.Default)) "default" else symbol.InternalSymbolNameMissing;
                 _ = try self.bindBlockScopedDeclaration(nodeIndex, symbol.SymbolFlags.Class, symbol.SymbolFlags.ClassExcludes, nameStr);
                 const classSymbolId = self.ast.getNodeSymbol(nodeIndex).?;
 
@@ -848,8 +772,7 @@ pub const Binder = struct {
                 self.container = nodeIndex;
                 if (n.Members != 0) {
                     try self.bindNodeList(n.Members);
-                } else {
-                }
+                } else {}
                 self.container = saveContainer;
             },
             .EnumMember => |n| {
@@ -1043,7 +966,7 @@ pub const Binder = struct {
                         try self.bind(n.name);
                     }
                 }
-                
+
                 // If this is a parameter property, declare the property symbol in the containing class.
                 const parentNodeIndex = self.ast.getNodeParent(nodeIndex);
                 if (parentNodeIndex != 0) {
@@ -1065,7 +988,7 @@ pub const Binder = struct {
                             if (cNode == .ClassDeclaration or cNode == .ClassExpression) {
                                 var flags = symbol.SymbolFlags.Property;
                                 if (n.QuestionToken != null and n.QuestionToken.? != 0) flags |= symbol.SymbolFlags.Optional;
-                                
+
                                 // We need to declare the symbol in the class's members.
                                 // But `declareSymbolAndAddToSymbolTable` uses `self.container`.
                                 // For constructor parameters, `self.container` is the constructor.
@@ -1079,8 +1002,7 @@ pub const Binder = struct {
                     }
                 }
 
-                if (n.Type) |t| try self.bind(t);
-                if (n.Initializer) |i| try self.bind(i);
+                try self.bindParameterFlow(nodeIndex);
             },
             .PropertyDeclaration => |n| {
                 var flags = symbol.SymbolFlags.Property;
@@ -1099,17 +1021,17 @@ pub const Binder = struct {
                 if (n.PostfixToken != null and n.PostfixToken.? != 0 and self.ast.getNode(n.PostfixToken.?) == .QuestionToken) flags |= symbol.SymbolFlags.Optional;
                 // Actually Go binder checks getOptionalSymbolFlagForNode but I'll do this for now
                 _ = try self.bindPropertyOrMethodOrAccessor(nodeIndex, flags, symbol.SymbolFlags.GetAccessorExcludes, self.getIdentifierName(n.name));
-                
+
                 const saveContainer = self.container;
                 const saveBlockScopeContainer = self.blockScopeContainer;
                 self.container = nodeIndex;
                 self.blockScopeContainer = nodeIndex;
-                
+
                 if (n.TypeParameters) |tp| try self.bindNodeList(tp);
                 if (n.Parameters != 0) try self.bindNodeList(n.Parameters);
                 if (n.Type) |t| try self.bind(t);
                 if (n.Body) |b| try self.bind(b);
-                
+
                 self.container = saveContainer;
                 self.blockScopeContainer = saveBlockScopeContainer;
             },
@@ -1117,17 +1039,17 @@ pub const Binder = struct {
                 var flags = symbol.SymbolFlags.SetAccessor;
                 if (n.PostfixToken != null and n.PostfixToken.? != 0 and self.ast.getNode(n.PostfixToken.?) == .QuestionToken) flags |= symbol.SymbolFlags.Optional;
                 _ = try self.bindPropertyOrMethodOrAccessor(nodeIndex, flags, symbol.SymbolFlags.SetAccessorExcludes, self.getIdentifierName(n.name));
-                
+
                 const saveContainer = self.container;
                 const saveBlockScopeContainer = self.blockScopeContainer;
                 self.container = nodeIndex;
                 self.blockScopeContainer = nodeIndex;
-                
+
                 if (n.TypeParameters) |tp| try self.bindNodeList(tp);
                 if (n.Parameters != 0) try self.bindNodeList(n.Parameters);
                 if (n.Type) |t| try self.bind(t);
                 if (n.Body) |b| try self.bind(b);
-                
+
                 self.container = saveContainer;
                 self.blockScopeContainer = saveBlockScopeContainer;
             },
@@ -1264,26 +1186,31 @@ pub const Binder = struct {
                 }
                 if (n.Expression != 0) try self.bind(n.Expression);
             },
-            .BinaryExpression => |n| {
+            .BinaryExpression => {
                 const isProp = self.getAssignmentDeclarationKindIsProperty(nodeIndex);
                 if (isProp) {
                     try self.bindExpandoPropertyAssignment(nodeIndex);
                 }
                 self.checkStrictModeBinaryExpression(nodeIndex);
-                try self.bind(n.Left);
-                try self.bind(n.Right);
+                if (ast_utils.isDestructuringAssignment(self.ast, nodeIndex)) {
+                    const saveInAssignmentPattern = self.inAssignmentPattern;
+                    self.inAssignmentPattern = saveInAssignmentPattern;
+                    try self.bindDestructuringAssignmentFlow(nodeIndex);
+                } else {
+                    try self.bindBinaryExpressionFlow(nodeIndex);
+                }
             },
-            .DeleteExpression => |n| {
+            .DeleteExpression => {
                 self.checkStrictModeDeleteExpression(nodeIndex);
-                try self.bind(n.Expression);
+                try self.bindDeleteExpressionFlow(nodeIndex);
             },
-            .PrefixUnaryExpression => |n| {
+            .PrefixUnaryExpression => {
                 self.checkStrictModePrefixUnaryExpression(nodeIndex);
-                try self.bind(n.Operand);
+                try self.bindPrefixUnaryExpressionFlow(nodeIndex);
             },
-            .PostfixUnaryExpression => |n| {
+            .PostfixUnaryExpression => {
                 self.checkStrictModePostfixUnaryExpression(nodeIndex);
-                try self.bind(n.Operand);
+                try self.bindPostfixUnaryExpressionFlow(nodeIndex);
             },
             .WithStatement => |n| {
                 self.checkStrictModeWithStatement(nodeIndex);
@@ -1305,7 +1232,7 @@ pub const Binder = struct {
                 self.container = saveContainer;
             },
             .TypeLiteral => |n| {
-                _ = try self.bindAnonymousDeclaration(nodeIndex, symbol.SymbolFlags.TypeLiteral, "__type");
+                _ = try self.bindAnonymousDeclaration(nodeIndex, symbol.SymbolFlags.TypeLiteral, symbol.InternalSymbolNameType);
                 const saveContainer = self.container;
                 self.container = nodeIndex;
                 if (n.Members != 0) {
@@ -1354,13 +1281,35 @@ pub const Binder = struct {
                     try self.bindVariableDeclarationOrBindingElement(nodeIndex, nameIndex);
                     try self.bind(nameIndex);
                 }
-                if (n.Initializer) |initExpr| try self.bind(initExpr);
+                try self.bindBindingElementFlow(nodeIndex);
             },
             .AwaitExpression => |n| {
                 try self.bind(n.Expression);
             },
-            .Identifier, .NumericLiteral, .StringLiteral, .EndOfFile => {
+            .Identifier => {
+                // self.checkContextualIdentifier(nodeIndex);
+            },
+            .NumericLiteral, .StringLiteral, .EndOfFile => {
                 // Do nothing
+            },
+            .ThisKeyword, .SuperKeyword => {
+                if (self.ast.getNode(nodeIndex) == .ThisKeyword) {
+                    self.seenThisKeyword = true;
+                }
+            },
+            .ThisType => {
+                self.seenThisKeyword = true;
+            },
+            .QualifiedName => {
+                if (self.currentFlow != 0 and ast_utils.isPartOfTypeQuery(self.ast, nodeIndex)) {
+                    // self.setFlowNode(nodeIndex, self.currentFlow);
+                }
+            },
+            .MetaProperty => {
+                // self.setFlowNode(nodeIndex, self.currentFlow);
+            },
+            .PrivateIdentifier => {
+                // self.checkPrivateIdentifier(nodeIndex);
             },
             .JsxAttributes => |n| {
                 _ = try self.bindAnonymousDeclaration(nodeIndex, symbol.SymbolFlags.ObjectLiteral, "__jsxAttributes");
@@ -1376,6 +1325,26 @@ pub const Binder = struct {
                 if (n.Initializer) |initializer| {
                     try self.bind(initializer);
                 }
+            },
+            .ConditionalExpression => {
+                try self.bindConditionalExpressionFlow(nodeIndex);
+            },
+            .PropertyAccessExpression, .ElementAccessExpression => {
+                try self.bindAccessExpressionFlow(nodeIndex);
+            },
+            .CallExpression => {
+                try self.bindCallExpressionFlow(nodeIndex);
+            },
+            .NonNullExpression => {
+                try self.bindNonNullExpressionFlow(nodeIndex);
+            },
+            .JSTypeAliasDeclaration => |n| {
+                if (self.blockScopeContainer != null and self.ast.getNode(self.blockScopeContainer.?) != .SourceFile) {
+                    _ = try self.bindBlockScopedDeclaration(nodeIndex, symbol.SymbolFlags.TypeAlias, symbol.SymbolFlags.TypeAliasExcludes, self.getIdentifierName(n.name));
+                }
+            },
+            .ClassStaticBlockDeclaration => {
+                // To be implemented
             },
             else => {
                 try self.bindChildren(nodeIndex);
@@ -1396,7 +1365,7 @@ pub const Binder = struct {
         const node = self.ast.getNode(nodeIndex);
         if (node != .BinaryExpression) return false;
         const bin = node.BinaryExpression;
-        
+
         const opToken = self.ast.getNode(bin.OperatorToken);
         if (opToken != .EqualsToken) return false;
 
@@ -1479,10 +1448,10 @@ pub const Binder = struct {
         if (symIndex == null) return null;
         const sym = self.symbols.items[symIndex.?];
         const declaration = sym.ValueDeclaration;
-                if (declaration == null or declaration.? == 0) return null;
+        if (declaration == null or declaration.? == 0) return null;
 
         const declNode = self.ast.getNode(declaration.?);
-                if (declNode == .FunctionDeclaration or (ast_utils.isInJSFile(self.ast, declaration.?) and declNode == .ClassDeclaration)) {
+        if (declNode == .FunctionDeclaration or (ast_utils.isInJSFile(self.ast, declaration.?) and declNode == .ClassDeclaration)) {
             return symIndex.?;
         } else if (declNode == .VariableDeclaration) {
             const varDecl = declNode.VariableDeclaration;
@@ -1543,10 +1512,10 @@ pub const Binder = struct {
         if (symbolIndex == null) {
             symbolIndex = self.lookupEntity(parent, if (self.container != null) self.container.? else 0);
         }
-                symbolIndex = self.getInitializerSymbol(symbolIndex);
-                if (symbolIndex) |symIndex| {
+        symbolIndex = self.getInitializerSymbol(symbolIndex);
+        if (symbolIndex) |symIndex| {
             const declName = self.getDeclarationNameForExpando(nodeIndex);
-            
+
             var shouldDeclare = true;
             if (self.symbolExports.getPtr(symIndex)) |exports| {
                 if (exports.get(declName)) |existingSymIndex| {
@@ -1556,13 +1525,11 @@ pub const Binder = struct {
                     }
                 }
             }
-            
+
             if (shouldDeclare) {
                 _ = try self.declareSymbolEx(.Exports, symIndex, nodeIndex, symbol.SymbolFlags.Property | symbol.SymbolFlags.Assignment, symbol.SymbolFlags.PropertyExcludes, declName, false, false);
-            } else {
-            }
-        } else {
-        }
+            } else {}
+        } else {}
     }
 
     fn bindDeferredExpandoAssignments(self: *Binder) !void {
@@ -1615,12 +1582,12 @@ pub const Binder = struct {
         }
     }
 
-        fn declareSymbol(self: *Binder, nodeIndex: ast_gen.NodeIndex, flags: u32, name: []const u8) !void {
+    fn declareSymbol(self: *Binder, nodeIndex: ast_gen.NodeIndex, flags: u32, name: []const u8) !void {
         _ = try self.declareSymbolEx(.Locals, self.container.?, nodeIndex, flags, symbol.SymbolFlags.None, name, false, false);
     }
 
     pub const SymbolTableType = enum { Locals, Exports, Members, None };
-    
+
     fn hasCombinedExportModifier(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
         var current: ast_gen.NodeIndex = nodeIndex;
         while (current != 0) {
@@ -1642,8 +1609,6 @@ pub const Binder = struct {
 
     pub fn bindAnonymousDeclaration(self: *Binder, nodeIndex: ast_gen.NodeIndex, flags: u32, name: []const u8) !ast_gen.SymbolIndex {
         const symIndex: ast_gen.SymbolIndex = @intCast(self.symbols.items.len);
-        
-        std.debug.print("ZIG SYMBOL DECLARED: {s} (flags: {d}, excludes: 0, existing flags: 0)\n", .{ name, flags });
 
         try self.symbols.append(self.allocator, .{
             .Flags = flags,
@@ -1659,7 +1624,7 @@ pub const Binder = struct {
             var sym = &self.symbols.items[symIndex];
             try sym.Declarations.append(self.allocator, nodeIndex);
         }
-                self.symbolCount += 1; 
+        self.symbolCount += 1;
 
         if (nodeIndex != 0) {
             if (self.ast.getNodeSymbol(nodeIndex) == null) {
@@ -1709,10 +1674,9 @@ pub const Binder = struct {
                 symIndex = try self.declareSymbolEx(.Locals, self.blockScopeContainer.?, nodeIndex, flags, excludes, name, false, false);
             },
         }
-        
+
         if (nodeIndex != 0) {
-            if (self.ast.getNodeSymbol(nodeIndex) == null) {
-            }
+            if (self.ast.getNodeSymbol(nodeIndex) == null) {}
         }
         return symIndex;
     }
@@ -1745,7 +1709,7 @@ pub const Binder = struct {
     fn bindFunctionOrConstructorType(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
         const symbolFlags = symbol.SymbolFlags.Signature;
         const symIndex = @as(ast_gen.SymbolIndex, @intCast(self.symbols.items.len));
-        
+
         const node = self.ast.getNode(nodeIndex);
         const name = if (node == .FunctionType or node == .CallSignature) symbol.InternalSymbolNameCall else symbol.InternalSymbolNameNew;
 
@@ -1753,33 +1717,32 @@ pub const Binder = struct {
             .Name = try self.allocator.dupe(u8, name),
             .Flags = symbolFlags,
             .Declarations = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty,
-                .ValueDeclaration = null,
+            .ValueDeclaration = null,
             .Members = symbol.SymbolTable.empty,
             .Exports = symbol.SymbolTable.empty,
             .Parent = null,
             .ExportSymbol = null,
         });
-                self.symbolCount += 1;
+        self.symbolCount += 1;
         try self.symbols.items[symIndex].Declarations.append(self.allocator, nodeIndex);
-        
+
         const typeLiteralSymIndex = @as(ast_gen.SymbolIndex, @intCast(self.symbols.items.len));
         try self.symbols.append(self.allocator, .{
             .Name = try self.allocator.dupe(u8, "__type"),
             .Flags = symbol.SymbolFlags.TypeLiteral,
             .Declarations = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty,
-                .ValueDeclaration = null,
+            .ValueDeclaration = null,
             .Members = symbol.SymbolTable.empty,
             .Exports = symbol.SymbolTable.empty,
             .Parent = null,
             .ExportSymbol = null,
         });
-                self.symbolCount += 1;
+        self.symbolCount += 1;
         try self.symbols.items[typeLiteralSymIndex].Declarations.append(self.allocator, nodeIndex);
-        
+
         try symbol.symbolTablePut(&self.symbols.items[typeLiteralSymIndex].Members, self.allocator, "", symIndex);
         self.ast.setNodeSymbol(nodeIndex, typeLiteralSymIndex);
     }
-
 
     fn bindPropertyOrMethodOrAccessor(self: *Binder, nodeIndex: ast_gen.NodeIndex, flags: u32, excludes: u32, name: []const u8) !ast_gen.SymbolIndex {
         if (@import("../ast/ast_utils.zig").hasDynamicName(self.ast, nodeIndex)) {
@@ -1795,7 +1758,7 @@ pub const Binder = struct {
         }
         const containerNode = self.ast.getNode(self.container.?);
         var symIndex: ast_gen.SymbolIndex = 0;
-        
+
         switch (containerNode) {
             .ModuleDeclaration => {
                 symIndex = try self.declareModuleMember(nodeIndex, flags, excludes, name);
@@ -1818,7 +1781,7 @@ pub const Binder = struct {
                 const containerSym = self.ast.getNodeSymbol(self.container.?) orelse 0;
                 symIndex = try self.declareSymbolEx(.Members, containerSym, nodeIndex, flags, excludes, name, false, false);
             },
-            .CallSignature, .ConstructSignature, .IndexSignature, .MethodDeclaration, .MethodSignature, .Constructor, .GetAccessor, .SetAccessor, .FunctionDeclaration, .FunctionExpression, .ArrowFunction, .TypeAliasDeclaration => {
+            .CallSignature, .ConstructSignature, .IndexSignature, .MethodDeclaration, .MethodSignature, .Constructor, .GetAccessor, .SetAccessor, .FunctionDeclaration, .FunctionExpression, .ArrowFunction, .TypeAliasDeclaration, .MappedType, .FunctionType, .ConstructorType, .ClassStaticBlockDeclaration => {
                 symIndex = try self.declareSymbolEx(.Locals, self.container.?, nodeIndex, flags, excludes, name, false, false);
             },
             else => {
@@ -1832,10 +1795,9 @@ pub const Binder = struct {
                 }
             },
         }
-        
+
         if (nodeIndex != 0) {
-            if (self.ast.getNodeSymbol(nodeIndex) == null) {
-            }
+            if (self.ast.getNodeSymbol(nodeIndex) == null) {}
         }
         return symIndex;
     }
@@ -1875,7 +1837,7 @@ pub const Binder = struct {
                 isExportContext = (containerNode.SourceFile.Flags & ast_utils.NodeFlags.ExportContext) != 0;
             }
         }
-        
+
         if ((flags & symbol.SymbolFlags.Alias) != 0) {
             const node = self.ast.getNode(nodeIndex);
             const isExportSpecifier = node == .ExportSpecifier;
@@ -1910,7 +1872,7 @@ pub const Binder = struct {
         _ = isComputedName;
 
         var existingSymIndex: ?ast_gen.SymbolIndex = null;
-        
+
         switch (tableType) {
             .Locals => {
                 if (self.nodeLocals.getPtr(tableId)) |containerLocals| {
@@ -1934,7 +1896,7 @@ pub const Binder = struct {
 
         var isConflict = false;
 
-        if (existingSymIndex) |symIndex| { 
+        if (existingSymIndex) |symIndex| {
             var sym = &self.symbols.items[symIndex];
             // Check for conflict
             // Note: excludes are flags that this new symbol CANNOT coexist with in the same container under the same name.
@@ -1943,7 +1905,7 @@ pub const Binder = struct {
                 // We do this by clearing existingSymIndex and setting a flag so we don't put it in the table.
                 existingSymIndex = null;
                 isConflict = true;
-                
+
                 if ((sym.Flags & symbol.SymbolFlags.Accessor) != 0 and (sym.Flags & symbol.SymbolFlags.Accessor) != (flags & symbol.SymbolFlags.Accessor)) {
                     sym.Flags |= symbol.SymbolFlags.Accessor;
                 }
@@ -1979,9 +1941,9 @@ pub const Binder = struct {
         self.symbolCount += 1;
         if (nodeIndex != 0) {
             self.ast.setNodeSymbol(nodeIndex, symIndex);
-        } 
+        }
 
-        std.debug.print("ZIG SYMBOL DECLARED: {s} (flags: {d}, excludes: {d}, existing flags: {d})\n", .{name, flags, excludes, if (existingSymIndex != null) self.symbols.items[existingSymIndex.?].Flags else 0});
+        if (flags == 0) {}
         if (!isConflict) {
             switch (tableType) {
                 .Locals => {
@@ -2020,10 +1982,6 @@ pub const Binder = struct {
         }
     }
 
-
-
-
-
     fn getInferTypeContainer(self: *Binder, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
         var current = nodeIndex;
         while (current != 0) {
@@ -2059,11 +2017,19 @@ pub const Binder = struct {
             .Identifier => |i| return i.Text,
             .StringLiteral => |i| return i.Text,
             .NumericLiteral => |i| return i.Text,
+            .JsxNamespacedName => |j| {
+                const namespaceNode = self.ast.getNode(j.Namespace);
+                const nameNode = self.ast.getNode(j.name);
+                if (namespaceNode == .Identifier and nameNode == .Identifier) {
+                    return std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ namespaceNode.Identifier.Text, nameNode.Identifier.Text }) catch symbol.InternalSymbolNameMissing;
+                }
+                return symbol.InternalSymbolNameMissing;
+            },
             .PrivateIdentifier => |i| {
                 const classNode = self.getContainingClass();
                 if (classNode == 0) return symbol.InternalSymbolNameMissing;
                 const classSym = self.ast.getNodeSymbol(classNode) orelse return symbol.InternalSymbolNameMissing;
-                return std.fmt.allocPrint(self.allocator, "__#{d}@{s}", .{classSym, i.Text}) catch symbol.InternalSymbolNameMissing;
+                return std.fmt.allocPrint(self.allocator, "__#{d}@{s}", .{ classSym, i.Text }) catch symbol.InternalSymbolNameMissing;
             },
             .ComputedPropertyName => |c| {
                 const expr = self.ast.getNode(c.Expression);
@@ -2089,13 +2055,13 @@ pub const Binder = struct {
                         const symObj = self.symbols.items[sym];
                         if ((symObj.Flags & (symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace)) != 0) {
                             var exportEqualsSym = &self.symbols.items[exportEqualsSymIndex];
-                            
+
                             var exportEqualsExports = try self.symbolExports.getOrPut(exportEqualsSymIndex);
                             if (!exportEqualsExports.found_existing) {
                                 exportEqualsExports.value_ptr.* = std.StringHashMap(ast_gen.SymbolIndex).init(self.allocator);
                             }
                             try exportEqualsExports.value_ptr.put(symName, sym);
-                            
+
                             exportEqualsSym.Flags |= symbol.SymbolFlags.NamespaceModule;
                         }
                     }
@@ -2188,7 +2154,7 @@ pub const Binder = struct {
             const right = self.ast.getNode(nodeIndex).BinaryExpression.Right;
             const isAlias = ast_utils.isExpressionAlias(self.ast, right);
             const flags = if (isAlias) symbol.SymbolFlags.Alias else symbol.SymbolFlags.Property;
-            
+
             const containerSym = self.ast.getNodeSymbol(container).?;
             _ = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, 0, symbol.InternalSymbolNameMissing, false, false);
         }
@@ -2201,7 +2167,7 @@ pub const Binder = struct {
             const isBin = self.ast.getNode(nodeIndex) == .BinaryExpression;
             const isAlias = isBin and ast_utils.isExpressionAlias(self.ast, self.ast.getNode(nodeIndex).BinaryExpression.Right);
             const flags = if (isAlias) symbol.SymbolFlags.Alias else symbol.SymbolFlags.FunctionScopedVariable;
-            
+
             const containerSym = self.ast.getNodeSymbol(container).?;
             _ = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, symbol.SymbolFlags.FunctionScopedVariableExcludes, symbol.InternalSymbolNameMissing, false, false);
         }
@@ -2224,9 +2190,462 @@ pub const Binder = struct {
     }
 
     pub fn reportError(self: *Binder, location: ast_gen.NodeIndex, message: *const diagnostics.Message, args: []const []const u8) void {
+        self.errorOnNode(location, message, args);
+    }
+
+    pub fn errorOnNode(self: *Binder, nodeIndex: ast_gen.NodeIndex, message: *const diagnostics.Message, args: []const []const u8) void {
+        self.addDiagnostic(self.createDiagnosticForNode(nodeIndex, message, args));
+    }
+
+    pub fn errorOnFirstToken(self: *Binder, nodeIndex: ast_gen.NodeIndex, message: *const diagnostics.Message, args: []const []const u8) void {
+        self.addDiagnostic(self.createDiagnosticForNode(nodeIndex, message, args));
+    }
+
+    pub fn errorOrSuggestionOnNode(self: *Binder, isError: bool, nodeIndex: ast_gen.NodeIndex, message: *const diagnostics.Message) void {
+        self.errorOrSuggestionOnRange(isError, nodeIndex, nodeIndex, message);
+    }
+
+    pub fn errorOrSuggestionOnRange(self: *Binder, isError: bool, startNode: ast_gen.NodeIndex, endNode: ast_gen.NodeIndex, message: *const diagnostics.Message) void {
+        _ = endNode;
+        const diagnostic = self.createDiagnosticForNode(startNode, message, &[_][]const u8{});
+        if (isError) {
+            self.addDiagnostic(diagnostic);
+        } else {
+            // Suggestion diagnostics could be appended to a separate list if needed
+        }
+    }
+
+    pub fn createDiagnosticForNode(self: *Binder, nodeIndex: ast_gen.NodeIndex, message: *const diagnostics.Message, args: []const []const u8) diagnostics.Diagnostic {
         _ = self;
-        _ = location;
-        _ = message;
-        _ = args;
+        return .{
+            .message = message,
+            .nodeIndex = nodeIndex,
+            .args = args,
+        };
+    }
+
+    pub fn addDiagnostic(self: *Binder, diagnostic: diagnostics.Diagnostic) void {
+        self.diagnosticsList.append(self.allocator, diagnostic) catch unreachable;
+    }
+
+    // -- CFA Functions --
+    pub fn isStatementCondition(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        const parentIndex = self.ast.getNodeParent(nodeIndex);
+        if (parentIndex == 0) return false;
+        switch (self.ast.getNode(parentIndex)) {
+            .IfStatement => |n| return n.Expression == nodeIndex,
+            .WhileStatement => |n| return n.Expression == nodeIndex,
+            .DoStatement => |n| return n.Expression == nodeIndex,
+            .ForStatement => |n| return n.Condition == nodeIndex,
+            .ConditionalExpression => |n| return n.Condition == nodeIndex,
+            else => return false,
+        }
+    }
+
+    pub fn isTopLevelLogicalExpression(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        var current = nodeIndex;
+        while (true) {
+            const parentIndex = self.ast.getNodeParent(current);
+            if (parentIndex == 0) break;
+            const parentNode = self.ast.getNode(parentIndex);
+            if (parentNode == .ParenthesizedExpression) {
+                current = parentIndex;
+                continue;
+            }
+            if (parentNode == .PrefixUnaryExpression and self.ast.getNode(parentNode.PrefixUnaryExpression.Operator) == .ExclamationToken) {
+                current = parentIndex;
+                continue;
+            }
+            break;
+        }
+        const finalParent = self.ast.getNodeParent(current);
+        if (finalParent == 0) return true;
+
+        if (self.isStatementCondition(current)) return false;
+
+        if (ast_utils.isLogicalExpression(self.ast, finalParent)) return false;
+        if (ast_utils.isOptionalChain(self.ast, finalParent)) {
+            if (ast_utils.getExpressionOfNode(self.ast, finalParent) == current) return false;
+        }
+        return true;
+    }
+
+    pub fn isNarrowableReference(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        if (nodeIndex == 0) return false;
+        switch (self.ast.getNode(nodeIndex)) {
+            .Identifier, .ThisKeyword, .SuperKeyword, .MetaProperty => return true,
+            .PropertyAccessExpression => |n| return self.isNarrowableReference(n.Expression),
+            .ParenthesizedExpression => |n| return self.isNarrowableReference(n.Expression),
+            .NonNullExpression => |n| return self.isNarrowableReference(n.Expression),
+            .ElementAccessExpression => |n| {
+                if (ast_utils.isStringOrNumericLiteralLike(self.ast, n.ArgumentExpression)) return true;
+                if (ast_utils.isEntityNameExpression(self.ast, n.ArgumentExpression) and self.isNarrowableReference(n.Expression)) return true;
+                return false;
+            },
+            .BinaryExpression => |n| {
+                const op = self.ast.getNode(n.OperatorToken);
+                if (op == .CommaToken and self.isNarrowableReference(n.Right)) return true;
+                if (ast_utils.isAssignmentOperator(op) and ast_utils.isLeftHandSideExpression(self.ast, n.Left)) return true;
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    pub fn containsNarrowableReference(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        if (self.isNarrowableReference(nodeIndex)) return true;
+        if ((ast_utils.getNodeFlags(self.ast, nodeIndex) & ast_utils.NodeFlags.OptionalChain) != 0) {
+            switch (self.ast.getNode(nodeIndex)) {
+                .PropertyAccessExpression, .ElementAccessExpression, .CallExpression, .NonNullExpression => {
+                    return self.containsNarrowableReference(ast_utils.getExpressionOfNode(self.ast, nodeIndex));
+                },
+                else => {},
+            }
+        }
+        return false;
+    }
+
+    pub fn isNarrowableOperand(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        switch (self.ast.getNode(nodeIndex)) {
+            .ParenthesizedExpression => |n| return self.isNarrowableOperand(n.Expression),
+            .BinaryExpression => |n| {
+                const op = self.ast.getNode(n.OperatorToken);
+                if (op == .EqualsToken) return self.isNarrowableOperand(n.Left);
+                if (op == .CommaToken) return self.isNarrowableOperand(n.Right);
+            },
+            else => {},
+        }
+        return self.containsNarrowableReference(nodeIndex);
+    }
+
+    pub fn hasNarrowableArgument(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        const call = self.ast.getNode(nodeIndex).CallExpression;
+        if (call.Arguments != 0) {
+            const args = self.ast.getNodeList(call.Arguments);
+            for (args) |arg| {
+                if (self.containsNarrowableReference(arg)) return true;
+            }
+        }
+        if (self.ast.getNode(call.Expression) == .PropertyAccessExpression) {
+            const propAccess = self.ast.getNode(call.Expression).PropertyAccessExpression;
+            if (self.containsNarrowableReference(propAccess.Expression)) return true;
+        }
+        return false;
+    }
+
+    pub fn isNarrowingExpression(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        if (nodeIndex == 0) return false;
+        switch (self.ast.getNode(nodeIndex)) {
+            .Identifier, .ThisKeyword => return true,
+            .PropertyAccessExpression, .ElementAccessExpression => return self.containsNarrowableReference(nodeIndex),
+            .CallExpression => return self.hasNarrowableArgument(nodeIndex),
+            .ParenthesizedExpression => |n| return self.isNarrowingExpression(n.Expression),
+            .NonNullExpression => |n| return self.isNarrowingExpression(n.Expression),
+            .TypeOfExpression => |n| return self.isNarrowingExpression(n.Expression),
+            .BinaryExpression => return self.isNarrowingBinaryExpression(nodeIndex),
+            .PrefixUnaryExpression => |n| {
+                return self.ast.getNode(n.Operator) == .ExclamationToken and self.isNarrowingExpression(n.Operand);
+            },
+            else => return false,
+        }
+    }
+
+    pub fn isNarrowingTypeOfOperands(self: *Binder, expr1: ast_gen.NodeIndex, expr2: ast_gen.NodeIndex) bool {
+        if (self.ast.getNode(expr1) == .TypeOfExpression) {
+            const typeOf = self.ast.getNode(expr1).TypeOfExpression;
+            if (self.isNarrowableOperand(typeOf.Expression) and ast_utils.isStringLiteralLike(self.ast, expr2)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn isNarrowingBinaryExpression(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        const n = self.ast.getNode(nodeIndex).BinaryExpression;
+        const op = self.ast.getNode(n.OperatorToken);
+        switch (op) {
+            .EqualsToken, .BarBarEqualsToken, .AmpersandAmpersandEqualsToken, .QuestionQuestionEqualsToken => {
+                return self.containsNarrowableReference(n.Left);
+            },
+            .EqualsEqualsToken, .ExclamationEqualsToken, .EqualsEqualsEqualsToken, .ExclamationEqualsEqualsToken => {
+                const left = ast_utils.skipParentheses(self.ast, n.Left);
+                const right = ast_utils.skipParentheses(self.ast, n.Right);
+                return self.isNarrowableOperand(left) or self.isNarrowableOperand(right) or
+                    self.isNarrowingTypeOfOperands(right, left) or self.isNarrowingTypeOfOperands(left, right) or
+                    (ast_utils.isBooleanLiteral(self.ast, right) and self.isNarrowingExpression(left)) or
+                    (ast_utils.isBooleanLiteral(self.ast, left) and self.isNarrowingExpression(right));
+            },
+            .InstanceOfKeyword => return self.isNarrowableOperand(n.Left),
+            .InKeyword => return self.isNarrowingExpression(n.Right),
+            .CommaToken => return self.isNarrowingExpression(n.Right),
+            else => return false,
+        }
+    }
+
+    pub fn isLogicalAssignmentExpression(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
+        return ast_utils.isLogicalOrCoalescingAssignmentExpression(self.ast, ast_utils.skipParentheses(self.ast, nodeIndex));
+    }
+
+    pub fn bindCondition(self: *Binder, nodeIndex: ast_gen.NodeIndex, trueTarget: ast.flow.FlowNodeIndex, falseTarget: ast.flow.FlowNodeIndex) !void {
+        const savedTrueTarget = self.currentTrueTarget;
+        const savedFalseTarget = self.currentFalseTarget;
+        self.currentTrueTarget = trueTarget;
+        self.currentFalseTarget = falseTarget;
+        try self.bind(nodeIndex);
+        self.currentTrueTarget = savedTrueTarget;
+        self.currentFalseTarget = savedFalseTarget;
+
+        if (nodeIndex != 0 and !self.isLogicalAssignmentExpression(nodeIndex) and !ast_utils.isLogicalExpression(self.ast, nodeIndex) and !(ast_utils.isOptionalChain(self.ast, nodeIndex) and ast_utils.isOutermostOptionalChain(self.ast, nodeIndex))) {
+            self.addAntecedent(trueTarget, self.createFlowCondition(ast.flow.FlowFlags.TrueCondition, self.currentFlow, nodeIndex));
+            self.addAntecedent(falseTarget, self.createFlowCondition(ast.flow.FlowFlags.FalseCondition, self.currentFlow, nodeIndex));
+        }
+    }
+
+    pub fn bindPrefixUnaryExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        const expr = self.ast.getNode(nodeIndex).PrefixUnaryExpression;
+        const op = self.ast.getNode(expr.Operator);
+        if (op == .PlusPlusToken or op == .MinusMinusToken) {
+            try self.bindAssignmentTargetFlow(expr.Operand);
+        } else {
+            try self.bind(expr.Operand);
+        }
+    }
+
+    pub fn bindPostfixUnaryExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        const expr = self.ast.getNode(nodeIndex).PostfixUnaryExpression;
+        try self.bindAssignmentTargetFlow(expr.Operand);
+    }
+
+    pub fn bindDestructuringAssignmentFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        const expr = self.ast.getNode(nodeIndex).BinaryExpression;
+        if (self.inAssignmentPattern) {
+            try self.bindAssignmentTargetFlow(expr.Left);
+        } else {
+            const saveInAssignmentPattern = self.inAssignmentPattern;
+            self.inAssignmentPattern = true;
+            try self.bindAssignmentTargetFlow(expr.Left);
+            self.inAssignmentPattern = saveInAssignmentPattern;
+        }
+        try self.bind(expr.Right);
+    }
+
+    pub fn bindBinaryExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        const expr = self.ast.getNode(nodeIndex).BinaryExpression;
+        const operator = self.ast.getNode(expr.OperatorToken);
+
+        if (ast_utils.isLogicalOrCoalescingBinaryOperator(operator) or ast_utils.isLogicalOrCoalescingAssignmentOperator(operator)) {
+            if (self.isTopLevelLogicalExpression(nodeIndex)) {
+                const postExpressionLabel = self.createBranchLabel();
+                try self.bindLogicalLikeExpression(nodeIndex, self.currentTrueTarget, self.currentFalseTarget, postExpressionLabel);
+                self.currentFlow = self.finishFlowLabel(postExpressionLabel);
+            } else {
+                try self.bindLogicalLikeExpression(nodeIndex, self.currentTrueTarget, self.currentFalseTarget, 0);
+            }
+            return;
+        }
+
+        try self.bind(expr.Left);
+        try self.bind(expr.Right);
+
+        if (ast_utils.isAssignmentOperator(operator) and !ast_utils.isDestructuringAssignment(self.ast, nodeIndex)) {
+            try self.bindAssignmentTargetFlow(expr.Left);
+            if (operator == .EqualsToken and self.ast.getNode(expr.Left) == .ElementAccessExpression) {
+                const elementAccess = self.ast.getNode(expr.Left).ElementAccessExpression;
+                if (ast_utils.isStringOrNumericLiteralLike(self.ast, elementAccess.ArgumentExpression)) {
+                    if (ast_utils.isEntityNameExpression(self.ast, elementAccess.Expression) and self.isNarrowableReference(elementAccess.Expression)) {
+                        self.currentFlow = self.createFlowMutation(ast.flow.FlowFlags.ArrayMutation, self.currentFlow, nodeIndex);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn bindDeleteExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        const expr = self.ast.getNode(nodeIndex).DeleteExpression;
+        try self.bind(expr.Expression);
+        try self.bindAssignmentTargetFlow(expr.Expression);
+    }
+
+    pub fn bindConditionalExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        const expr = self.ast.getNode(nodeIndex).ConditionalExpression;
+        const trueLabel = self.createBranchLabel();
+        const falseLabel = self.createBranchLabel();
+        const postExpressionLabel = self.createBranchLabel();
+
+        try self.bindCondition(expr.Condition, trueLabel, falseLabel);
+
+        self.currentFlow = self.finishFlowLabel(trueLabel);
+        try self.bind(expr.WhenTrue);
+        self.addAntecedent(postExpressionLabel, self.currentFlow);
+
+        self.currentFlow = self.finishFlowLabel(falseLabel);
+        try self.bind(expr.WhenFalse);
+        self.addAntecedent(postExpressionLabel, self.currentFlow);
+
+        self.currentFlow = self.finishFlowLabel(postExpressionLabel);
+    }
+
+    pub fn bindVariableDeclarationFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        const decl = self.ast.getNode(nodeIndex).VariableDeclaration;
+        if (decl.Initializer != 0) {
+            try self.bindInitializedVariableFlow(nodeIndex);
+        }
+    }
+
+    pub fn bindInitializedVariableFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) anyerror!void {
+        var name: u32 = 0;
+        switch (self.ast.getNode(nodeIndex)) {
+            .VariableDeclaration => |n| name = n.name,
+            .BindingElement => |n| {
+                if (n.name) |nameIndex| name = nameIndex;
+            },
+            else => {},
+        }
+
+        if (name != 0 and ast_utils.isBindingPattern(self.ast, name)) {
+            const elements = if (self.ast.getNode(name) == .ObjectBindingPattern) self.ast.getNode(name).ObjectBindingPattern.Elements else self.ast.getNode(name).ArrayBindingPattern.Elements;
+            const elementsArr = self.ast.getNodeList(elements);
+            for (elementsArr) |child| {
+                try self.bindInitializedVariableFlow(child);
+            }
+        } else {
+            self.currentFlow = self.createFlowMutation(ast.flow.FlowFlags.Assignment, self.currentFlow, nodeIndex);
+        }
+    }
+
+    pub fn bindLogicalLikeExpression(self: *Binder, nodeIndex: ast_gen.NodeIndex, trueTarget: ast.flow.FlowNodeIndex, falseTarget: ast.flow.FlowNodeIndex, postExpressionLabel: ast.flow.FlowNodeIndex) !void {
+        const expr = self.ast.getNode(nodeIndex).BinaryExpression;
+        const operator = self.ast.getNode(expr.OperatorToken);
+
+        const preRightLabel = self.createBranchLabel();
+
+        if (operator == .AmpersandAmpersandToken or operator == .AmpersandAmpersandEqualsToken) {
+            try self.bindCondition(expr.Left, preRightLabel, if (falseTarget != 0) falseTarget else postExpressionLabel);
+        } else {
+            try self.bindCondition(expr.Left, if (trueTarget != 0) trueTarget else postExpressionLabel, preRightLabel);
+        }
+
+        self.currentFlow = self.finishFlowLabel(preRightLabel);
+        try self.bind(expr.Right);
+
+        if (operator == .AmpersandAmpersandEqualsToken or operator == .BarBarEqualsToken or operator == .QuestionQuestionEqualsToken) {
+            try self.bindAssignmentTargetFlow(expr.Left);
+        }
+    }
+
+    pub fn bindAssignmentTargetFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) anyerror!void {
+        if (nodeIndex == 0) return;
+        switch (self.ast.getNode(nodeIndex)) {
+            .ObjectLiteralExpression => |n| {
+                if (n.Properties != 0) {
+                    const props = self.ast.getNodeList(n.Properties);
+                    for (props) |p| {
+                        if (self.ast.getNode(p) == .PropertyAssignment) {
+                            try self.bindDestructuringTargetFlow(self.ast.getNode(p).PropertyAssignment.Initializer);
+                        } else if (self.ast.getNode(p) == .ShorthandPropertyAssignment) {
+                            try self.bindAssignmentTargetFlow(self.ast.getNode(p).ShorthandPropertyAssignment.name);
+                        } else if (self.ast.getNode(p) == .SpreadAssignment) {
+                            try self.bindAssignmentTargetFlow(self.ast.getNode(p).SpreadAssignment.Expression);
+                        }
+                    }
+                }
+            },
+            .ArrayLiteralExpression => |n| {
+                if (n.Elements != 0) {
+                    const elements = self.ast.getNodeList(n.Elements);
+                    for (elements) |e| {
+                        if (self.ast.getNode(e) == .SpreadElement) {
+                            try self.bindAssignmentTargetFlow(self.ast.getNode(e).SpreadElement.Expression);
+                        } else {
+                            try self.bindDestructuringTargetFlow(e);
+                        }
+                    }
+                }
+            },
+            else => {
+                if (self.isNarrowableReference(nodeIndex)) {
+                    self.currentFlow = self.createFlowMutation(ast.flow.FlowFlags.Assignment, self.currentFlow, nodeIndex);
+                }
+            },
+        }
+    }
+
+    pub fn bindDestructuringTargetFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        if (self.ast.getNode(nodeIndex) == .BinaryExpression and self.ast.getNode(self.ast.getNode(nodeIndex).BinaryExpression.OperatorToken) == .EqualsToken) {
+            try self.bindAssignmentTargetFlow(self.ast.getNode(nodeIndex).BinaryExpression.Left);
+        } else {
+            try self.bindAssignmentTargetFlow(nodeIndex);
+        }
+    }
+
+    pub fn bindAccessExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        try self.bindOptionalChainFlow(nodeIndex);
+    }
+
+    pub fn bindCallExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        try self.bindOptionalChainFlow(nodeIndex);
+        if (self.ast.getNode(nodeIndex).CallExpression.Expression != 0) {
+            if (self.ast.getNode(self.ast.getNode(nodeIndex).CallExpression.Expression) != .SuperKeyword) {
+                self.currentFlow = self.createFlowCall(self.currentFlow, nodeIndex);
+            }
+        }
+    }
+
+    pub fn bindNonNullExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        try self.bindOptionalChainFlow(nodeIndex);
+    }
+
+    pub fn bindOptionalChainFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        if (ast_utils.isOptionalChain(self.ast, nodeIndex)) {
+            if (ast_utils.isOutermostOptionalChain(self.ast, nodeIndex)) {
+                const postExpressionLabel = self.createBranchLabel();
+                try self.bindOptionalChain(nodeIndex, self.currentTrueTarget, self.currentFalseTarget, postExpressionLabel);
+                self.currentFlow = self.finishFlowLabel(postExpressionLabel);
+                self.currentFlow = self.createFlowMutation(ast.flow.FlowFlags.Assignment, self.currentFlow, nodeIndex);
+            } else {
+                try self.bindOptionalChain(nodeIndex, self.currentTrueTarget, self.currentFalseTarget, 0);
+            }
+        } else {
+            const expression = ast_utils.getExpressionOfNode(self.ast, nodeIndex);
+            try self.bind(expression);
+            switch (self.ast.getNode(nodeIndex)) {
+                .CallExpression => |n| {
+                    if (n.TypeArguments != null and n.TypeArguments.? != 0) try self.bindNodeList(n.TypeArguments.?);
+                    if (n.Arguments != 0) try self.bindNodeList(n.Arguments);
+                },
+                .ElementAccessExpression => |n| try self.bind(n.ArgumentExpression),
+                else => {},
+            }
+        }
+    }
+
+    pub fn bindOptionalChain(self: *Binder, nodeIndex: ast_gen.NodeIndex, trueTarget: ast.flow.FlowNodeIndex, falseTarget: ast.flow.FlowNodeIndex, postExpressionLabel: ast.flow.FlowNodeIndex) !void {
+        _ = self;
+        _ = nodeIndex;
+        _ = trueTarget;
+        _ = falseTarget;
+        _ = postExpressionLabel;
+        // Missing implementation, to be done later if needed
+    }
+
+    pub fn bindBindingElementFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) anyerror!void {
+        const decl = self.ast.getNode(nodeIndex).BindingElement;
+        if (decl.PropertyName == null or decl.PropertyName.? == 0) {
+            if (decl.name) |n| try self.bindAssignmentTargetFlow(n);
+        }
+        if (decl.Initializer != null and decl.Initializer.? != 0) {
+            try self.bindInitializedVariableFlow(nodeIndex);
+        }
+    }
+
+    pub fn bindParameterFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        const decl = self.ast.getNode(nodeIndex).Parameter;
+        if (decl.Type != 0) try self.bind(decl.Type);
+        if (ast_utils.isBindingPattern(self.ast, decl.name)) {
+            try self.bindAssignmentTargetFlow(decl.name);
+        }
+        if (decl.Initializer != 0) {
+            try self.bindInitializedVariableFlow(nodeIndex);
+        }
     }
 };

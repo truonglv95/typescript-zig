@@ -54,24 +54,26 @@ pub const FakeCloneHost = struct {
 };
 
 test "AliasResolverGetDiagnosticsDoesNotPanic" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     const text = "declare function f(arg: { a: string }): () => void;\nexport const x = f({ a: 1 });\n";
 
     var p = parser.Parser.init(allocator, text);
-    defer p.deinit();
+    // defer p.deinit();  // Arena will free it
     const sourceFile = try p.parseSourceFile();
 
     var b = binder.Binder.init(allocator, &p.ast) catch unreachable;
-    defer b.deinit();
+    // defer b.deinit();
     try b.bindSourceFile(sourceFile);
 
     var fakeHost = FakeCloneHost{};
-    
+
     const opts = try allocator.create(core.CompilerOptions);
-    defer allocator.destroy(opts);
+    // defer allocator.destroy(opts);
     opts.* = .{};
-    
+
     const resolutionHost = module_resolver.ResolutionHost{
         .ptr = &fakeHost,
         .getCurrentDirectoryFn = struct {
@@ -85,7 +87,7 @@ test "AliasResolverGetDiagnosticsDoesNotPanic" {
             }
         }.wrapper,
     };
-    
+
     const resolver = try module_resolver.Resolver.init(allocator, resolutionHost, opts, "", "");
 
     const r = try aliasresolver.AliasResolver.init(

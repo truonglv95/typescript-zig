@@ -5,6 +5,7 @@ const project = @import("project.zig");
 const filechange = @import("filechange.zig");
 const autoimport = @import("../ls/autoimport/registry.zig");
 const lsproto = @import("../lsp/lsproto.zig");
+const snapshot_pkg = @import("snapshot.zig");
 
 pub const UpdateReason = enum {
     Unknown,
@@ -38,18 +39,10 @@ pub const SessionInit = struct {
     // parseCache: *ParseCache,
 };
 
-pub const Snapshot = opaque {
-    pub fn autoImportRegistry(self: *Snapshot) ?*autoimport.Registry {
-        _ = self; return null;
-    }
-    pub fn getDefaultProject(self: *Snapshot, uri: []const u8) ?*project.Project {
-        _ = self; _ = uri; return null;
-    }
-};
-
 pub const SnapshotChange = struct {
     reason: UpdateReason = .Unknown,
     fileChanges: filechange.FileChangeSummary,
+    requestedFile: ?[]const u8 = null,
     // ataChanges: ATAChanges,
     // apiRequest: ...
 };
@@ -57,14 +50,15 @@ pub const SnapshotChange = struct {
 pub const Session = struct {
     options: *SessionOptions,
     startTime: i64,
-    
+
     snapshotID: std.atomic.Value(u64),
-    
-    snapshot: ?*Snapshot = null,
-    
+
+    snapshot: ?*snapshot_pkg.Snapshot = null,
+
     scheduledSnapshotUpdateGeneration: u64 = 0,
-    
+
     pendingFileChanges: std.ArrayList(filechange.FileChange),
+    overlays: std.StringHashMap(void),
 
     allocator: std.mem.Allocator,
 
@@ -74,50 +68,130 @@ pub const Session = struct {
             .startTime = 0,
             .snapshotID = std.atomic.Value(u64).init(0),
             .pendingFileChanges = std.ArrayList(filechange.FileChange).empty,
+            .overlays = std.StringHashMap(void).init(allocator),
             .allocator = allocator,
         };
     }
 
     pub fn getCurrentLanguageServiceWithAutoImports(self: *Session, uri: []const u8) !void {
-        _ = self; _ = uri;
+        _ = try self.getSnapshot(.RequestedLanguageServiceWithAutoImports, uri);
     }
+
+    pub fn getSnapshot(self: *Session, reason: UpdateReason, requestedFile: ?[]const u8) !*snapshot_pkg.Snapshot {
+        self.cancelScheduledSnapshotUpdate();
+
+        var summary = filechange.FileChangeSummary.init(self.allocator);
+        const flushed = try self.flushChanges(&summary);
+
+        if (flushed or self.snapshot == null) {
+            self.snapshot = try self.updateSnapshotRef(self.overlays, SnapshotChange{
+                .reason = reason,
+                .fileChanges = summary,
+                .requestedFile = requestedFile,
+            });
+        } else if (reason == .RequestedLanguageServiceWithAutoImports) {
+            self.snapshot = try self.updateSnapshotRef(self.overlays, SnapshotChange{
+                .reason = reason,
+                .fileChanges = summary, // empty
+                .requestedFile = requestedFile,
+            });
+        }
+
+        return self.snapshot.?;
+    }
+
     pub fn didOpenFile(self: *Session, uri: []const u8, version: i32, text: []const u8, lang: anytype) !void {
-        _ = self; _ = uri; _ = version; _ = text; _ = lang;
+        _ = lang;
+        self.cancelScheduledSnapshotUpdate();
+        try self.pendingFileChanges.append(self.allocator, .{
+            .kind = .Open,
+            .uri = uri,
+            .version = version,
+            .content = text,
+        });
     }
+
     pub fn didChangeFile(self: *Session, uri: []const u8, version: i32, changes: anytype) !void {
-        _ = self; _ = uri; _ = version; _ = changes;
+        _ = changes;
+        self.cancelScheduledSnapshotUpdate();
+        try self.pendingFileChanges.append(self.allocator, .{
+            .kind = .Change,
+            .uri = uri,
+            .version = version,
+        });
     }
+
     pub fn getLanguageService(self: *Session, uri: []const u8) !void {
-        _ = self; _ = uri;
+        _ = uri;
+        _ = try self.getSnapshot(.RequestedLanguageServicePendingChanges, null);
     }
+
     pub fn didCloseFile(self: *Session, uri: []const u8) !void {
-        _ = self; _ = uri;
+        self.cancelScheduledSnapshotUpdate();
+        try self.pendingFileChanges.append(self.allocator, .{
+            .kind = .Close,
+            .uri = uri,
+        });
     }
+
     pub fn didChangeWatchedFiles(self: *Session, events: []const lsproto.FileEvent) !void {
-        _ = self; _ = events;
+        self.cancelScheduledSnapshotUpdate();
+        for (events) |event| {
+            try self.pendingFileChanges.append(self.allocator, .{
+                .kind = if (event.type == .Created) .WatchCreate else if (event.type == .Changed) .WatchChange else .WatchDelete,
+                .uri = event.uri,
+            });
+        }
     }
+
     pub fn cancelScheduledSnapshotUpdate(self: *Session) void {
         self.scheduledSnapshotUpdateGeneration += 1;
-        // background task cancellation omitted
     }
 
-    // flushChanges returns the currently pending changes. 
-    // In DoD, we return allocated or arena-backed structures.
-    pub fn flushChanges(self: *Session) !struct { filechange.FileChangeSummary, std.StringArrayHashMap(void) } {
-        const summary = filechange.FileChangeSummary.init(self.allocator);
-        // process pendingFileChanges into summary...
+    pub fn flushChanges(self: *Session, summary: *filechange.FileChangeSummary) !bool {
+        if (self.pendingFileChanges.items.len == 0) return false;
+
+        for (self.pendingFileChanges.items) |change| {
+            switch (change.kind) {
+                .Open => {
+                    summary.opened = change.uri;
+                    try self.overlays.put(change.uri, {});
+                },
+                .Close => {
+                    try summary.closed.put(change.uri, {});
+                    _ = self.overlays.remove(change.uri);
+                },
+                .Change => {
+                    try summary.changed.put(change.uri, {});
+                    try self.overlays.put(change.uri, {});
+                },
+                .Save => {},
+                .WatchCreate => try summary.created.put(change.uri, {}),
+                .WatchChange => try summary.changed.put(change.uri, {}),
+                .WatchDelete => try summary.deleted.put(change.uri, {}),
+            }
+        }
         self.pendingFileChanges.clearRetainingCapacity();
-        
-        const overlays = std.StringArrayHashMap(void).init(self.allocator);
-        return .{ summary, overlays };
+        return true;
     }
 
-    pub fn updateSnapshotRef(self: *Session, overlays: std.StringArrayHashMap(void), change: SnapshotChange) !*Snapshot {
-        _ = overlays;
-        _ = change;
-        // Create new snapshot logic goes here
-        if (self.snapshot) |s| return s;
-        // mock return
-        return @ptrCast(self); 
+    pub fn updateSnapshotRef(self: *Session, overlays: std.StringHashMap(void), change: SnapshotChange) !*snapshot_pkg.Snapshot {
+        if (self.snapshot) |snap| {
+            return try snap.clone(self.allocator, change, overlays, self);
+        }
+
+        // Initial snapshot
+        const newSnapshotID = self.snapshotID.fetchAdd(1, .monotonic) + 1;
+        const newSnapshot = try snapshot_pkg.Snapshot.init(
+            self.allocator,
+            newSnapshotID,
+            null, // fs
+            self.options,
+            null, // config
+            null, // inferred
+            null, // autoImports
+            null, // autoImportsWatch
+        );
+        return newSnapshot;
     }
 };

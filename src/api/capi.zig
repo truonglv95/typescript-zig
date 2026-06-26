@@ -7,7 +7,7 @@ const printer_pkg = @import("../printer/printer.zig");
 
 /// C API: Khởi tạo và phân tích mã nguồn TypeScript
 /// Hàm này được Go (qua CGO) gọi trực tiếp. Nó nhận chuỗi và trả về mã lỗi (0 = success).
-pub export fn zig_ts_parse_and_check(source: [*]const u8, length: usize) i32 {
+pub export fn zig_ts_parse_and_check(source: [*]const u8, length: usize, is_jsx: u8) i32 {
     const src = source[0..length];
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -15,6 +15,9 @@ pub export fn zig_ts_parse_and_check(source: [*]const u8, length: usize) i32 {
     const allocator = arena.allocator();
 
     var parser = parser_pkg.Parser.init(allocator, src);
+    if (is_jsx != 0) {
+        parser.setLanguageVariant(.JSX);
+    }
     defer parser.deinit();
 
     // Giả định parse toàn bộ file
@@ -29,9 +32,7 @@ pub export fn zig_ts_parse_and_check(source: [*]const u8, length: usize) i32 {
 
     _ = checker.checkStatement(sourceFileIndex) catch return -4;
 
-    if (parser.parseDiagnosticsCount > 0) {
-
-    }
+    if (parser.parseDiagnosticsCount > 0) {}
     return @as(i32, @intCast(parser.parseDiagnosticsCount));
 }
 
@@ -96,7 +97,7 @@ pub export fn zig_ts_print(
 }
 
 /// C API: Get symbol count
-pub export fn zig_ts_parse_and_bind_symbol_count(source: [*]const u8, length: usize) i32 {
+pub export fn zig_ts_parse_and_bind_symbol_count(source: [*]const u8, length: usize, is_jsx: u8) i32 {
     const src = source[0..length];
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -104,6 +105,9 @@ pub export fn zig_ts_parse_and_bind_symbol_count(source: [*]const u8, length: us
     const allocator = arena.allocator();
 
     var parser = parser_pkg.Parser.init(allocator, src);
+    if (is_jsx != 0) {
+        parser.setLanguageVariant(.JSX);
+    }
     defer parser.deinit();
 
     const sourceFileIndex = parser.parseSourceFile() catch return -1;
@@ -113,6 +117,14 @@ pub export fn zig_ts_parse_and_bind_symbol_count(source: [*]const u8, length: us
     binder.bindSourceFile(sourceFileIndex) catch return -2;
 
     const symbols = binder.symbols.items;
+
+    if (symbols.len > 10 and symbols.len < 100) {
+        std.debug.print("Zig Symbol Count: {d}\n", .{symbols.len - 1});
+        for (symbols[1..]) |sym| {
+            std.debug.print("Zig Symbol: {s}\n", .{sym.Name});
+        }
+    }
+
     return @as(i32, @intCast(symbols.len - 1));
 }
 
@@ -212,14 +224,14 @@ pub export fn zig_ts_get_binder_state(
 ) i32 {
     const src = source[0..length];
     const allocator = std.heap.page_allocator;
-    
+
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
-    
+
     var parser = parser_pkg.Parser.init(arena_alloc, src);
     defer parser.deinit();
-    
+
     const sourceFileIndex = parser.parseSourceFile() catch {
         const err = "{\"nodes\":[]}";
         const buf = allocator.dupe(u8, err) catch return -1;
@@ -227,7 +239,7 @@ pub export fn zig_ts_get_binder_state(
         out_len.* = buf.len;
         return -1;
     };
-    
+
     var binder = binder_pkg.Binder.init(arena_alloc, &parser.ast) catch {
         const err = "{\"nodes\":[]}";
         const buf = allocator.dupe(u8, err) catch return -2;
@@ -237,26 +249,26 @@ pub export fn zig_ts_get_binder_state(
     };
     defer binder.deinit();
     binder.bindSourceFile(sourceFileIndex) catch {};
-    
+
     var json = std.ArrayListUnmanaged(u8).empty;
-    
+
     json.appendSlice(arena_alloc, "{\"nodes\":[") catch return -3;
-    
+
     var first = true;
     for (0..parser.ast.nodes.len) |i| {
         if (!first) {
             json.append(arena_alloc, ',') catch return -3;
         }
         first = false;
-        
+
         json.appendSlice(arena_alloc, "{\"index\":") catch return -3;
         var idx_buf: [32]u8 = undefined;
         json.appendSlice(arena_alloc, std.fmt.bufPrint(&idx_buf, "{d}", .{i}) catch "0") catch return -3;
-        
+
         json.appendSlice(arena_alloc, ",\"kind\":") catch return -3;
         var kind_buf: [32]u8 = undefined;
         json.appendSlice(arena_alloc, std.fmt.bufPrint(&kind_buf, "{d}", .{@intFromEnum(parser.ast.nodes.items(.tags)[i])}) catch "0") catch return -3;
-        
+
         // Symbol
         const symIdx = parser.ast.getNodeSymbol(@as(u32, @intCast(i)));
         if (symIdx != null and symIdx.? != 0) {
@@ -277,7 +289,7 @@ pub export fn zig_ts_get_binder_state(
             var flag_buf: [32]u8 = undefined;
             json.appendSlice(arena_alloc, std.fmt.bufPrint(&flag_buf, "{d}", .{sym.Flags}) catch "0") catch return -3;
         }
-        
+
         // LocalSymbol
         const localSymIdx = parser.ast.localSymbols.get(@as(u32, @intCast(i)));
         if (localSymIdx != null and localSymIdx.? != 0) {
@@ -298,7 +310,7 @@ pub export fn zig_ts_get_binder_state(
             var flag_buf: [32]u8 = undefined;
             json.appendSlice(arena_alloc, std.fmt.bufPrint(&flag_buf, "{d}", .{sym.Flags}) catch "0") catch return -3;
         }
-        
+
         // LocalsCount
         if (binder.nodeLocals.get(@as(u32, @intCast(i)))) |localsMap| {
             json.appendSlice(arena_alloc, ",\"localsCount\":") catch return -3;
@@ -323,7 +335,7 @@ pub export fn zig_ts_get_binder_state(
                 if (!first_key) json.append(arena_alloc, ',') catch return -3;
                 first_key = false;
                 json.append(arena_alloc, '"') catch return -3;
-                
+
                 // Escape __ (we use internal name missing here directly)
                 const is_missing = std.mem.eql(u8, k, "__missing");
                 if (is_missing) {
@@ -347,16 +359,16 @@ pub export fn zig_ts_get_binder_state(
             }
             json.append(arena_alloc, ']') catch return -3;
         }
-        
+
         json.append(arena_alloc, '}') catch return -3;
     }
-    
+
     json.appendSlice(arena_alloc, "]}") catch return -3;
-    
+
     const result = allocator.dupe(u8, json.items) catch return -3;
     out_buf.* = result.ptr;
     out_len.* = result.len;
-    
+
     return 0;
 }
 
@@ -374,17 +386,17 @@ pub export fn zig_ts_scan(
 ) i32 {
     const src = source[0..length];
     const allocator = std.heap.page_allocator;
-    
+
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arena_alloc = arena.allocator();
-    
+
     const scanner_pkg = @import("../scanner/scanner.zig");
     var scanner = scanner_pkg.Scanner.init(arena_alloc, src);
-    scanner.skipTrivia = false; 
-    
+    scanner.skipTrivia = false;
+
     var tokenList = std.ArrayListUnmanaged(TokenInfo).empty;
-    
+
     while (true) {
         const k = scanner.scan();
         tokenList.append(arena_alloc, .{
@@ -392,17 +404,17 @@ pub export fn zig_ts_scan(
             .start = @as(i32, @intCast(scanner.state.tokenStart)),
             .end = @as(i32, @intCast(scanner.state.pos)),
         }) catch return -1;
-        
+
         if (k == .EndOfFile) {
             break;
         }
     }
-    
+
     const final_tokens = allocator.dupe(TokenInfo, tokenList.items) catch return -2;
     out_tokens.* = final_tokens.ptr;
     out_count.* = final_tokens.len;
-    
-    return 0; 
+
+    return 0;
 }
 
 pub export fn zig_ts_free_tokens(buf: [*]TokenInfo, len: usize) void {
@@ -489,4 +501,3 @@ pub export fn zig_ts_free_ast_node_kinds(buf: [*]u16, len: usize) void {
     const allocator = std.heap.page_allocator;
     allocator.free(buf[0..len]);
 }
-

@@ -79,15 +79,15 @@ pub const FileHandle = union(FileHandleTag) {
 };
 
 pub const OverlayFS = struct {
-    toPath: *const fn([]const u8) tspath.Path,
-    overlays: std.StringArrayHashMap(Overlay),
+    toPath: *const fn ([]const u8) tspath.Path,
+    overlays: std.StringHashMap(Overlay),
     mu: std.Thread.RwLock = .{},
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, toPathFn: *const fn([]const u8) tspath.Path) OverlayFS {
+    pub fn init(allocator: std.mem.Allocator, toPathFn: *const fn ([]const u8) tspath.Path) OverlayFS {
         return .{
             .toPath = toPathFn,
-            .overlays = std.StringArrayHashMap(Overlay).init(allocator),
+            .overlays = std.StringHashMap(Overlay).init(allocator),
             .allocator = allocator,
         };
     }
@@ -95,23 +95,23 @@ pub const OverlayFS = struct {
     pub fn getFile(self: *OverlayFS, fileName: []const u8) ?FileHandle {
         self.mu.lockShared();
         defer self.mu.unlockShared();
-        
+
         const path = self.toPath(fileName);
         if (self.overlays.get(path)) |overlay| {
             return FileHandle{ .overlay = overlay };
         }
-        
+
         // normally we would read from disk here
         return null;
     }
 
-    pub fn processChanges(self: *OverlayFS, changes: []const filechange.FileChange) !struct { filechange.FileChangeSummary, std.StringArrayHashMap(Overlay) } {
+    pub fn processChanges(self: *OverlayFS, changes: []const filechange.FileChange) !struct { filechange.FileChangeSummary, std.StringHashMap(Overlay) } {
         self.mu.lock();
         defer self.mu.unlock();
-        
+
         var result = filechange.FileChangeSummary.init(self.allocator);
         var newOverlays = try self.cloneOverlays(self.allocator, &self.overlays);
-        
+
         // mock process logic:
         for (changes) |change| {
             if (change.kind == .Open) {
@@ -132,14 +132,14 @@ pub const OverlayFS = struct {
                 }
             }
         }
-        
+
         self.overlays = newOverlays;
         return .{ result, newOverlays };
     }
 
-    fn cloneOverlays(self: *OverlayFS, allocator: std.mem.Allocator, map: *const std.StringArrayHashMap(Overlay)) !std.StringArrayHashMap(Overlay) {
+    fn cloneOverlays(self: *OverlayFS, allocator: std.mem.Allocator, map: *const std.StringHashMap(Overlay)) !std.StringHashMap(Overlay) {
         _ = self;
-        var new_map = std.StringArrayHashMap(Overlay).init(allocator);
+        var new_map = std.StringHashMap(Overlay).init(allocator);
         var it = map.iterator();
         while (it.next()) |entry| {
             try new_map.put(entry.key_ptr.*, entry.value_ptr.*);

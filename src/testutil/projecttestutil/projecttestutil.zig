@@ -225,6 +225,34 @@ pub fn setupWithOptionsAndTypingsInstaller(allocator: std.mem.Allocator, files: 
     const res = try getSessionInitOptions(allocator, files, options, tiOptions);
     const sess = try allocator.create(session.Session);
     sess.* = session.Session.init(allocator, res.init);
+
+    const snapshot_pkg = @import("../../project/snapshot.zig");
+    const autoimport = @import("../../ls/autoimport/registry.zig");
+
+    // AutoImportRegistry init
+    const lsutil = @import("../../ls/lsutil.zig");
+    const toPathFn = struct {
+        fn mockToPath(fileName: []const u8) tspath.Path {
+            return fileName;
+        }
+    }.mockToPath;
+    const prefs = lsutil.UserPreferences{};
+    const autoImportReg = try autoimport.Registry.init(allocator, toPathFn, prefs);
+
+    const autoImportReg_opaque = @as(?*snapshot_pkg.AutoImportRegistry, @ptrCast(@alignCast(autoImportReg)));
+
+    const snapshotfs_pkg = @import("../../project/snapshotfs.zig");
+    const snap_fs = try allocator.create(snapshotfs_pkg.SnapshotFS);
+    snap_fs.* = snapshotfs_pkg.SnapshotFS.init(allocator, toPathFn);
+    var files_it = files.keyIterator();
+    while (files_it.next()) |k| {
+        try snap_fs.diskFiles.put(k.*, undefined);
+    }
+
+    const snap_fs_opaque = @as(?*snapshot_pkg.SnapshotFS, @ptrCast(@alignCast(snap_fs)));
+    const snap = try snapshot_pkg.Snapshot.init(allocator, 1, snap_fs_opaque, res.init.options, null, null, autoImportReg_opaque, null);
+    sess.snapshot = snap;
+
     return .{ .session = sess, .utils = res.utils };
 }
 

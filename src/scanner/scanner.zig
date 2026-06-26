@@ -60,7 +60,7 @@ pub const Scanner = struct {
     onError: ?ErrorCallback,
     onErrorCtx: ?*anyopaque,
     skipTrivia: bool,
-    
+
     state: ScannerState,
     containsNonASCII: bool,
 
@@ -171,7 +171,7 @@ pub const Scanner = struct {
 
     fn isConflictMarkerTrivia(self: *Scanner, pos: usize) bool {
         if (pos + 1 >= self.end or self.text[pos + 1] != self.text[pos]) return false;
-        
+
         const atLineStart = pos == 0 or self.text[pos - 1] == '\n' or self.text[pos - 1] == '\r';
         if (atLineStart) {
             const ch = self.text[pos];
@@ -190,7 +190,7 @@ pub const Scanner = struct {
         self.errorAt(&diagnostics.generated.Merge_conflict_marker_encountered, pos, 7, &[_][]const u8{});
         const ch = self.text[pos];
         var current_pos = pos;
-        
+
         if (ch == '<' or ch == '>') {
             while (current_pos < self.end) {
                 const c = self.text[current_pos];
@@ -305,8 +305,16 @@ pub const Scanner = struct {
                     }
                     return self.state.token;
                 },
-                '(' => { self.state.pos += 1; self.state.token = kind.Kind.OpenParenToken; return self.state.token; },
-                ')' => { self.state.pos += 1; self.state.token = kind.Kind.CloseParenToken; return self.state.token; },
+                '(' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.OpenParenToken;
+                    return self.state.token;
+                },
+                ')' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.CloseParenToken;
+                    return self.state.token;
+                },
                 '*' => {
                     const next = self.charAt(1);
                     if (next == '=') {
@@ -340,7 +348,11 @@ pub const Scanner = struct {
                     }
                     return self.state.token;
                 },
-                ',' => { self.state.pos += 1; self.state.token = kind.Kind.CommaToken; return self.state.token; },
+                ',' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.CommaToken;
+                    return self.state.token;
+                },
                 '-' => {
                     const next = self.charAt(1);
                     if (next == '=') {
@@ -368,8 +380,16 @@ pub const Scanner = struct {
                     }
                     return self.state.token;
                 },
-                ':' => { self.state.pos += 1; self.state.token = kind.Kind.ColonToken; return self.state.token; },
-                ';' => { self.state.pos += 1; self.state.token = kind.Kind.SemicolonToken; return self.state.token; },
+                ':' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.ColonToken;
+                    return self.state.token;
+                },
+                ';' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.SemicolonToken;
+                    return self.state.token;
+                },
                 '<' => {
                     const next = self.charAt(1);
                     if (next == '=') {
@@ -430,15 +450,31 @@ pub const Scanner = struct {
                             return self.state.token;
                         }
                     } else {
-                        self.state.pos += 1; 
-                        self.state.token = kind.Kind.QuestionToken; 
+                        self.state.pos += 1;
+                        self.state.token = kind.Kind.QuestionToken;
                         return self.state.token;
                     }
                 },
-                '[' => { self.state.pos += 1; self.state.token = kind.Kind.OpenBracketToken; return self.state.token; },
-                ']' => { self.state.pos += 1; self.state.token = kind.Kind.CloseBracketToken; return self.state.token; },
-                '{' => { self.state.pos += 1; self.state.token = kind.Kind.OpenBraceToken; return self.state.token; },
-                '}' => { self.state.pos += 1; self.state.token = kind.Kind.CloseBraceToken; return self.state.token; },
+                '[' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.OpenBracketToken;
+                    return self.state.token;
+                },
+                ']' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.CloseBracketToken;
+                    return self.state.token;
+                },
+                '{' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.OpenBraceToken;
+                    return self.state.token;
+                },
+                '}' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.CloseBraceToken;
+                    return self.state.token;
+                },
                 '|' => {
                     if (self.charAt(1) == '|') {
                         self.state.pos += 2;
@@ -449,9 +485,21 @@ pub const Scanner = struct {
                     }
                     return self.state.token;
                 },
-                '^' => { self.state.pos += 1; self.state.token = kind.Kind.CaretToken; return self.state.token; },
-                '~' => { self.state.pos += 1; self.state.token = kind.Kind.TildeToken; return self.state.token; },
-                '@' => { self.state.pos += 1; self.state.token = kind.Kind.AtToken; return self.state.token; },
+                '^' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.CaretToken;
+                    return self.state.token;
+                },
+                '~' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.TildeToken;
+                    return self.state.token;
+                },
+                '@' => {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.AtToken;
+                    return self.state.token;
+                },
                 '`' => {
                     self.state.token = self.scanTemplateAndSetTokenValue(false);
                     return self.state.token;
@@ -558,7 +606,7 @@ pub const Scanner = struct {
                     const start = self.state.pos;
                     while (self.state.pos < self.end) {
                         const b = self.char();
-                        if ((b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z') or (b >= '0' and b <= '9') or b == '_' or b == '$' or (self.languageVariant == .JSX and (b == '-' or b == ':'))) {
+                        if ((b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z') or (b >= '0' and b <= '9') or b == '_' or b == '$') {
                             self.state.pos += 1;
                         } else if (b == '\\') {
                             if (self.charAt(1) == 'u') {
@@ -600,14 +648,14 @@ pub const Scanner = struct {
                     self.state.pos += 1;
                     self.state.token = kind.Kind.Unknown;
                     return self.state.token;
-                }
+                },
             }
         }
     }
 
     fn scanNumber(self: *Scanner) kind.Kind {
         const start = self.state.pos;
-        
+
         if (self.char() == '0') {
             self.state.pos += 1;
             const next = self.char();
@@ -648,7 +696,7 @@ pub const Scanner = struct {
                 return kind.Kind.NumericLiteral;
             }
         }
-        
+
         while (self.state.pos < self.end) {
             const b = self.char();
             if ((b >= '0' and b <= '9') or b == '_') {
@@ -657,7 +705,7 @@ pub const Scanner = struct {
                 break;
             }
         }
-        
+
         if (self.char() == '.') {
             self.state.pos += 1;
             while (self.state.pos < self.end) {
@@ -669,7 +717,7 @@ pub const Scanner = struct {
                 }
             }
         }
-        
+
         const c = self.char();
         if (c == 'e' or c == 'E') {
             self.state.pos += 1;
@@ -685,7 +733,7 @@ pub const Scanner = struct {
             }
             self.state.tokenFlags |= TokenFlags.Scientific;
         }
-        
+
         if (self.char() == 'n') {
             self.state.pos += 1;
             self.state.tokenValue = self.text[start..self.state.pos];
@@ -733,7 +781,7 @@ pub const Scanner = struct {
         if (quote == '\'') self.state.tokenFlags |= TokenFlags.SingleQuote;
         self.state.pos += 1;
         const start = self.state.pos;
-        
+
         // Fast path for simple strings
         while (self.state.pos < self.end) {
             const ch = self.char();
@@ -753,14 +801,14 @@ pub const Scanner = struct {
             }
             self.state.pos += 1;
         }
-        
+
         return self.text[start..self.state.pos];
     }
 
     pub fn hasPrecedingLineBreak(self: *const Scanner) bool {
         return (self.state.tokenFlags & TokenFlags.PrecedingLineBreak) != 0;
     }
-    
+
     pub fn reScanSlashToken(self: *Scanner) kind.Kind {
         if (self.state.token == kind.Kind.SlashToken or self.state.token == kind.Kind.SlashEqualsToken) {
             var p = self.state.tokenStart + 1;
@@ -796,7 +844,7 @@ pub const Scanner = struct {
 
             if (isTerminated) {
                 p += 1; // Consume closing slash
-                
+
                 // Consume flags
                 while (p < self.end) {
                     const ch = self.text[p];
@@ -822,7 +870,7 @@ pub const Scanner = struct {
         var parts = std.ArrayListUnmanaged([]const u8).empty;
         defer parts.deinit(self.allocator);
         var token: kind.Kind = undefined;
-        
+
         while (true) {
             while (self.state.pos < self.end) {
                 const b = self.char();
@@ -854,7 +902,7 @@ pub const Scanner = struct {
                 // Simplified escape sequence scanning
                 if (self.char() != 0) {
                     self.state.pos += 1;
-                    parts.append(self.allocator, self.text[self.state.pos-1..self.state.pos]) catch unreachable;
+                    parts.append(self.allocator, self.text[self.state.pos - 1 .. self.state.pos]) catch unreachable;
                 }
                 start = self.state.pos;
                 continue;
@@ -879,7 +927,7 @@ pub const Scanner = struct {
         var buf = self.allocator.alloc(u8, total_len) catch unreachable;
         var offset: usize = 0;
         for (parts.items) |part| {
-            @memcpy(buf[offset..offset+part.len], part);
+            @memcpy(buf[offset .. offset + part.len], part);
             offset += part.len;
         }
         self.state.tokenValue = buf;
@@ -1025,7 +1073,7 @@ pub const Scanner = struct {
             else => {
                 self.state.token = kind.Kind.Unknown;
                 return self.state.token;
-            }
+            },
         }
     }
 
