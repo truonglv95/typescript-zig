@@ -60,10 +60,10 @@ pub fn parseJsxElementOrSelfClosingElementOrFragment(
         if (topBadPos < 0) {
             topBadPos = 0; // approximate — we don't track pos precisely here
         }
-        const invalidElement = try parseJsxElementOrSelfClosingElementOrFragment(p, true, topBadPos, null, false);
-        // Report error and create binary expression (comma)
         // For AST parity we create a BinaryExpression with CommaToken
+        // Must push CommaToken before Right (invalidElement) to match Go's child traversal order
         const commaToken = try p.ast.pushNode(.{ .CommaToken = void{} });
+        const invalidElement = try parseJsxElementOrSelfClosingElementOrFragment(p, true, topBadPos, null, false);
         result = try p.ast.pushNode(.{ .BinaryExpression = .{
             .Flags = 0,
             .Symbol = 0,

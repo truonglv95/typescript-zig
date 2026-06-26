@@ -640,7 +640,7 @@ pub const Scanner = struct {
                     return self.state.token;
                 },
                 '"', '\'' => {
-                    self.state.tokenValue = self.scanString();
+                    self.state.tokenValue = self.scanString(false);
                     self.state.token = kind.Kind.StringLiteral;
                     return self.state.token;
                 },
@@ -776,7 +776,7 @@ pub const Scanner = struct {
         }
     }
 
-    fn scanString(self: *Scanner) []const u8 {
+    fn scanString(self: *Scanner, jsxAttributeString: bool) []const u8 {
         const quote = self.char();
         if (quote == '\'') self.state.tokenFlags |= TokenFlags.SingleQuote;
         self.state.pos += 1;
@@ -791,13 +791,17 @@ pub const Scanner = struct {
                 return val;
             }
             if (ch == '\\') {
-                // slow path placeholder (TODO: decode escape sequence)
-                self.state.pos += 2;
-                continue;
+                if (!jsxAttributeString) {
+                    // slow path placeholder (TODO: decode escape sequence)
+                    self.state.pos += 2;
+                    continue;
+                }
             }
             if (ch == '\n' or ch == '\r') {
-                self.state.tokenFlags |= TokenFlags.Unterminated;
-                break;
+                if (!jsxAttributeString) {
+                    self.state.tokenFlags |= TokenFlags.Unterminated;
+                    break;
+                }
             }
             self.state.pos += 1;
         }
@@ -1193,7 +1197,7 @@ pub const Scanner = struct {
         if (self.state.pos < self.end) {
             const c = self.text[self.state.pos];
             if (c == '"' or c == '\'') {
-                self.state.tokenValue = self.scanString();
+                self.state.tokenValue = self.scanString(true);
                 self.state.token = kind.Kind.StringLiteral;
                 return self.state.token;
             }

@@ -33,6 +33,7 @@ pub const SymbolFlags = struct {
     pub const Transient: u32 = 1 << 25;
     pub const Assignment: u32 = 1 << 26;
     pub const ModuleExports: u32 = 1 << 27;
+    pub const ConstEnumOnlyModule: u32 = 1 << 28;
 
     // Derived flags
     pub const ExportHasLocal = 1 << 20;
