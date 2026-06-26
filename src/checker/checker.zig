@@ -10,6 +10,7 @@ const ast_flow = @import("../ast/flow.zig");
 const kind = @import("../ast/kind.zig");
 const diagnostics = @import("../diagnostics/diagnostics.zig");
 const diagnostics_gen = @import("../diagnostics/diagnostics_generated.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
 pub const utils = @import("utilities.zig");
 pub const relater = @import("relater.zig");
 pub const inference = @import("inference.zig");
@@ -86,7 +87,7 @@ pub const Checker = struct {
     antecedentTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
     nodeFlowNodes: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ast_flow.FlowNodeIndex) = .empty,
     symbolContainerLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ContainingSymbolLinks) = .empty,
-    
+
     lastFlowNode: ast_flow.FlowNodeIndex = 0,
     lastFlowNodeReachable: bool = false,
     flowNodeReachable: std.AutoHashMapUnmanaged(ast_flow.FlowNodeIndex, bool) = .empty,
@@ -167,7 +168,7 @@ pub const Checker = struct {
         self.strictSubtypeRelation.deinit(self.allocator);
         self.comparableRelation.deinit(self.allocator);
         self.enumRelation.deinit(self.allocator);
-        
+
         var current = self.freeFlowState;
         while (current) |f| {
             const next = f.next;
@@ -181,7 +182,7 @@ pub const Checker = struct {
         }
         self.inferenceStates.deinit(self.allocator);
         self.inferenceContextInfos.deinit(self.allocator);
-        
+
         for (self.inferenceContexts.items) |*ctx| {
             ctx.inferences.deinit(self.allocator);
             ctx.intraExpressionInferenceSites.deinit(self.allocator);
@@ -206,34 +207,55 @@ pub const Checker = struct {
     // =========================================================================
 
     pub fn getParentOfSymbol(self: *Checker, sym: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = self; return sym;
+        _ = self;
+        return sym;
     }
-
-
 
     pub fn getPropertiesOfType(self: *Checker, t: types.TypeIndex) []const ast_gen.SymbolIndex {
-        _ = self; _ = t; return &[_]ast_gen.SymbolIndex{};
+        _ = self;
+        _ = t;
+        return &[_]ast_gen.SymbolIndex{};
     }
 
-    pub fn getPropertyOfType(self: *Checker, t: types.TypeIndex, name: []const u8) ?ast_gen.SymbolIndex {
-        _ = self; _ = t; _ = name; return null;
+    pub fn getPropertyOfType(self: *Checker, tIdx: u32, name: []const u8) ?ast_gen.SymbolIndex {
+        if (tIdx == 0 or tIdx >= self.typesList.items.len) return null;
+        const typ = self.typesList.items[tIdx];
+        if ((typ.flags & types.TypeFlags.Object) != 0) {
+            if (typ.symbol) |symIdx| {
+                if (self.binder.symbolMembers.getPtr(symIdx)) |members| {
+                    if (members.get(name)) |propSymIdx| {
+                        return propSymIdx;
+                    }
+                }
+            }
+        }
+        return null;
     }
-
 
     pub fn getDeclaredTypeOfSymbol(self: *Checker, sym: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = sym; return self.anyTypeIndex.?;
+        _ = sym;
+        return self.anyTypeIndex.?;
     }
 
     pub fn symbolToString(self: *Checker, sym: ast_gen.SymbolIndex) []const u8 {
-        _ = self; _ = sym; return "symbol";
+        _ = self;
+        _ = sym;
+        return "symbol";
     }
 
     pub fn TypeToStringEx(self: *Checker, t: types.TypeIndex, enclosingDeclaration: ?ast.NodeIndex, formatFlags: u32, tracer: ?*anyopaque) []const u8 {
-        _ = self; _ = t; _ = enclosingDeclaration; _ = formatFlags; _ = tracer; return "type";
+        _ = self;
+        _ = t;
+        _ = enclosingDeclaration;
+        _ = formatFlags;
+        _ = tracer;
+        return "type";
     }
 
     pub fn TypeToString(self: *Checker, t: types.TypeIndex) []const u8 {
-        _ = self; _ = t; return "type";
+        _ = self;
+        _ = t;
+        return "type";
     }
 
     pub fn getNodeBuilder(c: *Checker) *nodebuilder.NodeBuilder {
@@ -252,27 +274,32 @@ pub const Checker = struct {
     }
 
     pub fn isPartialMappedType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn isEmptyObjectType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn getApparentType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn isTupleType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn isEmptyArrayLiteralType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
@@ -281,191 +308,231 @@ pub const Checker = struct {
     // =========================================================================
 
     pub fn hasParseDiagnostics(c: *Checker, sourceFile: ast_gen.NodeIndex) bool {
-        _ = c; _ = sourceFile;
+        _ = c;
+        _ = sourceFile;
         return false;
     }
 
-    pub fn addDiagnostic(c: *Checker, diag: ast_gen.Diagnostic) void {
-        _ = c; _ = diag;
+    pub fn addDiagnostic(c: *Checker, diag: diagnostics.Diagnostic) void {
+        c.binder.diagnosticsList.append(c.allocator, diag) catch {};
     }
 
     pub fn reportError(c: *Checker, node: ast_gen.NodeIndex, message: *const diagnostics_gen.Message) void {
-        _ = c; _ = node; _ = message;
+        _ = c;
+        _ = node;
+        _ = message;
     }
 
     pub fn checkNodeDeferred(c: *Checker, node: ast_gen.NodeIndex) void {
-        _ = c; _ = node;
+        _ = c;
+        _ = node;
     }
 
     pub fn checkExpressionEx(c: *Checker, node: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
-        _ = node; _ = checkMode;
+        _ = node;
+        _ = checkMode;
         return c.anyTypeIndex orelse 0;
     }
 
     pub fn isErrorType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false;
     }
 
-
     pub fn getVariances(c: *Checker, t: types.TypeIndex) []const types.VarianceFlags {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return &[_]types.VarianceFlags{}; // Stub
     }
 
     pub fn isArrayOrTupleType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn isMutableTupleType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn getIndexTypeOfTypeEx(c: *Checker, t: types.TypeIndex, indexType: types.TypeIndex, errorNode: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t; _ = indexType; _ = errorNode;
+        _ = c;
+        _ = t;
+        _ = indexType;
+        _ = errorNode;
         return undefined; // Stub
     }
 
     pub fn isGenericTupleType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn compareTypesIdentical(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary {
-        _ = c; _ = source; _ = target;
+        _ = c;
+        _ = source;
+        _ = target;
         return .False; // Stub
     }
 
     pub fn reportUnreliableMapper(c: *Checker, index: types.TypeMapperIndex) types.TypeMapperIndex {
-        _ = c; return index;
+        _ = c;
+        return index;
     }
 
     pub fn reportUnmeasurableMapper(c: *Checker, index: types.TypeMapperIndex) types.TypeMapperIndex {
-        _ = c; return index;
+        _ = c;
+        return index;
     }
 
     pub fn getCombinedMappedTypeOptionality(c: *Checker, t: types.TypeIndex) i32 {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return 0; // Stub
     }
 
-
-
-
     pub fn getRootOfConditionalType(c: *Checker, t: types.TypeIndex) types.ConditionalRoot {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getCheckTypeFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getExtendsTypeFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getTrueTypeFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getFalseTypeFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getBaseTypeFromSubstitutionType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getConstraintFromSubstitutionType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn templateLiteralTextsEqual(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) bool {
-        _ = c; _ = t1; _ = t2;
+        _ = c;
+        _ = t1;
+        _ = t2;
         return false; // Stub
     }
 
     pub fn getTypesFromTemplateLiteralType(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return &[_]types.TypeIndex{}; // Stub
     }
 
     pub fn getSymbolFromStringMappingType(c: *Checker, t: types.TypeIndex) ast.symbolIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getTargetTypeFromStringMappingType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getObjectTypeFromIndexedAccessType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getAliasSymbol(c: *Checker, t: types.TypeIndex) ast.symbolIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getAliasTypeArguments(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return &[_]types.TypeIndex{}; // Stub
     }
 
     pub fn isMarkerType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn getAliasVariances(c: *Checker, sym: ast.symbolIndex) []const types.VarianceFlags {
-        _ = c; _ = sym;
+        _ = c;
+        _ = sym;
         return &[_]types.VarianceFlags{}; // Stub
     }
 
     pub fn getMinTypeArgumentCount(c: *Checker, typeParameters: []const types.TypeIndex) usize {
-        _ = c; _ = typeParameters;
+        _ = c;
+        _ = typeParameters;
         return 0; // Stub
     }
 
     pub fn getSymbolValueDeclaration(c: *Checker, sym: ast.symbolIndex) ast.NodeIndex {
-        _ = c; _ = sym;
+        _ = c;
+        _ = sym;
         return undefined; // Stub
     }
 
     pub fn fillMissingTypeArguments(c: *Checker, typeArguments: []const types.TypeIndex, typeParameters: []const types.TypeIndex, minParams: usize, nodeIsInJsFile: bool) []const types.TypeIndex {
-        _ = c; _ = typeParameters; _ = minParams; _ = nodeIsInJsFile;
+        _ = c;
+        _ = typeParameters;
+        _ = minParams;
+        _ = nodeIsInJsFile;
         return typeArguments; // Stub
     }
 
     pub fn isSingleElementGenericTupleType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn getTargetTupleType(c: *Checker, t: types.TypeIndex) *types.TupleType {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getTypeArguments(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return &[_]types.TypeIndex{}; // Stub
     }
 
     pub fn isMutableArrayOrTuple(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
@@ -475,195 +542,288 @@ pub const Checker = struct {
     }
 
     pub fn getIndexType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getConstraintTypeFromMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getNameTypeFromMappedType(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return null; // Stub
     }
 
     pub fn getMappedTypeModifiers(c: *Checker, t: types.TypeIndex) types.MappedTypeModifiers {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return .{}; // Stub
     }
 
     pub fn getTemplateTypeFromMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getIndexedAccessType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = objectType; _ = indexType;
+        _ = c;
+        _ = objectType;
+        _ = indexType;
         return undefined; // Stub
     }
 
     pub fn getTypeParameterFromMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getConstraintOfTypeParameter(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return null; // Stub
     }
 
     pub fn getIndexedAccessTypeOrUndefined(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: types.AccessFlags, context: ?ast.NodeIndex, declaration: ?ast.NodeIndex) ?types.TypeIndex {
-        _ = c; _ = objectType; _ = indexType; _ = accessFlags; _ = context; _ = declaration;
+        _ = c;
+        _ = objectType;
+        _ = indexType;
+        _ = accessFlags;
+        _ = context;
+        _ = declaration;
         return null; // Stub
     }
 
     pub fn getKnownKeysOfTupleType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getSimplifiedTypeOrConstraint(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return null; // Stub
     }
 
     pub fn getIndexTypeEx(c: *Checker, t: types.TypeIndex, indexFlags: types.IndexFlags) types.TypeIndex {
-        _ = c; _ = t; _ = indexFlags;
+        _ = c;
+        _ = t;
+        _ = indexFlags;
         return undefined; // Stub
     }
 
     pub fn isGenericMappedType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn isMappedTypeWithKeyofConstraintDeclaration(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn getApparentMappedTypeKeys(c: *Checker, nameType: types.TypeIndex, mappedType: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = nameType; _ = mappedType;
+        _ = c;
+        _ = nameType;
+        _ = mappedType;
         return undefined; // Stub
     }
 
     pub fn getUnionTypeFromArray(c: *Checker, typesArr: []const types.TypeIndex) types.TypeIndex {
-        _ = c; _ = typesArr;
+        _ = c;
+        _ = typesArr;
         return undefined; // Stub
     }
 
     pub fn getPermissiveInstantiation(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
     pub fn getRestrictiveInstantiation(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return undefined; // Stub
     }
 
-    pub fn isTypeAssignableTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c; _ = source; _ = target;
-        return false; // Stub
+    pub fn isTypeAssignableTo(self: *Checker, sourceIdx: types.TypeIndex, targetIdx: types.TypeIndex) anyerror!bool {
+        var sourceT = self.typesList.items[sourceIdx];
+        var targetT = self.typesList.items[targetIdx];
+
+        if (types.isAssignableTo(&sourceT, &targetT)) return true;
+
+        if (sourceT.flags & types.TypeFlags.Object != 0 and targetT.flags & types.TypeFlags.Object != 0) {
+            if (targetT.symbol) |targetSymIdx| {
+                if (self.binder.symbolMembers.getPtr(targetSymIdx)) |membersMap| {
+                    var it = membersMap.iterator();
+                    while (it.next()) |entry| {
+                        const propName = entry.key_ptr.*;
+                        const targetPropSymIdx = entry.value_ptr.*;
+                        const targetPropTypeIdx = try self.getTypeOfSymbol(targetPropSymIdx);
+
+                        if (self.getPropertyOfType(sourceIdx, propName)) |sourcePropSymIdx| {
+                            const sourcePropTypeIdx = try self.getTypeOfSymbol(sourcePropSymIdx);
+                            if (!try self.isTypeAssignableTo(sourcePropTypeIdx, targetPropTypeIdx)) {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        return false;
     }
 
     pub fn templateLiteralTypesDefinitelyUnrelated(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c; _ = source; _ = target;
+        _ = c;
+        _ = source;
+        _ = target;
         return false; // Stub
     }
 
     pub fn instantiateType(c: *Checker, t: types.TypeIndex, mapper: types.TypeMapperIndex) types.TypeIndex {
-        _ = c; _ = t; _ = mapper;
+        _ = c;
+        _ = t;
+        _ = mapper;
         return undefined; // Stub
     }
 
-    pub fn isTypeMatchedByTemplateLiteralType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, ctx: anytype, comptime isRelated: fn(ctx: anytype, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) bool {
-        _ = c; _ = source; _ = target; _ = ctx; _ = isRelated;
+    pub fn isTypeMatchedByTemplateLiteralType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, ctx: anytype, comptime isRelated: fn (ctx: anytype, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) bool {
+        _ = c;
+        _ = source;
+        _ = target;
+        _ = ctx;
+        _ = isRelated;
         return false; // Stub
     }
 
     pub fn isMemberOfStringMapping(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c; _ = source; _ = target;
+        _ = c;
+        _ = source;
+        _ = target;
         return false; // Stub
     }
 
     pub fn extractTypesOfKind(c: *Checker, t: types.TypeIndex, kindMask: types.TypeFlagsInt) types.TypeIndex {
-        _ = c; _ = t; _ = kindMask;
+        _ = c;
+        _ = t;
+        _ = kindMask;
         return undefined; // Stub
     }
 
     pub fn getIntersectionType(c: *Checker, typesArr: []const types.TypeIndex) types.TypeIndex {
-        _ = c; _ = typesArr;
+        _ = c;
+        _ = typesArr;
         return undefined; // Stub
     }
 
     pub fn getConstraintOfType(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return null; // Stub
     }
 
     pub fn getTypeWithThisArgument(c: *Checker, t: types.TypeIndex, thisArgument: types.TypeIndex, needApparentType: bool) types.TypeIndex {
-        _ = c; _ = t; _ = thisArgument; _ = needApparentType;
+        _ = c;
+        _ = t;
+        _ = thisArgument;
+        _ = needApparentType;
         return undefined; // Stub
     }
 
     pub fn isMappedTypeGenericIndexedAccess(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn shouldDeferIndexType(c: *Checker, t: types.TypeIndex, indexFlags: types.IndexFlags) bool {
-        _ = c; _ = t; _ = indexFlags;
+        _ = c;
+        _ = t;
+        _ = indexFlags;
         return false; // Stub
     }
 
     pub fn intersectTypes(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t1; _ = t2;
+        _ = c;
+        _ = t1;
+        _ = t2;
         return undefined; // Stub
     }
 
     pub fn newInferenceContext(c: *Checker, typeParameters: []const types.TypeIndex, signature: ?types.SignatureIndex, flags: types.InferenceFlags, comptime isRelatedToWorker: anytype) *types.InferenceContext {
-        _ = c; _ = typeParameters; _ = signature; _ = flags; _ = isRelatedToWorker;
+        _ = c;
+        _ = typeParameters;
+        _ = signature;
+        _ = flags;
+        _ = isRelatedToWorker;
         return undefined; // Stub
     }
 
     pub fn inferTypes(c: *Checker, inferences: []types.InferenceInfoIndex, target: types.TypeIndex, source: types.TypeIndex, priority: types.InferencePriority, b: bool) void {
-        _ = c; _ = inferences; _ = target; _ = source; _ = priority; _ = b;
+        _ = c;
+        _ = inferences;
+        _ = target;
+        _ = source;
+        _ = priority;
+        _ = b;
     }
 
     pub fn isTypeIdenticalTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c; _ = source; _ = target;
+        _ = c;
+        _ = source;
+        _ = target;
         return false; // Stub
     }
 
     pub fn getDefaultConstraintOfConditionalType(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return null; // Stub
     }
 
     pub fn hasNonCircularBaseConstraint(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn getConstraintOfDistributiveConditionalType(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return null; // Stub
     }
 
-
     pub fn getEnumMemberValue(self: *Checker, node: ast.NodeIndex) ast.NodeIndex {
-        _ = self; return node;
+        _ = self;
+        return node;
     }
 
     pub fn valueToString(self: *Checker, value: anytype) []const u8 {
-        _ = self; _ = value; return "value";
+        _ = self;
+        _ = value;
+        return "value";
     }
 
     pub fn getDeclarationOfKind(self: *Checker, sym: ast_gen.SymbolIndex, kindValue: ast_gen.SyntaxKind) ast.NodeIndex {
-        _ = self; _ = sym; _ = kindValue; return 0;
+        _ = self;
+        _ = sym;
+        _ = kindValue;
+        return 0;
     }
 
     // =========================================================================
@@ -759,7 +919,9 @@ pub const Checker = struct {
         const idx = try self.createType(.{
             .flags = types.TypeFlags.Object,
             .objectFlags = types.ObjectFlags.Anonymous,
-            .id = 0, .symbol = null, .alias = null,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
             .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
         });
         self.objectTypeIndex = idx;
@@ -779,6 +941,7 @@ pub const Checker = struct {
     }
 
     pub fn getTypeOfNode(self: *Checker, nodeIndex: u32) anyerror!u32 {
+        if (nodeIndex == 0) return try self.getAnyType();
         const node = self.binder.ast.getNode(nodeIndex);
         switch (node) {
             .Parameter => |p| {
@@ -809,7 +972,16 @@ pub const Checker = struct {
                 if (p.Initializer) |initExpr| return try self.checkExpression(initExpr);
                 return try self.getAnyType();
             },
-            .PropertySignature => {
+            .PropertyAssignment => |p| {
+                if (p.Type) |typeNode| {
+                    if (typeNode != 0) return try self.getTypeOfNode(typeNode);
+                }
+                return try self.checkExpression(p.Initializer);
+            },
+            .PropertySignature => |ps| {
+                if (ps.Type) |typeNode| {
+                    if (typeNode != 0) return try self.getTypeOfNode(typeNode);
+                }
                 return try self.getAnyType();
             },
             .MethodDeclaration => |m| {
@@ -817,8 +989,31 @@ pub const Checker = struct {
                 return try self.getAnyType();
             },
             .FunctionDeclaration => |f| {
-                if (f.Type) |t| return try self.getTypeOfNode(t);
-                return try self.getAnyType();
+                var retType: u32 = 0;
+                if (f.Type != null and f.Type.? != 0) {
+                    retType = try self.getTypeOfNode(f.Type.?);
+                } else {
+                    retType = try self.getAnyType();
+                }
+
+                var paramCount: u32 = 0;
+                if (f.Parameters != 0) {
+                    const params = self.binder.ast.getNodeList(f.Parameters);
+                    paramCount = @intCast(params.len);
+                }
+
+                return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = 0,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
+                    .data = .{ .Function = .{
+                        .declarationNode = nodeIndex,
+                        .returnType = retType,
+                        .parameterCount = paramCount,
+                    } },
+                });
             },
             .ArrayType => {
                 // T[] -> return base number type as placeholder
@@ -835,6 +1030,16 @@ pub const Checker = struct {
                     }
                 }
                 return try self.getAnyType();
+            },
+            .TypeLiteral => |tl| {
+                return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = 0,
+                    .id = 0,
+                    .alias = null,
+                    .symbol = if (tl.Symbol != 0) tl.Symbol else null,
+                    .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
+                });
             },
             .LiteralType => |lt| {
                 return try self.getTypeOfNode(lt.Literal);
@@ -870,7 +1075,9 @@ pub const Checker = struct {
                 return try self.createType(.{
                     .flags = types.TypeFlags.StringLiteral,
                     .objectFlags = 0,
-                    .id = 0, .symbol = null, .alias = null,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
                     .data = .{ .StringLiteral = .{ .text = s.Text } },
                 });
             },
@@ -879,7 +1086,9 @@ pub const Checker = struct {
                 return try self.createType(.{
                     .flags = types.TypeFlags.NumberLiteral,
                     .objectFlags = 0,
-                    .id = 0, .symbol = null, .alias = null,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
                     .data = .{ .NumberLiteral = .{ .value = value } },
                 });
             },
@@ -887,7 +1096,9 @@ pub const Checker = struct {
                 return try self.createType(.{
                     .flags = types.TypeFlags.BigIntLiteral,
                     .objectFlags = 0,
-                    .id = 0, .symbol = null, .alias = null,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
                     .data = .{ .BigIntLiteral = .{ .text = n.Text } },
                 });
             },
@@ -901,9 +1112,7 @@ pub const Checker = struct {
 
             // Arithmetic/logical binary expressions
             .BinaryExpression => |bin| {
-                const leftType = try self.checkExpression(bin.Left);
-                const rightType = try self.checkExpression(bin.Right);
-                return try self.checkBinaryExpression(bin.OperatorToken, leftType, rightType);
+                return try self.checkBinaryExpression(bin);
             },
 
             // Unary expressions
@@ -926,47 +1135,58 @@ pub const Checker = struct {
 
             // Function types
             .FunctionExpression => |fe| {
-                if (fe.Type) |retNode| {
-                    _ = try self.getTypeOfNode(retNode);
-                    return try self.createType(.{
-                        .flags = types.TypeFlags.Object,
-                        .objectFlags = types.ObjectFlags.Anonymous,
-                        .id = 0, .symbol = null, .alias = null,
-                        .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
-                    });
+                var retType: u32 = 0;
+                if (fe.Type) |t| {
+                    retType = try self.getTypeOfNode(t);
+                } else {
+                    retType = try self.getAnyType();
                 }
-                return try self.getObjectType();
+
+                var paramCount: u32 = 0;
+                if (fe.Parameters != 0) {
+                    const params = self.binder.ast.getNodeList(fe.Parameters);
+                    paramCount = @intCast(params.len);
+                }
+
+                return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = 0,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
+                    .data = .{ .Function = .{
+                        .declarationNode = nodeIndex,
+                        .returnType = retType,
+                        .parameterCount = paramCount,
+                    } },
+                });
             },
             .ArrowFunction => |af| {
-                if (af.Type) |retNode| {
-                    _ = try self.getTypeOfNode(retNode);
-                    return try self.createType(.{
-                        .flags = types.TypeFlags.Object,
-                        .objectFlags = types.ObjectFlags.Anonymous,
-                        .id = 0, .symbol = null, .alias = null,
-                        .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
-                    });
+                var retType: u32 = 0;
+                if (af.Type) |t| {
+                    retType = try self.getTypeOfNode(t);
+                } else {
+                    retType = try self.getAnyType();
                 }
-                // Check body expression for inferred return type
-                if (af.Body) |body| {
-                    const bodyNode = self.binder.ast.getNode(body);
-                    switch (bodyNode) {
-                        .Block => {
-                            try self.checkStatement(body);
-                            return try self.getObjectType();
-                        },
-                        else => {
-                            _ = try self.checkExpression(body);
-                            return try self.createType(.{
-                                .flags = types.TypeFlags.Object,
-                                .objectFlags = types.ObjectFlags.Anonymous,
-                                .id = 0, .symbol = null, .alias = null,
-                                .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
-                            });
-                        },
-                    }
+
+                var paramCount: u32 = 0;
+                if (af.Parameters != 0) {
+                    const params = self.binder.ast.getNodeList(af.Parameters);
+                    paramCount = @intCast(params.len);
                 }
-                return try self.getObjectType();
+
+                return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = 0,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
+                    .data = .{ .Function = .{
+                        .declarationNode = nodeIndex,
+                        .returnType = retType,
+                        .parameterCount = paramCount,
+                    } },
+                });
             },
 
             // Object/Array literals
@@ -1005,45 +1225,125 @@ pub const Checker = struct {
                 return try self.createType(.{
                     .flags = types.TypeFlags.Object,
                     .objectFlags = types.ObjectFlags.ArrayLiteral,
-                    .id = 0, .symbol = null, .alias = null,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
                     .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
                 });
             },
 
             // Property access
             .PropertyAccessExpression => |pae| {
-                const objType = try self.checkExpression(pae.Expression);
-                _ = objType;
-                // TODO: resolve property type from object type
-                // For now, return any
+                const objTypeIdx = try self.checkExpression(pae.Expression);
+                const propNodeData = self.binder.ast.getNode(pae.name);
+                if (std.meta.activeTag(propNodeData) == .Identifier) {
+                    const propName = propNodeData.Identifier.Text;
+                    if (self.getPropertyOfType(objTypeIdx, propName)) |propSym| {
+                        return try self.getTypeOfSymbol(propSym);
+                    }
+                }
                 return try self.getAnyType();
             },
 
             // Element access: arr[0]
             .ElementAccessExpression => |eae| {
-                _ = try self.checkExpression(eae.Expression);
-                _ = try self.checkExpression(eae.ArgumentExpression);
+                const objTypeIdx = try self.checkExpression(eae.Expression);
+                const argTypeIdx = try self.checkExpression(eae.ArgumentExpression);
+
+                if (argTypeIdx < self.typesList.items.len) {
+                    const argType = self.typesList.items[argTypeIdx];
+                    if (argType.flags & types.TypeFlags.StringLiteral != 0) {
+                        const propName = argType.data.StringLiteral.text;
+                        if (self.getPropertyOfType(objTypeIdx, propName)) |propSym| {
+                            return try self.getTypeOfSymbol(propSym);
+                        }
+                    }
+                }
+
                 return try self.getAnyType();
             },
 
             // Call expression
             .CallExpression => |ce| {
-                const calleeType = try self.checkExpression(ce.Expression);
-                if (ce.Arguments != 0) {
-                    const args = self.binder.ast.getNodeList(ce.Arguments);
-                    for (args) |arg| {
-                        _ = try self.checkExpression(arg);
+                const calleeTypeIdx = try self.checkExpression(ce.Expression);
+
+                var declNode: u32 = 0;
+                var retType: u32 = 0;
+
+                if (calleeTypeIdx < self.typesList.items.len) {
+                    const calleeType = self.typesList.items[calleeTypeIdx];
+                    if (std.meta.activeTag(calleeType.data) == .Function) {
+                        declNode = calleeType.data.Function.declarationNode;
+                        retType = calleeType.data.Function.returnType;
                     }
                 }
-                // If callee is a function type, return its return type
-                if (calleeType < self.typesList.items.len) {
-                    const ct = self.typesList.items[calleeType];
-                    if (ct.flags & types.TypeFlags.Object != 0) {
-                        switch (ct.data) {
-                            else => return try self.getAnyType(),
+
+                if (declNode != 0) {
+                    const declNodeData = self.binder.ast.getNode(declNode);
+                    var paramsId: u32 = 0;
+                    switch (declNodeData) {
+                        .FunctionDeclaration => |f| paramsId = f.Parameters,
+                        .FunctionExpression => |f| paramsId = f.Parameters,
+                        .ArrowFunction => |f| paramsId = f.Parameters,
+                        .MethodDeclaration => |m| paramsId = m.Parameters,
+                        else => {},
+                    }
+
+                    const params = if (paramsId != 0) self.binder.ast.getNodeList(paramsId) else &[_]u32{};
+                    const args = if (ce.Arguments != 0) self.binder.ast.getNodeList(ce.Arguments) else &[_]u32{};
+
+                    const minLen = @min(params.len, args.len);
+                    for (0..minLen) |i| {
+                        const paramData = self.binder.ast.getNode(params[i]);
+                        if (std.meta.activeTag(paramData) == .Parameter) {
+                            const param = paramData.Parameter;
+                            const argTypeIdx = try self.checkExpression(args[i]);
+                            var paramTypeIdx: u32 = 0;
+                            if (param.Type != null and param.Type.? != 0) {
+                                paramTypeIdx = try self.getTypeOfNode(param.Type.?);
+                            } else {
+                                paramTypeIdx = try self.getAnyType();
+                            }
+
+                            if (!try self.isTypeAssignableTo(argTypeIdx, paramTypeIdx)) {
+                                const diag = diagnostics.Diagnostic{
+                                    .nodeIndex = args[i],
+                                    .message = &diagnostics_gen.Argument_of_type_0_is_not_assignable_to_parameter_of_type_1,
+                                };
+                                self.addDiagnostic(diag);
+                            }
+                        } else {
+                            _ = try self.checkExpression(args[i]);
+                        }
+                    }
+                    // Evaluate remaining args if any
+                    for (minLen..args.len) |i| {
+                        _ = try self.checkExpression(args[i]);
+                    }
+
+                    if (args.len < params.len) {
+                        const diag = diagnostics.Diagnostic{
+                            .nodeIndex = ce.Expression, // Usually reported on the callee
+                            .message = &diagnostics_gen.Expected_0_arguments_but_got_1,
+                        };
+                        self.addDiagnostic(diag);
+                    } else if (args.len > params.len) {
+                        const diag = diagnostics.Diagnostic{
+                            .nodeIndex = ce.Expression, // Usually reported on the callee
+                            .message = &diagnostics_gen.Expected_0_arguments_but_got_1,
+                        };
+                        self.addDiagnostic(diag);
+                    }
+                } else {
+                    if (ce.Arguments != 0) {
+                        const args = self.binder.ast.getNodeList(ce.Arguments);
+                        for (args) |arg| {
+                            _ = try self.checkExpression(arg);
                         }
                     }
                 }
+
+                if (retType != 0) return retType;
                 return try self.getAnyType();
             },
 
@@ -1118,7 +1418,6 @@ pub const Checker = struct {
                 return jsx.checkJsxAttributes(self, nodeIndex, .Normal);
             },
 
-
             // Template
             .TaggedTemplateExpression => {
                 return try self.getAnyType();
@@ -1150,7 +1449,9 @@ pub const Checker = struct {
     // checkBinaryExpression - type của binary expression result
     // =========================================================================
 
-    fn checkBinaryExpression(self: *Checker, operatorNodeIdx: u32, leftTypeIdx: u32, rightTypeIdx: u32) !u32 {
+    fn checkBinaryExpression(self: *Checker, bin: ast_gen.BinaryExpressionNode) !u32 {
+        const leftTypeIdx = try self.checkExpression(bin.Left);
+        const rightTypeIdx = try self.checkExpression(bin.Right);
         const leftType = if (leftTypeIdx < self.typesList.items.len)
             self.typesList.items[leftTypeIdx]
         else
@@ -1161,26 +1462,79 @@ pub const Checker = struct {
             types.Type{ .flags = types.TypeFlags.Any, .objectFlags = 0, .id = 0, .symbol = null, .alias = null, .data = .{ .Intrinsic = .{ .intrinsicName = "" } } };
 
         // Get operator token kind
-        const opNode = self.binder.ast.getNode(operatorNodeIdx);
-        const opKind = switch (opNode) {
-            .Unknown => kind.Kind.Unknown,
-            else => kind.Kind.Unknown,
-        };
-        _ = opKind;
+        const opNode = self.binder.ast.getNode(bin.OperatorToken);
+
+        if (opNode == .EqualsToken) {
+            // Assignment expression
+
+            // 1. Check if assigning to const
+            // 1. Check if assigning to const
+            const leftNodeData = self.binder.ast.getNode(bin.Left);
+            if (std.meta.activeTag(leftNodeData) == .Identifier) {
+                const idName = leftNodeData.Identifier.Text;
+                if (self.resolver.resolve(bin.Left, idName, symbol.SymbolFlags.Value, null, false, false)) |symIndex| {
+                    const sym = self.binder.symbols.items[symIndex];
+                    if ((sym.Flags & symbol.SymbolFlags.BlockScopedVariable) != 0) {
+                        if (sym.ValueDeclaration) |declIdx| {
+                            const parentIdx = self.binder.ast.getNodeParent(declIdx);
+                            const flags = ast_utils.getCombinedNodeFlags(self.binder.ast, parentIdx);
+                            if ((flags & ast_utils.NodeFlags.Const) != 0) {
+                                const diag = diagnostics.Diagnostic{
+                                    .nodeIndex = bin.Left,
+                                    .message = &diagnostics_gen.Cannot_assign_to_0_because_it_is_a_constant,
+                                };
+                                self.addDiagnostic(diag);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Check type compatibility
+            if (!try self.isTypeAssignableTo(rightTypeIdx, leftTypeIdx)) {
+                // If not assignable, emit error 2322
+                const diag = diagnostics.Diagnostic{
+                    .nodeIndex = bin.Right,
+                    .message = &diagnostics_gen.Type_0_is_not_assignable_to_type_1,
+                };
+                self.addDiagnostic(diag);
+            }
+            return rightTypeIdx;
+        }
 
         const leftIsNumber = (leftType.flags & types.TypeFlags.NumberLike) != 0;
         const rightIsNumber = (rightType.flags & types.TypeFlags.NumberLike) != 0;
         const leftIsString = (leftType.flags & types.TypeFlags.StringLike) != 0;
         const rightIsString = (rightType.flags & types.TypeFlags.StringLike) != 0;
-        const eitherIsAny = (leftType.flags & types.TypeFlags.Any) != 0 or (rightType.flags & types.TypeFlags.Any) != 0;
 
-        // + operator: if either is string, result is string
-        if (leftIsString or rightIsString) {
-            return try self.getStringType();
+        const isArithmeticOperator = switch (opNode) {
+            .MinusToken, .AsteriskToken, .SlashToken, .PercentToken, .AsteriskAsteriskToken => true,
+            else => false,
+        };
+
+        if (isArithmeticOperator) {
+            if (!leftIsNumber and (leftType.flags & types.TypeFlags.Any) == 0) {
+                const diag = diagnostics.Diagnostic{
+                    .nodeIndex = bin.Left,
+                    .message = &diagnostics_gen.The_left_hand_side_of_an_arithmetic_operation_must_be_of_type_any_number_bigint_or_an_enum_type,
+                };
+                self.addDiagnostic(diag);
+            }
+            if (!rightIsNumber and (rightType.flags & types.TypeFlags.Any) == 0) {
+                const diag = diagnostics.Diagnostic{
+                    .nodeIndex = bin.Right,
+                    .message = &diagnostics_gen.The_right_hand_side_of_an_arithmetic_operation_must_be_of_type_any_number_bigint_or_an_enum_type,
+                };
+                self.addDiagnostic(diag);
+            }
+            return try self.getNumberType();
         }
 
-        // Arithmetic operators: if both numbers, result is number
-        if ((leftIsNumber or eitherIsAny) and (rightIsNumber or eitherIsAny)) {
+        // + operator: if either is string, result is string
+        if (opNode == .PlusToken) {
+            if (leftIsString or rightIsString) {
+                return try self.getStringType();
+            }
             return try self.getNumberType();
         }
 
@@ -1189,11 +1543,6 @@ pub const Checker = struct {
         // (simplified: we check via flag combinations)
         if (leftIsNumber or leftIsString) {
             return try self.getBooleanType();
-        }
-
-        // Assignment operators: return left type
-        if ((leftType.flags & types.TypeFlags.Any) == 0) {
-            return leftTypeIdx;
         }
 
         return try self.getAnyType();
@@ -1230,7 +1579,9 @@ pub const Checker = struct {
         return try self.createType(.{
             .flags = types.TypeFlags.Union,
             .objectFlags = 0,
-            .id = 0, .symbol = null, .alias = null,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
             .data = .{ .Union = .{ .typesStart = start, .typesLen = 2 } },
         });
     }
@@ -1287,11 +1638,13 @@ pub const Checker = struct {
                         initType < self.typesList.items.len and
                         declaredType < self.typesList.items.len)
                     {
-                        const it = &self.typesList.items[initType];
-                        const dt = &self.typesList.items[declaredType];
-                        if (!types.isAssignableTo(it, dt)) {
-                            // emit diagnostic: type mismatch
-                            // TODO: add to binder.diagnosticsList with proper message
+                        if (!try self.isTypeAssignableTo(initType, declaredType)) {
+                            // emit diagnostic: type mismatch 2322
+                            const diag = diagnostics.Diagnostic{
+                                .nodeIndex = nodeIndex,
+                                .message = &diagnostics_gen.Type_0_is_not_assignable_to_type_1,
+                            };
+                            self.addDiagnostic(diag);
                         }
                     }
                 }
@@ -1313,8 +1666,41 @@ pub const Checker = struct {
 
             // Return statement
             .ReturnStatement => |ret| {
+                var exprTypeIdx: u32 = 0;
                 if (ret.Expression) |expr| {
-                    _ = try self.checkExpression(expr);
+                    exprTypeIdx = try self.checkExpression(expr);
+                } else {
+                    exprTypeIdx = try self.getUndefinedType();
+                }
+
+                // Find enclosing function
+                var container: u32 = nodeIndex;
+                var functionReturnTypeIdx: u32 = 0;
+                while (container != 0) {
+                    const parentIdx = self.binder.ast.getNodeParent(container);
+                    container = parentIdx;
+                    if (container == 0) break;
+
+                    const containerData = self.binder.ast.getNode(container);
+                    if (std.meta.activeTag(containerData) == .FunctionDeclaration) {
+                        const f = containerData.FunctionDeclaration;
+                        if (f.Type) |t| {
+                            functionReturnTypeIdx = try self.getTypeOfNode(t);
+                        } else {
+                            functionReturnTypeIdx = try self.getAnyType();
+                        }
+                        break;
+                    }
+                }
+
+                if (functionReturnTypeIdx != 0) {
+                    if (!try self.isTypeAssignableTo(exprTypeIdx, functionReturnTypeIdx)) {
+                        const diag = diagnostics.Diagnostic{
+                            .nodeIndex = if (ret.Expression != null) ret.Expression.? else nodeIndex,
+                            .message = &diagnostics_gen.Type_0_is_not_assignable_to_type_1,
+                        };
+                        self.addDiagnostic(diag);
+                    }
                 }
             },
 
@@ -1522,116 +1908,151 @@ pub const Checker = struct {
         }
     }
     pub fn getTypesOfUnionOrIntersectionType(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return &[_]types.TypeIndex{}; // Stub
     }
 
     pub fn containsType(c: *Checker, typesList: []const types.TypeIndex, t: types.TypeIndex) bool {
-        _ = c; _ = typesList; _ = t;
+        _ = c;
+        _ = typesList;
+        _ = t;
         return false; // Stub
     }
 
     pub fn getSymbolOfDeclaration(c: *Checker, decl: ast_gen.NodeIndex) types.symbolIndex {
-        _ = c; _ = decl;
+        _ = c;
+        _ = decl;
         return 0; // Stub
     }
 
     pub fn getSymbolCheckFlags(c: *Checker, sym: types.symbolIndex) u32 {
-        _ = c; _ = sym;
+        _ = c;
+        _ = sym;
         return 0; // Stub
     }
 
     pub fn computeEnumMemberValues(c: *Checker, node: ast_gen.NodeIndex) void {
-        _ = c; _ = node;
+        _ = c;
+        _ = node;
     }
 
     pub fn getOriginOfUnionType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return 0; // Stub
     }
 
     pub fn getRegularTypeOfObjectLiteral(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return 0; // Stub
     }
 
     pub fn getRegularTypeOfLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return 0; // Stub
     }
 
     pub fn getFreshTypeOfLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return 0; // Stub
     }
 
     pub fn getMatchingUnionConstituentForType(c: *Checker, target: types.TypeIndex, source: types.TypeIndex) ?types.TypeIndex {
-        _ = c; _ = target; _ = source;
+        _ = c;
+        _ = target;
+        _ = source;
         return null; // Stub
     }
 
-    pub fn getBestMatchingType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, comptime isRelatedToSimple: fn(ctx: anytype, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) ?types.TypeIndex {
-        _ = c; _ = source; _ = target; _ = isRelatedToSimple;
+    pub fn getBestMatchingType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, comptime isRelatedToSimple: fn (ctx: anytype, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) ?types.TypeIndex {
+        _ = c;
+        _ = source;
+        _ = target;
+        _ = isRelatedToSimple;
         return null; // Stub
     }
 
     pub fn findDiscriminantProperties(c: *Checker, sourceProperties: []const types.symbolIndex, target: types.TypeIndex) []const types.symbolIndex {
-        _ = c; _ = sourceProperties; _ = target;
+        _ = c;
+        _ = sourceProperties;
+        _ = target;
         return &[_]types.symbolIndex{}; // Stub
     }
 
     pub fn countTypes(c: *Checker, t: types.TypeIndex) usize {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return 0; // Stub
     }
 
     pub fn distributedTypes(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return &[_]types.TypeIndex{}; // Stub
     }
 
     pub fn appendIfUniqueTypeIndex(c: *Checker, list: *std.ArrayList(types.TypeIndex), item: types.TypeIndex) void {
-        _ = c; _ = list; _ = item;
+        _ = c;
+        _ = list;
+        _ = item;
         // Stub
     }
 
     pub fn getStartElementCount(c: *Checker, tupleType: *types.TupleType, flags: u32) usize {
-        _ = c; _ = tupleType; _ = flags;
+        _ = c;
+        _ = tupleType;
+        _ = flags;
         return 0; // Stub
     }
 
     pub fn getEndElementCount(c: *Checker, tupleType: *types.TupleType, flags: u32) usize {
-        _ = c; _ = tupleType; _ = flags;
+        _ = c;
+        _ = tupleType;
+        _ = flags;
         return 0; // Stub
     }
 
     pub fn removeMissingType(c: *Checker, t: types.TypeIndex, optional: bool) types.TypeIndex {
-        _ = c; _ = t; _ = optional;
+        _ = c;
+        _ = t;
+        _ = optional;
         return 0; // Stub
     }
 
     pub fn shouldReportUnmatchedPropertyError(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c; _ = source; _ = target;
+        _ = c;
+        _ = source;
+        _ = target;
         return false; // Stub
     }
 
     pub fn getSymbolFlags(c: *Checker, sym: types.symbolIndex) u32 {
-        _ = c; _ = sym;
+        _ = c;
+        _ = sym;
         return 0; // Stub
     }
 
     pub fn isTypeRelatedTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, relation: *const relater.Relation) bool {
-        _ = c; _ = source; _ = target; _ = relation;
+        _ = c;
+        _ = source;
+        _ = target;
+        _ = relation;
         return false; // Stub
     }
 
     pub fn isSetAccessorSymbol(c: *Checker, sym: types.symbolIndex) bool {
-        _ = c; _ = sym;
+        _ = c;
+        _ = sym;
         return false; // Stub
     }
 
     pub fn isGetAccessorSymbol(c: *Checker, sym: types.symbolIndex) bool {
-        _ = c; _ = sym;
+        _ = c;
+        _ = sym;
         return false; // Stub
     }
 
@@ -1640,80 +2061,112 @@ pub const Checker = struct {
         return signature; // Stub
     }
 
-    pub fn compareSignaturesRelated(c: *Checker, source: *types.Signature, target: *types.Signature, checkMode: types.SignatureCheckMode, reportErrors: bool, reportErrCtx: anytype, comptime reportErrFn: fn(ctx: @TypeOf(reportErrCtx), msg: types.DiagnosticMessage) void, isRelatedCtx: anytype, comptime isRelatedFn: fn(ctx: @TypeOf(isRelatedCtx), source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool) types.Ternary, reportUnreliableCtx: anytype, comptime reportUnreliableFn: fn(ctx: @TypeOf(reportUnreliableCtx)) void) types.Ternary {
-        _ = c; _ = source; _ = target; _ = checkMode; _ = reportErrors; _ = reportErrFn; _ = isRelatedFn; _ = reportUnreliableFn;
+    pub fn compareSignaturesRelated(c: *Checker, source: *types.Signature, target: *types.Signature, checkMode: types.SignatureCheckMode, reportErrors: bool, reportErrCtx: anytype, comptime reportErrFn: fn (ctx: @TypeOf(reportErrCtx), msg: types.DiagnosticMessage) void, isRelatedCtx: anytype, comptime isRelatedFn: fn (ctx: @TypeOf(isRelatedCtx), source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool) types.Ternary, reportUnreliableCtx: anytype, comptime reportUnreliableFn: fn (ctx: @TypeOf(reportUnreliableCtx)) void) types.Ternary {
+        _ = c;
+        _ = source;
+        _ = target;
+        _ = checkMode;
+        _ = reportErrors;
+        _ = reportErrFn;
+        _ = isRelatedFn;
+        _ = reportUnreliableFn;
         return .False; // Stub
     }
 
     pub fn isObjectTypeWithInferableIndex(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn getIndexInfosOfType(c: *Checker, t: types.TypeIndex) []const types.IndexInfoIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return &[_]types.IndexInfoIndex{}; // Stub
     }
 
     pub fn getApplicableIndexInfo(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) ?types.IndexInfoIndex {
-        _ = c; _ = t; _ = keyType;
+        _ = c;
+        _ = t;
+        _ = keyType;
         return null; // Stub
     }
 
-    pub fn compareSignaturesIdentical(c: *Checker, source: *types.Signature, target: *types.Signature, partialMatch: bool, ignoreThisTypes: bool, ignoreReturnTypes: bool, isRelatedCtx: anytype, comptime isRelatedFn: fn(ctx: @TypeOf(isRelatedCtx), source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
-        _ = c; _ = source; _ = target; _ = partialMatch; _ = ignoreThisTypes; _ = ignoreReturnTypes; _ = isRelatedFn;
+    pub fn compareSignaturesIdentical(c: *Checker, source: *types.Signature, target: *types.Signature, partialMatch: bool, ignoreThisTypes: bool, ignoreReturnTypes: bool, isRelatedCtx: anytype, comptime isRelatedFn: fn (ctx: @TypeOf(isRelatedCtx), source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
+        _ = c;
+        _ = source;
+        _ = target;
+        _ = partialMatch;
+        _ = ignoreThisTypes;
+        _ = ignoreReturnTypes;
+        _ = isRelatedFn;
         return .False; // Stub
     }
 
     pub fn getIndexInfoKeyType(c: *Checker, info: types.IndexInfoIndex) types.TypeIndex {
-        _ = c; _ = info;
+        _ = c;
+        _ = info;
         return 0; // Stub
     }
 
     pub fn getIndexInfoValueType(c: *Checker, info: types.IndexInfoIndex) types.TypeIndex {
-        _ = c; _ = info;
+        _ = c;
+        _ = info;
         return 0; // Stub
     }
 
     pub fn isIgnoredJsxProperty(c: *Checker, source: types.TypeIndex, prop: types.symbolIndex) bool {
-        _ = c; _ = source; _ = prop;
+        _ = c;
+        _ = source;
+        _ = prop;
         return false; // Stub
     }
 
     pub fn isApplicableIndexType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c; _ = source; _ = target;
+        _ = c;
+        _ = source;
+        _ = target;
         return false; // Stub
     }
 
     pub fn getLiteralTypeFromProperty(c: *Checker, prop: types.symbolIndex, include: u32, stringify: bool) types.TypeIndex {
-        _ = c; _ = prop; _ = include; _ = stringify;
+        _ = c;
+        _ = prop;
+        _ = include;
+        _ = stringify;
         return 0; // Stub
     }
 
     pub fn getNonMissingTypeOfSymbol(c: *Checker, prop: types.symbolIndex) types.TypeIndex {
-        _ = c; _ = prop;
+        _ = c;
+        _ = prop;
         return 0; // Stub
     }
 
     pub fn getTypeWithFacts(c: *Checker, t: types.TypeIndex, facts: types.TypeFacts) types.TypeIndex {
-        _ = c; _ = t; _ = facts;
+        _ = c;
+        _ = t;
+        _ = facts;
         return 0; // Stub
     }
 
     pub fn getIndexInfoOfType(c: *Checker, source: types.TypeIndex, keyType: types.TypeIndex) ?types.IndexInfoIndex {
-        _ = c; _ = source; _ = keyType;
+        _ = c;
+        _ = source;
+        _ = keyType;
         return null; // Stub
     }
 
     pub fn getIndexInfoIsReadonly(c: *Checker, info: types.IndexInfoIndex) bool {
-        _ = c; _ = info;
+        _ = c;
+        _ = info;
         return false; // Stub
     }
 
     pub fn isTypeDerivedFrom(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
         const sourceFlags = c.getTypeFlags(source);
         const targetFlags = c.getTypeFlags(target);
-        
+
         if (sourceFlags & types.TypeFlags.Union != 0) {
             const typesArr = c.getTypes(source);
             for (typesArr) |t| {
@@ -1756,27 +2209,33 @@ pub const Checker = struct {
     }
 
     pub fn isEmptyAnonymousObjectType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn isFunctionObjectType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn isArrayType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn isReadonlyArrayType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return false; // Stub
     }
 
     pub fn hasBaseType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c; _ = source; _ = target;
+        _ = c;
+        _ = source;
+        _ = target;
         return false; // Stub
     }
 
@@ -1785,41 +2244,49 @@ pub const Checker = struct {
     }
 
     pub fn isTypeParameterPossiblyReferenced(c: *Checker, tp: types.TypeIndex, node: types.NodeIndex) bool {
-        _ = c; _ = tp; _ = node;
+        _ = c;
+        _ = tp;
+        _ = node;
         return false; // Stub
     }
 
     pub fn getValueDeclarationOfSymbol(c: *Checker, sym: types.symbolIndex) ast_gen.NodeIndex {
-        _ = c; _ = sym;
+        _ = c;
+        _ = sym;
         return 0; // Stub
     }
 
     pub fn getFirstDeclarationOfSymbol(c: *Checker, sym: types.symbolIndex) ast_gen.NodeIndex {
-        _ = c; _ = sym;
+        _ = c;
+        _ = sym;
         return 0; // Stub
     }
 
     pub fn getNodeKind(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SyntaxKind {
-        _ = c; _ = node;
+        _ = c;
+        _ = node;
         return .Unknown; // Stub
     }
 
     pub fn getWriteTypeOfSymbol(c: *Checker, sym: types.symbolIndex) types.TypeIndex {
-         _ = sym;
+        _ = sym;
         return c.anyTypeIndex orelse 0; // Stub
     }
 
     pub fn getWidenedLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c; return t; // Stub
+        _ = c;
+        return t; // Stub
     }
 
     pub fn getTypeFlags(c: *Checker, t: types.TypeIndex) u32 {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return 0; // Stub
     }
 
     pub fn getSymbolOfType(c: *Checker, t: types.TypeIndex) types.symbolIndex {
-        _ = c; _ = t;
+        _ = c;
+        _ = t;
         return 0; // Stub
     }
 

@@ -180,8 +180,14 @@ pub fn isAssignableTo(typeA: *const Type, typeB: *const Type) bool {
         return typeB.flags & TypeFlags.Never != 0;
     }
 
-    // Exact same flags = assignable
-    if (typeA.flags == typeB.flags) return true;
+    // Exact same flags = assignable (except for structural types)
+    if (typeA.flags == typeB.flags) {
+        if (typeA.flags & TypeFlags.Object != 0 or typeA.flags & TypeFlags.Union != 0) {
+            // Need structural comparison handled by checker
+        } else {
+            return true;
+        }
+    }
 
     // Number literal assignable to number
     if (typeA.flags & TypeFlags.NumberLiteral != 0 and typeB.flags & TypeFlags.Number != 0) return true;
