@@ -60,6 +60,29 @@ pub fn build(b: *std.Build) void {
     const check_step = b.step("check", "Semantic analysis only (no codegen)");
     check_step.dependOn(&check_exe.step);
 
+    // Transpiler tool
+    const transpile_exe = b.addExecutable(.{
+        .name = "transpile",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("cmd/transpile/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "tsc", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(transpile_exe);
+
+    // `zig build transpile` step
+    const transpile_run_cmd = b.addRunArtifact(transpile_exe);
+    transpile_run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        transpile_run_cmd.addArgs(args);
+    }
+    const transpile_step = b.step("transpile", "Run the transpiler tool");
+    transpile_step.dependOn(&transpile_run_cmd.step);
+
     // Tests
     const mod_tests = b.addTest(.{
         .root_module = mod,

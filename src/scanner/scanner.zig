@@ -12,6 +12,7 @@ pub fn getECMALineOfPosition(text: []const u8, pos: usize) i64 {
     return line;
 }
 const stringutil = @import("../stringutil/stringutil.zig");
+const identifier_pkg = @import("../stringutil/identifier.zig");
 const ast = @import("../ast/ast.zig");
 const kind = @import("../ast/kind.zig");
 const maps = @import("maps.zig");
@@ -1026,6 +1027,148 @@ pub const Scanner = struct {
                 return self.state.token;
             }
         }
+    }
+
+    // =========================================================================
+    // JSX Scanning — ported 1:1 from Go scanner.go
+    // =========================================================================
+
+    pub fn reScanJsxToken(self: *Scanner, allowMultilineJsxText: bool) kind.Kind {
+        self.state.pos = self.state.fullStartPos;
+        self.state.tokenStart = self.state.fullStartPos;
+        self.state.token = self.scanJsxTokenEx(allowMultilineJsxText);
+        return self.state.token;
+    }
+
+    pub fn scanJsxToken(self: *Scanner) kind.Kind {
+        return self.scanJsxTokenEx(true);
+    }
+
+    pub fn scanJsxTokenEx(self: *Scanner, allowMultilineJsxText: bool) kind.Kind {
+        self.state.fullStartPos = self.state.pos;
+        self.state.tokenStart = self.state.pos;
+        if (self.state.pos >= self.end) {
+            self.state.token = kind.Kind.EndOfFile;
+            return self.state.token;
+        }
+        const ch = self.char();
+        switch (ch) {
+            '<' => {
+                if (self.state.pos + 1 < self.end and self.text[self.state.pos + 1] == '/') {
+                    self.state.pos += 2;
+                    self.state.token = kind.Kind.LessThanSlashToken;
+                } else {
+                    self.state.pos += 1;
+                    self.state.token = kind.Kind.LessThanToken;
+                }
+            },
+            '{' => {
+                self.state.pos += 1;
+                self.state.token = kind.Kind.OpenBraceToken;
+            },
+            else => {
+                // Scan JSX text content
+                var firstNonWhitespace: i64 = 0;
+                while (self.state.pos < self.end) {
+                    const c = self.text[self.state.pos];
+                    if (c == '{' or c == '<') break;
+                    if (c == '>') {
+                        // error: unexpected >
+                        self.state.pos += 1;
+                        continue;
+                    } else if (c == '}') {
+                        // error: unexpected }
+                        self.state.pos += 1;
+                        continue;
+                    }
+                    const isLineBreak = (c == '\n' or c == '\r' or c == 0x2028 or c == 0x2029);
+                    if (isLineBreak and firstNonWhitespace == 0) {
+                        firstNonWhitespace = -1;
+                    } else if (!allowMultilineJsxText and isLineBreak and firstNonWhitespace > 0) {
+                        break;
+                    } else if (!stringutil.isWhiteSpaceLike(@as(u21, c))) {
+                        if (firstNonWhitespace == -1) firstNonWhitespace = 0;
+                        if (firstNonWhitespace == 0) firstNonWhitespace = @as(i64, @intCast(self.state.pos));
+                    }
+                    self.state.pos += 1;
+                }
+                self.state.tokenValue = self.text[self.state.fullStartPos..self.state.pos];
+                self.state.token = kind.Kind.JsxText;
+                if (firstNonWhitespace == -1) {
+                    self.state.token = kind.Kind.JsxTextAllWhiteSpaces;
+                }
+            },
+        }
+        return self.state.token;
+    }
+
+    /// Scans a JSX identifier — same as normal identifier but allows '-' in the middle
+    pub fn scanJsxIdentifier(self: *Scanner) kind.Kind {
+        if (self.state.token == kind.Kind.Identifier or kind.isKeyword(self.state.token)) {
+            while (self.state.pos < self.end) {
+                const c = self.text[self.state.pos];
+                if (c == '-') {
+                    // append '-' to current token value
+                    const old = self.state.tokenValue;
+                    var buf = std.ArrayListUnmanaged(u8).empty;
+                    buf.appendSlice(self.allocator, old) catch break;
+                    buf.append(self.allocator, '-') catch break;
+                    self.state.pos += 1;
+                    // scan more identifier parts
+                    const parts = self.scanIdentifierParts();
+                    buf.appendSlice(self.allocator, parts) catch {};
+                    self.state.tokenValue = buf.toOwnedSlice(self.allocator) catch old;
+                } else {
+                    const oldPos = self.state.pos;
+                    const old = self.state.tokenValue;
+                    const parts = self.scanIdentifierParts();
+                    if (self.state.pos == oldPos) break;
+                    var buf = std.ArrayListUnmanaged(u8).empty;
+                    buf.appendSlice(self.allocator, old) catch break;
+                    buf.appendSlice(self.allocator, parts) catch {};
+                    self.state.tokenValue = buf.toOwnedSlice(self.allocator) catch old;
+                }
+            }
+            self.state.token = maps.textToKeyword.get(self.state.tokenValue) orelse kind.Kind.Identifier;
+        }
+        return self.state.token;
+    }
+
+    /// Scans a JSX attribute value (string literal after '=')
+    pub fn scanJsxAttributeValue(self: *Scanner) kind.Kind {
+        self.state.fullStartPos = self.state.pos;
+        // Skip whitespace
+        while (self.state.pos < self.end and stringutil.isWhiteSpaceLike(@as(u21, self.text[self.state.pos]))) {
+            self.state.pos += 1;
+        }
+        self.state.tokenStart = self.state.pos;
+        if (self.state.pos < self.end) {
+            const c = self.text[self.state.pos];
+            if (c == '"' or c == '\'') {
+                self.state.tokenValue = self.scanString();
+                self.state.token = kind.Kind.StringLiteral;
+                return self.state.token;
+            }
+        }
+        return self.scan();
+    }
+
+    pub fn scanIdentifierParts(self: *Scanner) []const u8 {
+        const start = self.state.pos;
+        while (self.state.pos < self.end) {
+            const ch = self.char();
+            if (identifier_pkg.isIdentifierPart(@as(u21, ch), @as(u8, @intCast(@intFromEnum(self.scriptTarget))))) {
+                self.state.pos += 1;
+                continue;
+            }
+            if (ch > 127) {
+                // Approximate size handling
+                self.state.pos += 1;
+                continue;
+            }
+            break;
+        }
+        return self.text[start..self.state.pos];
     }
 
     pub fn unescapeIdentifier(self: *Scanner, value: []const u8) []const u8 {

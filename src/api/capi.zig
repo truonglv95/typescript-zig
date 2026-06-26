@@ -438,6 +438,18 @@ pub export fn zig_ts_get_ast_node_kinds(
     out_kinds: *[*]u16,
     out_count: *usize,
 ) i32 {
+    return zig_ts_get_ast_node_kinds_ex(source, length, 3, out_kinds, out_count);
+}
+
+/// C API: Export AST node kinds with explicit script_kind
+/// script_kind: 1=JS, 2=JSX, 3=TS (default), 4=TSX
+pub export fn zig_ts_get_ast_node_kinds_ex(
+    source: [*]const u8,
+    length: usize,
+    script_kind: u32,
+    out_kinds: *[*]u16,
+    out_count: *usize,
+) i32 {
     const src = source[0..length];
     const allocator = std.heap.page_allocator;
 
@@ -448,13 +460,20 @@ pub export fn zig_ts_get_ast_node_kinds(
     var parser = parser_pkg.Parser.init(arena_alloc, src);
     defer parser.deinit();
 
+    // Set language variant based on script kind:
+    // JS=1, JSX=2, TS=3, TSX=4
+    const is_jsx = (script_kind == 2 or script_kind == 4);
+    if (is_jsx) {
+        parser.setLanguageVariant(.JSX);
+    }
+
     _ = parser.parseSourceFile() catch return -1;
 
     const count = parser.ast.nodes.len;
-    
+
     // index 0 is Unknown reserve. Let's just dump ALL including 0.
     var kinds = allocator.alloc(u16, count) catch return -2;
-    
+
     const tags = parser.ast.nodes.items(.tags);
     for (tags, 0..) |tag, i| {
         kinds[i] = @intFromEnum(tag);
