@@ -66,7 +66,7 @@ pub const NameResolver = struct {
                 continue;
             }
             if (self.binder.nodeLocals.getPtr(location)) |locals| {
-                if (!ast_utils.isGlobalSourceFile(self.ast, location)) {
+                if (!ast_utils.isGlobalSourceFile(self.ast, location) or self.Globals == null) {
                     result = self.lookup(&locals.unmanaged, name, meaning);
                     if (result != null) {
                         var useResult = true;
@@ -446,7 +446,7 @@ pub const NameResolver = struct {
                         return ctx.requiresScopeChangeWorker(child);
                     }
                 }.visit);
-            }
+            },
         }
     }
 
@@ -548,8 +548,7 @@ fn isSelfReferenceLocation(a: *ast.Ast, node: ast_gen.NodeIndex, lastLocation: a
     const kind = std.meta.activeTag(a.getNode(node));
     switch (kind) {
         .Parameter => return lastLocation != 0 and lastLocation == ast_utils.getNameOfNode(a, node),
-        .FunctionDeclaration, .ClassDeclaration, .InterfaceDeclaration, .EnumDeclaration,
-        .TypeAliasDeclaration, .JSTypeAliasDeclaration, .ModuleDeclaration => return true,
+        .FunctionDeclaration, .ClassDeclaration, .InterfaceDeclaration, .EnumDeclaration, .TypeAliasDeclaration, .JSTypeAliasDeclaration, .ModuleDeclaration => return true,
         else => return false,
     }
 }
