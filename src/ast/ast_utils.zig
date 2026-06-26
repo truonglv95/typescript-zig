@@ -64,10 +64,12 @@ pub fn isNonLocalAlias(tree: *ast_pkg.Ast, symIndex: ast_gen.SymbolIndex, exclud
 }
 
 pub fn getName(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (nodeIndex == 0) return 0;
     const node = tree.getNode(nodeIndex);
     switch (node) {
         .ModuleDeclaration => |n| return n.name,
         .EnumDeclaration => |n| return n.name,
+        .EnumMember => |n| return n.name,
         else => return 0,
     }
 }
@@ -104,6 +106,9 @@ pub const ModifierFlags = struct {
     pub const Deprecated: u32 = 1 << 16;
 
     pub const ParameterPropertyModifier: u32 = Public | Private | Protected | Readonly | Override;
+    pub const NonPublicAccessibilityModifier: u32 = Private | Protected;
+    pub const TypeScriptModifier: u32 = Ambient | Public | Private | Protected | Readonly | Abstract | Const | Override | In | Out;
+    pub const ExportDefault: u32 = Export | Default;
 };
 
 pub const ContainerFlags = struct {
@@ -756,7 +761,8 @@ pub const SubtreeFacts = struct {
 pub fn getSubtreeFacts(tree: *ast.Ast, node: ast.NodeIndex) u32 {
     _ = tree;
     _ = node;
-    return 0;
+    // Bypassing fast-path optimization since we haven't implemented computing facts yet
+    return SubtreeFacts.ContainsTypeScript | SubtreeFacts.ContainsIdentifier;
 }
 
 pub fn getModifierFlags(tree: *ast.Ast, node: ast.NodeIndex) u32 {
@@ -804,9 +810,8 @@ pub fn isClassLike(tree: *ast.Ast, node: ast.NodeIndex) bool {
     return false;
 }
 pub fn isIdentifier(tree: *ast.Ast, node: ast.NodeIndex) bool {
-    _ = tree;
-    _ = node;
-    return false;
+    if (node == 0) return false;
+    return tree.getNode(node) == .Identifier;
 }
 pub fn mostOriginal(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
     _ = tree;
@@ -820,15 +825,28 @@ pub fn classElementOrClassElementParameterIsDecorated(tree: *ast.Ast, legacyDeco
     return false;
 }
 pub fn getText(tree: *ast.Ast, node: ast.NodeIndex) []const u8 {
-    _ = tree;
-    _ = node;
-    return "";
+    if (node == 0) return "";
+    const data = tree.getNode(node);
+    switch (data) {
+        .Identifier => |n| return n.Text,
+        .StringLiteral => |n| return n.Text,
+        .NumericLiteral => |n| return n.Text,
+        .PrivateIdentifier => |n| return n.Text,
+        else => {
+            if (node < tree.positions.items.len) {
+                const pos = tree.positions.items[node];
+                if (pos.pos < pos.end and pos.end <= tree.sourceText.len) {
+                    return tree.sourceText[pos.pos..pos.end];
+                }
+            }
+            return "";
+        },
+    }
 }
 
 pub fn isEnumDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool {
-    _ = tree;
-    _ = node;
-    return false;
+    if (node == 0) return false;
+    return tree.getNode(node) == .EnumDeclaration;
 }
 pub fn isBindingPattern(tree: *ast.Ast, node: ast.NodeIndex) bool {
     _ = tree;
@@ -837,9 +855,8 @@ pub fn isBindingPattern(tree: *ast.Ast, node: ast.NodeIndex) bool {
 }
 
 pub fn isModuleDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool {
-    _ = tree;
-    _ = node;
-    return false;
+    if (node == 0) return false;
+    return tree.getNode(node) == .ModuleDeclaration;
 }
 
 pub fn flattenDestructuringAssignment(a: anytype, b: anytype, c: anytype, d: anytype, e: anytype, f: anytype) ast.NodeIndex {
@@ -1053,10 +1070,8 @@ pub const SyntaxKind = struct {
     pub const ColonToken: u32 = 0;
 };
 
-pub fn getTextOfNode(a: anytype, b: anytype) []const u8 {
-    _ = a;
-    _ = b;
-    return "";
+pub fn getTextOfNode(tree: *ast.Ast, node: ast.NodeIndex) []const u8 {
+    return getText(tree, node);
 }
 
 pub fn subtreeFacts(a: anytype) u32 {
