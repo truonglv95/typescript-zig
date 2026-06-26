@@ -75,8 +75,7 @@ pub fn getName(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeInd
 pub fn isAliasSymbolDeclaration(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const node = tree.getNode(nodeIndex);
     switch (node) {
-        .ImportEqualsDeclaration, .NamespaceExportDeclaration, .NamespaceImport, .NamespaceExport,
-        .ImportSpecifier, .ExportSpecifier => return true,
+        .ImportEqualsDeclaration, .NamespaceExportDeclaration, .NamespaceImport, .NamespaceExport, .ImportSpecifier, .ExportSpecifier => return true,
         .ImportClause => |n| return n.name != 0,
         .ExportAssignment => return false, // TODO: expressionIsAlias
         .VariableDeclaration, .BindingElement => return false, // TODO: isVariableDeclarationInitializedToRequire
@@ -103,7 +102,7 @@ pub const ModifierFlags = struct {
     pub const Out: u32 = 1 << 14;
     pub const Decorator: u32 = 1 << 15;
     pub const Deprecated: u32 = 1 << 16;
-    
+
     pub const ParameterPropertyModifier: u32 = Public | Private | Protected | Readonly | Override;
 };
 
@@ -158,7 +157,7 @@ pub const NodeFlags = struct {
     pub const AwaitUsing: u32 = Const | Using;
     pub const ReachabilityCheckFlags: u32 = HasImplicitReturn | HasExplicitReturn;
     pub const ReachabilityAndEmitFlags: u32 = ReachabilityCheckFlags | HasAsyncFunctions;
-    
+
     pub const Namespace: u32 = 1 << 29;
     pub const GlobalAugmentation: u32 = 1 << 30;
     pub const NestedNamespace: u32 = 1 << 31;
@@ -310,7 +309,6 @@ pub fn isFileProbablyExternalModule(a: *ast.Ast, sourceFileIndex: ast_gen.NodeIn
         const stmts = a.getNodeList(sourceFileNode.Statements);
         for (stmts) |stmtIndex| {
             if (isAnExternalModuleIndicatorNode(a, stmtIndex)) {
-                
                 return stmtIndex;
             }
         }
@@ -359,22 +357,21 @@ pub fn getRootDeclaration(astTree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_g
 pub fn getCombinedNodeFlags(astTree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) u32 {
     var root = getRootDeclaration(astTree, nodeIndex);
     var flags = astTree.getNodeFlags(root);
-    
+
     if (std.meta.activeTag(astTree.getNode(root)) == .VariableDeclaration) {
         root = astTree.getNodeParent(root);
     }
-    
+
     if (root != 0 and std.meta.activeTag(astTree.getNode(root)) == .VariableDeclarationList) {
         flags |= astTree.getNodeFlags(root);
         root = astTree.getNodeParent(root);
-        
+
         if (root != 0 and std.meta.activeTag(astTree.getNode(root)) == .VariableStatement) {
             flags |= astTree.getNodeFlags(root);
         }
     }
     return flags;
 }
-
 
 pub fn isStringOrNumericLiteralLike(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     if (nodeIndex == 0) return false;
@@ -453,8 +450,6 @@ pub fn getNameOfNode(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeInde
     }
 }
 
-
-
 pub fn isGlobalSourceFile(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const node = a.getNode(nodeIndex);
     return node == .SourceFile and !isExternalModule(a, nodeIndex);
@@ -470,40 +465,7 @@ pub fn isFunctionLike(tag: std.meta.Tag(@import("ast_generated.zig").NodeData)) 
 pub fn isSomeDeclaration(astTree: *@import("ast.zig").Ast, nodeIndex: @import("ast_generated.zig").NodeIndex) bool {
     const node = astTree.getNode(nodeIndex);
     return switch (node) {
-        .ArrowFunction,
-        .BindingElement,
-        .ClassDeclaration,
-        .ClassExpression,
-        .ClassStaticBlockDeclaration,
-        .Constructor,
-        .EnumDeclaration,
-        .EnumMember,
-        .ExportAssignment,
-        .ExportDeclaration,
-        .ExportSpecifier,
-        .FunctionDeclaration,
-        .FunctionExpression,
-        .GetAccessor,
-        .ImportClause,
-        .ImportEqualsDeclaration,
-        .ImportSpecifier,
-        .InterfaceDeclaration,
-        .JsxAttribute,
-        .MethodDeclaration,
-        .MethodSignature,
-        .ModuleDeclaration,
-        .NamespaceExport,
-        .NamespaceExportDeclaration,
-        .NamespaceImport,
-        .Parameter,
-        .PropertyAssignment,
-        .PropertyDeclaration,
-        .PropertySignature,
-        .SetAccessor,
-        .ShorthandPropertyAssignment,
-        .TypeAliasDeclaration,
-        .TypeParameter,
-        .VariableDeclaration => true,
+        .ArrowFunction, .BindingElement, .ClassDeclaration, .ClassExpression, .ClassStaticBlockDeclaration, .Constructor, .EnumDeclaration, .EnumMember, .ExportAssignment, .ExportDeclaration, .ExportSpecifier, .FunctionDeclaration, .FunctionExpression, .GetAccessor, .ImportClause, .ImportEqualsDeclaration, .ImportSpecifier, .InterfaceDeclaration, .JsxAttribute, .MethodDeclaration, .MethodSignature, .ModuleDeclaration, .NamespaceExport, .NamespaceExportDeclaration, .NamespaceImport, .Parameter, .PropertyAssignment, .PropertyDeclaration, .PropertySignature, .SetAccessor, .ShorthandPropertyAssignment, .TypeAliasDeclaration, .TypeParameter, .VariableDeclaration => true,
         else => false,
     };
 }
@@ -594,10 +556,7 @@ pub fn unescapeIdentifier(allocator: std.mem.Allocator, text: []const u8) ![]con
                 i += 1;
                 while (i < text.len and text[i] != '}') {
                     const c = text[i];
-                    const val: u32 = if (c >= '0' and c <= '9') c - '0'
-                    else if (c >= 'a' and c <= 'f') c - 'a' + 10
-                    else if (c >= 'A' and c <= 'F') c - 'A' + 10
-                    else return error.InvalidEscape;
+                    const val: u32 = if (c >= '0' and c <= '9') c - '0' else if (c >= 'a' and c <= 'f') c - 'a' + 10 else if (c >= 'A' and c <= 'F') c - 'A' + 10 else return error.InvalidEscape;
                     codePoint = (codePoint << 4) | val;
                     i += 1;
                 }
@@ -608,10 +567,7 @@ pub fn unescapeIdentifier(allocator: std.mem.Allocator, text: []const u8) ![]con
                 for (0..4) |_| {
                     if (i < text.len) {
                         const c = text[i];
-                        const val: u32 = if (c >= '0' and c <= '9') c - '0'
-                        else if (c >= 'a' and c <= 'f') c - 'a' + 10
-                        else if (c >= 'A' and c <= 'F') c - 'A' + 10
-                        else return error.InvalidEscape;
+                        const val: u32 = if (c >= '0' and c <= '9') c - '0' else if (c >= 'a' and c <= 'f') c - 'a' + 10 else if (c >= 'A' and c <= 'F') c - 'A' + 10 else return error.InvalidEscape;
                         codePoint = (codePoint << 4) | val;
                         i += 1;
                     }
@@ -635,58 +591,117 @@ pub const SubtreeFacts = struct {
 };
 
 pub fn getSubtreeFacts(tree: *ast.Ast, node: ast.NodeIndex) u32 {
-    _ = tree; _ = node;
+    _ = tree;
+    _ = node;
     return 0;
 }
 
-
 pub fn getModifierFlags(tree: *ast.Ast, node: ast.NodeIndex) u32 {
-    _ = tree; _ = node;
+    _ = tree;
+    _ = node;
     return 0;
 }
 
 pub fn extractModifiers(context: anytype, modifiers: ast.NodeIndex, mask: u32) ast.NodeIndex {
-    _ = context; _ = mask;
+    _ = context;
+    _ = mask;
     return modifiers;
 }
 
 pub fn getParseTreeNode(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
-    _ = tree; _ = node;
+    _ = tree;
+    _ = node;
     return 0;
 }
 
-
 pub fn getElements(tree: *ast.Ast, node: ast.NodeIndex) []const ast.NodeIndex {
-    _ = tree; _ = node;
+    _ = tree;
+    _ = node;
     return &[_]ast.NodeIndex{};
 }
 pub fn isIdentifierReference(tree: *ast.Ast, node: ast.NodeIndex, parent: ast.NodeIndex) bool {
-    _ = tree; _ = node; _ = parent;
+    _ = tree;
+    _ = node;
+    _ = parent;
     return false;
 }
 pub fn isGeneratedIdentifier(context: anytype, node: ast.NodeIndex) bool {
-    _ = context; _ = node;
+    _ = context;
+    _ = node;
     return false;
 }
 pub fn isLocalName(context: anytype, node: ast.NodeIndex) bool {
-    _ = context; _ = node;
+    _ = context;
+    _ = node;
     return false;
 }
-pub fn isClassLike(tree: *ast.Ast, node: ast.NodeIndex) bool { _ = tree; _ = node; return false; }
-pub fn isIdentifier(tree: *ast.Ast, node: ast.NodeIndex) bool { _ = tree; _ = node; return false; }
-pub fn mostOriginal(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex { _ = tree; return node; }
-pub fn classElementOrClassElementParameterIsDecorated(tree: *ast.Ast, legacyDecorators: bool, nodeIndex: ast.NodeIndex, containerIndex: ast.NodeIndex) bool { _ = tree; _ = legacyDecorators; _ = nodeIndex; _ = containerIndex; return false; }
-pub fn getText(tree: *ast.Ast, node: ast.NodeIndex) []const u8 { _ = tree; _ = node; return ""; }
+pub fn isClassLike(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    _ = tree;
+    _ = node;
+    return false;
+}
+pub fn isIdentifier(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    _ = tree;
+    _ = node;
+    return false;
+}
+pub fn mostOriginal(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
+    _ = tree;
+    return node;
+}
+pub fn classElementOrClassElementParameterIsDecorated(tree: *ast.Ast, legacyDecorators: bool, nodeIndex: ast.NodeIndex, containerIndex: ast.NodeIndex) bool {
+    _ = tree;
+    _ = legacyDecorators;
+    _ = nodeIndex;
+    _ = containerIndex;
+    return false;
+}
+pub fn getText(tree: *ast.Ast, node: ast.NodeIndex) []const u8 {
+    _ = tree;
+    _ = node;
+    return "";
+}
 
-pub fn isEnumDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool { _ = tree; _ = node; return false; }
-pub fn isBindingPattern(tree: *ast.Ast, node: ast.NodeIndex) bool { _ = tree; _ = node; return false; }
+pub fn isEnumDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    _ = tree;
+    _ = node;
+    return false;
+}
+pub fn isBindingPattern(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    _ = tree;
+    _ = node;
+    return false;
+}
 
-pub fn isModuleDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool { _ = tree; _ = node; return false; }
+pub fn isModuleDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    _ = tree;
+    _ = node;
+    return false;
+}
 
-pub fn flattenDestructuringAssignment(a: anytype, b: anytype, c: anytype, d: anytype, e: anytype, f: anytype) ast.NodeIndex { _ = a; _ = b; _ = c; _ = d; _ = e; _ = f; return 0; }
-pub fn cloneNode(a: anytype, b: anytype, c: anytype) ast.NodeIndex { _ = a; _ = b; return c; }
-pub fn childIsDecorated(a: anytype, b: anytype, c: anytype) bool { _ = a; _ = b; _ = c; return false; }
-pub const FlattenLevel = struct { pub const All: u32 = 1; };
+pub fn flattenDestructuringAssignment(a: anytype, b: anytype, c: anytype, d: anytype, e: anytype, f: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    _ = c;
+    _ = d;
+    _ = e;
+    _ = f;
+    return 0;
+}
+pub fn cloneNode(a: anytype, b: anytype, c: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return c;
+}
+pub fn childIsDecorated(a: anytype, b: anytype, c: anytype) bool {
+    _ = a;
+    _ = b;
+    _ = c;
+    return false;
+}
+pub const FlattenLevel = struct {
+    pub const All: u32 = 1;
+};
 
 pub fn isDecorator(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     return tree.getNode(node) == .Decorator;
@@ -695,201 +710,617 @@ pub fn isDecorator(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
 pub fn canHaveIllegalDecorators(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     const tag = tree.getNode(node);
     switch (tag) {
-        .PropertyAssignment,
-        .ShorthandPropertyAssignment,
-        .FunctionDeclaration,
-        .Constructor,
-        .IndexSignature,
-        .ClassStaticBlockDeclaration,
-        .MissingDeclaration,
-        .VariableStatement,
-        .InterfaceDeclaration,
-        .TypeAliasDeclaration,
-        .EnumDeclaration,
-        .ModuleDeclaration,
-        .ImportEqualsDeclaration,
-        .ImportDeclaration,
-        .JSImportDeclaration,
-        .NamespaceExportDeclaration,
-        .ExportDeclaration,
-        .ExportAssignment => return true,
+        .PropertyAssignment, .ShorthandPropertyAssignment, .FunctionDeclaration, .Constructor, .IndexSignature, .ClassStaticBlockDeclaration, .MissingDeclaration, .VariableStatement, .InterfaceDeclaration, .TypeAliasDeclaration, .EnumDeclaration, .ModuleDeclaration, .ImportEqualsDeclaration, .ImportDeclaration, .JSImportDeclaration, .NamespaceExportDeclaration, .ExportDeclaration, .ExportAssignment => return true,
         else => return false,
     }
 }
-pub fn convertVariableDeclarationToAssignmentExpression(ctx: anytype, node: ast.NodeIndex) ast.NodeIndex { _ = ctx; _ = node; return 0; }
+pub fn convertVariableDeclarationToAssignmentExpression(ctx: anytype, node: ast.NodeIndex) ast.NodeIndex {
+    _ = ctx;
+    _ = node;
+    return 0;
+}
 
-pub fn isConstructorDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool { _ = tree; _ = node; return false; }
+pub fn isConstructorDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    _ = tree;
+    _ = node;
+    return false;
+}
 
-pub fn setParent(a: anytype, b: anytype, c: anytype) void { _ = a; _ = b; _ = c; }
-pub fn withPos(a: anytype, b: anytype) ast.TextRange { _ = a; _ = b; return ast.TextRange{ .pos = 0, .end = 0 }; }
+pub fn setParent(a: anytype, b: anytype, c: anytype) void {
+    _ = a;
+    _ = b;
+    _ = c;
+}
+pub fn withPos(a: anytype, b: anytype) ast.TextRange {
+    _ = a;
+    _ = b;
+    return ast.TextRange{ .pos = 0, .end = 0 };
+}
 
+pub fn getParent(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getPos(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getTypeNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn getParent(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getPos(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getTypeNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn setLoc(a: anytype, b: anytype, c: anytype) void {
+    _ = a;
+    _ = b;
+    _ = c;
+}
+pub fn skipTypeParentheses(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getMembersOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
+pub fn getLoc(a: anytype, b: anytype) ast.TextRange {
+    _ = a;
+    _ = b;
+    return ast.TextRange{ .pos = 0, .end = 0 };
+}
+pub fn getAssertsModifierOfTypePredicate(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getAllAccessorDeclarations(a: anytype, b: anytype, c: anytype) struct { firstAccessor: ast.NodeIndex, secondAccessor: ast.NodeIndex, getAccessor: ast.NodeIndex, setAccessor: ast.NodeIndex } {
+    _ = a;
+    _ = b;
+    _ = c;
+    return .{ .firstAccessor = 0, .secondAccessor = 0, .getAccessor = 0, .setAccessor = 0 };
+}
 
-pub fn setLoc(a: anytype, b: anytype, c: anytype) void { _ = a; _ = b; _ = c; }
-pub fn skipTypeParentheses(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getMembersOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn getLiteralOfLiteralTypeNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getParametersOfNode(a: anytype, b: anytype) []const ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return &[_]ast.NodeIndex{};
+}
 
-pub fn getLoc(a: anytype, b: anytype) ast.TextRange { _ = a; _ = b; return ast.TextRange{ .pos = 0, .end = 0 }; }
-pub fn getAssertsModifierOfTypePredicate(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getAllAccessorDeclarations(a: anytype, b: anytype, c: anytype) struct { firstAccessor: ast.NodeIndex, secondAccessor: ast.NodeIndex, getAccessor: ast.NodeIndex, setAccessor: ast.NodeIndex } { _ = a; _ = b; _ = c; return .{ .firstAccessor = 0, .secondAccessor = 0, .getAccessor = 0, .setAccessor = 0 }; }
+pub fn getTypesOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getOperandOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getTypeNameOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn getLiteralOfLiteralTypeNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getParametersOfNode(a: anytype, b: anytype) []const ast.NodeIndex { _ = a; _ = b; return &[_]ast.NodeIndex{}; }
+pub fn getTrueTypeOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getFalseTypeOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getLiteralKind(a: anytype, b: anytype) std.meta.Tag(ast_gen.NodeData) {
+    _ = a;
+    _ = b;
+    return .Unknown;
+}
 
-pub fn getTypesOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getOperandOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getTypeNameOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn classOrConstructorParameterIsDecorated(a: anytype, b: anytype, c: anytype) bool {
+    _ = a;
+    _ = b;
+    _ = c;
+    return false;
+}
+pub fn getFirstConstructorWithBody(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getOperatorOfTypeOperator(a: anytype, b: anytype) u32 {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn getTrueTypeOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getFalseTypeOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getLiteralKind(a: anytype, b: anytype) std.meta.Tag(ast_gen.NodeData) { _ = a; _ = b; return .Unknown; }
+pub fn isModifier(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn classOrConstructorParameterIsDecorated(a: anytype, b: anytype, c: anytype) bool { _ = a; _ = b; _ = c; return false; }
-pub fn getFirstConstructorWithBody(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getOperatorOfTypeOperator(a: anytype, b: anytype) u32 { _ = a; _ = b; return 0; }
+pub fn getDecoratorsOfParameters(a: anytype, b: anytype, c: anytype) ![][]const ast.NodeIndex {
+    _ = a;
+    _ = b;
+    _ = c;
+    return &.{};
+}
+pub fn isDeclaration(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn isModifier(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn findSuperStatementIndexPath(a: anytype, b: anytype) []const ast_gen.NodeIndex {
+    _ = a;
+    _ = b;
+    return &[_]ast_gen.NodeIndex{};
+}
 
-pub fn getDecoratorsOfParameters(a: anytype, b: anytype, c: anytype) ![][]const ast.NodeIndex { _ = a; _ = b; _ = c; return &.{}; }
-pub fn isDeclaration(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub const TokenFlags = struct {
+    pub const None: u32 = 0;
+};
 
-pub fn findSuperStatementIndexPath(a: anytype, b: anytype) []const ast_gen.NodeIndex { _ = a; _ = b; return &[_]ast_gen.NodeIndex{}; }
+pub fn nodeIsPresent(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn isAsyncFunction(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub const SyntaxKind = struct {
+    pub const ReadonlyKeyword: u32 = 0;
+    pub const QuestionToken: u32 = 0;
+    pub const ColonToken: u32 = 0;
+};
 
-pub const TokenFlags = struct { pub const None: u32 = 0; };
+pub fn getTextOfNode(a: anytype, b: anytype) []const u8 {
+    _ = a;
+    _ = b;
+    return "";
+}
 
-pub fn nodeIsPresent(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn isAsyncFunction(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub const SyntaxKind = struct { pub const ReadonlyKeyword: u32 = 0; pub const QuestionToken: u32 = 0; pub const ColonToken: u32 = 0; };
+pub fn subtreeFacts(a: anytype) u32 {
+    _ = a;
+    return 0;
+}
 
+pub fn getTypeOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
+pub fn getBodyOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn isFunctionLikeDeclaration(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn getTextOfNode(a: anytype, b: anytype) []const u8 { _ = a; _ = b; return ""; }
+pub fn getTrueTypeOfConditionalType(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getPosOfNode(a: anytype, b: anytype) u32 {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getSymbolOfNode(a: anytype, b: anytype) u32 {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getImmediatelyInvokedFunctionExpression(a: anytype, b: anytype) u32 {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn isTypeQueryNode(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn findConstructorDeclaration(a: anytype, b: anytype) u32 {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getEndOfNode(a: anytype, b: anytype) u32 {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn subtreeFacts(a: anytype) u32 { _ = a; return 0; }
+pub fn findAncestor(a: anytype, b: anytype, c: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    _ = c;
+    return 0;
+}
+pub fn hasPropertyAccessExpressionWithName(a: anytype, b: anytype, c: anytype) bool {
+    _ = a;
+    _ = b;
+    _ = c;
+    return false;
+}
+pub fn isParameterDeclaration(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn getTypeOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn isPropertyAccessExpression(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn getBodyOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn isFunctionLikeDeclaration(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn isTryStatement(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn getDotDotDotTokenOfParameter(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn getTrueTypeOfConditionalType(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getPosOfNode(a: anytype, b: anytype) u32 { _ = a; _ = b; return 0; }
-pub fn getSymbolOfNode(a: anytype, b: anytype) u32 { _ = a; _ = b; return 0; }
-pub fn getImmediatelyInvokedFunctionExpression(a: anytype, b: anytype) u32 { _ = a; _ = b; return 0; }
-pub fn isTypeQueryNode(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn findConstructorDeclaration(a: anytype, b: anytype) u32 { _ = a; _ = b; return 0; }
-pub fn getEndOfNode(a: anytype, b: anytype) u32 { _ = a; _ = b; return 0; }
+pub fn isVoidExpression(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn getRestParameterElementType(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn findAncestor(a: anytype, b: anytype, c: anytype) ast.NodeIndex { _ = a; _ = b; _ = c; return 0; }
-pub fn hasPropertyAccessExpressionWithName(a: anytype, b: anytype, c: anytype) bool { _ = a; _ = b; _ = c; return false; }
-pub fn isParameterDeclaration(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn getKind(a: anytype) std.meta.Tag(ast_gen.NodeData) {
+    _ = a;
+    return .Unknown;
+}
+pub fn isNumericLiteral(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn isPropertyAccessExpression(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn isStringLiteral(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
+pub fn isTypeOfExpression(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn isTryStatement(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn getDotDotDotTokenOfParameter(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getExpressionOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn getFlags(a: anytype) u32 {
+    _ = a;
+    return 0;
+}
+pub fn isParenthesizedExpression(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn isVoidExpression(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn getRestParameterElementType(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn isConditionalExpression(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn getKind(a: anytype) std.meta.Tag(ast_gen.NodeData) { _ = a; return .Unknown; }
-pub fn isNumericLiteral(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn name(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn expression(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn getConditionOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn isStringLiteral(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn getWhenTrueOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn isTypeOfExpression(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn getWhenFalseOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn getFlags(a: anytype) u32 { _ = a; return 0; }
-pub fn isParenthesizedExpression(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn heritageClauses(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn nodesLen(a: anytype) u32 {
+    _ = a;
+    return 0;
+}
 
-pub fn isConditionalExpression(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn members(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
 
+pub fn questionDotToken(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn isComputedPropertyName(a: anytype) bool {
+    _ = a;
+    return false;
+}
+pub fn initializer(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn getNodes(a: anytype) []const ast.NodeIndex {
+    _ = a;
+    return &.{};
+}
+pub fn getOperatorTokenOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn name(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn expression(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn getConditionOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn getBody(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn decorators(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn isStatic(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn getInitializerOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn hasStaticModifier(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn getAsteriskTokenOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn getWhenTrueOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn isNullishCoalesce(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn isOptionalChain(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn isBindingElement(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn getDotDotDotTokenOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getPropertyNameOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn isPartOfParameterDeclaration(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn isObjectBindingPattern(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn getWhenFalseOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn isHeritageClause(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn getTokenOfHeritageClause(a: anytype, b: anytype) kind.Kind {
+    _ = a;
+    _ = b;
+    return .Unknown;
+}
+pub fn isTypeNode(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn heritageClauses(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn nodesLen(a: anytype) u32 { _ = a; return 0; }
+pub fn isInterfaceDeclaration(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn isClassElement(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn members(a: anytype) ast.NodeIndex { _ = a; return 0; }
+pub fn getCommonJSModuleIndicator(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn isLeftHandSideExpression(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
+pub fn getDeclarationOfKind(a: anytype, b: anytype, c: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    _ = c;
+    return 0;
+}
+pub fn getLocalSymbolOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn questionDotToken(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn isComputedPropertyName(a: anytype) bool { _ = a; return false; }
-pub fn initializer(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn getNodes(a: anytype) []const ast.NodeIndex { _ = a; return &.{}; }
-pub fn getOperatorTokenOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn getTypeParameterOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn getLeftOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
-pub fn getBody(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn decorators(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn isStatic(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn getInitializerOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn hasStaticModifier(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn getAsteriskTokenOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn parameters(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn isPropertyDeclaration(a: anytype) bool {
+    _ = a;
+    return false;
+}
+pub fn isPrivateIdentifier(a: anytype) bool {
+    _ = a;
+    return false;
+}
+pub fn canHaveDecorators(a: anytype) bool {
+    _ = a;
+    return false;
+}
+pub fn nodeOrChildIsDecorated(a: anytype, b: anytype, c: anytype, d: anytype) bool {
+    _ = a;
+    _ = b;
+    _ = c;
+    _ = d;
+    return false;
+}
+pub fn getRightOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
+pub fn loc(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn hasAccessorModifier(a: anytype) bool {
+    _ = a;
+    return false;
+}
+pub fn isSimpleInlineableExpression(a: anytype) bool {
+    _ = a;
+    return false;
+}
+pub fn some(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn isNullishCoalesce(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn isOptionalChain(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn isBindingElement(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn getDotDotDotTokenOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getPropertyNameOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn isPartOfParameterDeclaration(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn isObjectBindingPattern(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn moveRangePastModifiers(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
 
-pub fn isHeritageClause(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn getTokenOfHeritageClause(a: anytype, b: anytype) kind.Kind { _ = a; _ = b; return .Unknown; }
-pub fn isTypeNode(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn dotDotDotToken(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn asteriskToken(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
 
+pub fn forEachChildBool(a: anytype, b: anytype, c: anytype, d: anytype) bool {
+    _ = a;
+    _ = b;
+    _ = c;
+    _ = d;
+    return false;
+}
 
-pub fn isInterfaceDeclaration(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn isClassElement(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn skipPartiallyEmittedExpressions(a: anytype) ast.NodeIndex {
+    _ = a;
+    return 0;
+}
+pub fn getModuleSpecifierOfNode(a: anytype, b: anytype) ast.NodeIndex {
+    _ = a;
+    _ = b;
+    return 0;
+}
+pub fn isRequireCall(a: anytype, b: anytype, c: anytype) bool {
+    _ = a;
+    _ = b;
+    _ = c;
+    return false;
+}
 
-pub fn getCommonJSModuleIndicator(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn isLeftHandSideExpression(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-pub fn getDeclarationOfKind(a: anytype, b: anytype, c: anytype) ast.NodeIndex { _ = a; _ = b; _ = c; return 0; }
-pub fn getLocalSymbolOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
+pub fn isSourceFile(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}
 
-pub fn getTypeParameterOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn getLeftOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-
-pub fn parameters(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn isPropertyDeclaration(a: anytype) bool { _ = a; return false; }
-pub fn isPrivateIdentifier(a: anytype) bool { _ = a; return false; }
-pub fn canHaveDecorators(a: anytype) bool { _ = a; return false; }
-pub fn nodeOrChildIsDecorated(a: anytype, b: anytype, c: anytype, d: anytype) bool { _ = a; _ = b; _ = c; _ = d; return false; }
-pub fn getRightOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-
-pub fn loc(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn hasAccessorModifier(a: anytype) bool { _ = a; return false; }
-pub fn isSimpleInlineableExpression(a: anytype) bool { _ = a; return false; }
-pub fn some(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-
-pub fn moveRangePastModifiers(a: anytype) ast.NodeIndex { _ = a; return 0; }
-
-pub fn dotDotDotToken(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn asteriskToken(a: anytype) ast.NodeIndex { _ = a; return 0; }
-
-
-pub fn forEachChildBool(a: anytype, b: anytype, c: anytype, d: anytype) bool { _ = a; _ = b; _ = c; _ = d; return false; }
-
-pub fn skipPartiallyEmittedExpressions(a: anytype) ast.NodeIndex { _ = a; return 0; }
-pub fn getModuleSpecifierOfNode(a: anytype, b: anytype) ast.NodeIndex { _ = a; _ = b; return 0; }
-pub fn isRequireCall(a: anytype, b: anytype, c: anytype) bool { _ = a; _ = b; _ = c; return false; }
-
-pub fn isSourceFile(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
-
-pub fn getNodeFlags(a: anytype, b: anytype) u32 { _ = a; _ = b; return 0; }
-
+pub fn getNodeFlags(a: anytype, b: anytype) u32 {
+    _ = a;
+    _ = b;
+    return 0;
+}
 
 pub fn isAssignmentOperator(op: anytype) bool {
     _ = op;
@@ -908,7 +1339,6 @@ pub fn isVariableStatement(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     return false; // stub
 }
 
-
 const for_each = @import("for_each_child.zig");
 pub const forEachChild = for_each.forEachChild;
 
@@ -918,7 +1348,7 @@ pub fn getFirstToken(nodeIndex: ast_gen.NodeIndex, tree: *ast.Ast) ast_gen.NodeI
     if (nodeTag == .Identifier or kind.isTokenKind(@enumFromInt(@intFromEnum(nodeTag)))) {
         return 0;
     }
-    
+
     const Closure = struct {
         firstChild: ast_gen.NodeIndex = 0,
         tree: *ast.Ast,
@@ -938,12 +1368,118 @@ pub fn getFirstToken(nodeIndex: ast_gen.NodeIndex, tree: *ast.Ast) ast_gen.NodeI
     };
     var closure = Closure{ .tree = tree };
     _ = for_each.forEachChild(tree, nodeIndex, &closure) catch {};
-    
+
     if (closure.firstChild == 0) return 0;
-    
+
     const firstChildTag = std.meta.activeTag(tree.getNode(closure.firstChild));
     if (kind.isTokenKind(@enumFromInt(@intFromEnum(firstChildTag)))) {
         return closure.firstChild;
     }
     return getFirstToken(closure.firstChild, tree);
+}
+
+pub fn isLogicalOrCoalescingBinaryOperator(op: ast_gen.NodeData) bool {
+    return op == .AmpersandAmpersandToken or op == .BarBarToken or op == .QuestionQuestionToken;
+}
+
+pub fn isLogicalOrCoalescingAssignmentOperator(op: ast_gen.NodeData) bool {
+    return op == .AmpersandAmpersandEqualsToken or op == .BarBarEqualsToken or op == .QuestionQuestionEqualsToken;
+}
+
+pub fn isLogicalExpression(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    if (node == .BinaryExpression) {
+        const op = tree.getNode(node.BinaryExpression.OperatorToken);
+        return isLogicalOrCoalescingBinaryOperator(op);
+    }
+    return false;
+}
+
+pub fn isLogicalOrCoalescingAssignmentExpression(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    if (node == .BinaryExpression) {
+        const op = tree.getNode(node.BinaryExpression.OperatorToken);
+        return isLogicalOrCoalescingAssignmentOperator(op);
+    }
+    return false;
+}
+
+pub fn isStringLiteralLike(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    return node == .StringLiteral or node == .NoSubstitutionTemplateLiteral;
+}
+
+pub fn isBooleanLiteral(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    return node == .TrueKeyword or node == .FalseKeyword;
+}
+
+pub fn skipParentheses(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    var current = nodeIndex;
+    while (current != 0 and tree.getNode(current) == .ParenthesizedExpression) {
+        current = tree.getNode(current).ParenthesizedExpression.Expression;
+    }
+    return current;
+}
+
+pub fn isDestructuringAssignment(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    if (node == .BinaryExpression) {
+        const bin = node.BinaryExpression;
+        if (tree.getNode(bin.OperatorToken) == .EqualsToken) {
+            const left = skipParentheses(tree, bin.Left);
+            const leftNode = tree.getNode(left);
+            return leftNode == .ObjectLiteralExpression or leftNode == .ArrayLiteralExpression;
+        }
+    }
+    return false;
+}
+
+pub fn isAssignmentTarget(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const parent = tree.getNodeParent(nodeIndex);
+    if (parent == 0) return false;
+    const parentNode = tree.getNode(parent);
+    if (parentNode == .BinaryExpression) {
+        const bin = parentNode.BinaryExpression;
+        if (bin.Left == nodeIndex and isAssignmentOperator(tree.getNode(bin.OperatorToken))) return true;
+    }
+    return false;
+}
+
+pub fn getExpressionOfNode(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    switch (tree.getNode(nodeIndex)) {
+        .PropertyAccessExpression => |n| return n.Expression,
+        .ElementAccessExpression => |n| return n.Expression,
+        .CallExpression => |n| return n.Expression,
+        .NonNullExpression => |n| return n.Expression,
+        .ParenthesizedExpression => |n| return n.Expression,
+        else => return 0,
+    }
+}
+
+pub fn isEntityNameExpression(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    return node == .Identifier or (node == .PropertyAccessExpression and isEntityNameExpression(tree, node.PropertyAccessExpression.Expression));
+}
+
+pub fn isOutermostOptionalChain(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const parent = tree.getNodeParent(nodeIndex);
+    return !isOptionalChain(tree, parent); // Need real implementation later
+}
+
+pub fn isOptionalChainRoot(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    // Need real implementation later
+    _ = tree;
+    _ = nodeIndex;
+    return false;
+}
+
+pub fn isPartOfTypeQuery(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    var current = nodeIndex;
+    while (current != 0) {
+        const nodeKind = a.getNode(current);
+        if (nodeKind != .QualifiedName and nodeKind != .Identifier) break;
+        current = a.getNodeParent(current);
+    }
+    return current != 0 and a.getNode(current) == .TypeQuery;
 }

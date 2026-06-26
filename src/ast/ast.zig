@@ -4,6 +4,7 @@ const ast_gen = @import("ast_generated.zig");
 pub const flow = @import("flow.zig");
 
 pub const NodeIndex = u32;
+pub const SourceFile = opaque {};
 
 pub const forEachChild = @import("for_each_child.zig").forEachChild;
 
@@ -20,7 +21,11 @@ pub const SourceFileParseOptions = struct {
 /// Hệ thống AST dựa trên Data-Oriented Design.
 /// Toàn bộ các Node sẽ được phân bổ phẳng trên `nodes` array, không dùng Pointer.
 pub const Ast = struct {
-    pub fn getSymbolParent(self: *Ast, a: anytype) u32 { _ = self; _ = a; return 0; }
+    pub fn getSymbolParent(self: *Ast, a: anytype) u32 {
+        _ = self;
+        _ = a;
+        return 0;
+    }
 
     sourceText: []const u8,
     symbols: std.ArrayListUnmanaged(u32),
@@ -31,7 +36,11 @@ pub const Ast = struct {
     positions: std.ArrayListUnmanaged(TextRange),
     localSymbols: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ast_gen.SymbolIndex),
 
-    pub fn getNodeKind(self: *Ast, node: ast_gen.NodeIndex) ast_gen.NodeData { _ = self; _ = node; return undefined; }
+    pub fn getNodeKind(self: *Ast, node: ast_gen.NodeIndex) ast_gen.NodeData {
+        _ = self;
+        _ = node;
+        return undefined;
+    }
 
     pub fn init(allocator: std.mem.Allocator) Ast {
         var a = Ast{
@@ -116,7 +125,7 @@ pub const Ast = struct {
         const len = lengthAndFlag & 0x7FFFFFFF;
         return self.extraData.items[index + 1 .. index + 1 + len];
     }
-    
+
     pub fn listHasTrailingComma(self: *Ast, index: u32) bool {
         if (index == 0) return false;
         const lengthAndFlag = self.extraData.items[index];
@@ -141,7 +150,7 @@ pub const Ast = struct {
                         self.nodes.set(index, node);
                     }
                 }
-            }
+            },
         }
     }
 
@@ -155,7 +164,7 @@ pub const Ast = struct {
                     }
                 }
                 return null;
-            }
+            },
         }
     }
     pub fn getNodeFlags(self: *Ast, index: NodeIndex) u32 {
@@ -179,11 +188,7 @@ pub const Ast = struct {
     }
 };
 
-    
-
 pub const SubtreeContainsDecorators: u32 = 0;
-
-
 
 pub const NodeFlagsAmbient: u32 = 0;
 

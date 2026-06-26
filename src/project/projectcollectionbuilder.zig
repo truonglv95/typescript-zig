@@ -10,19 +10,19 @@ const session = @import("session.zig");
 
 pub const ProjectCollectionBuilder = struct {
     allocator: std.mem.Allocator,
-    
+
     snapshotID: u64,
     fs: *snapshotfs.SnapshotFSBuilder,
-    
+
     // Core state built up
     projectCollection: *projectcollection.ProjectCollection,
     configFileRegistry: *configfileregistry.ConfigFileRegistry,
-    
+
     // Original states
     oldProjectCollection: *projectcollection.ProjectCollection,
     oldConfigFileRegistry: *configfileregistry.ConfigFileRegistry,
-    
-    apiOpenedProjects: std.StringArrayHashMap(void),
+
+    apiOpenedProjects: std.StringHashMap(void),
     compilerOptionsForInferredProjects: ?*core.CompilerOptions,
     sessionOptions: *session.SessionOptions,
     customConfigFileName: []const u8,
@@ -33,16 +33,16 @@ pub const ProjectCollectionBuilder = struct {
         fs: *snapshotfs.SnapshotFSBuilder,
         oldProjectCollection: *projectcollection.ProjectCollection,
         oldConfigFileRegistry: *configfileregistry.ConfigFileRegistry,
-        apiOpenedProjects: std.StringArrayHashMap(void),
+        apiOpenedProjects: std.StringHashMap(void),
         compilerOptionsForInferredProjects: ?*core.CompilerOptions,
         sessionOptions: *session.SessionOptions,
         customConfigFileName: []const u8,
     ) !*ProjectCollectionBuilder {
         var builder = try allocator.create(ProjectCollectionBuilder);
-        
+
         var newConfigFileRegistry = try oldConfigFileRegistry.clone();
         var newProjectCollection = projectcollection.ProjectCollection.init(allocator);
-        
+
         builder.* = .{
             .allocator = allocator,
             .snapshotID = snapshotID,
@@ -60,7 +60,7 @@ pub const ProjectCollectionBuilder = struct {
         return builder;
     }
 
-    pub fn didUpdateATAState(self: *ProjectCollectionBuilder, ataChanges: std.StringArrayHashMap(void), logger: ?*project.LogTree) void {
+    pub fn didUpdateATAState(self: *ProjectCollectionBuilder, ataChanges: std.StringHashMap(void), logger: ?*project.LogTree) void {
         _ = self;
         _ = ataChanges;
         _ = logger;

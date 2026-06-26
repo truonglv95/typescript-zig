@@ -9,22 +9,21 @@ pub const ConfigFileRegistry = opaque {};
 pub const ProjectCollection = struct {
     configFileRegistry: ?*ConfigFileRegistry = null,
 
-    fileDefaultProjects: std.StringArrayHashMap(tspath.Path),
-    configuredProjects: std.StringArrayHashMap(*project.Project),
-    openFiles: std.StringArrayHashMap(void),
-    
-    inferredProject: ?*project.Project = null,
-    apiOpenedProjects: std.StringArrayHashMap(void),
+    fileDefaultProjects: std.StringHashMap(tspath.Path),
+    configuredProjects: std.StringHashMap(*project.Project),
+    openFiles: std.StringHashMap(void),
 
-    openConfiguredProjectsOnce: std.once_cell.Once = .{},
-    openConfiguredProjects: ?*std.StringArrayHashMap(void) = null,
+    inferredProject: ?*project.Project = null,
+    apiOpenedProjects: std.StringHashMap(void),
+
+    openConfiguredProjects: ?*std.StringHashMap(void) = null,
 
     pub fn init(allocator: std.mem.Allocator) ProjectCollection {
         return .{
-            .fileDefaultProjects = std.StringArrayHashMap(tspath.Path).init(allocator),
-            .configuredProjects = std.StringArrayHashMap(*project.Project).init(allocator),
-            .openFiles = std.StringArrayHashMap(void).init(allocator),
-            .apiOpenedProjects = std.StringArrayHashMap(void).init(allocator),
+            .fileDefaultProjects = std.StringHashMap(tspath.Path).init(allocator),
+            .configuredProjects = std.StringHashMap(*project.Project).init(allocator),
+            .openFiles = std.StringHashMap(void).init(allocator),
+            .apiOpenedProjects = std.StringHashMap(void).init(allocator),
         };
     }
 
@@ -43,12 +42,13 @@ pub const ProjectCollection = struct {
     }
 
     pub fn configuredProjectsList(self: *ProjectCollection, allocator: std.mem.Allocator) ![]*project.Project {
-        var projectsList = std.ArrayList(*project.Project).init(allocator);
+        var projectsList = std.ArrayList(*project.Project).empty;
+        defer projectsList.deinit(allocator);
         var it = self.configuredProjects.iterator();
         while (it.next()) |entry| {
-            try projectsList.append(entry.value_ptr.*);
+            try projectsList.append(allocator, entry.value_ptr.*);
         }
-        const slice = try projectsList.toOwnedSlice();
+        const slice = try projectsList.toOwnedSlice(allocator);
         // Sort by name
         std.sort.pdq(*project.Project, slice, {}, struct {
             fn lessThan(_: void, a: *project.Project, b: *project.Project) bool {
@@ -60,11 +60,12 @@ pub const ProjectCollection = struct {
 
     pub fn projects(self: *ProjectCollection, allocator: std.mem.Allocator) ![]*project.Project {
         if (self.inferredProject == null) return try self.configuredProjectsList(allocator);
-        var list = std.ArrayList(*project.Project).init(allocator);
+        var list = std.ArrayList(*project.Project).empty;
+        defer list.deinit(allocator);
         const configured = try self.configuredProjectsList(allocator);
-        try list.appendSlice(configured);
+        try list.appendSlice(allocator, configured);
         try list.append(self.inferredProject.?);
-        return try list.toOwnedSlice();
+        return try list.toOwnedSlice(allocator);
     }
 
     pub fn getInferredProject(self: *ProjectCollection) ?*project.Project {
@@ -72,7 +73,8 @@ pub const ProjectCollection = struct {
     }
 
     pub fn getProjectsContainingFile(self: *ProjectCollection, allocator: std.mem.Allocator, path: tspath.Path) ![]*project.Project {
-        var result = std.ArrayList(*project.Project).init(allocator);
+        var result = std.ArrayList(*project.Project).empty;
+        defer result.deinit(allocator);
         for (try self.configuredProjectsList(allocator)) |p| {
             if (p.containsFile(path)) {
                 try result.append(p);
@@ -83,15 +85,15 @@ pub const ProjectCollection = struct {
                 try result.append(inf);
             }
         }
-        return try result.toOwnedSlice();
+        return try result.toOwnedSlice(allocator);
     }
 
-    pub fn getOpenConfiguredProjects(self: *ProjectCollection, allocator: std.mem.Allocator) !*std.StringArrayHashMap(void) {
+    pub fn getOpenConfiguredProjects(self: *ProjectCollection, allocator: std.mem.Allocator) !*std.StringHashMap(void) {
         // Since we don't have Once block with captures, we just check manually
         if (self.openConfiguredProjects) |open| return open;
 
-        var open_projects = try allocator.create(std.StringArrayHashMap(void));
-        open_projects.* = std.StringArrayHashMap(void).init(allocator);
+        var open_projects = try allocator.create(std.StringHashMap(void));
+        open_projects.* = std.StringHashMap(void).init(allocator);
 
         var it = self.openFiles.keyIterator();
         while (it.next()) |path_ptr| {
@@ -122,8 +124,7 @@ pub const ProjectCollection = struct {
             if (std.mem.eql(u8, result, project.inferredProjectName)) return self.inferredProject;
             return self.configuredProjects.get(result);
         }
-
-        var containingProjects = std.ArrayList(*project.Project).init(allocator);
+        var containingProjects = std.ArrayList(*project.Project).empty;
         var firstConfiguredProject: ?*project.Project = null;
         var firstNonSourceOfProjectReferenceRedirect: ?*project.Project = null;
         var multipleDirectInclusions = false;
@@ -131,7 +132,7 @@ pub const ProjectCollection = struct {
         const configured = try self.configuredProjectsList(allocator);
         for (configured) |p| {
             if (p.containsFile(path)) {
-                try containingProjects.append(p);
+                try containingProjects.append(allocator, p);
                 if (!multipleDirectInclusions and !p.isSourceFromProjectReference(path)) {
                     if (firstNonSourceOfProjectReferenceRedirect == null) {
                         firstNonSourceOfProjectReferenceRedirect = p;

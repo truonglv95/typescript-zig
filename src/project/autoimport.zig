@@ -8,12 +8,12 @@ const compiler = @import("../compiler/program.zig");
 
 pub const AutoImportBuilderFS = struct {
     builder: *snapshotfs.SnapshotFSBuilder,
-    untrackedFiles: std.StringArrayHashMap(*snapshotfs.FileHandle),
+    untrackedFiles: std.StringHashMap(*snapshotfs.FileHandle),
 
     pub fn init(allocator: std.mem.Allocator, builder: *snapshotfs.SnapshotFSBuilder) AutoImportBuilderFS {
         return .{
             .builder = builder,
-            .untrackedFiles = std.StringArrayHashMap(*snapshotfs.FileHandle).init(allocator),
+            .untrackedFiles = std.StringHashMap(*snapshotfs.FileHandle).init(allocator),
         };
     }
 
@@ -26,7 +26,7 @@ pub const AutoImportBuilderFS = struct {
         if (self.builder.overlays.get(path)) |file| return file;
         if (self.builder.diskFiles.get(path)) |file| return file;
         if (self.untrackedFiles.get(path)) |file| return file;
-        
+
         // mock read file from disk logic
         _ = fileName;
         return null;

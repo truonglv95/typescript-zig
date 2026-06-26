@@ -14,24 +14,24 @@ pub const CheckerPoolOptions = struct {
 pub const CheckerPool = struct {
     opts: CheckerPoolOptions,
     program: *compiler.Program,
-    
+
     mu: std.Thread.Mutex = .{},
     discarded: bool = false,
-    
+
     checkers: []?*checker.Checker,
     heldBy: [][]const u8,
     fileAssociations: std.AutoHashMap(*ast.SourceFile, usize),
     requestAssociations: std.StringHashMap(usize),
-    
+
     lastReleased: []i64,
-    
+
     persistentChecker: ?*checker.Checker = null,
     persistentHeld: bool = false,
 
     diagSem: std.Thread.Semaphore = .{ .permits = 1 },
     querySem: std.Thread.Semaphore,
     persistentSem: std.Thread.Semaphore = .{ .permits = 1 },
-    
+
     globalDiagAccumulated: std.ArrayList(*ast.Diagnostic),
     globalDiagChanged: bool = false,
     globalDiagCheckerCount: []usize,
@@ -54,16 +54,16 @@ pub const CheckerPool = struct {
             .requestAssociations = std.StringHashMap(usize).init(allocator),
             .lastReleased = try allocator.alloc(i64, options.maxCheckers),
             .querySem = .{ .permits = options.maxCheckers - 1 },
-            .globalDiagAccumulated = std.ArrayList(*ast.Diagnostic).init(allocator),
+            .globalDiagAccumulated = std.ArrayList(*ast.Diagnostic).empty,
             .globalDiagCheckerCount = try allocator.alloc(usize, options.maxCheckers),
             .allocator = allocator,
         };
-        
+
         @memset(pool.checkers, null);
         @memset(pool.heldBy, "");
         @memset(pool.lastReleased, 0);
         @memset(pool.globalDiagCheckerCount, 0);
-        
+
         return pool;
     }
 

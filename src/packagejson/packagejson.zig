@@ -7,6 +7,7 @@ const exportsorimports = @import("exportsorimports.zig");
 const ExportsOrImports = exportsorimports.ExportsOrImports;
 const cache = @import("cache.zig");
 pub const InfoCache = cache.InfoCache;
+pub const InfoCacheEntry = cache.InfoCacheEntry;
 
 pub const StringMap = std.StringArrayHashMap([]const u8);
 
@@ -73,7 +74,7 @@ pub const DependencyFields = struct {
 
     pub fn getRuntimeDependencyNames(self: *const DependencyFields, allocator: std.mem.Allocator) !std.StringArrayHashMap(void) {
         var names = std.StringArrayHashMap(void).init(allocator);
-        
+
         if (self.dependencies.getValue()) |deps| {
             for (deps.keys()) |name| {
                 try names.put(name, {});

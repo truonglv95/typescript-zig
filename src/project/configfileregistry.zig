@@ -9,11 +9,11 @@ pub const ConfigFileEntry = struct {
     fileName: []const u8,
     pendingReload: project.PendingReload,
     commandLine: ?*tsoptions.ParsedCommandLine = null,
-    
+
     retainingProjects: std.StringHashMap(void),
     retainingOpenFiles: std.StringHashMap(void),
     retainingConfigs: std.StringHashMap(void),
-    
+
     rootFilesWatch: ?*watch.WatchedFiles(watch.PatternsAndIgnored) = null,
 
     pub fn clone(self: *const ConfigFileEntry, allocator: std.mem.Allocator) !*ConfigFileEntry {
@@ -60,15 +60,15 @@ pub const ConfigFileNames = struct {
 };
 
 pub const ConfigFileRegistry = struct {
-    configs: std.StringArrayHashMap(*ConfigFileEntry),
-    configFileNames: std.StringArrayHashMap(*ConfigFileNames),
+    configs: std.StringHashMap(*ConfigFileEntry),
+    configFileNames: std.StringHashMap(*ConfigFileNames),
     customConfigFileName: []const u8,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, customConfigFileName: []const u8) ConfigFileRegistry {
         return .{
-            .configs = std.StringArrayHashMap(*ConfigFileEntry).init(allocator),
-            .configFileNames = std.StringArrayHashMap(*ConfigFileNames).init(allocator),
+            .configs = std.StringHashMap(*ConfigFileEntry).init(allocator),
+            .configFileNames = std.StringHashMap(*ConfigFileNames).init(allocator),
             .customConfigFileName = customConfigFileName,
             .allocator = allocator,
         };
@@ -100,7 +100,7 @@ pub const ConfigFileRegistry = struct {
     pub fn clone(self: *ConfigFileRegistry) !*ConfigFileRegistry {
         var c = try self.allocator.create(ConfigFileRegistry);
         c.* = ConfigFileRegistry.init(self.allocator, self.customConfigFileName);
-        
+
         var it = self.configs.iterator();
         while (it.next()) |entry| {
             try c.configs.put(entry.key_ptr.*, try entry.value_ptr.*.clone(self.allocator));
