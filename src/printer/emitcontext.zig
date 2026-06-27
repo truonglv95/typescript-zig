@@ -67,24 +67,67 @@ pub const EmitNode = struct {
 };
 
 pub const EmitContext = struct {
-    pub fn addVariableDeclaration(self: *EmitContext, a: anytype) void { _ = self; _ = a; }
+    pub fn addVariableDeclaration(self: *EmitContext, name: ast.NodeIndex) void {
+        const varDecl = self.factory.newVariableDeclaration(name, 0, 0, 0);
+        self.setEmitFlags(varDecl, EmitFlags.NoNestedSourceMaps) catch unreachable;
+        if (self.varScopeStack.items.len > 0) {
+            const scope = self.varScopeStack.items[self.varScopeStack.items.len - 1];
+            scope.variables.append(self.allocator, varDecl) catch unreachable;
+        }
+    }
 
-    pub fn mostOriginal(self: *EmitContext, a: anytype) ast.NodeIndex { _ = self; _ = a; return 0; }
+    pub fn mostOriginal(self: *EmitContext, a: anytype) ast.NodeIndex {
+        _ = self;
+        _ = a;
+        return 0;
+    }
 
-    pub fn isCallToHelper(self: *EmitContext, a: anytype, b: anytype) bool { _ = self; _ = a; _ = b; return false; }
+    pub fn isCallToHelper(self: *EmitContext, a: anytype, b: anytype) bool {
+        _ = self;
+        _ = a;
+        _ = b;
+        return false;
+    }
 
-    pub fn addEmitHelpers(self: *EmitContext, a: anytype, b: anytype) void { _ = self; _ = a; _ = b; }
-    pub fn readEmitHelpers(self: *EmitContext) u32 { _ = self; return 0; }
+    pub fn addEmitHelpers(self: *EmitContext, a: anytype, b: anytype) void {
+        _ = self;
+        _ = a;
+        _ = b;
+    }
+    pub fn readEmitHelpers(self: *EmitContext) u32 {
+        _ = self;
+        return 0;
+    }
 
-    pub fn endAndMergeVariableEnvironment(self: *EmitContext, a: anytype) ast_gen.NodeIndex { _ = self; _ = a; return 0; }
+    pub fn endAndMergeVariableEnvironment(self: *EmitContext, statements: []const ast_gen.NodeIndex) []const ast_gen.NodeIndex {
+        _ = self;
+        // TODO: Actually merge hoisted variables. For now, just return the statements.
+        return statements;
+    }
 
-    pub fn parseNode(self: *EmitContext, a: anytype) ast_gen.NodeIndex { _ = self; _ = a; return 0; }
+    pub fn parseNode(self: *EmitContext, a: anytype) ast_gen.NodeIndex {
+        _ = self;
+        _ = a;
+        return 0;
+    }
 
-    pub fn setCommentRange(self: *EmitContext, a: anytype, b: anytype) void { _ = self; _ = a; _ = b; }
+    pub fn setCommentRange(self: *EmitContext, a: anytype, b: anytype) void {
+        _ = self;
+        _ = a;
+        _ = b;
+    }
 
-    pub fn setSourceMapRange(self: *EmitContext, a: anytype, b: anytype) void { _ = self; _ = a; _ = b; }
+    pub fn setSourceMapRange(self: *EmitContext, a: anytype, b: anytype) void {
+        _ = self;
+        _ = a;
+        _ = b;
+    }
 
-    pub fn assignCommentAndSourceMapRanges(self: *EmitContext, a: anytype, b: anytype) void { _ = self; _ = a; _ = b; }
+    pub fn assignCommentAndSourceMapRanges(self: *EmitContext, a: anytype, b: anytype) void {
+        _ = self;
+        _ = a;
+        _ = b;
+    }
 
     allocator: std.mem.Allocator,
     tree: *ast.Ast,
@@ -116,7 +159,7 @@ pub const EmitContext = struct {
         self.classThis.deinit(self.allocator);
         self.autoGenerate.deinit(self.allocator);
         self.textSource.deinit(self.allocator);
-        
+
         for (self.varScopeStack.items) |scope| {
             scope.deinit(self.allocator);
             self.allocator.destroy(scope);
@@ -169,8 +212,30 @@ pub const EmitContext = struct {
         hooks: NodeVisitorHooks,
     ) *NodeVisitor {
         const v = self.allocator.create(NodeVisitor) catch unreachable;
-        v.* = NodeVisitor.init(self.allocator, self.tree, ctx, visitFn, hooks);
+        var final_hooks = hooks;
+        if (final_hooks.visitEmbeddedStatement == null) {
+            final_hooks.visitEmbeddedStatement = visitEmbeddedStatementHook;
+        }
+        v.* = NodeVisitor.init(self.allocator, self.tree, ctx, visitFn, final_hooks);
+        v.emitContext = self;
         return v;
+    }
+
+    fn visitEmbeddedStatementHook(visitor: *NodeVisitor, node: ast.NodeIndex) ast.NodeIndex {
+        if (node == 0) return 0;
+        const embeddedStatement = visitor.visitEmbeddedStatement(node);
+        if (embeddedStatement == 0 or isNotEmittedStatement(visitor.tree, embeddedStatement)) {
+            // const self = @as(*EmitContext, @ptrCast(@alignCast(visitor.emitContext.?)));
+            const emptyStatement = visitor.tree.pushNode(.{ .EmptyStatement = .{ .Flags = 0 } }) catch unreachable;
+            // self.setOriginal(emptyStatement, node) catch {}; // We can set original if needed
+            return emptyStatement;
+        }
+        return embeddedStatement;
+    }
+
+    fn isNotEmittedStatement(tree: *ast.Ast, node: ast.NodeIndex) bool {
+        if (node == 0) return false;
+        return std.meta.activeTag(tree.getNode(node)) == .NotEmittedStatement;
     }
 
     pub fn getEmitFlags(self: *EmitContext, node: ast.NodeIndex) u32 {
@@ -203,33 +268,35 @@ pub const EmitContext = struct {
         try self.startLexicalEnvironment();
     }
 
-    pub fn endVariableEnvironment(self: *EmitContext) !std.ArrayList(ast.NodeIndex) {
-        if (self.varScopeStack.popOrNull()) |scope| {
+    pub fn endVariableEnvironment(self: *EmitContext) !std.ArrayListUnmanaged(ast.NodeIndex) {
+        if (self.varScopeStack.items.len > 0) {
+            const scope = self.varScopeStack.pop() orelse unreachable;
             defer {
                 scope.deinit(self.allocator);
                 self.allocator.destroy(scope);
             }
-            var statements = std.ArrayList(ast.NodeIndex).init(self.allocator);
-            
+            var statements = std.ArrayListUnmanaged(ast.NodeIndex).empty;
+
             if (scope.functions.items.len > 0) {
-                try statements.appendSlice(scope.functions.items);
+                try statements.appendSlice(self.allocator, scope.functions.items);
             }
             if (scope.variables.items.len > 0) {
-                // Here we would create a variable declaration list and statement
-                // and append it to statements. For DOD, we'd use factory.
-                // Using stub index for now.
+                const varList = self.factory.newVariableDeclarationList(self.factory.newNodeList(scope.variables.items), 0);
+                const varStmt = self.factory.newVariableStatement(0, varList);
+                try self.setEmitFlags(varStmt, EmitFlags.CustomPrologue);
+                try statements.append(self.allocator, varStmt);
             }
             if (scope.initializationStatements.items.len > 0) {
-                try statements.appendSlice(scope.initializationStatements.items);
+                try statements.appendSlice(self.allocator, scope.initializationStatements.items);
             }
-            
-            const lexStmts = try self.endLexicalEnvironment();
-            defer lexStmts.deinit();
-            try statements.appendSlice(lexStmts.items);
+
+            var lexStmts = try self.endLexicalEnvironment();
+            defer lexStmts.deinit(self.allocator);
+            try statements.appendSlice(self.allocator, lexStmts.items);
 
             return statements;
         }
-        return std.ArrayList(ast.NodeIndex).init(self.allocator);
+        return std.ArrayListUnmanaged(ast.NodeIndex).empty;
     }
 
     pub fn newNotEmittedStatement(self: *EmitContext, originalNode: ast.NodeIndex) !ast.NodeIndex {
@@ -245,19 +312,20 @@ pub const EmitContext = struct {
         try self.letScopeStack.append(self.allocator, scope);
     }
 
-    pub fn endLexicalEnvironment(self: *EmitContext) !std.ArrayList(ast.NodeIndex) {
-        if (self.letScopeStack.popOrNull()) |scope| {
+    pub fn endLexicalEnvironment(self: *EmitContext) !std.ArrayListUnmanaged(ast.NodeIndex) {
+        if (self.letScopeStack.items.len > 0) {
+            const scope = self.letScopeStack.pop() orelse unreachable;
             defer {
                 scope.deinit(self.allocator);
                 self.allocator.destroy(scope);
             }
-            const statements = std.ArrayList(ast.NodeIndex).init(self.allocator);
+            const statements = std.ArrayListUnmanaged(ast.NodeIndex).empty;
             if (scope.variables.items.len > 0) {
                 // Here we would create let variable declaration statement
             }
             return statements;
         }
-        return std.ArrayList(ast.NodeIndex).init(self.allocator);
+        return std.ArrayListUnmanaged(ast.NodeIndex).empty;
     }
 };
 
@@ -265,7 +333,7 @@ test "EmitContext" {
     const allocator = std.testing.allocator;
     var tree = ast.Ast.init(allocator);
     defer tree.deinit();
-    
+
     var factory = NodeFactory.init(allocator, &tree);
     defer factory.deinit();
 

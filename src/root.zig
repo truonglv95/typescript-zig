@@ -9,6 +9,8 @@ comptime {
 
 // Export for internal tools (cmd/*)
 pub const parser_pkg = @import("parser/parser.zig");
+pub const binder_pkg = @import("binder/binder.zig");
+pub const checker_pkg = @import("checker/checker.zig");
 pub const printer_pkg = @import("printer/printer.zig");
 pub const factory = @import("printer/factory.zig");
 pub const emitcontext = @import("printer/emitcontext.zig");
@@ -40,10 +42,10 @@ test {
     // Utilities and modules tests
     _ = @import("modulespecifiers/specifiers_test.zig");
     _ = @import("compiler/commandline_test.zig");
-    
+
     // Core compiler tests
     _ = @import("transformers/tstransforms/typeeraser_test.zig");
-    
+
     // Language Service tests
     _ = @import("ls/lsconv/converters_test.zig");
     _ = @import("ls/lsutil/userpreferences_test.zig");
@@ -100,7 +102,7 @@ test "basic parser integration" {
             if (std.mem.eql(u8, idText, "x") or std.mem.eql(u8, idText, "y")) {
                 if (resolver.resolve(@as(u32, @intCast(i)), idText, symbol.SymbolFlags.FunctionScopedVariable | symbol.SymbolFlags.BlockScopedVariable, null, false, false)) |symIndex| {
                     const sym = b.symbols.items[symIndex];
-                    std.debug.print(" -> Identifier '{s}' (node {d}) resolved to Symbol: '{s}' (Flags: {d})\n", .{idText, i, sym.Name, sym.Flags});
+                    std.debug.print(" -> Identifier '{s}' (node {d}) resolved to Symbol: '{s}' (Flags: {d})\n", .{ idText, i, sym.Name, sym.Flags });
                 }
             }
         }
@@ -110,7 +112,7 @@ test "basic parser integration" {
     const checker = @import("checker/checker.zig");
     var c = checker.Checker.init(std.testing.allocator, &b);
     defer c.deinit();
-    
+
     try c.checkStatement(astIndex);
 }
 

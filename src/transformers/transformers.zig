@@ -9,4 +9,15 @@ pub const tstransforms = struct {
     pub const typeserializer = @import("tstransforms/typeserializer.zig");
     pub const utilities = @import("tstransforms/utilities.zig");
 };
-test "compile all" { _ = @import("tstransforms/metadata.zig"); _ = @import("tstransforms/runtimesyntax.zig"); _ = @import("tstransforms/legacydecorators.zig"); _ = @import("tstransforms/typeserializer.zig"); }
+pub const moduletransforms = struct {
+    pub const esmodule = @import("moduletransforms/esmodule.zig");
+};
+pub const estransforms = struct {
+    pub const using = @import("estransforms/using.zig");
+};
+test "compile all" {
+    _ = @import("tstransforms/metadata.zig");
+    _ = @import("tstransforms/runtimesyntax.zig");
+    _ = @import("tstransforms/legacydecorators.zig");
+    _ = @import("tstransforms/typeserializer.zig");
+}

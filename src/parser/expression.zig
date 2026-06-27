@@ -731,11 +731,17 @@ pub fn parseArgumentOrArrayLiteralElement(p: *parser_pkg.Parser) ast_gen.NodeInd
 pub fn parseArrayLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     _ = p.parseExpected(kind.Kind.OpenBracketToken);
 
+    var multiLine: u8 = if (p.scanner.hasPrecedingLineBreak()) 1 else 0;
+
     const elementsList = p.parseDelimitedList(.ArrayLiteralMembers, parseArgumentOrArrayLiteralElement);
+
+    if (p.scanner.hasPrecedingLineBreak()) {
+        multiLine = 1;
+    }
 
     _ = p.parseExpected(kind.Kind.CloseBracketToken);
 
-    return p.ast.pushNode(.{ .ArrayLiteralExpression = .{ .Flags = 0, .Elements = elementsList, .MultiLine = 0 } });
+    return p.ast.pushNode(.{ .ArrayLiteralExpression = .{ .Flags = 0, .Elements = elementsList, .MultiLine = multiLine } });
 }
 
 pub fn parseObjectLiteralElementWrapper(p: *parser_pkg.Parser) ast_gen.NodeIndex {
@@ -745,11 +751,17 @@ pub fn parseObjectLiteralElementWrapper(p: *parser_pkg.Parser) ast_gen.NodeIndex
 pub fn parseObjectLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     _ = p.parseExpected(kind.Kind.OpenBraceToken);
 
+    var multiLine: u8 = if (p.scanner.hasPrecedingLineBreak()) 1 else 0;
+
     const propertiesList = p.parseDelimitedList(.ObjectLiteralMembers, parseObjectLiteralElementWrapper);
+
+    if (p.scanner.hasPrecedingLineBreak()) {
+        multiLine = 1;
+    }
 
     _ = p.parseExpected(kind.Kind.CloseBraceToken);
 
-    return p.ast.pushNode(.{ .ObjectLiteralExpression = .{ .Flags = 0, .Symbol = 0, .Properties = propertiesList, .MultiLine = 0 } });
+    return p.ast.pushNode(.{ .ObjectLiteralExpression = .{ .Flags = 0, .Symbol = 0, .Properties = propertiesList, .MultiLine = multiLine } });
 }
 
 pub fn parseObjectLiteralElement(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {

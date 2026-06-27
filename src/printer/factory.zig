@@ -2,6 +2,9 @@ const std = @import("std");
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 const ast_utils = @import("../ast/ast_utils.zig");
+const ast_kind = @import("../ast/kind.zig");
+const core = @import("../core/core.zig");
+const helpers = @import("helpers.zig");
 
 pub const GeneratedIdentifierFlags = enum(u32) {
     None = 0,
@@ -35,14 +38,17 @@ pub const NodeFactory = struct {
         return 0;
     }
 
-    pub fn newClassExpression(self: *NodeFactory, a: anytype, b: anytype, c: anytype, d: anytype, e: anytype) ast.NodeIndex {
-        _ = self;
-        _ = a;
-        _ = b;
-        _ = c;
-        _ = d;
-        _ = e;
-        return 0;
+    pub fn newClassExpression(self: *NodeFactory, modifiers: ast_gen.NodeIndex, name: ast_gen.NodeIndex, typeParameters: ast_gen.NodeIndex, heritageClauses: ast_gen.NodeIndex, members: ast_gen.NodeIndex) ast.NodeIndex {
+        return self.tree.pushNode(.{ .ClassExpression = .{
+            .Flags = 0,
+            .Symbol = 0,
+            .modifiers = if (modifiers == 0) null else modifiers,
+            .modifierFlags = 0,
+            .name = if (name == 0) null else name,
+            .TypeParameters = if (typeParameters == 0) null else typeParameters,
+            .HeritageClauses = if (heritageClauses == 0) null else heritageClauses,
+            .Members = members,
+        } }) catch unreachable;
     }
 
     pub fn updateComputedPropertyName(self: *NodeFactory, a: anytype, b: anytype) ast.NodeIndex {
@@ -93,10 +99,11 @@ pub const NodeFactory = struct {
         return 0;
     }
 
-    pub fn getDeclarationName(self: *NodeFactory, a: anytype) ast.NodeIndex {
-        _ = self;
-        _ = a;
-        return 0;
+    pub fn getDeclarationName(self: *NodeFactory, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        const name = @import("../ast/ast_utils.zig").getName(self.tree, node);
+        if (name != 0) return name;
+        // fallback to generated name
+        return self.createUniqueName("temp") catch 0;
     }
 
     pub fn updatePropertyAccessExpression(self: *NodeFactory, a: anytype, b: anytype, c: anytype, d: anytype, e: anytype) ast_gen.NodeIndex {
@@ -126,13 +133,6 @@ pub const NodeFactory = struct {
         return 0;
     }
 
-    pub fn newArrayLiteralExpression(self: *NodeFactory, a: anytype, b: anytype) ast_gen.NodeIndex {
-        _ = self;
-        _ = a;
-        _ = b;
-        return 0;
-    }
-
     pub fn getNamespaceMemberName(self: *NodeFactory, a: anytype, b: anytype, c: anytype) ast_gen.NodeIndex {
         _ = self;
         _ = a;
@@ -147,9 +147,8 @@ pub const NodeFactory = struct {
     }
 
     pub fn getDeclarationNameEx(self: *NodeFactory, node: ast_gen.NodeIndex, opts: anytype) ast_gen.NodeIndex {
-        _ = node;
         _ = opts;
-        return self.createIdentifierEx("Color");
+        return ast_utils.getName(self.tree, node);
     }
 
     pub fn newNumericLiteral(self: *NodeFactory, value: []const u8, numericLiteralFlags: u32) ast_gen.NodeIndex {
@@ -225,16 +224,33 @@ pub const NodeFactory = struct {
             },
         }) catch unreachable;
     }
-    pub fn updateShorthandPropertyAssignment(self: *NodeFactory, a: anytype, b: anytype, c: anytype, d: anytype, e: anytype, f: anytype, g: anytype) ast_gen.NodeIndex {
-        _ = self;
-        _ = a;
-        _ = b;
-        _ = c;
-        _ = d;
-        _ = e;
-        _ = f;
-        _ = g;
-        return 0;
+    pub fn updateShorthandPropertyAssignment(self: *NodeFactory, node: ast_gen.NodeIndex, modifiers: u32, name: u32, postfixToken: u32, typeNode: u32, equalsToken: ?u32, objectAssignmentInitializer: ?u32) ast_gen.NodeIndex {
+        const n = self.tree.getNode(node).ShorthandPropertyAssignment;
+        const current_modifiers = if (n.modifiers != null) n.modifiers.? else 0;
+        const current_postfixToken = if (n.PostfixToken != null) n.PostfixToken.? else 0;
+        const current_typeNode = n.Type;
+        const current_equalsToken = if (n.EqualsToken != null) n.EqualsToken.? else 0;
+        const current_objectAssignmentInitializer = if (n.ObjectAssignmentInitializer != null) n.ObjectAssignmentInitializer.? else 0;
+
+        const new_equalsToken = if (equalsToken != null) equalsToken.? else 0;
+        const new_objectAssignmentInitializer = if (objectAssignmentInitializer != null) objectAssignmentInitializer.? else 0;
+
+        if (modifiers != current_modifiers or name != n.name or postfixToken != current_postfixToken or typeNode != current_typeNode or new_equalsToken != current_equalsToken or new_objectAssignmentInitializer != current_objectAssignmentInitializer) {
+            return self.tree.pushNode(.{
+                .ShorthandPropertyAssignment = .{
+                    .Flags = n.Flags,
+                    .Symbol = n.Symbol,
+                    .modifiers = if (modifiers == 0) null else modifiers,
+                    .modifierFlags = n.modifierFlags,
+                    .name = name,
+                    .PostfixToken = if (postfixToken == 0) null else postfixToken,
+                    .Type = typeNode,
+                    .EqualsToken = if (new_equalsToken == 0) null else new_equalsToken,
+                    .ObjectAssignmentInitializer = if (new_objectAssignmentInitializer == 0) null else new_objectAssignmentInitializer,
+                },
+            }) catch unreachable;
+        }
+        return node;
     }
 
     pub fn newBlock(self: *NodeFactory, statements: ast_gen.NodeIndex, multiLine: bool) ast_gen.NodeIndex {
@@ -247,19 +263,39 @@ pub const NodeFactory = struct {
         }) catch unreachable;
     }
 
-    pub fn newVoidZeroExpression(self: *NodeFactory) ast_gen.NodeIndex {
-        _ = self;
-        return 0;
+    pub fn newArrayLiteralExpression(self: *NodeFactory, elements: ast_gen.NodeIndex, multiLine: bool) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{
+            .ArrayLiteralExpression = .{
+                .Elements = elements,
+                .MultiLine = if (multiLine) 1 else 0,
+                .Flags = 0,
+            },
+        }) catch unreachable;
     }
 
-    pub fn newPropertyAssignment(self: *NodeFactory, a: anytype, b: anytype, c: anytype, d: anytype, e: anytype) ast_gen.NodeIndex {
-        _ = self;
-        _ = a;
-        _ = b;
-        _ = c;
-        _ = d;
-        _ = e;
-        return 0;
+    pub fn newVoidZeroExpression(self: *NodeFactory) ast_gen.NodeIndex {
+        const zero = self.newNumericLiteral("0", 0);
+        return self.tree.pushNode(.{
+            .VoidExpression = .{
+                .Expression = zero,
+                .Flags = 0,
+            },
+        }) catch unreachable;
+    }
+
+    pub fn newPropertyAssignment(self: *NodeFactory, modifiers: ast_gen.NodeIndex, name: ast_gen.NodeIndex, questionToken: ast_gen.NodeIndex, colonToken: ast_gen.NodeIndex, initializer: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{
+            .PropertyAssignment = .{
+                .modifiers = if (modifiers == 0) null else modifiers,
+                .modifierFlags = 0, // Assume 0 if not provided
+                .name = name,
+                .PostfixToken = if (questionToken == 0) null else questionToken, // wait, QuestionToken is NOT in struct? Let's check struct
+                .Type = if (colonToken == 0) null else colonToken, // Wait, ColonToken is not in struct either? Let me fix based on actual struct
+                .Initializer = initializer,
+                .Flags = 0,
+                .Symbol = 0,
+            },
+        }) catch unreachable;
     }
     pub fn newIdentifier(self: *NodeFactory, text: []const u8) ast_gen.NodeIndex {
         return self.tree.pushNode(.{
@@ -268,6 +304,39 @@ pub const NodeFactory = struct {
                 .Flags = 0,
             },
         }) catch unreachable;
+    }
+
+    pub fn createAddDisposableResourceHelper(self: *NodeFactory, envBinding: ast_gen.NodeIndex, value: ast_gen.NodeIndex, async_kind: bool) ast_gen.NodeIndex {
+        const name = self.newIdentifier("__addDisposableResource");
+        const isAsync = if (async_kind) self.newTrueExpression() else self.newFalseExpression();
+        const args = self.newNodeList(&[_]ast_gen.NodeIndex{ envBinding, value, isAsync });
+        return self.newCallExpression(name, 0, 0, args, 0);
+    }
+
+    pub fn createDisposeResourcesHelper(self: *NodeFactory, envBinding: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        const name = self.newIdentifier("__disposeResources");
+        const args = self.newNodeList(&[_]ast_gen.NodeIndex{envBinding});
+        return self.newCallExpression(name, 0, 0, args, 0);
+    }
+
+    pub fn newTrueExpression(self: *NodeFactory) ast_gen.NodeIndex {
+        return self.newToken(.{ .TrueKeyword = {} });
+    }
+
+    pub fn newFalseExpression(self: *NodeFactory) ast_gen.NodeIndex {
+        return self.newToken(.{ .FalseKeyword = {} });
+    }
+
+    pub fn newExportAssignment(self: *NodeFactory, modifiers: ?ast_gen.NodeIndex, isExportEquals: bool, expression: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{ .ExportAssignment = .{
+            .modifiers = modifiers,
+            .IsExportEquals = if (isExportEquals) 1 else 0,
+            .Expression = expression,
+            .Flags = 0,
+            .Symbol = 0,
+            .modifierFlags = 0,
+            .Type = 0,
+        } }) catch unreachable;
     }
 
     pub fn newMetadataHelper(self: *NodeFactory, a: anytype, b: anytype) ast_gen.NodeIndex {
@@ -284,6 +353,66 @@ pub const NodeFactory = struct {
                 .DeclarationList = declarationList,
                 .Flags = 0,
                 .modifierFlags = 0,
+            },
+        }) catch unreachable;
+    }
+
+    pub fn updateVariableStatement(self: *NodeFactory, nodeIndex: ast_gen.NodeIndex, node: ast_gen.VariableStatementNode, modifiers: ast_gen.NodeIndex, declarationList: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        if ((node.modifiers orelse 0) == modifiers and node.DeclarationList == declarationList) {
+            return nodeIndex;
+        }
+        return self.newVariableStatement(modifiers, declarationList);
+    }
+
+    pub fn newCatchClause(self: *NodeFactory, variableDeclaration: ast_gen.NodeIndex, block: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{
+            .CatchClause = .{
+                .VariableDeclaration = if (variableDeclaration == 0) null else variableDeclaration,
+                .Block = block,
+                .Flags = 0,
+            },
+        }) catch unreachable;
+    }
+
+    pub fn newTryStatement(self: *NodeFactory, tryBlock: ast_gen.NodeIndex, catchClause: ast_gen.NodeIndex, finallyBlock: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{
+            .TryStatement = .{
+                .TryBlock = tryBlock,
+                .CatchClause = if (catchClause == 0) null else catchClause,
+                .FinallyBlock = if (finallyBlock == 0) null else finallyBlock,
+                .Flags = 0,
+            },
+        }) catch unreachable;
+    }
+
+    pub fn newAwaitExpression(self: *NodeFactory, expression: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{
+            .AwaitExpression = .{
+                .Expression = expression,
+                .Flags = 0,
+            },
+        }) catch unreachable;
+    }
+
+    pub fn newIfStatement(self: *NodeFactory, expression: ast_gen.NodeIndex, thenStatement: ast_gen.NodeIndex, elseStatement: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{
+            .IfStatement = .{
+                .Expression = expression,
+                .ThenStatement = thenStatement,
+                .ElseStatement = if (elseStatement == 0) null else elseStatement,
+                .Flags = 0,
+            },
+        }) catch unreachable;
+    }
+
+    pub fn newExportSpecifier(self: *NodeFactory, isTypeOnly: bool, propertyName: ast_gen.NodeIndex, name: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{
+            .ExportSpecifier = .{
+                .IsTypeOnly = if (isTypeOnly) 1 else 0,
+                .PropertyName = if (propertyName == 0) null else propertyName,
+                .name = name,
+                .Symbol = 0,
+                .Flags = 0,
             },
         }) catch unreachable;
     }
@@ -305,20 +434,32 @@ pub const NodeFactory = struct {
         return 0;
     }
 
-    pub fn inlineExpressions(self: *NodeFactory, a: anytype) ast_gen.NodeIndex {
-        _ = self;
-        _ = a;
-        return 0;
+    pub fn inlineExpressions(self: *NodeFactory, expressions: []const ast_gen.NodeIndex) ast_gen.NodeIndex {
+        if (expressions.len == 0) return 0;
+        if (expressions.len == 1) return expressions[0];
+
+        var expr = expressions[0];
+        for (expressions[1..]) |next| {
+            // we should pass a NodeIndex for operator token. Create a CommaToken node.
+            const commaTokenNode = self.tree.pushNode(.{ .CommaToken = {} }) catch 0;
+            expr = self.newBinaryExpression(0, expr, 0, commaTokenNode, next);
+        }
+        return expr;
     }
 
-    pub fn newBinaryExpression(self: *NodeFactory, a: anytype, b: anytype, c: anytype, d: anytype, e: anytype) ast_gen.NodeIndex {
-        _ = self;
-        _ = a;
-        _ = b;
-        _ = c;
-        _ = d;
-        _ = e;
-        return 0;
+    pub fn newBinaryExpression(self: *NodeFactory, modifiers: ast_gen.NodeIndex, left: ast_gen.NodeIndex, typeNode: ast_gen.NodeIndex, operatorToken: ast_gen.NodeIndex, right: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return self.tree.pushNode(.{ .BinaryExpression = .{
+            .Flags = 0,
+            .Symbol = 0,
+            .modifiers = if (modifiers == 0) null else modifiers,
+            .modifierFlags = 0,
+            .Left = left,
+            .Type = if (typeNode == 0) null else typeNode,
+            .OperatorToken = operatorToken,
+            .Right = right,
+            .linesBeforeOperator = 0,
+            .linesAfterOperator = 0,
+        } }) catch unreachable;
     }
 
     pub fn newModifierList(self: *NodeFactory, children: []const ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -337,11 +478,10 @@ pub const NodeFactory = struct {
             .SyntaxList = .{ .Children = listIndex, .Flags = 0 },
         }) catch unreachable;
     }
-    pub fn getLocalName(self: *NodeFactory, a: anytype) ast_gen.NodeIndex {
-        _ = self;
-        _ = a;
-        return 0;
+    pub fn getLocalName(self: *NodeFactory, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return @import("../ast/ast_utils.zig").getName(self.tree, node);
     }
+
     pub fn newNodeList(self: *NodeFactory, children: anytype) ast_gen.NodeIndex {
         // if children is already a u32 (NodeIndex list), just return it
         if (@TypeOf(children) == u32) {
@@ -395,8 +535,7 @@ pub const NodeFactory = struct {
     }
 
     pub fn newGeneratedNameForNode(self: *NodeFactory, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = node; // actually requires generating unique name, for now just stub name
-        return self.createIdentifierEx("generated_name");
+        return ast_utils.getName(self.tree, node);
     }
 
     pub fn newParameterDeclaration(self: *NodeFactory, modifiers: ast_gen.NodeIndex, dotDotDotToken: ast_gen.NodeIndex, name: ast_gen.NodeIndex, questionToken: ast_gen.NodeIndex, typeNode: ast_gen.NodeIndex, initializer: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -496,13 +635,11 @@ pub const NodeFactory = struct {
         }) catch unreachable;
     }
 
-    pub fn getExternalModuleOrNamespaceExportName(self: *NodeFactory, a: anytype, b: anytype, c: anytype, d: anytype) ast_gen.NodeIndex {
-        _ = self;
-        _ = a;
-        _ = b;
+    pub fn getExternalModuleOrNamespaceExportName(self: *NodeFactory, ns: anytype, node: anytype, c: anytype, d: anytype) ast_gen.NodeIndex {
         _ = c;
         _ = d;
-        return 0;
+        const name = ast_utils.getName(self.tree, node);
+        return self.newPropertyAccessExpression(ns, 0, name, 0);
     }
 
     pub fn createIdentifier(self: *NodeFactory, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -511,10 +648,13 @@ pub const NodeFactory = struct {
         _ = node;
         return self.createIdentifierEx("Color"); // Hardcoded for now just to see it emit
     }
-    pub fn splitStandardPrologue(self: *NodeFactory, a: anytype) struct { prologue: []const ast_gen.NodeIndex, statements: []const ast_gen.NodeIndex } {
-        _ = self;
-        _ = a;
-        return .{ .prologue = &[_]ast_gen.NodeIndex{}, .statements = &[_]ast_gen.NodeIndex{} };
+    pub fn splitStandardPrologue(self: *NodeFactory, source: []const ast_gen.NodeIndex) struct { prologue: []const ast_gen.NodeIndex, statements: []const ast_gen.NodeIndex } {
+        for (source, 0..) |statement, i| {
+            if (!@import("../ast/ast_utils.zig").isPrologueDirective(self.tree, statement)) {
+                return .{ .prologue = source[0..i], .statements = source[i..] };
+            }
+        }
+        return .{ .prologue = source, .statements = &[_]ast_gen.NodeIndex{} };
     }
 
     allocator: std.mem.Allocator,
@@ -836,6 +976,38 @@ pub const NodeFactory = struct {
             return self.tree.pushNode(.{ .ExportDeclaration = new_node }) catch unreachable;
         }
         return nodeIndex;
+    }
+
+    pub fn updateSourceFile(self: *NodeFactory, nodeIndex: ast_gen.NodeIndex, node: ast_gen.SourceFileNode, statements: ast.NodeIndex, endOfFileToken: ast.NodeIndex) ast.NodeIndex {
+        if (node.Statements != statements or node.EndOfFileToken != endOfFileToken) {
+            var new_node = node;
+            new_node.Statements = statements;
+            new_node.EndOfFileToken = endOfFileToken;
+            return self.tree.pushNode(.{ .SourceFile = new_node }) catch unreachable;
+        }
+        return nodeIndex;
+    }
+
+    pub fn createNamedExports(self: *NodeFactory, elements: ast.NodeIndex) ast.NodeIndex {
+        const new_node = ast_gen.NamedExportsNode{
+            .Flags = 0,
+            .Elements = elements,
+        };
+        return self.tree.pushNode(.{ .NamedExports = new_node }) catch unreachable;
+    }
+
+    pub fn createExportDeclaration(self: *NodeFactory, modifiers: ast.NodeIndex, isTypeOnly: bool, exportClause: ast.NodeIndex, moduleSpecifier: ast.NodeIndex, attributes: ast.NodeIndex) ast.NodeIndex {
+        const new_node = ast_gen.ExportDeclarationNode{
+            .Flags = 0,
+            .modifierFlags = 0,
+            .Symbol = 0,
+            .modifiers = if (modifiers != 0) modifiers else null,
+            .IsTypeOnly = if (isTypeOnly) 1 else 0,
+            .ExportClause = if (exportClause != 0) exportClause else null,
+            .ModuleSpecifier = if (moduleSpecifier != 0) moduleSpecifier else null,
+            .Attributes = if (attributes != 0) attributes else null,
+        };
+        return self.tree.pushNode(.{ .ExportDeclaration = new_node }) catch unreachable;
     }
 
     pub fn updateNamedExports(self: *NodeFactory, nodeIndex: ast_gen.NodeIndex, node: ast_gen.NamedExportsNode, elements: ast.NodeIndex) ast.NodeIndex {

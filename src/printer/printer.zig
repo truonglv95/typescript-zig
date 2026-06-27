@@ -466,14 +466,38 @@ pub const Printer = struct {
     pub const printModifiers = @import("emit_list.zig").printModifiers;
     pub const printTypeArguments = @import("emit_list.zig").printTypeArguments;
     pub const printTypeParameters = @import("emit_list.zig").printTypeParameters;
-    pub fn printUnknown(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printEndOfFile(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printSingleLineCommentTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printMultiLineCommentTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printNewLineTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printWhitespaceTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printConflictMarkerTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printNonTextFileMarkerTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
+    pub fn printUnknown(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printEndOfFile(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printSingleLineCommentTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printMultiLineCommentTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printNewLineTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printWhitespaceTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printConflictMarkerTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printNonTextFileMarkerTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
     pub fn printJsxText(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).JsxText;
         self.writer.writeLiteral(node.Text);
@@ -500,153 +524,447 @@ pub const Printer = struct {
         self.writer.writeLiteral(node.Text);
         self.writer.writeLiteral("`");
     }
-    pub fn printOpenBraceToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printCloseBraceToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printOpenParenToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printCloseParenToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printOpenBracketToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printCloseBracketToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printDotToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printDotDotDotToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printSemicolonToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printCommaToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printQuestionDotToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printLessThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printLessThanSlashToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printGreaterThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printLessThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printGreaterThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printEqualsEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printExclamationEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printEqualsEqualsEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printExclamationEqualsEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printEqualsGreaterThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printPlusToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printMinusToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAsteriskToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAsteriskAsteriskToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printSlashToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printPercentToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printPlusPlusToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printMinusMinusToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printLessThanLessThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printGreaterThanGreaterThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printGreaterThanGreaterThanGreaterThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAmpersandToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printBarToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printCaretToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printExclamationToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printTildeToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAmpersandAmpersandToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printBarBarToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printQuestionToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printColonToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAtToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printQuestionQuestionToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printBacktickToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printHashToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printPlusEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printMinusEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAsteriskEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAsteriskAsteriskEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printSlashEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printPercentEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printLessThanLessThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printGreaterThanGreaterThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printGreaterThanGreaterThanGreaterThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAmpersandEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printBarEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printBarBarEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAmpersandAmpersandEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printQuestionQuestionEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printCaretEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printJSDocCommentTextToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printBreakKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printCaseKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printCatchKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printClassKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printConstKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printContinueKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printDebuggerKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printDefaultKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printDeleteKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printDoKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printElseKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printEnumKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printExportKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printExtendsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printFalseKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printFinallyKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printForKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printFunctionKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printIfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printImportKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printInKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printInstanceOfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printNewKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printNullKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printReturnKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printSuperKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printSwitchKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printThisKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printThrowKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printTrueKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printTryKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printTypeOfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printVarKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printVoidKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printWhileKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printWithKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printImplementsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printInterfaceKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printLetKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printPackageKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printPrivateKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printProtectedKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printPublicKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printStaticKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printYieldKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAbstractKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAccessorKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAssertsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAssertKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printDeferKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAnyKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAsyncKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printAwaitKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printBooleanKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printConstructorKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printDeclareKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printGetKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printImmediateKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printInferKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printIntrinsicKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printIsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printKeyOfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printModuleKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printNamespaceKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printNeverKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printOutKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printReadonlyKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printRequireKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printNumberKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printObjectKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printSatisfiesKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printSetKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printStringKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printSymbolKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printTypeKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printUndefinedKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printUniqueKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printUnknownKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printUsingKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printFromKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printGlobalKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printBigIntKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printOverrideKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
-    pub fn printOfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try self.emitTokenNode(nodeIndex); }
+    pub fn printOpenBraceToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printCloseBraceToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printOpenParenToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printCloseParenToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printOpenBracketToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printCloseBracketToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printDotToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printDotDotDotToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printSemicolonToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printCommaToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printQuestionDotToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printLessThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printLessThanSlashToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printGreaterThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printLessThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printGreaterThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printEqualsEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printExclamationEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printEqualsEqualsEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printExclamationEqualsEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printEqualsGreaterThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printPlusToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printMinusToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAsteriskToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAsteriskAsteriskToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printSlashToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printPercentToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printPlusPlusToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printMinusMinusToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printLessThanLessThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printGreaterThanGreaterThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printGreaterThanGreaterThanGreaterThanToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAmpersandToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printBarToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printCaretToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printExclamationToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printTildeToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAmpersandAmpersandToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printBarBarToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printQuestionToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printColonToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAtToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printQuestionQuestionToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printBacktickToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printHashToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printPlusEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printMinusEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAsteriskEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAsteriskAsteriskEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printSlashEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printPercentEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printLessThanLessThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printGreaterThanGreaterThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printGreaterThanGreaterThanGreaterThanEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAmpersandEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printBarEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printBarBarEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAmpersandAmpersandEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printQuestionQuestionEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printCaretEqualsToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printJSDocCommentTextToken(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printBreakKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printCaseKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printCatchKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printClassKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printConstKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printContinueKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printDebuggerKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printDefaultKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printDeleteKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printDoKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printElseKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printEnumKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printExportKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printExtendsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printFalseKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printFinallyKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printForKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printFunctionKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printIfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printImportKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printInKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printInstanceOfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printNewKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printNullKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printReturnKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printSuperKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printSwitchKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printThisKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printThrowKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printTrueKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printTryKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printTypeOfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printVarKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printVoidKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printWhileKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printWithKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printImplementsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printInterfaceKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printLetKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printPackageKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printPrivateKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printProtectedKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printPublicKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printStaticKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printYieldKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAbstractKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAccessorKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAssertsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAssertKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printDeferKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAnyKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAsyncKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printAwaitKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printBooleanKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printConstructorKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printDeclareKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printGetKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printImmediateKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printInferKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printIntrinsicKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printIsKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printKeyOfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printModuleKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printNamespaceKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printNeverKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printOutKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printReadonlyKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printRequireKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printNumberKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printObjectKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printSatisfiesKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printSetKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printStringKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printSymbolKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printTypeKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printUndefinedKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printUniqueKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printUnknownKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printUsingKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printFromKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printGlobalKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printBigIntKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printOverrideKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
+    pub fn printOfKeyword(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        try self.emitTokenNode(nodeIndex);
+    }
     pub fn printQualifiedName(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).QualifiedName;
         try self.printNode(node.Left);
@@ -717,21 +1035,21 @@ pub const Printer = struct {
     }
     pub fn printMethodDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).MethodDeclaration;
-        
+
         try self.printModifiers(node.modifiers orelse 0);
-        
+
         if (node.AsteriskToken) |t| {
             try self.printNode(t);
         }
-        
+
         try self.printNode(node.name);
-        
+
         if (node.PostfixToken) |t| {
             try self.printNode(t);
         }
-        
+
         try @import("emit_decl.zig").printSignature(self, nodeIndex);
-        
+
         if (node.Body) |b| {
             self.writer.writeSpace(" ");
             try self.printNode(b);
@@ -865,7 +1183,7 @@ pub const Printer = struct {
             try self.printNode(typeNode);
         }
     }
-    
+
     pub fn printConstructorType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).ConstructorType;
         if (node.modifiers) |modifiers| {
@@ -896,12 +1214,12 @@ pub const Printer = struct {
     pub fn printTypeLiteral(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).TypeLiteral;
         self.writer.writePunctuation("{");
-        
+
         const listLen = self.tree.getNodeList(node.Members).len;
         if (listLen > 0) {
             try self.printList(@import("emit_list.zig").ListFormat.TypeLiteralMembers, node.Members);
         }
-        
+
         self.writer.writePunctuation("}");
     }
     pub fn printArrayType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -1081,7 +1399,7 @@ pub const Printer = struct {
         if (node.Attributes != null and node.Attributes.? != 0) {
             self.writer.writePunctuation(",");
             self.writer.writeSpace(" ");
-            
+
             const attrNode = self.tree.getNode(node.Attributes.?).ImportAttributes;
             self.writer.writePunctuation("{");
             self.writer.writeSpace(" ");
@@ -1146,7 +1464,10 @@ pub const Printer = struct {
     pub fn printMetaProperty(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         return @import("emit_expr.zig").printMetaProperty(self, nodeIndex);
     }
-    pub fn printSyntheticExpression(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
+    pub fn printSyntheticExpression(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
     pub fn printTemplateSpan(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).TemplateSpan;
         try self.printNode(node.Expression);
@@ -1159,17 +1480,17 @@ pub const Printer = struct {
     pub fn printModuleBlock(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).ModuleBlock;
         self.writer.writePunctuation("{");
-        
+
         const statements = node.Statements;
         const statementsList = if (statements == 0) &[_]ast_mod.NodeIndex{} else self.tree.getNodeList(statements);
-        
+
         if (statementsList.len == 0) {
             self.writer.writeSpace(" ");
         } else {
             const format = @import("emit_list.zig").ListFormat.MultiLineBlockStatements;
             try self.emitList(Printer.printNode, nodeIndex, statements, format);
         }
-        
+
         self.writer.writePunctuation("}");
     }
     pub fn printNamespaceExportDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -1283,11 +1604,11 @@ pub const Printer = struct {
     }
     pub fn printExportAssignment(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).ExportAssignment;
-        
+
         if (node.modifiers) |modifiers| {
             try self.emitList(null, nodeIndex, modifiers, @import("emit_list.zig").ListFormat.Modifiers);
         }
-        
+
         self.writer.writeKeyword("export");
         self.writer.writeSpace(" ");
         if (node.IsExportEquals != 0) {
@@ -1363,7 +1684,10 @@ pub const Printer = struct {
         }
         try self.printNode(node.name);
     }
-    pub fn printMissingDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
+    pub fn printMissingDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
     pub fn printExternalModuleReference(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).ExternalModuleReference;
         self.writer.writeKeyword("require");
@@ -1462,7 +1786,10 @@ pub const Printer = struct {
         try self.printNode(node.name);
     }
     pub const printHeritageClause = @import("emit_decl.zig").printHeritageClause;
-    pub fn printCatchClause(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
+    pub fn printCatchClause(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
     pub fn printImportAttributes(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).ImportAttributes;
         if (node.Token == @intFromEnum(@import("../ast/kind.zig").Kind.WithKeyword)) {
@@ -1489,49 +1816,180 @@ pub const Printer = struct {
     pub fn printSpreadAssignment(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         try @import("emit_expr.zig").printSpreadAssignment(self, nodeIndex);
     }
-    pub fn printJSDocTypeExpression(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocNameReference(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocAllType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocNullableType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocNonNullableType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocOptionalType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocVariadicType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDoc(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocText(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocTypeLiteral(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocSignature(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocLink(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocLinkCode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocLinkPlain(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocUnknownTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocAugmentsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocImplementsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocDeprecatedTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocPublicTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocPrivateTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocProtectedTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocReadonlyTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocOverrideTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocCallbackTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocOverloadTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocParameterTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocReturnTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocThisTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocTypeTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocTemplateTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocTypedefTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocSeeTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocPropertyTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocThrowsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocSatisfiesTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSDocImportTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printSyntaxList(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSTypeAliasDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printJSImportDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printSyntheticReferenceExpression(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn printNotEmittedTypeElement(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { _ = self; _ = nodeIndex; }
-    pub fn enterNode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!u32 { _ = self; _ = nodeIndex; return 0; }
-    pub fn exitNode(self: *Printer, nodeIndex: ast_mod.NodeIndex, state: u32) anyerror!void { _ = self; _ = nodeIndex; _ = state; }
+    pub fn printJSDocTypeExpression(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocNameReference(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocAllType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocNullableType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocNonNullableType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocOptionalType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocVariadicType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDoc(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocText(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocTypeLiteral(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocSignature(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocLink(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocLinkCode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocLinkPlain(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocUnknownTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocAugmentsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocImplementsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocDeprecatedTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocPublicTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocPrivateTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocProtectedTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocReadonlyTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocOverrideTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocCallbackTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocOverloadTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocParameterTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocReturnTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocThisTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocTypeTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocTemplateTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocTypedefTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocSeeTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocPropertyTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocThrowsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocSatisfiesTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSDocImportTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printSyntaxList(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSTypeAliasDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printJSImportDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printSyntheticReferenceExpression(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn printNotEmittedTypeElement(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+    }
+    pub fn enterNode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!u32 {
+        _ = self;
+        _ = nodeIndex;
+        return 0;
+    }
+    pub fn exitNode(self: *Printer, nodeIndex: ast_mod.NodeIndex, state: u32) anyerror!void {
+        _ = self;
+        _ = nodeIndex;
+        _ = state;
+    }
 
     pub fn writeTokenText(self: *Printer, token: @import("../ast/kind.zig").Kind, writeKind: anytype, pos: usize) anyerror!usize {
         const textOpt = @import("utilities.zig").tokenToString(token);
@@ -1552,16 +2010,19 @@ pub const Printer = struct {
     }
 
     pub fn enterToken(self: *Printer, token: @import("../ast/kind.zig").Kind, pos: usize, parent: ast_mod.NodeIndex, flags: u32) anyerror!u32 {
-        _ = token; _ = pos; _ = flags;
+        _ = token;
+        _ = pos;
+        _ = flags;
         return try self.enterNode(parent);
     }
 
     pub fn exitToken(self: *Printer, token: @import("../ast/kind.zig").Kind, pos: usize, parent: ast_mod.NodeIndex, previousState: u32) anyerror!void {
-        _ = token; _ = pos;
+        _ = token;
+        _ = pos;
         try self.exitNode(parent, previousState);
     }
 
-    pub fn emitToken(self: *Printer, token: @import("../ast/kind.zig").Kind, pos: usize, kind: anytype, parent: ast_mod.NodeIndex) anyerror!usize { 
+    pub fn emitToken(self: *Printer, token: @import("../ast/kind.zig").Kind, pos: usize, kind: anytype, parent: ast_mod.NodeIndex) anyerror!usize {
         return try self.emitTokenEx(token, pos, kind, parent, 0);
     }
     pub fn emitLabelIdentifier(self: *Printer, label: u32) anyerror!void {
@@ -1571,7 +2032,8 @@ pub const Printer = struct {
     }
 
     pub fn generateNames(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self; _ = nodeIndex;
+        _ = self;
+        _ = nodeIndex;
     }
     pub fn emitModifierList(self: *Printer, nodeIndex: ast_mod.NodeIndex, modifiersOpt: ?u32, flags: bool) anyerror!void {
         _ = flags;
@@ -1594,6 +2056,7 @@ pub const Printer = struct {
     pub fn emitEmbeddedStatement(self: *Printer, nodeIndex: u32, stmt: u32) anyerror!void {
         _ = nodeIndex;
         if (stmt != 0) {
+            std.debug.print("emitEmbeddedStatement stmt: {s}\n", .{@tagName(std.meta.activeTag(self.tree.getNode(stmt)))});
             if (std.meta.activeTag(self.tree.getNode(stmt)) == .Block) {
                 self.writer.writeSpace(" ");
                 try self.printNode(stmt);
@@ -1608,14 +2071,19 @@ pub const Printer = struct {
     pub const OperatorPrecedenceComma: u32 = 0;
 
     pub fn isImmediatelyInvokedFunctionExpressionOrArrowFunction(self: *Printer, expr: u32) bool {
-        _ = self; _ = expr; return false;
+        _ = self;
+        _ = expr;
+        return false;
     }
 
     pub fn getLeftmostExpression(self: *Printer, nodeIndex: u32, stopAtCallExpressions: bool) u32 {
-        _ = self; _ = stopAtCallExpressions; return nodeIndex;
+        _ = self;
+        _ = stopAtCallExpressions;
+        return nodeIndex;
     }
     pub fn skipPartiallyEmittedExpressions(self: *Printer, nodeIndex: u32) u32 {
-        _ = self; return nodeIndex;
+        _ = self;
+        return nodeIndex;
     }
 
     pub fn emitKeywordNode(self: *Printer, nodeIndex: u32) anyerror!void {
@@ -1639,10 +2107,16 @@ pub const Printer = struct {
     }
 
     pub fn rangeEndIsOnSameLineAsRangeStart(self: *Printer, start: u32, end: u32, node: u32) bool {
-        _ = self; _ = start; _ = end; _ = node; return true;
+        _ = self;
+        _ = start;
+        _ = end;
+        _ = node;
+        return true;
     }
     pub fn shouldEmitOnSingleLine(self: *Printer, nodeIndex: u32) bool {
-        _ = self; _ = nodeIndex; return false;
+        _ = self;
+        _ = nodeIndex;
+        return false;
     }
     pub fn emitTokenNode(self: *Printer, tokenIndexOpt: ?u32) anyerror!void {
         if (tokenIndexOpt) |tokenIndex| {
@@ -1651,7 +2125,9 @@ pub const Printer = struct {
         }
     }
     pub fn writeLineOrSpace(self: *Printer, parent: u32, node1: u32, node2: u32) anyerror!void {
-        _ = parent; _ = node1; _ = node2;
+        _ = parent;
+        _ = node1;
+        _ = node2;
         self.writer.writeLine();
     }
     pub fn emitCaseBlock(self: *Printer, block: u32) anyerror!void {
@@ -1666,7 +2142,9 @@ pub const Printer = struct {
     }
 
     pub fn emitTypeArguments(self: *Printer, nodeIndex: u32, typeArgs: ?u32) anyerror!void {
-        _ = self; _ = nodeIndex; _ = typeArgs;
+        _ = self;
+        _ = nodeIndex;
+        _ = typeArgs;
     }
     pub fn emitCatchClause(self: *Printer, clause: u32) anyerror!void {
         if (clause != 0) {
@@ -1675,7 +2153,8 @@ pub const Printer = struct {
     }
 
     pub fn emitList(self: *Printer, printElement: anytype, parent: u32, list: u32, format: u32) anyerror!void {
-        _ = printElement; _ = parent;
+        _ = printElement;
+        _ = parent;
         try @import("emit_list.zig").printList(self, format, list);
     }
 
@@ -1691,7 +2170,14 @@ pub const Printer = struct {
 //     // ... test commented out
 // }
 
-pub const EmitResolver = struct { pub fn getTypeReferenceSerializationKind(self: *EmitResolver, a: anytype, b: anytype) u32 { _ = self; _ = a; _ = b; return 0; } };
+pub const EmitResolver = struct {
+    pub fn getTypeReferenceSerializationKind(self: *EmitResolver, a: anytype, b: anytype) u32 {
+        _ = self;
+        _ = a;
+        _ = b;
+        return 0;
+    }
+};
 
 pub const EmitFlags = struct {
     pub const NoComments: u32 = 1;

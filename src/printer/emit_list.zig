@@ -65,7 +65,7 @@ pub const ListFormat = struct {
     pub const TupleTypeElements: u32 = CommaDelimited | SpaceBetweenSiblings | MultiLine | Indented;
     pub const UnionTypeElements: u32 = BarDelimited | SpaceBetweenSiblings | SingleLine;
     pub const IntersectionTypeElements: u32 = AmpersandDelimited | SpaceBetweenSiblings | SingleLine;
-    pub const ObjectLiteralExpressionProperties: u32 = Braces | AllowTrailingComma;
+    pub const ObjectLiteralExpressionProperties: u32 = PreserveLines | CommaDelimited | SpaceBetweenSiblings | SpaceBetweenBraces | Indented | Braces | NoSpaceIfEmpty;
     pub const CaseBlockClauses: u32 = Indented | MultiLine;
     pub const CaseOrDefaultClauseStatements: u32 = MultiLine | SpaceBetweenSiblings | NoTrailingNewLine;
     pub const NamedImportsOrExportsElements: u32 = CommaDelimited | SpaceBetweenSiblings | SpaceBetweenBraces | SingleLine | NoSpaceIfEmpty;
@@ -95,10 +95,10 @@ fn getClosingBracket(format: u32) []const u8 {
 pub fn emitList(printer: *Printer, parentNode: ?ast_mod.NodeIndex, nodeListIndex: ast_mod.NodeIndex, listFormat: u32) anyerror!void {
     _ = parentNode;
     const format = listFormat;
-    
+
     const children = if (nodeListIndex == 0) &[_]ast_mod.NodeIndex{} else printer.tree.getNodeList(nodeListIndex);
     const hasTrailingComma = if (nodeListIndex == 0) false else printer.tree.listHasTrailingComma(nodeListIndex);
-    
+
     if (format == ListFormat.Modifiers) {
         if (children.len == 0) {
             return;
@@ -115,7 +115,7 @@ pub fn emitList(printer: *Printer, parentNode: ?ast_mod.NodeIndex, nodeListIndex
     }
 
     if (isEmpty) {
-        std.debug.print("EMPTY LIST format: {d}, multiLine: {d}\n", .{format, format & @import("emit_list.zig").ListFormat.MultiLine});
+        std.debug.print("EMPTY LIST format: {d}, multiLine: {d}\n", .{ format, format & @import("emit_list.zig").ListFormat.MultiLine });
         if ((format & ListFormat.MultiLine) != 0) {
             printer.writer.writeLine();
         } else if ((format & ListFormat.SpaceBetweenBraces) != 0 and (format & ListFormat.NoSpaceIfEmpty) == 0) {
@@ -167,7 +167,7 @@ fn printListItems(printer: *Printer, format: u32, children: []const ast_mod.Node
         } else if (previousSibling != null) {
             writeDelimiter(printer, format);
 
-            if ((format & ListFormat.MultiLine) != 0) {
+            if ((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma)) {
                 printer.writer.writeLine();
             } else if ((format & ListFormat.SpaceBetweenSiblings) != 0) {
                 if (std.meta.activeTag(printer.tree.getNode(previousSibling.?)) == .Decorator) {
@@ -181,7 +181,7 @@ fn printListItems(printer: *Printer, format: u32, children: []const ast_mod.Node
             }
         } else {
             // First item, but we might need leading newline for multiline list
-            if ((format & ListFormat.MultiLine) != 0 or std.meta.activeTag(printer.tree.getNode(child)) == .Decorator) {
+            if ((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma) or std.meta.activeTag(printer.tree.getNode(child)) == .Decorator) {
                 printer.writer.writeLine();
             } else if ((format & ListFormat.SpaceBetweenBraces) != 0) {
                 printer.writer.writeSpace(" ");
@@ -204,7 +204,7 @@ fn printListItems(printer: *Printer, format: u32, children: []const ast_mod.Node
         printer.writer.decreaseIndent();
     }
 
-    if ((format & ListFormat.MultiLine) != 0 and (format & ListFormat.NoTrailingNewLine) == 0) {
+    if (((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma)) and (format & ListFormat.NoTrailingNewLine) == 0) {
         printer.writer.writeLine();
     } else if ((format & ListFormat.SpaceBetweenBraces) != 0) {
         printer.writer.writeSpace(" ");
@@ -251,7 +251,7 @@ pub fn printModifiersEx(printer: *Printer, listIndex: ast_mod.NodeIndex, allowDe
                 }
             }
             if (!hasModifiers) return;
-            
+
             // Collect non-decorator modifiers and print them
             var nonDecorators = std.ArrayListUnmanaged(ast_mod.NodeIndex).empty;
             defer nonDecorators.deinit(printer.tree.allocator);
@@ -260,7 +260,7 @@ pub fn printModifiersEx(printer: *Printer, listIndex: ast_mod.NodeIndex, allowDe
                     try nonDecorators.append(printer.tree.allocator, item);
                 }
             }
-            
+
             const tempNodeList = try printer.tree.pushNodeList(nonDecorators.items);
             try printList(printer, ListFormat.Modifiers, tempNodeList);
         } else {

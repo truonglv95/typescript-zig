@@ -1,6 +1,7 @@
 const std = @import("std");
 pub fn unorderedEqual(comptime T: type, a: []const T, b: []const T) bool {
-    _ = a; _ = b;
+    _ = a;
+    _ = b;
     return true;
 }
 
@@ -69,7 +70,6 @@ pub const ScriptTarget = enum(u32) {
 
 pub const CompilerOptions = @import("compiler_options_generated.zig").CompilerOptions;
 
-
 pub const ModuleKind = enum(u32) {
     None = 0,
     CommonJS = 1,
@@ -82,6 +82,7 @@ pub const ModuleKind = enum(u32) {
     ESNext = 99,
     Node16 = 100,
     NodeNext = 199,
+    Preserve = 200,
 };
 
 pub const ModuleResolutionKind = enum(u32) {
