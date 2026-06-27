@@ -15,11 +15,16 @@ pub const NodeVisitorHooks = struct {
 };
 
 pub const NodeVisitor = struct {
-    pub fn visitSlice(self: *NodeVisitor, a: anytype) []const ast_gen.NodeIndex { _ = self; _ = a; return &[_]ast_gen.NodeIndex{}; }
+    pub fn visitSlice(self: *NodeVisitor, a: anytype) []const ast_gen.NodeIndex {
+        _ = self;
+        _ = a;
+        return &[_]ast_gen.NodeIndex{};
+    }
 
     allocator: std.mem.Allocator,
     tree: *ast.Ast,
     ctx: ?*anyopaque,
+    emitContext: ?*anyopaque = null,
     visitFn: *const fn (ctx: ?*anyopaque, visitor: *NodeVisitor, node: ast.NodeIndex) ast.NodeIndex,
     hooks: NodeVisitorHooks,
 
@@ -46,7 +51,7 @@ pub const NodeVisitor = struct {
     pub fn visitNode(self: *NodeVisitor, node: ast.NodeIndex) ast.NodeIndex {
         if (node == 0) return 0;
         const visited = self.visitFn(self.ctx, self, node);
-        
+
         if (visited != 0) {
             const vData = self.tree.getNode(visited);
             if (vData == .SyntaxList) {
@@ -76,47 +81,56 @@ pub const NodeVisitor = struct {
 
     pub fn visitNodes(self: *NodeVisitor, nodesIndex: u32) u32 {
         if (nodesIndex == 0) return 0;
-        
-        const nodes = self.tree.getNodeList(nodesIndex);
+
+        const nodes_slice = self.tree.getNodeList(nodesIndex);
+        const nodes = self.allocator.alloc(ast.NodeIndex, nodes_slice.len) catch unreachable;
+        defer self.allocator.free(nodes);
+        @memcpy(nodes, nodes_slice);
+
         var changed = false;
         var result = std.ArrayListUnmanaged(ast.NodeIndex).empty;
         defer result.deinit(self.allocator);
 
         for (nodes, 0..) |n, i| {
             const visited = self.visitFn(self.ctx, self, n);
+            std.debug.print("Visitor node loop i={d}, visited={d}\n", .{ i, visited });
             if (visited == 0 or visited != n) {
                 result.appendSlice(self.allocator, nodes[0..i]) catch unreachable;
                 changed = true;
-                
+
                 var nodeIter = n;
                 var visitedIter = visited;
                 var idx = i;
-                
+
                 while (true) {
                     if (visitedIter != 0) {
                         const vNode = self.tree.getNode(visitedIter);
-                        if (vNode == .SyntaxList) {
+                        if (std.meta.activeTag(vNode) == .SyntaxList) {
                             const children = self.tree.getNodeList(vNode.SyntaxList.Children);
-                            result.appendSlice(self.allocator, children) catch unreachable;
+                            for (children) |c| {
+                                result.append(self.allocator, c) catch unreachable;
+                            }
                         } else {
                             result.append(self.allocator, visitedIter) catch unreachable;
                         }
                     }
-                    
+
                     idx += 1;
                     if (idx >= nodes.len) break;
-                    
+
                     nodeIter = nodes[idx];
                     visitedIter = self.visitFn(self.ctx, self, nodeIter);
+                    std.debug.print("Visitor while loop idx={d}, visitedIter={d}\n", .{ idx, visitedIter });
                 }
                 break;
             }
         }
-        
+
         if (changed) {
-            return self.tree.pushNodeList(result.items) catch unreachable;
+            const hasTrailingComma = if (nodesIndex == 0) false else self.tree.listHasTrailingComma(nodesIndex);
+            return self.tree.pushNodeListWithTrailingComma(result.items, hasTrailingComma) catch unreachable;
         }
-        
+
         return nodesIndex;
     }
 
@@ -138,7 +152,7 @@ pub const NodeVisitor = struct {
         }
         return self.visitNode(node);
     }
-    
+
     pub fn visitEmbeddedStatementInternal(self: *NodeVisitor, node: ast.NodeIndex) ast.NodeIndex {
         if (self.hooks.visitEmbeddedStatement) |hook| {
             return hook(self, node);
@@ -155,7 +169,7 @@ pub const NodeVisitor = struct {
         }
         return self.visitEmbeddedStatementInternal(node);
     }
-    
+
     pub fn visitFunctionBodyInternal(self: *NodeVisitor, node: ast.NodeIndex) ast.NodeIndex {
         if (self.hooks.visitFunctionBody) |hook| {
             return hook(self, node);
@@ -176,7 +190,7 @@ pub const NodeVisitor = struct {
         }
         return self.visitNodes(nodes);
     }
-    
+
     pub fn visitModifiersInternal(self: *NodeVisitor, nodes: u32) u32 {
         if (self.hooks.visitModifiers) |hook| {
             return hook(self, nodes);
@@ -204,19 +218,7 @@ pub const NodeVisitor = struct {
         if (nData == .SyntaxList) {
             std.debug.panic("The result of visiting and lifting a Node may not be SyntaxList", .{});
         }
-        if (nData == .Block) {
-            return node;
-        }
-        
-        const arr = [_]ast.NodeIndex{node};
-        const listIndex = self.tree.pushNodeList(&arr) catch unreachable;
-        
-        return self.tree.pushNode(.{
-            .Block = .{
-                .Flags = 0,
-                .Statements = listIndex,
-                .MultiLine = true,
-            }
-        }) catch unreachable;
+
+        return node;
     }
 };

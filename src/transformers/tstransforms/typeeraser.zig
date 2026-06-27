@@ -18,11 +18,11 @@ pub const TypeEraserTransformer = struct {
         tx.compilerOptions = opt.compilerOptions;
         tx.parentNode = 0;
         tx.currentNode = 0;
-        
+
         tx.transformer = try transformer_mod.Transformer.init(allocator, visit, tx, opt.context);
         return tx.transformer;
     }
-    
+
     fn pushNode(self: *TypeEraserTransformer, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
         const grandparentNode = self.parentNode;
         self.parentNode = self.currentNode;
@@ -53,43 +53,7 @@ pub const TypeEraserTransformer = struct {
 
         const nodeData = tree.getNode(node);
         switch (nodeData) {
-            .PublicKeyword,
-            .PrivateKeyword,
-            .ProtectedKeyword,
-            .AbstractKeyword,
-            .OverrideKeyword,
-            .ConstKeyword,
-            .DeclareKeyword,
-            .ReadonlyKeyword,
-            .ArrayType,
-            .TupleType,
-            .OptionalType,
-            .RestType,
-            .TypeLiteral,
-            .TypePredicate,
-            .TypeParameter,
-            .AnyKeyword,
-            .UnknownKeyword,
-            .BooleanKeyword,
-            .StringKeyword,
-            .NumberKeyword,
-            .NeverKeyword,
-            .VoidKeyword,
-            .SymbolKeyword,
-            .ConstructorType,
-            .FunctionType,
-            .TypeQuery,
-            .TypeReference,
-            .UnionType,
-            .IntersectionType,
-            .ConditionalType,
-            .ParenthesizedType,
-            .ThisType,
-            .TypeOperator,
-            .IndexedAccessType,
-            .MappedType,
-            .LiteralType,
-            .IndexSignature => return 0,
+            .PublicKeyword, .PrivateKeyword, .ProtectedKeyword, .AbstractKeyword, .OverrideKeyword, .ConstKeyword, .DeclareKeyword, .ReadonlyKeyword, .ArrayType, .TupleType, .OptionalType, .RestType, .TypeLiteral, .TypePredicate, .TypeParameter, .AnyKeyword, .UnknownKeyword, .BooleanKeyword, .StringKeyword, .NumberKeyword, .NeverKeyword, .VoidKeyword, .SymbolKeyword, .ConstructorType, .FunctionType, .TypeQuery, .TypeReference, .UnionType, .IntersectionType, .ConditionalType, .ParenthesizedType, .ThisType, .TypeOperator, .IndexedAccessType, .MappedType, .LiteralType, .IndexSignature => return 0,
 
             .InKeyword, .OutKeyword => {
                 const parentData = tree.getNode(self.parentNode);
@@ -101,16 +65,16 @@ pub const TypeEraserTransformer = struct {
 
             .JSImportDeclaration => return 0,
 
-            .TypeAliasDeclaration,
-            .JSTypeAliasDeclaration,
-            .InterfaceDeclaration,
-            .NamespaceExportDeclaration => return self.elide(node),
+            .TypeAliasDeclaration, .JSTypeAliasDeclaration, .InterfaceDeclaration, .NamespaceExportDeclaration => return self.elide(node),
 
             .ModuleDeclaration => |n| {
                 const nameNode = tree.getNode(n.name);
+                const isInstantiated = ast_utils.isInstantiatedModule(tree, node, self.compilerOptions.preserveConstEnums orelse false);
+                std.debug.print("TypeEraser Module: {s}, isInst: {}\n", .{ ast_utils.getText(tree, n.name), isInstantiated });
                 if (nameNode != .Identifier or
-                    !ast_utils.isInstantiatedModule(tree, node, self.compilerOptions.preserveConstEnums orelse false) or
-                    n.Body == null) {
+                    !isInstantiated or
+                    n.Body == null)
+                {
                     return self.elide(node);
                 }
                 return visitor.visitEachChild(node);
@@ -320,7 +284,6 @@ pub const TypeEraserTransformer = struct {
             },
 
             .Parameter => |n| {
-                std.debug.print("Parameter name: {s}\n", .{tree.getNode(n.name).Identifier.Text});
                 if (ast_utils.isThisParameter(tree, node)) {
                     return 0;
                 }
@@ -544,7 +507,7 @@ pub const TypeEraserTransformer = struct {
 
             else => {
                 return visitor.visitEachChild(node);
-            }
+            },
         }
     }
 };

@@ -39,14 +39,11 @@ pub fn skipOuterExpressions(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex, flags: u3
 }
 
 pub fn isEnumConst(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
-    _ = a;
-    _ = nodeIndex;
-    return false;
+    return hasSyntacticModifier(a, nodeIndex, ModifierFlags.Const);
 }
 
 pub fn isBinaryExpression(nodeData: ast_gen.NodeData) bool {
-    _ = nodeData;
-    return false;
+    return std.meta.activeTag(nodeData) == .BinaryExpression;
 }
 
 pub fn getSourceFileOfNode(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -70,6 +67,18 @@ pub fn getName(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeInd
         .ModuleDeclaration => |n| return n.name,
         .EnumDeclaration => |n| return n.name,
         .EnumMember => |n| return n.name,
+        .ClassDeclaration => |n| return n.name orelse 0,
+        .FunctionDeclaration => |n| return n.name orelse 0,
+        .VariableDeclaration => |n| return n.name,
+        .InterfaceDeclaration => |n| return n.name,
+        .TypeAliasDeclaration => |n| return n.name,
+        .MethodDeclaration => |n| return n.name,
+        .PropertyDeclaration => |n| return n.name,
+        .GetAccessor => |n| return n.name,
+        .SetAccessor => |n| return n.name,
+        .Parameter => |n| return n.name,
+        .TypeParameter => |n| return n.name,
+        .NamespaceExportDeclaration => |n| return n.name,
         else => return 0,
     }
 }
@@ -246,6 +255,27 @@ pub fn isModuleWithStringLiteralName(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) 
             return true;
         }
     }
+    return false;
+}
+
+pub fn isExternalModuleIndicator(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const tree = a;
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .ImportDeclaration, .ImportEqualsDeclaration, .ExportDeclaration, .JSImportDeclaration, .ExportAssignment => return true,
+        else => {},
+    }
+    if (hasSyntacticModifier(tree, nodeIndex, ModifierFlags.Export)) {
+        return true;
+    }
+    return false;
+}
+
+pub fn isDeclarationFile(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    _ = a;
+    _ = nodeIndex;
+    // We do not parse declaration files yet in transpile step, so return false.
+    // Real implementation would check the filename.
     return false;
 }
 
@@ -603,6 +633,16 @@ fn getModuleInstanceStateWorker(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, an
     }
 }
 
+pub fn isPrologueDirective(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const node = tree.getNode(nodeIndex);
+    if (node == .ExpressionStatement) {
+        const exprStmt = node.ExpressionStatement;
+        const exprNode = tree.getNode(exprStmt.Expression);
+        return exprNode == .StringLiteral;
+    }
+    return false;
+}
+
 fn getModuleInstanceStateForAliasTarget(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, ancestors: *AncestorsArray, visited: *std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ModuleInstanceState)) ModuleInstanceState {
     const nameIndex = getPropertyNameOrName(tree, nodeIndex);
     if (nameIndex == 0 or tree.getNode(nameIndex) != .Identifier) {
@@ -765,16 +805,103 @@ pub fn getSubtreeFacts(tree: *ast.Ast, node: ast.NodeIndex) u32 {
     return SubtreeFacts.ContainsTypeScript | SubtreeFacts.ContainsIdentifier;
 }
 
-pub fn getModifierFlags(tree: *ast.Ast, node: ast.NodeIndex) u32 {
-    _ = tree;
-    _ = node;
-    return 0;
+pub fn getModifierFlags(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
+    var flags: u32 = 0;
+    const modifiersIndex = getModifiers(tree, node);
+    if (modifiersIndex) |idx| {
+        const modifiers = tree.getNodeList(idx);
+        for (modifiers) |modIndex| {
+            const modNode = tree.getNode(modIndex);
+            switch (modNode) {
+                .ExportKeyword => flags |= ModifierFlags.Export,
+                .DefaultKeyword => flags |= ModifierFlags.Default,
+                .DeclareKeyword => flags |= ModifierFlags.Ambient,
+                .PublicKeyword => flags |= ModifierFlags.Public,
+                .PrivateKeyword => flags |= ModifierFlags.Private,
+                .ProtectedKeyword => flags |= ModifierFlags.Protected,
+                .ReadonlyKeyword => flags |= ModifierFlags.Readonly,
+                .OverrideKeyword => flags |= ModifierFlags.Override,
+                .ConstKeyword => flags |= ModifierFlags.Const,
+                .AbstractKeyword => flags |= ModifierFlags.Abstract,
+                .StaticKeyword => flags |= ModifierFlags.Static,
+                .AsyncKeyword => flags |= ModifierFlags.Async,
+                .InKeyword => flags |= ModifierFlags.In,
+                .OutKeyword => flags |= ModifierFlags.Out,
+                .AccessorKeyword => flags |= ModifierFlags.Accessor,
+                else => {},
+            }
+        }
+    }
+    return flags;
 }
 
-pub fn extractModifiers(context: anytype, modifiers: ast.NodeIndex, mask: u32) ast.NodeIndex {
-    _ = context;
-    _ = mask;
-    return modifiers;
+pub fn extractModifiers(tree: *ast.Ast, modifiersList: ast_gen.NodeIndex, mask: u32) ast_gen.NodeIndex {
+    if (modifiersList == 0) return 0;
+    const modifiers = tree.getNodeList(modifiersList);
+    var keepCount: usize = 0;
+    for (modifiers) |modIndex| {
+        const modNode = tree.getNode(modIndex);
+        var flag: u32 = 0;
+        switch (modNode) {
+            .ExportKeyword => flag = ModifierFlags.Export,
+            .DefaultKeyword => flag = ModifierFlags.Default,
+            .DeclareKeyword => flag = ModifierFlags.Ambient,
+            .PublicKeyword => flag = ModifierFlags.Public,
+            .PrivateKeyword => flag = ModifierFlags.Private,
+            .ProtectedKeyword => flag = ModifierFlags.Protected,
+            .ReadonlyKeyword => flag = ModifierFlags.Readonly,
+            .OverrideKeyword => flag = ModifierFlags.Override,
+            .ConstKeyword => flag = ModifierFlags.Const,
+            .AbstractKeyword => flag = ModifierFlags.Abstract,
+            .StaticKeyword => flag = ModifierFlags.Static,
+            .AsyncKeyword => flag = ModifierFlags.Async,
+            .InKeyword => flag = ModifierFlags.In,
+            .OutKeyword => flag = ModifierFlags.Out,
+            .AccessorKeyword => flag = ModifierFlags.Accessor,
+            else => {},
+        }
+        if ((flag & mask) != 0) {
+            keepCount += 1;
+        }
+    }
+    if (keepCount == modifiers.len) return modifiersList;
+    if (keepCount == 0) return 0;
+
+    const newMods = tree.allocator.alloc(ast_gen.NodeIndex, keepCount) catch unreachable;
+    var i: usize = 0;
+    for (modifiers) |modIndex| {
+        const modNode = tree.getNode(modIndex);
+        var flag: u32 = 0;
+        switch (modNode) {
+            .ExportKeyword => flag = ModifierFlags.Export,
+            .DefaultKeyword => flag = ModifierFlags.Default,
+            .DeclareKeyword => flag = ModifierFlags.Ambient,
+            .PublicKeyword => flag = ModifierFlags.Public,
+            .PrivateKeyword => flag = ModifierFlags.Private,
+            .ProtectedKeyword => flag = ModifierFlags.Protected,
+            .ReadonlyKeyword => flag = ModifierFlags.Readonly,
+            .OverrideKeyword => flag = ModifierFlags.Override,
+            .ConstKeyword => flag = ModifierFlags.Const,
+            .AbstractKeyword => flag = ModifierFlags.Abstract,
+            .StaticKeyword => flag = ModifierFlags.Static,
+            .AsyncKeyword => flag = ModifierFlags.Async,
+            .InKeyword => flag = ModifierFlags.In,
+            .OutKeyword => flag = ModifierFlags.Out,
+            .AccessorKeyword => flag = ModifierFlags.Accessor,
+            else => {},
+        }
+        if ((flag & mask) != 0) {
+            newMods[i] = modIndex;
+            i += 1;
+        }
+    }
+    const childrenList = tree.pushNodeList(newMods) catch unreachable;
+    return tree.pushNode(.{
+        .SyntaxList = .{
+            .Children = childrenList,
+            .Flags = 0,
+        },
+    }) catch unreachable;
 }
 
 pub fn getParseTreeNode(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {

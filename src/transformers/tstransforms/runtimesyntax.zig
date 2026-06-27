@@ -261,7 +261,7 @@ pub const RuntimeSyntaxTransformer = struct {
         if (self.currentNamespace != 0) {
             modifierMask &= ~ast_utils.ModifierFlags.Export;
         }
-        const modifiers = ast_utils.extractModifiers(self.transformer.emitContext, (ast_utils.getModifiers(self.transformer.visitor.tree, node) orelse 0), modifierMask);
+        const modifiers = ast_utils.extractModifiers(self.transformer.visitor.tree, (ast_utils.getModifiers(self.transformer.visitor.tree, node) orelse 0), modifierMask);
         const varStatement = self.transformer.factory.newVariableStatement(modifiers, varDecls);
 
         self.transformer.emitContext.setOriginal(varDecl, node) catch unreachable;
@@ -338,8 +338,10 @@ pub const RuntimeSyntaxTransformer = struct {
 
         var statements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         const membersList = self.transformer.visitor.tree.getNodeList(enumData.Members);
+        var enumVal: u32 = 0;
         for (membersList, 0..) |_, i| {
-            self.transformEnumMember(&statements, visitedNode, i);
+            enumVal = self.transformEnumMember(&statements, visitedNode, i, enumVal);
+            enumVal += 1;
         }
 
         const statementList = self.transformer.factory.newNodeList(statements.items);
@@ -349,7 +351,7 @@ pub const RuntimeSyntaxTransformer = struct {
         return self.transformer.factory.newBlock(statementList, true);
     }
 
-    fn transformEnumMember(self: *RuntimeSyntaxTransformer, statements: *std.ArrayList(ast_gen.NodeIndex), enumNode: ast_gen.NodeIndex, index: usize) void {
+    fn transformEnumMember(self: *RuntimeSyntaxTransformer, statements: *std.ArrayListUnmanaged(ast_gen.NodeIndex), enumNode: ast_gen.NodeIndex, index: usize, currentVal: u32) u32 {
         const enumData = self.transformer.visitor.tree.getNode(enumNode).EnumDeclaration;
         const memberNode = self.transformer.visitor.tree.getNodeList(enumData.Members)[index];
         const memberData = self.transformer.visitor.tree.getNode(memberNode).EnumMember;
@@ -357,14 +359,25 @@ pub const RuntimeSyntaxTransformer = struct {
         const savedParent = self.parentNode;
         self.parentNode = self.currentNode;
         self.currentNode = memberNode;
+        defer {
+            self.parentNode = savedParent;
+        }
 
         var expression = (memberData.Initializer orelse 0);
+        var nextVal = currentVal;
 
         if (expression == 0) {
             var buf: [32]u8 = undefined;
-            const text = std.fmt.bufPrint(&buf, "{d}", .{index}) catch unreachable;
+            const text = std.fmt.bufPrint(&buf, "{d}", .{currentVal}) catch unreachable;
             const strValue = self.transformer.emitContext.allocator.dupe(u8, text) catch unreachable;
             expression = self.transformer.factory.newNumericLiteral(strValue, 0);
+        } else {
+            if (self.transformer.visitor.tree.getNode(expression) == .NumericLiteral) {
+                const numText = ast_utils.getText(self.transformer.visitor.tree, expression);
+                if (std.fmt.parseInt(u32, numText, 10)) |parsed| {
+                    nextVal = parsed;
+                } else |_| {}
+            }
         }
 
         const useExplicitReverseMapping = true;
@@ -375,6 +388,11 @@ pub const RuntimeSyntaxTransformer = struct {
         );
 
         if (useExplicitReverseMapping) {
+            const memberName = ast_utils.getName(self.transformer.visitor.tree, memberNode);
+            const strText = ast_utils.getText(self.transformer.visitor.tree, memberName);
+            const strName = self.transformer.emitContext.allocator.dupe(u8, strText) catch unreachable;
+            const propertyName = self.transformer.factory.newStringLiteral(strName, ast_utils.TokenFlags.None);
+
             expression = self.transformer.factory.newAssignmentExpression(
                 self.transformer.factory.newElementAccessExpression(
                     self.getNamespaceContainerName(enumNode),
@@ -382,17 +400,15 @@ pub const RuntimeSyntaxTransformer = struct {
                     expression,
                     0,
                 ),
-                self.getExpressionForPropertyName(memberNode),
+                propertyName,
             );
         }
 
-        const memberStatement = self.transformer.factory.newExpressionStatement(expression);
-        self.transformer.emitContext.assignCommentAndSourceMapRanges(expression, memberNode);
-        self.transformer.emitContext.assignCommentAndSourceMapRanges(memberStatement, memberNode);
-        statements.append(std.heap.page_allocator, memberStatement) catch unreachable;
+        const statement = self.transformer.factory.newExpressionStatement(expression);
+        ast_utils.setLoc(self.transformer.visitor.tree, statement, ast_utils.getLoc(self.transformer.visitor.tree, memberNode));
+        statements.append(self.transformer.emitContext.allocator, statement) catch unreachable;
 
-        self.currentNode = self.parentNode;
-        self.parentNode = savedParent;
+        return nextVal;
     }
 
     fn constantExpression(self: *RuntimeSyntaxTransformer, val: f64) ast_gen.NodeIndex {
@@ -416,7 +432,7 @@ pub const RuntimeSyntaxTransformer = struct {
             emitFlags |= 0;
         }
 
-        var moduleArg = self.transformer.factory.newLogicalORExpression(self.getExportQualifiedReferenceToDeclaration(node), self.transformer.factory.newAssignmentExpression(self.getExportQualifiedReferenceToDeclaration(node), self.transformer.factory.newObjectLiteralExpression(self.transformer.factory.newNodeList(&[_]ast_gen.NodeIndex{}), false)));
+        var moduleArg = self.transformer.factory.newLogicalORExpression(self.getExportQualifiedReferenceToDeclaration(node), self.transformer.factory.newParenthesizedExpression(self.transformer.factory.newAssignmentExpression(self.getExportQualifiedReferenceToDeclaration(node), self.transformer.factory.newObjectLiteralExpression(self.transformer.factory.newNodeList(&[_]ast_gen.NodeIndex{}), false))));
 
         if (self.isExportOfNamespace(node)) {
             const localName = self.transformer.factory.getLocalNameEx(node, .{ .allowSourceMaps = true });
@@ -514,7 +530,7 @@ pub const RuntimeSyntaxTransformer = struct {
             arr[0] = varDecl;
             const varList = self.transformer.factory.newVariableDeclarationList(self.transformer.factory.newNodeList(arr), ast_utils.NodeFlags.None);
 
-            const varModifiers = ast_utils.extractModifiers(self.transformer.emitContext, (ast_utils.getModifiers(self.transformer.visitor.tree, node) orelse 0), ast_utils.ModifierFlags.Export);
+            const varModifiers = ast_utils.extractModifiers(self.transformer.visitor.tree, (ast_utils.getModifiers(self.transformer.visitor.tree, node) orelse 0), ast_utils.ModifierFlags.Export);
             const varStatement = self.transformer.factory.newVariableStatement(varModifiers, varList);
             self.transformer.emitContext.setOriginal(varStatement, node) catch unreachable;
             self.transformer.emitContext.assignCommentAndSourceMapRanges(varStatement, node);
@@ -579,7 +595,7 @@ pub const RuntimeSyntaxTransformer = struct {
     fn visitFunctionDeclaration(self: *RuntimeSyntaxTransformer, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
         if (self.isExportOfNamespace(node)) {
             const nodeData = self.transformer.visitor.tree.getNode(node).FunctionDeclaration;
-            const updated = self.transformer.factory.updateFunctionDeclaration(node, nodeData, self.transformer.visitor.visitModifiers(ast_utils.extractModifiers(self.transformer.emitContext, (nodeData.modifiers orelse 0), ~ast_utils.ModifierFlags.Export)), (nodeData.AsteriskToken orelse 0), self.transformer.visitor.visitNode((nodeData.name orelse 0)), 0, self.transformer.visitor.visitNodes(nodeData.Parameters), 0, self.transformer.visitor.visitNode((nodeData.Body orelse 0)));
+            const updated = self.transformer.factory.updateFunctionDeclaration(node, nodeData, self.transformer.visitor.visitModifiers(ast_utils.extractModifiers(self.transformer.visitor.tree, (nodeData.modifiers orelse 0), ~ast_utils.ModifierFlags.Export)), (nodeData.AsteriskToken orelse 0), self.transformer.visitor.visitNode((nodeData.name orelse 0)), 0, self.transformer.visitor.visitNodes(nodeData.Parameters), 0, self.transformer.visitor.visitNode((nodeData.Body orelse 0)));
             const exportStmt = self.createExportStatementForDeclaration(node);
             if (exportStmt != 0) {
                 const arr = self.transformer.emitContext.allocator.alloc(ast_gen.NodeIndex, 2) catch unreachable;
@@ -611,7 +627,7 @@ pub const RuntimeSyntaxTransformer = struct {
 
         var modifiers: ast_gen.NodeIndex = 0;
         if (exported) {
-            modifiers = self.transformer.visitor.visitModifiers(ast_utils.extractModifiers(self.transformer.emitContext, (nodeData.modifiers orelse 0), ~ast_utils.ModifierFlags.ExportDefault));
+            modifiers = self.transformer.visitor.visitModifiers(ast_utils.extractModifiers(self.transformer.visitor.tree, (nodeData.modifiers orelse 0), ~ast_utils.ModifierFlags.ExportDefault));
         } else {
             modifiers = self.transformer.visitor.visitModifiers((nodeData.modifiers orelse 0));
         }
@@ -667,7 +683,7 @@ pub const RuntimeSyntaxTransformer = struct {
     fn visitClassExpression(self: *RuntimeSyntaxTransformer, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
         const nodeData = self.transformer.visitor.tree.getNode(node).ClassExpression;
 
-        const modifiers = self.transformer.visitor.visitModifiers(ast_utils.extractModifiers(self.transformer.emitContext, (nodeData.modifiers orelse 0), ~ast_utils.ModifierFlags.ExportDefault));
+        const modifiers = self.transformer.visitor.visitModifiers(ast_utils.extractModifiers(self.transformer.visitor.tree, (nodeData.modifiers orelse 0), ~ast_utils.ModifierFlags.ExportDefault));
         const name = self.transformer.visitor.visitNode((nodeData.name orelse 0));
         const heritageClauses = self.transformer.visitor.visitNodes((nodeData.HeritageClauses orelse 0));
         var members = self.transformer.visitor.visitNodes(nodeData.Members);
@@ -839,7 +855,7 @@ pub const RuntimeSyntaxTransformer = struct {
                 if (equalsToken == 0) {
                     equalsToken = self.transformer.factory.newToken(.EqualsToken);
                 }
-                expression = self.transformer.factory.newBinaryExpression(0, expression, 0, equalsToken, self.transformer.visitor.visitNode(nodeData.ObjectAssignmentInitializer orelse 0));
+                expression = self.transformer.factory.newBinaryExpression(0, expression, 0, equalsToken orelse 0, self.transformer.visitor.visitNode(nodeData.ObjectAssignmentInitializer orelse 0));
             }
 
             const updated = self.transformer.factory.newPropertyAssignment(0, name, 0, 0, expression);
@@ -917,10 +933,7 @@ pub const RuntimeSyntaxTransformer = struct {
     }
 
     fn shouldEmitModuleDeclaration(self: *RuntimeSyntaxTransformer, node: ast_gen.NodeIndex) bool {
-        const pn = ast_utils.getParseTreeNode(self.transformer.visitor.tree, node);
-        if (pn == 0) return true;
-
-        return ast_utils.isInstantiatedModule(self.transformer.visitor.tree, pn, self.compilerOptions.preserveConstEnums orelse false);
+        return ast_utils.isInstantiatedModule(self.transformer.visitor.tree, node, self.compilerOptions.preserveConstEnums orelse false);
     }
 };
 
