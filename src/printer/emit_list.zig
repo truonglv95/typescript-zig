@@ -67,7 +67,7 @@ pub const ListFormat = struct {
     pub const IntersectionTypeElements: u32 = AmpersandDelimited | SpaceBetweenSiblings | SingleLine;
     pub const ObjectLiteralExpressionProperties: u32 = PreserveLines | CommaDelimited | SpaceBetweenSiblings | SpaceBetweenBraces | Indented | Braces | NoSpaceIfEmpty;
     pub const CaseBlockClauses: u32 = Indented | MultiLine;
-    pub const CaseOrDefaultClauseStatements: u32 = MultiLine | SpaceBetweenSiblings | NoTrailingNewLine;
+    pub const CaseOrDefaultClauseStatements: u32 = Indented | MultiLine | SpaceBetweenSiblings | NoTrailingNewLine;
     pub const NamedImportsOrExportsElements: u32 = CommaDelimited | SpaceBetweenSiblings | SpaceBetweenBraces | SingleLine | NoSpaceIfEmpty;
     pub const ImportAttributesElements: u32 = Braces | CommaDelimited | SpaceBetweenSiblings | SpaceBetweenBraces | SingleLine | NoSpaceIfEmpty;
 };
@@ -147,14 +147,61 @@ fn printListItems(printer: *Printer, format: u32, children: []const ast_mod.Node
         printer.writer.increaseIndent();
     }
 
+    const isSingleLine = is_single: {
+        if (children.len == 0) break :is_single true;
+        const start = printer.tree.positions.items[children[0]].pos;
+        const end = printer.tree.positions.items[children[children.len - 1]].end;
+        if (start == 0 or end == 0) break :is_single true; // synthesized/unpositioned
+        if (start > end or end > printer.tree.sourceText.len) break :is_single false;
+
+        // Check if there is any newline within the elements
+        if (std.mem.indexOfAny(u8, printer.tree.sourceText[start..end], "\r\n") != null) {
+            break :is_single false;
+        }
+
+        if ((format & ListFormat.BracketsMask) != 0) {
+            // Scan backwards from start to find opening bracket, check for newline
+            var idx = start;
+            const open_bracket = getOpeningBracket(format)[0];
+            while (idx > 0) {
+                idx -= 1;
+                const c = printer.tree.sourceText[idx];
+                if (c == '\n' or c == '\r') {
+                    break :is_single false;
+                }
+                if (c == open_bracket) {
+                    break;
+                }
+            }
+
+            // Scan forwards from end to find closing bracket, check for newline
+            idx = end;
+            const close_bracket = getClosingBracket(format)[0];
+            while (idx < printer.tree.sourceText.len) : (idx += 1) {
+                const c = printer.tree.sourceText[idx];
+                if (c == '\n' or c == '\r') {
+                    break :is_single false;
+                }
+                if (c == close_bracket) {
+                    break;
+                }
+            }
+        }
+
+        break :is_single true;
+    };
+
     var previousSibling: ?ast_mod.NodeIndex = null;
 
     for (children, 0..) |child, i| {
         if (std.meta.activeTag(printer.tree.getNode(child)) == .EmptyStatement) {
             if (format == ListFormat.CaseOrDefaultClauseStatements) {
                 printer.writer.writeSpace(" ");
+            } else if ((format & ListFormat.MultiLine) != 0) {
+                printer.writer.writeLine();
             }
             try printer.printNode(child);
+            previousSibling = child;
             continue;
         }
 
@@ -167,7 +214,7 @@ fn printListItems(printer: *Printer, format: u32, children: []const ast_mod.Node
         } else if (previousSibling != null) {
             writeDelimiter(printer, format);
 
-            if ((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma)) {
+            if ((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma and !isSingleLine)) {
                 printer.writer.writeLine();
             } else if ((format & ListFormat.SpaceBetweenSiblings) != 0) {
                 if (std.meta.activeTag(printer.tree.getNode(previousSibling.?)) == .Decorator) {
@@ -181,7 +228,7 @@ fn printListItems(printer: *Printer, format: u32, children: []const ast_mod.Node
             }
         } else {
             // First item, but we might need leading newline for multiline list
-            if ((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma) or std.meta.activeTag(printer.tree.getNode(child)) == .Decorator) {
+            if ((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma and !isSingleLine) or std.meta.activeTag(printer.tree.getNode(child)) == .Decorator) {
                 printer.writer.writeLine();
             } else if ((format & ListFormat.SpaceBetweenBraces) != 0) {
                 printer.writer.writeSpace(" ");
@@ -191,10 +238,11 @@ fn printListItems(printer: *Printer, format: u32, children: []const ast_mod.Node
         try printer.printNode(child);
         previousSibling = child;
 
-        // Comma if we are trailing and LFAllowTrailingComma
         if (i == children.len - 1) {
-            // If the original source had a trailing comma, or if the last element is an OmittedExpression, we MUST write a trailing comma.
-            if ((format & ListFormat.CommaDelimited) != 0 and (hasTrailingComma or std.meta.activeTag(printer.tree.getNode(child)) == .OmittedExpression)) {
+            const isOmittedExpr = std.meta.activeTag(printer.tree.getNode(child)) == .OmittedExpression;
+            const isNoTrailing = (format == ListFormat.Parameters) or (format == ListFormat.TypeParameters) or (format == ListFormat.TypeArguments) or (format == ListFormat.IndexSignatureParameters);
+            const emitTrailingComma = (format & ListFormat.CommaDelimited) != 0 and (isOmittedExpr or (hasTrailingComma and !isNoTrailing));
+            if (emitTrailingComma) {
                 printer.writer.writePunctuation(",");
             }
         }
@@ -204,7 +252,7 @@ fn printListItems(printer: *Printer, format: u32, children: []const ast_mod.Node
         printer.writer.decreaseIndent();
     }
 
-    if (((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma)) and (format & ListFormat.NoTrailingNewLine) == 0) {
+    if (((format & ListFormat.MultiLine) != 0 or ((format & ListFormat.PreserveLines) != 0 and hasTrailingComma and !isSingleLine)) and (format & ListFormat.NoTrailingNewLine) == 0) {
         printer.writer.writeLine();
     } else if ((format & ListFormat.SpaceBetweenBraces) != 0) {
         printer.writer.writeSpace(" ");

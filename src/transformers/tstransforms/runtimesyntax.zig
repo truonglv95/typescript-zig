@@ -12,6 +12,13 @@ const factory = @import("../../printer/factory.zig");
 const referenceresolver = @import("../../binder/referenceresolver.zig");
 const emitresolver = @import("../../printer/emitresolver.zig");
 
+pub const EnumMemberValue = union(enum) {
+    Int: u32,
+    Double: f64,
+    String: []const u8,
+    NaN,
+};
+
 pub const RuntimeSyntaxTransformer = struct {
     transformer: *transformer_mod.Transformer,
     compilerOptions: *core.CompilerOptions,
@@ -24,6 +31,7 @@ pub const RuntimeSyntaxTransformer = struct {
     currentNamespace: ast_gen.NodeIndex = 0,
     resolver: ?*referenceresolver.ReferenceResolver = null,
     emitResolver: *emitresolver.EmitResolver,
+    enumMemberValues: std.StringHashMap(EnumMemberValue),
 
     pub fn newRuntimeSyntaxTransformer(allocator: std.mem.Allocator, opt: *transformer_mod.TransformOptions) !*transformer_mod.Transformer {
         const tx = try allocator.create(RuntimeSyntaxTransformer);
@@ -37,6 +45,7 @@ pub const RuntimeSyntaxTransformer = struct {
         tx.currentNamespace = 0;
         tx.resolver = opt.resolver;
         tx.emitResolver = opt.emitResolver;
+        tx.enumMemberValues = std.StringHashMap(EnumMemberValue).init(allocator);
         tx.transformer = try transformer_mod.Transformer.init(allocator, visit, tx, opt.context);
         return tx.transformer;
     }
@@ -338,10 +347,15 @@ pub const RuntimeSyntaxTransformer = struct {
 
         var statements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         const membersList = self.transformer.visitor.tree.getNodeList(enumData.Members);
-        var enumVal: u32 = 0;
+        var enumVal = EnumMemberValue{ .Int = 0 };
         for (membersList, 0..) |_, i| {
             enumVal = self.transformEnumMember(&statements, visitedNode, i, enumVal);
-            enumVal += 1;
+            switch (enumVal) {
+                .Int => |val| enumVal = .{ .Int = val +% 1 },
+                .Double => |val| enumVal = .{ .Double = val + 1.0 },
+                .NaN => enumVal = .NaN,
+                else => {},
+            }
         }
 
         const statementList = self.transformer.factory.newNodeList(statements.items);
@@ -351,7 +365,78 @@ pub const RuntimeSyntaxTransformer = struct {
         return self.transformer.factory.newBlock(statementList, true);
     }
 
-    fn transformEnumMember(self: *RuntimeSyntaxTransformer, statements: *std.ArrayListUnmanaged(ast_gen.NodeIndex), enumNode: ast_gen.NodeIndex, index: usize, currentVal: u32) u32 {
+    fn evaluateEnumInitializer(self: *RuntimeSyntaxTransformer, expr: ast_gen.NodeIndex) ?EnumMemberValue {
+        if (expr == 0) return null;
+        const node = self.transformer.visitor.tree.getNode(expr);
+        switch (node) {
+            .NumericLiteral => |n| {
+                if (std.fmt.parseInt(u32, n.Text, 10)) |val| {
+                    return EnumMemberValue{ .Int = val };
+                } else |_| {
+                    if (std.fmt.parseFloat(f64, n.Text)) |val| {
+                        return EnumMemberValue{ .Double = val };
+                    } else |_| return null;
+                }
+            },
+            .StringLiteral => |n| {
+                return EnumMemberValue{ .String = n.Text };
+            },
+            .Identifier => |n| {
+                if (std.mem.eql(u8, n.Text, "NaN")) return .NaN;
+                return self.enumMemberValues.get(n.Text);
+            },
+            .PropertyAccessExpression => |n| {
+                const nameNode = self.transformer.visitor.tree.getNode(n.name);
+                if (nameNode == .Identifier) {
+                    return self.enumMemberValues.get(nameNode.Identifier.Text);
+                }
+                return null;
+            },
+            .BinaryExpression => |n| {
+                const leftVal = self.evaluateEnumInitializer(n.Left) orelse return null;
+                const rightVal = self.evaluateEnumInitializer(n.Right) orelse return null;
+                const opKind = std.meta.activeTag(self.transformer.visitor.tree.getNode(n.OperatorToken));
+
+                if (leftVal == .NaN or rightVal == .NaN) return .NaN;
+
+                switch (opKind) {
+                    .PlusToken => {
+                        if (leftVal == .Int and rightVal == .Int) return .{ .Int = leftVal.Int +% rightVal.Int };
+                        const l = if (leftVal == .Int) @as(f64, @floatFromInt(leftVal.Int)) else leftVal.Double;
+                        const r = if (rightVal == .Int) @as(f64, @floatFromInt(rightVal.Int)) else rightVal.Double;
+                        return .{ .Double = l + r };
+                    },
+                    .MinusToken => {
+                        if (leftVal == .Int and rightVal == .Int) return .{ .Int = leftVal.Int -% rightVal.Int };
+                        const l = if (leftVal == .Int) @as(f64, @floatFromInt(leftVal.Int)) else leftVal.Double;
+                        const r = if (rightVal == .Int) @as(f64, @floatFromInt(rightVal.Int)) else rightVal.Double;
+                        return .{ .Double = l - r };
+                    },
+                    .AsteriskToken => {
+                        if (leftVal == .Int and rightVal == .Int) return .{ .Int = leftVal.Int *% rightVal.Int };
+                        const l = if (leftVal == .Int) @as(f64, @floatFromInt(leftVal.Int)) else leftVal.Double;
+                        const r = if (rightVal == .Int) @as(f64, @floatFromInt(rightVal.Int)) else rightVal.Double;
+                        return .{ .Double = l * r };
+                    },
+                    .SlashToken => {
+                        const l = if (leftVal == .Int) @as(f64, @floatFromInt(leftVal.Int)) else leftVal.Double;
+                        const r = if (rightVal == .Int) @as(f64, @floatFromInt(rightVal.Int)) else rightVal.Double;
+                        if (r == 0) return .NaN;
+                        const res = l / r;
+                        if (std.math.isNan(res)) return .NaN;
+                        if (res == @round(res)) {
+                            return .{ .Int = @as(u32, @intFromFloat(res)) };
+                        }
+                        return .{ .Double = res };
+                    },
+                    else => return null,
+                }
+            },
+            else => return null,
+        }
+    }
+
+    fn transformEnumMember(self: *RuntimeSyntaxTransformer, statements: *std.ArrayListUnmanaged(ast_gen.NodeIndex), enumNode: ast_gen.NodeIndex, index: usize, currentVal: EnumMemberValue) EnumMemberValue {
         const enumData = self.transformer.visitor.tree.getNode(enumNode).EnumDeclaration;
         const memberNode = self.transformer.visitor.tree.getNodeList(enumData.Members)[index];
         const memberData = self.transformer.visitor.tree.getNode(memberNode).EnumMember;
@@ -367,20 +452,73 @@ pub const RuntimeSyntaxTransformer = struct {
         var nextVal = currentVal;
 
         if (expression == 0) {
-            var buf: [32]u8 = undefined;
-            const text = std.fmt.bufPrint(&buf, "{d}", .{currentVal}) catch unreachable;
-            const strValue = self.transformer.emitContext.allocator.dupe(u8, text) catch unreachable;
-            expression = self.transformer.factory.newNumericLiteral(strValue, 0);
+            switch (currentVal) {
+                .Int => |val| {
+                    var buf: [32]u8 = undefined;
+                    const text = std.fmt.bufPrint(&buf, "{d}", .{val}) catch unreachable;
+                    const strValue = self.transformer.emitContext.allocator.dupe(u8, text) catch unreachable;
+                    expression = self.transformer.factory.newNumericLiteral(strValue, 0);
+                },
+                .Double => |val| {
+                    var buf: [32]u8 = undefined;
+                    const text = std.fmt.bufPrint(&buf, "{d}", .{val}) catch unreachable;
+                    const strValue = self.transformer.emitContext.allocator.dupe(u8, text) catch unreachable;
+                    expression = self.transformer.factory.newNumericLiteral(strValue, 0);
+                },
+                .NaN => {
+                    expression = self.transformer.factory.newIdentifier("NaN");
+                },
+                else => {},
+            }
         } else {
-            if (self.transformer.visitor.tree.getNode(expression) == .NumericLiteral) {
-                const numText = ast_utils.getText(self.transformer.visitor.tree, expression);
-                if (std.fmt.parseInt(u32, numText, 10)) |parsed| {
-                    nextVal = parsed;
-                } else |_| {}
+            if (self.evaluateEnumInitializer(expression)) |val| {
+                switch (val) {
+                    .Int => |v| {
+                        var buf: [32]u8 = undefined;
+                        const text = std.fmt.bufPrint(&buf, "{d}", .{v}) catch unreachable;
+                        const strValue = self.transformer.emitContext.allocator.dupe(u8, text) catch unreachable;
+                        expression = self.transformer.factory.newNumericLiteral(strValue, 0);
+                    },
+                    .Double => |v| {
+                        var buf: [32]u8 = undefined;
+                        const text = std.fmt.bufPrint(&buf, "{d}", .{v}) catch unreachable;
+                        const strValue = self.transformer.emitContext.allocator.dupe(u8, text) catch unreachable;
+                        expression = self.transformer.factory.newNumericLiteral(strValue, 0);
+                    },
+                    .NaN => {
+                        expression = self.transformer.factory.newIdentifier("NaN");
+                    },
+                    .String => |v| {
+                        const strValue = self.transformer.emitContext.allocator.dupe(u8, v) catch unreachable;
+                        expression = self.transformer.factory.newStringLiteral(strValue, 0);
+                    },
+                }
+                nextVal = val;
+            } else {
+                if (self.transformer.visitor.tree.getNode(expression) == .NumericLiteral) {
+                    const numText = ast_utils.getText(self.transformer.visitor.tree, expression);
+                    if (std.fmt.parseInt(u32, numText, 10)) |parsed| {
+                        nextVal = .{ .Int = parsed };
+                    } else |_| {
+                        if (std.fmt.parseFloat(f64, numText)) |parsed| {
+                            nextVal = .{ .Double = parsed };
+                        } else |_| {}
+                    }
+                } else if (self.transformer.visitor.tree.getNode(expression) == .StringLiteral) {
+                    const strText = ast_utils.getText(self.transformer.visitor.tree, expression);
+                    nextVal = .{ .String = strText };
+                }
             }
         }
 
-        const useExplicitReverseMapping = true;
+        const memberName = ast_utils.getName(self.transformer.visitor.tree, memberNode);
+        const nameText = ast_utils.getText(self.transformer.visitor.tree, memberName);
+        self.enumMemberValues.put(nameText, nextVal) catch {};
+
+        const useExplicitReverseMapping = switch (nextVal) {
+            .String => false,
+            else => true,
+        };
 
         expression = self.transformer.factory.newAssignmentExpression(
             self.getEnumQualifiedElement(enumNode, memberNode),
@@ -388,9 +526,7 @@ pub const RuntimeSyntaxTransformer = struct {
         );
 
         if (useExplicitReverseMapping) {
-            const memberName = ast_utils.getName(self.transformer.visitor.tree, memberNode);
-            const strText = ast_utils.getText(self.transformer.visitor.tree, memberName);
-            const strName = self.transformer.emitContext.allocator.dupe(u8, strText) catch unreachable;
+            const strName = self.transformer.emitContext.allocator.dupe(u8, nameText) catch unreachable;
             const propertyName = self.transformer.factory.newStringLiteral(strName, ast_utils.TokenFlags.None);
 
             expression = self.transformer.factory.newAssignmentExpression(
@@ -488,7 +624,7 @@ pub const RuntimeSyntaxTransformer = struct {
                     statements.append(std.heap.page_allocator, stmt) catch unreachable;
                 }
                 statementsLocation = ast_utils.getLoc(self.transformer.visitor.tree, bodyData.Statements);
-                blockLocation = ast_utils.getLoc(self.transformer.visitor.tree, visitedData.Body);
+                blockLocation = ast_utils.getLoc(self.transformer.visitor.tree, visitedData.Body orelse 0);
             } else {
                 const visitedBody = self.transformer.visitor.visitNode(nodeData.Body orelse 0);
                 statements.append(std.heap.page_allocator, visitedBody) catch unreachable;
@@ -633,7 +769,7 @@ pub const RuntimeSyntaxTransformer = struct {
         }
 
         var name = self.transformer.visitor.visitNode((nodeData.name orelse 0));
-        if (name == 0 and (exported or ast_utils.childIsDecorated(self.compilerOptions.experimentalDecorators, node, 0))) {
+        if (name == 0 and (exported or ast_utils.childIsDecorated(self.transformer.visitor.tree, self.compilerOptions.experimentalDecorators orelse false, node, 0))) {
             name = self.transformer.factory.newGeneratedNameForNode(node);
         }
         const heritageClauses = self.transformer.visitor.visitNodes((nodeData.HeritageClauses orelse 0));
@@ -822,7 +958,13 @@ pub const RuntimeSyntaxTransformer = struct {
             const tryBlockStatementList = self.transformer.factory.newNodeList(tryBlockStatementsOut);
             ast_utils.setLoc(self.transformer.visitor.tree, tryBlockStatementList, ast_utils.getLoc(self.transformer.visitor.tree, tryBlockData.Statements));
 
-            statementsOut.append(std.heap.page_allocator, self.transformer.factory.updateTryStatement(superStatement, self.transformer.factory.updateBlock(tryBlock, tryBlockStatementList, tryBlockData.MultiLine), self.transformer.visitor.visitNode(tryStatementData.CatchClause orelse 0), self.transformer.visitor.visitNode(tryStatementData.FinallyBlock orelse 0))) catch unreachable;
+            statementsOut.append(std.heap.page_allocator, self.transformer.factory.updateTryStatement(
+                superStatement,
+                tryStatementData,
+                self.transformer.factory.updateBlock(tryBlock, tryBlockData, tryBlockStatementList, tryBlockData.MultiLine),
+                self.transformer.visitor.visitNode(tryStatementData.CatchClause orelse 0),
+                self.transformer.visitor.visitNode(tryStatementData.FinallyBlock orelse 0),
+            )) catch unreachable;
 
             self.popNode(grandparentOfTryStatement);
         } else {

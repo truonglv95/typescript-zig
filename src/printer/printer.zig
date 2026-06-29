@@ -3,6 +3,9 @@ const ast_gen = @import("../ast/ast_generated.zig");
 const ast_mod = @import("../ast/ast.zig");
 const emitcontext = @import("emitcontext.zig");
 const emittextwriter = @import("emittextwriter.zig");
+const precedence = @import("../ast/precedence.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
+const helpers_mod = @import("helpers.zig");
 
 pub const Printer = struct {
     tree: *ast_mod.Ast,
@@ -28,10 +31,72 @@ pub const Printer = struct {
         if (nodeIndex == 0) return;
         const node = self.tree.getNode(nodeIndex);
         if (node != .SourceFile) return;
+
         const sourceFile = node.SourceFile;
         const ListFormat = @import("emit_list.zig").ListFormat;
+        if (try self.emitHelpers(nodeIndex)) {
+            self.writer.writeLine();
+        }
         // SourceFileStatements format: MultiLine
         try self.printList(ListFormat.MultiLine, sourceFile.Statements);
+    }
+
+    pub fn emitHelpers(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!bool {
+        var helpersEmitted = false;
+        if (self.context.getEmitHelpers(nodeIndex)) |helpers_list| {
+            var sorted_helpers: std.ArrayList(*const helpers_mod.EmitHelper) = .empty;
+            defer sorted_helpers.deinit(self.context.allocator);
+            try sorted_helpers.appendSlice(self.context.allocator, helpers_list);
+
+            var i: usize = 0;
+            while (i < sorted_helpers.items.len) : (i += 1) {
+                var j: usize = i + 1;
+                while (j < sorted_helpers.items.len) : (j += 1) {
+                    const px = sorted_helpers.items[i].priority orelse 999;
+                    const py = sorted_helpers.items[j].priority orelse 999;
+                    if (px > py) {
+                        const temp = sorted_helpers.items[i];
+                        sorted_helpers.items[i] = sorted_helpers.items[j];
+                        sorted_helpers.items[j] = temp;
+                    }
+                }
+            }
+
+            for (sorted_helpers.items) |helper| {
+                var helper_indent: usize = 0;
+                var line_it = std.mem.splitScalar(u8, helper.text, '\n');
+                while (line_it.next()) |line| {
+                    if (helper.preserveIndent) {
+                        self.writer.write(line);
+                        self.writer.writeLine();
+                        continue;
+                    }
+                    const trimmed = std.mem.trim(u8, line, " \t\r");
+                    if (trimmed.len == 0) continue;
+                    const starts_with_close = trimmed[0] == '}';
+                    const render_indent = if (starts_with_close and helper_indent > 0) helper_indent - 1 else helper_indent;
+                    var indent_index: usize = 0;
+                    while (indent_index < render_indent) : (indent_index += 1) self.writer.increaseIndent();
+                    self.writer.write(trimmed);
+                    self.writer.writeLine();
+                    indent_index = 0;
+                    while (indent_index < render_indent) : (indent_index += 1) self.writer.decreaseIndent();
+                    var opens: usize = 0;
+                    var closes: usize = 0;
+                    for (trimmed) |char| {
+                        if (char == '{') opens += 1;
+                        if (char == '}') closes += 1;
+                    }
+                    if (opens >= closes) {
+                        helper_indent += opens - closes;
+                    } else {
+                        helper_indent -|= closes - opens;
+                    }
+                }
+                helpersEmitted = true;
+            }
+        }
+        return helpersEmitted;
     }
 
     pub fn printNode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -1052,7 +1117,7 @@ pub const Printer = struct {
 
         if (node.Body) |b| {
             self.writer.writeSpace(" ");
-            try self.printNode(b);
+            try @import("emit_stmt.zig").printFunctionBody(self, b);
         } else {
             self.writer.writeTrailingSemicolon(";");
         }
@@ -1061,7 +1126,20 @@ pub const Printer = struct {
         const node = self.tree.getNode(nodeIndex).ClassStaticBlockDeclaration;
         self.writer.writeKeyword("static");
         self.writer.writeSpace(" ");
-        try self.printNode(node.Body);
+        const body = self.tree.getNode(node.Body).Block;
+        if (!body.MultiLine) {
+            self.writer.writePunctuation("{");
+            self.writer.writeSpace(" ");
+            const statements = self.tree.getNodeList(body.Statements);
+            for (statements, 0..) |statement, index| {
+                if (index > 0) self.writer.writeSpace(" ");
+                try self.printNode(statement);
+            }
+            if (statements.len != 0) self.writer.writeSpace(" ");
+            self.writer.writePunctuation("}");
+        } else {
+            try self.printNode(node.Body);
+        }
     }
     pub fn printConstructor(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).Constructor;
@@ -1070,7 +1148,7 @@ pub const Printer = struct {
         try @import("emit_decl.zig").printSignature(self, nodeIndex);
         if (node.Body) |b| {
             self.writer.writeSpace(" ");
-            try self.printNode(b);
+            try @import("emit_stmt.zig").printFunctionBody(self, b);
         } else {
             self.writer.writeTrailingSemicolon(";");
         }
@@ -1084,7 +1162,7 @@ pub const Printer = struct {
         try @import("emit_decl.zig").printSignature(self, nodeIndex);
         if (node.Body) |b| {
             self.writer.writeSpace(" ");
-            try self.printNode(b);
+            try @import("emit_stmt.zig").printFunctionBody(self, b);
         } else {
             self.writer.writeTrailingSemicolon(";");
         }
@@ -1098,7 +1176,7 @@ pub const Printer = struct {
         try @import("emit_decl.zig").printSignature(self, nodeIndex);
         if (node.Body) |b| {
             self.writer.writeSpace(" ");
-            try self.printNode(b);
+            try @import("emit_stmt.zig").printFunctionBody(self, b);
         } else {
             self.writer.writeTrailingSemicolon(";");
         }
@@ -2048,16 +2126,25 @@ pub const Printer = struct {
         }
     }
     pub fn emitExpression(self: *Printer, expr: u32, prec: u32) anyerror!void {
-        _ = prec;
-        if (expr != 0) {
-            try self.printNode(expr);
+        if (expr == 0) return;
+        const prec_enum: precedence.OperatorPrecedence = @enumFromInt(@as(i32, @intCast(prec)));
+        const skipped = precedence.skipPartiallyEmittedExpressions(self.tree, expr);
+        const expr_prec = precedence.getExpressionPrecedence(self.tree, skipped);
+        const parens = @intFromEnum(expr_prec) < @intFromEnum(prec_enum);
+        if (parens) {
+            self.writer.writePunctuation("(");
+        }
+        try self.printNode(expr);
+        if (parens) {
+            self.writer.writePunctuation(")");
         }
     }
     pub fn emitEmbeddedStatement(self: *Printer, nodeIndex: u32, stmt: u32) anyerror!void {
-        _ = nodeIndex;
         if (stmt != 0) {
-            std.debug.print("emitEmbeddedStatement stmt: {s}\n", .{@tagName(std.meta.activeTag(self.tree.getNode(stmt)))});
             if (std.meta.activeTag(self.tree.getNode(stmt)) == .Block) {
+                self.writer.writeSpace(" ");
+                try self.printNode(stmt);
+            } else if (self.tree.getNode(stmt) == .ExpressionStatement and self.tree.getNode(nodeIndex) == .IfStatement and (self.tree.getNode(nodeIndex).IfStatement.Flags & (1 << 31)) != 0) {
                 self.writer.writeSpace(" ");
                 try self.printNode(stmt);
             } else {
@@ -2077,13 +2164,10 @@ pub const Printer = struct {
     }
 
     pub fn getLeftmostExpression(self: *Printer, nodeIndex: u32, stopAtCallExpressions: bool) u32 {
-        _ = self;
-        _ = stopAtCallExpressions;
-        return nodeIndex;
+        return precedence.getLeftmostExpression(self.tree, nodeIndex, stopAtCallExpressions);
     }
     pub fn skipPartiallyEmittedExpressions(self: *Printer, nodeIndex: u32) u32 {
-        _ = self;
-        return nodeIndex;
+        return precedence.skipPartiallyEmittedExpressions(self.tree, nodeIndex);
     }
 
     pub fn emitKeywordNode(self: *Printer, nodeIndex: u32) anyerror!void {
@@ -2095,10 +2179,7 @@ pub const Printer = struct {
         }
     }
     pub fn emitExpressionNoASI(self: *Printer, expr: u32, prec: u32) anyerror!void {
-        _ = prec;
-        if (expr != 0) {
-            try self.printNode(expr);
-        }
+        try self.emitExpression(expr, prec);
     }
     pub fn emitBlock(self: *Printer, block: u32) anyerror!void {
         if (block != 0) {
@@ -2114,9 +2195,28 @@ pub const Printer = struct {
         return true;
     }
     pub fn shouldEmitOnSingleLine(self: *Printer, nodeIndex: u32) bool {
-        _ = self;
-        _ = nodeIndex;
-        return false;
+        return (self.context.getEmitFlags(nodeIndex) & @import("emitflags.zig").EmitFlags.SingleLine) != 0;
+    }
+    pub fn shouldEmitBlockFunctionBodyOnSingleLine(self: *Printer, bodyIndex: u32) bool {
+        const node = self.tree.getNode(bodyIndex);
+        if (node != .Block) return false;
+        const block = node.Block;
+        if (self.shouldEmitOnSingleLine(bodyIndex)) {
+            return true;
+        }
+        if (block.MultiLine) {
+            return false;
+        }
+        if (bodyIndex < self.tree.positions.items.len) {
+            const loc = self.tree.positions.items[bodyIndex];
+            if (loc.pos != 0 or loc.end != 0) {
+                const utils = @import("utilities.zig");
+                if (!utils.rangeIsOnSingleLine(self.tree, .{ .pos = loc.pos, .end = loc.end }, self.currentSourceFile)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
     pub fn emitTokenNode(self: *Printer, tokenIndexOpt: ?u32) anyerror!void {
         if (tokenIndexOpt) |tokenIndex| {
@@ -2129,6 +2229,16 @@ pub const Printer = struct {
         _ = node1;
         _ = node2;
         self.writer.writeLine();
+    }
+    pub fn getLinesBetweenPositions(self: *Printer, pos1: u32, pos2: u32) u32 {
+        if (pos1 >= pos2 or pos2 > self.tree.sourceText.len) return 0;
+        var lines: u32 = 0;
+        for (self.tree.sourceText[pos1..pos2]) |c| {
+            if (c == '\n') {
+                lines += 1;
+            }
+        }
+        return lines;
     }
     pub fn emitCaseBlock(self: *Printer, block: u32) anyerror!void {
         if (block != 0) {

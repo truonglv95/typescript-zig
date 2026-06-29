@@ -26,11 +26,11 @@ pub const MetadataTransformer = struct {
         var tx = try allocator.create(MetadataTransformer);
         tx.* = .{
             .transformer = undefined,
-            .legacyDecorators = opt.compilerOptions.experimentalDecorators,
+            .legacyDecorators = opt.compilerOptions.experimentalDecorators orelse false,
             .resolver = opt.emitResolver,
             .serializer = undefined,
-            .languageVersion = opt.compilerOptions.target,
-            .strictNullChecks = opt.compilerOptions.strictNullChecks,
+            .languageVersion = opt.compilerOptions.target orelse .Latest,
+            .strictNullChecks = opt.compilerOptions.strictNullChecks orelse false,
             .parent = 0,
             .currentLexicalScope = 0,
         };
@@ -44,10 +44,11 @@ pub const MetadataTransformer = struct {
         if (nodeIndex == 0) return 0;
 
         const tree = tx.transformer.visitor.tree;
+        std.debug.print("MetadataTransformer visiting: {any}\n", .{tree.getNodeKind(nodeIndex)});
 
-        if ((ast_utils.getSubtreeFacts(tree, nodeIndex) & ast_utils.SubtreeFacts.ContainsDecorators) == 0) {
-            return nodeIndex;
-        }
+        // if ((ast_utils.getSubtreeFacts(tree, nodeIndex) & ast_utils.SubtreeFacts.ContainsDecorators) == 0) {
+        //     return nodeIndex;
+        // }
 
         const nodeData = tree.getNode(nodeIndex);
         switch (nodeData) {
@@ -94,7 +95,7 @@ pub const MetadataTransformer = struct {
         if (!ast_utils.classOrConstructorParameterIsDecorated(tree, tx.legacyDecorators, nodeIndex)) {
             return tx.transformer.visitor.visitEachChild(nodeIndex);
         }
-        
+
         const modifiers = tx.injectClassTypeMetadata(tx.transformer.visitor.visitNodesInternal(node.modifiers orelse 0), nodeIndex);
         return tx.transformer.factory.updateClassExpression(
             nodeIndex,
@@ -151,7 +152,7 @@ pub const MetadataTransformer = struct {
         const tree = tx.transformer.visitor.tree;
         const decoratorsOfParams = ast_utils.getDecoratorsOfParameters(tree, nodeIndex, std.heap.page_allocator) catch @panic("OOM");
         defer std.heap.page_allocator.free(decoratorsOfParams);
-        
+
         if (!ast_utils.hasDecorators(tree, nodeIndex) and decoratorsOfParams.len == 0) {
             return tx.transformer.visitor.visitEachChild(nodeIndex);
         }
@@ -167,7 +168,7 @@ pub const MetadataTransformer = struct {
             tx.transformer.visitor.visitNodesInternal(node.TypeParameters orelse 0),
             tx.transformer.visitor.visitNodesInternal(node.Parameters),
             tx.transformer.visitor.visitNodeInternal(node.Type orelse 0),
-                        tx.transformer.visitor.visitNodeInternal(node.Body orelse 0),
+            tx.transformer.visitor.visitNodeInternal(node.Body orelse 0),
         );
     }
 
@@ -175,7 +176,7 @@ pub const MetadataTransformer = struct {
         const tree = tx.transformer.visitor.tree;
         const decoratorsOfParams = ast_utils.getDecoratorsOfParameters(tree, nodeIndex, std.heap.page_allocator) catch @panic("OOM");
         defer std.heap.page_allocator.free(decoratorsOfParams);
-        
+
         if (!ast_utils.hasDecorators(tree, nodeIndex) and decoratorsOfParams.len == 0) {
             return tx.transformer.visitor.visitEachChild(nodeIndex);
         }
@@ -189,7 +190,7 @@ pub const MetadataTransformer = struct {
             tx.transformer.visitor.visitNodesInternal(node.TypeParameters orelse 0),
             tx.transformer.visitor.visitNodesInternal(node.Parameters),
             tx.transformer.visitor.visitNodeInternal(node.Type orelse 0),
-                        tx.transformer.visitor.visitNodeInternal(node.Body orelse 0),
+            tx.transformer.visitor.visitNodeInternal(node.Body orelse 0),
         );
     }
 
@@ -208,14 +209,18 @@ pub const MetadataTransformer = struct {
             tx.transformer.visitor.visitNodesInternal(node.TypeParameters orelse 0),
             tx.transformer.visitor.visitNodesInternal(node.Parameters),
             tx.transformer.visitor.visitNodeInternal(node.Type orelse 0),
-                        tx.transformer.visitor.visitNodeInternal(node.Body orelse 0),
+            tx.transformer.visitor.visitNodeInternal(node.Body orelse 0),
         );
     }
 
     fn injectClassTypeMetadata(tx: *MetadataTransformer, listIndex: ast.NodeIndex, nodeIndex: ast.NodeIndex) ast.NodeIndex {
         const metadata = tx.getTypeMetadata(nodeIndex, nodeIndex);
+        std.debug.print("injectClassTypeMetadata, metadata len: {d}\n", .{metadata.len});
         if (metadata.len > 0) {
             const tree = tx.transformer.visitor.tree;
+            for (metadata, 0..) |m, idx| {
+                std.debug.print(" -> metadata[{d}] tag: {any}\n", .{ idx, tree.getNodeKind(m) });
+            }
             var originalNodes: []const ast.NodeIndex = &[_]ast.NodeIndex{};
             if (listIndex != 0) {
                 originalNodes = tree.getNodeList(listIndex);
@@ -240,23 +245,23 @@ pub const MetadataTransformer = struct {
                 }
             }
             const restStart = modifiersArray.items.len;
-            
+
             for (originalNodes) |n| {
                 if (ast_utils.isDecorator(tree, n)) {
                     modifiersArray.append(std.heap.page_allocator, n) catch @panic("OOM");
                 }
             }
-            
+
             for (metadata) |m| {
                 modifiersArray.append(std.heap.page_allocator, m) catch @panic("OOM");
             }
-            
+
             for (originalNodes[restStart..]) |n| {
                 if (ast_utils.isModifier(tree, n)) {
                     modifiersArray.append(std.heap.page_allocator, n) catch @panic("OOM");
                 }
             }
-            
+
             const res = tx.transformer.factory.newModifierList(modifiersArray.items);
             return res;
         }
@@ -289,17 +294,17 @@ pub const MetadataTransformer = struct {
                     modifiersArray.append(std.heap.page_allocator, n) catch @panic("OOM");
                 }
             }
-            
+
             for (metadata) |m| {
                 modifiersArray.append(std.heap.page_allocator, m) catch @panic("OOM");
             }
-            
+
             for (originalNodes) |n| {
                 if (ast_utils.isModifier(tree, n)) {
                     modifiersArray.append(std.heap.page_allocator, n) catch @panic("OOM");
                 }
             }
-            
+
             const res = tx.transformer.factory.newModifierList(modifiersArray.items);
             return res;
         }
@@ -318,14 +323,17 @@ pub const MetadataTransformer = struct {
 
     fn getOldTypeMetadata(tx: *MetadataTransformer, nodeIndex: ast.NodeIndex, containerIndex: ast.NodeIndex) []const ast.NodeIndex {
         var decorators = std.ArrayListUnmanaged(ast.NodeIndex).empty;
-        
+
+        const tree = tx.transformer.visitor.tree;
+        std.debug.print("getOldTypeMetadata nodeKind: {any}, shouldAddParamTypes: {}\n", .{ tree.getNodeKind(nodeIndex), tx.shouldAddParamTypesMetadata(nodeIndex) });
+
         if (tx.shouldAddTypeMetadata(nodeIndex)) {
             const ctx = metadataserializer.MetadataSerializerContext{
                 .currentLexicalScope = tx.currentLexicalScope,
                 .currentNameScope = containerIndex,
             };
             const typeNode = tx.serializer.serializeTypeOfNode(ctx, nodeIndex, containerIndex);
-            const typeMetadata = tx.transformer.factory.newMetadataHelper("design:type", typeNode);
+            const typeMetadata = tx.newMetadataHelper("design:type", typeNode);
             decorators.append(std.heap.page_allocator, tx.transformer.factory.newDecorator(typeMetadata)) catch @panic("OOM");
         }
         if (tx.shouldAddParamTypesMetadata(nodeIndex)) {
@@ -334,7 +342,7 @@ pub const MetadataTransformer = struct {
                 .currentNameScope = containerIndex,
             };
             const paramTypes = tx.serializer.serializeParameterTypesOfNode(ctx, nodeIndex, containerIndex);
-            const paramTypesMetadata = tx.transformer.factory.newMetadataHelper("design:paramtypes", paramTypes);
+            const paramTypesMetadata = tx.newMetadataHelper("design:paramtypes", paramTypes);
             decorators.append(std.heap.page_allocator, tx.transformer.factory.newDecorator(paramTypesMetadata)) catch @panic("OOM");
         }
         if (tx.shouldAddReturnTypeMetadata(nodeIndex)) {
@@ -343,7 +351,7 @@ pub const MetadataTransformer = struct {
                 .currentNameScope = containerIndex,
             };
             const retType = tx.serializer.serializeReturnTypeOfNode(ctx, nodeIndex);
-            const returnTypeMetadata = tx.transformer.factory.newMetadataHelper("design:returntype", retType);
+            const returnTypeMetadata = tx.newMetadataHelper("design:returntype", retType);
             decorators.append(std.heap.page_allocator, tx.transformer.factory.newDecorator(returnTypeMetadata)) catch @panic("OOM");
         }
         return decorators.toOwnedSlice(std.heap.page_allocator) catch @panic("OOM");
@@ -351,7 +359,7 @@ pub const MetadataTransformer = struct {
 
     fn getNewTypeMetadata(tx: *MetadataTransformer, nodeIndex: ast.NodeIndex, containerIndex: ast.NodeIndex) []const ast.NodeIndex {
         var properties = std.ArrayListUnmanaged(ast.NodeIndex).empty;
-        
+
         if (tx.shouldAddTypeMetadata(nodeIndex)) {
             const ctx = metadataserializer.MetadataSerializerContext{
                 .currentLexicalScope = tx.currentLexicalScope,
@@ -374,7 +382,7 @@ pub const MetadataTransformer = struct {
                 ),
             )) catch @panic("OOM");
         }
-        
+
         if (tx.shouldAddParamTypesMetadata(nodeIndex)) {
             const ctx = metadataserializer.MetadataSerializerContext{
                 .currentLexicalScope = tx.currentLexicalScope,
@@ -397,7 +405,7 @@ pub const MetadataTransformer = struct {
                 ),
             )) catch @panic("OOM");
         }
-        
+
         if (tx.shouldAddReturnTypeMetadata(nodeIndex)) {
             const ctx = metadataserializer.MetadataSerializerContext{
                 .currentLexicalScope = tx.currentLexicalScope,
@@ -420,12 +428,12 @@ pub const MetadataTransformer = struct {
                 ),
             )) catch @panic("OOM");
         }
-        
+
         if (properties.items.len > 0) {
             const propertiesList = tx.transformer.factory.newNodeList(properties.items);
             const objectLiteral = tx.transformer.factory.newObjectLiteralExpression(propertiesList, true);
             const typeInfoMetadata = tx.transformer.factory.newMetadataHelper("design:typeinfo", objectLiteral);
-            
+
             var res = std.heap.page_allocator.alloc(ast.NodeIndex, 1) catch @panic("OOM");
             res[0] = tx.transformer.factory.newDecorator(typeInfoMetadata);
             return res;
@@ -454,5 +462,15 @@ pub const MetadataTransformer = struct {
             else => return false,
         }
     }
+
+    fn newMetadataHelper(tx: *MetadataTransformer, key: []const u8, value: ast.NodeIndex) ast.NodeIndex {
+        const helper = tx.transformer.factory.newMetadataHelper(key, value);
+        const callNode = tx.transformer.visitor.tree.getNode(helper).CallExpression;
+        tx.transformer.emitContext.setEmitFlags(callNode.Expression, @import("../../printer/emitflags.zig").EmitFlags.HelperName) catch unreachable;
+        tx.transformer.emitContext.requestEmitHelper(&@import("../../printer/helpers.zig").metadataHelper);
+        return helper;
+    }
 };
-test "compile" { std.testing.refAllDecls(@This()); }
+test "compile" {
+    std.testing.refAllDecls(@This());
+}

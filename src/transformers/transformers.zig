@@ -1,5 +1,7 @@
 pub const transformer = @import("transformer.zig");
 pub const chain = @import("chain.zig");
+pub const inliners = @import("inliners.zig");
+pub const jsxtransforms = @import("jsxtransforms.zig");
 pub const tstransforms = struct {
     pub const typeeraser = @import("tstransforms/typeeraser.zig");
     pub const importelision = @import("tstransforms/importelision.zig");
@@ -14,6 +16,11 @@ pub const moduletransforms = struct {
 };
 pub const estransforms = struct {
     pub const using = @import("estransforms/using.zig");
+    pub const classfields = @import("estransforms/classfields.zig");
+    pub const esdecorator = @import("estransforms/esdecorator.zig");
+    pub const taggedtemplate = @import("estransforms/taggedtemplate.zig");
+    pub const objectrestspread = @import("estransforms/objectrestspread.zig");
+    pub const async_transform = @import("estransforms/async.zig");
 };
 test "compile all" {
     _ = @import("tstransforms/metadata.zig");

@@ -35,11 +35,12 @@ pub const Ast = struct {
     parents: std.ArrayListUnmanaged(ast_gen.NodeIndex),
     positions: std.ArrayListUnmanaged(TextRange),
     localSymbols: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ast_gen.SymbolIndex),
+    jsdocCache: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, []const ast_gen.NodeIndex),
+    hasLazyJSDoc: bool,
 
-    pub fn getNodeKind(self: *Ast, node: ast_gen.NodeIndex) ast_gen.NodeData {
-        _ = self;
-        _ = node;
-        return undefined;
+    pub fn getNodeKind(self: *Ast, node: ast_gen.NodeIndex) std.meta.Tag(ast_gen.NodeData) {
+        if (node == 0) return .Unknown;
+        return std.meta.activeTag(self.getNode(node));
     }
 
     pub fn init(allocator: std.mem.Allocator) Ast {
@@ -52,6 +53,8 @@ pub const Ast = struct {
             .parents = .empty,
             .positions = .empty,
             .localSymbols = .empty,
+            .jsdocCache = .empty,
+            .hasLazyJSDoc = false,
         };
         // Reserve index 0 as "null/empty"
         a.nodes.append(allocator, .{ .Unknown = void{} }) catch unreachable;
@@ -62,6 +65,11 @@ pub const Ast = struct {
     }
 
     pub fn deinit(self: *Ast) void {
+        var it = self.jsdocCache.valueIterator();
+        while (it.next()) |val| {
+            self.allocator.free(val.*);
+        }
+        self.jsdocCache.deinit(self.allocator);
         self.nodes.deinit(self.allocator);
         self.extraData.deinit(self.allocator);
         self.parents.deinit(self.allocator);
@@ -198,4 +206,4 @@ pub const ModifierFlagsExport: u32 = 0;
 
 pub const ModifierFlagsDefault: u32 = 0;
 
-pub const NodeFlagsLet = 2;
+pub const NodeFlagsLet = 1;

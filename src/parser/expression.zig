@@ -692,19 +692,25 @@ pub fn parseLeftHandSideExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_g
 }
 
 pub fn parseLiteralExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
+    const start_pos = p.scanner.state.tokenStart;
+    const end_pos = p.scanner.getTokenEnd();
     const text = p.scanner.state.tokenValue;
     const tokenFlags = p.scanner.state.tokenFlags; // Assuming this exists or similar
     const token = p.token;
     p.nextToken();
 
-    switch (token) {
-        kind.Kind.StringLiteral => return p.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
-        kind.Kind.NumericLiteral => return p.ast.pushNode(.{ .NumericLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
-        kind.Kind.BigIntLiteral => return p.ast.pushNode(.{ .BigIntLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
-        kind.Kind.RegularExpressionLiteral => return p.ast.pushNode(.{ .RegularExpressionLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
-        kind.Kind.NoSubstitutionTemplateLiteral => return p.ast.pushNode(.{ .NoSubstitutionTemplateLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text, .RawText = text, .TemplateFlags = 0, .Symbol = 0 } }),
+    const nodeIndex = switch (token) {
+        kind.Kind.StringLiteral => try p.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
+        kind.Kind.NumericLiteral => try p.ast.pushNode(.{ .NumericLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
+        kind.Kind.BigIntLiteral => try p.ast.pushNode(.{ .BigIntLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
+        kind.Kind.RegularExpressionLiteral => try p.ast.pushNode(.{ .RegularExpressionLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text } }),
+        kind.Kind.NoSubstitutionTemplateLiteral => try p.ast.pushNode(.{ .NoSubstitutionTemplateLiteral = .{ .Flags = 0, .TokenFlags = tokenFlags, .Text = text, .RawText = text, .TemplateFlags = @as(u16, @intCast(tokenFlags & 0xFFFF)), .Symbol = 0 } }),
         else => return error.InvalidLiteral,
+    };
+    if (nodeIndex < p.ast.positions.items.len) {
+        p.ast.positions.items[nodeIndex] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
     }
+    return nodeIndex;
 }
 
 pub fn parseArgumentExpressionWrapper(p: *parser_pkg.Parser) ast_gen.NodeIndex {
@@ -1035,7 +1041,7 @@ pub fn parseTemplateHead(p: *parser_pkg.Parser, isTaggedTemplate: bool) anyerror
     if (!isTaggedTemplate and (p.scanner.state.tokenFlags & scanner_pkg.TokenFlags.Unterminated) != 0) {
         p.token = p.scanner.reScanTemplateToken(false);
     }
-    const result = try p.ast.pushNode(.{ .TemplateHead = .{ .Flags = 0, .TokenFlags = p.scanner.state.tokenFlags, .Text = p.scanner.state.tokenValue, .RawText = "", .TemplateFlags = 0 } });
+    const result = try p.ast.pushNode(.{ .TemplateHead = .{ .Flags = 0, .TokenFlags = p.scanner.state.tokenFlags, .Text = p.scanner.state.tokenValue, .RawText = "", .TemplateFlags = @as(u16, @intCast(p.scanner.state.tokenFlags & 0xFFFF)) } });
     p.nextToken();
     return result;
 }
@@ -1077,9 +1083,9 @@ pub fn parseLiteralOfTemplateSpan(p: *parser_pkg.Parser, isTaggedTemplate: bool)
 pub fn parseTemplateMiddleOrTail(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
     var result: ast_gen.NodeIndex = 0;
     if (p.token == kind.Kind.TemplateMiddle) {
-        result = try p.ast.pushNode(.{ .TemplateMiddle = .{ .Flags = 0, .TokenFlags = p.scanner.state.tokenFlags, .Text = p.scanner.state.tokenValue, .RawText = "", .TemplateFlags = 0 } });
+        result = try p.ast.pushNode(.{ .TemplateMiddle = .{ .Flags = 0, .TokenFlags = p.scanner.state.tokenFlags, .Text = p.scanner.state.tokenValue, .RawText = "", .TemplateFlags = @as(u16, @intCast(p.scanner.state.tokenFlags & 0xFFFF)) } });
     } else {
-        result = try p.ast.pushNode(.{ .TemplateTail = .{ .Flags = 0, .TokenFlags = p.scanner.state.tokenFlags, .Text = p.scanner.state.tokenValue, .RawText = "", .TemplateFlags = 0 } });
+        result = try p.ast.pushNode(.{ .TemplateTail = .{ .Flags = 0, .TokenFlags = p.scanner.state.tokenFlags, .Text = p.scanner.state.tokenValue, .RawText = "", .TemplateFlags = @as(u16, @intCast(p.scanner.state.tokenFlags & 0xFFFF)) } });
     }
     p.nextToken();
     return result;

@@ -36,10 +36,8 @@ pub const Transformer = struct {
     }
 
     pub fn extractModifiers(self: *Transformer, modifiers: ast.NodeIndex, flags: u32) ast.NodeIndex {
-        _ = self;
-        _ = modifiers;
-        _ = flags;
-        return 0; // stub
+        const ast_utils = @import("../ast/ast_utils.zig");
+        return ast_utils.extractModifiers(self.emitContext.tree, modifiers, flags);
     }
 };
 
@@ -53,4 +51,8 @@ pub const TransformOptions = struct {
 
 pub const TransformerFactory = *const fn (allocator: std.mem.Allocator, opt: *TransformOptions) anyerror!?*Transformer;
 
-pub fn isGeneratedIdentifier(a: anytype, b: anytype) bool { _ = a; _ = b; return false; }
+pub fn isGeneratedIdentifier(a: anytype, b: anytype) bool {
+    _ = a;
+    _ = b;
+    return false;
+}

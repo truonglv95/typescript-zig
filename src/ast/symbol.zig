@@ -36,7 +36,7 @@ pub const SymbolFlags = struct {
     pub const ConstEnumOnlyModule: u32 = 1 << 28;
 
     // Derived flags
-    pub const ExportHasLocal = 1 << 20;
+    pub const ExportHasLocal = Function | Class | Enum | ValueModule;
     pub const Variable: u32 = FunctionScopedVariable | BlockScopedVariable;
     pub const Value: u32 = Variable | Property | EnumMember | ObjectLiteral | Function | Class | Enum | ValueModule | Method | GetAccessor | SetAccessor;
 

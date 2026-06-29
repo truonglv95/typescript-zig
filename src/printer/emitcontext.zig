@@ -7,6 +7,7 @@ const GeneratedIdentifierFlags = @import("factory.zig").GeneratedIdentifierFlags
 const NodeVisitor = @import("../ast/visitor.zig").NodeVisitor;
 const NodeVisitorHooks = @import("../ast/visitor.zig").NodeVisitorHooks;
 const EmitFlags = @import("emitflags.zig").EmitFlags;
+const helpers_mod = @import("helpers.zig");
 
 pub const EnvironmentFlags = struct {
     pub const None: u32 = 0;
@@ -64,6 +65,7 @@ pub const EmitNode = struct {
     leadingComments: std.ArrayListUnmanaged(SynthesizedComment) = .empty,
     trailingComments: std.ArrayListUnmanaged(SynthesizedComment) = .empty,
     externalHelpersModuleName: ast.NodeIndex = 0,
+    helpers: ?std.ArrayListUnmanaged(*const helpers_mod.EmitHelper) = null,
 };
 
 pub const EmitContext = struct {
@@ -76,10 +78,15 @@ pub const EmitContext = struct {
         }
     }
 
-    pub fn mostOriginal(self: *EmitContext, a: anytype) ast.NodeIndex {
-        _ = self;
-        _ = a;
-        return 0;
+    pub fn mostOriginal(self: *EmitContext, node: ast.NodeIndex) ast.NodeIndex {
+        if (node == 0) return 0;
+        var current = node;
+        while (true) {
+            const orig = self.getOriginal(current);
+            if (orig == 0) break;
+            current = orig;
+        }
+        return current;
     }
 
     pub fn isCallToHelper(self: *EmitContext, a: anytype, b: anytype) bool {
@@ -89,14 +96,52 @@ pub const EmitContext = struct {
         return false;
     }
 
-    pub fn addEmitHelpers(self: *EmitContext, a: anytype, b: anytype) void {
-        _ = self;
-        _ = a;
-        _ = b;
+    pub fn requestEmitHelper(self: *EmitContext, helper: *const helpers_mod.EmitHelper) void {
+        for (self.emitHelpers.items) |h| {
+            if (std.mem.eql(u8, h.name, helper.name)) return;
+        }
+        self.emitHelpers.append(self.allocator, helper) catch unreachable;
+        for (helper.dependencies) |dep| {
+            self.requestEmitHelper(dep);
+        }
     }
-    pub fn readEmitHelpers(self: *EmitContext) u32 {
-        _ = self;
-        return 0;
+
+    pub fn readEmitHelpers(self: *EmitContext) ?[]const *const helpers_mod.EmitHelper {
+        if (self.emitHelpers.items.len == 0) return null;
+        const helpers_slice = self.allocator.dupe(*const helpers_mod.EmitHelper, self.emitHelpers.items) catch unreachable;
+        self.emitHelpers.clearRetainingCapacity();
+        return helpers_slice;
+    }
+
+    pub fn addEmitHelpers(self: *EmitContext, nodeIndex: ast.NodeIndex, helpers_list: ?[]const *const helpers_mod.EmitHelper) void {
+        const h_list = helpers_list orelse return;
+        var gop = self.emitNodes.getOrPut(self.allocator, nodeIndex) catch unreachable;
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        if (gop.value_ptr.helpers == null) {
+            gop.value_ptr.helpers = std.ArrayListUnmanaged(*const helpers_mod.EmitHelper).empty;
+        }
+        for (h_list) |helper| {
+            var found = false;
+            for (gop.value_ptr.helpers.?.items) |existing| {
+                if (std.mem.eql(u8, existing.name, helper.name)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                gop.value_ptr.helpers.?.append(self.allocator, helper) catch unreachable;
+            }
+        }
+    }
+
+    pub fn getEmitHelpers(self: *EmitContext, nodeIndex: ast.NodeIndex) ?[]const *const helpers_mod.EmitHelper {
+        const emitNode = self.emitNodes.get(nodeIndex) orelse return null;
+        if (emitNode.helpers) |h| {
+            return h.items;
+        }
+        return null;
     }
 
     pub fn endAndMergeVariableEnvironment(self: *EmitContext, statements: []const ast_gen.NodeIndex) []const ast_gen.NodeIndex {
@@ -142,7 +187,7 @@ pub const EmitContext = struct {
 
     varScopeStack: std.ArrayListUnmanaged(*VarScope) = .empty,
     letScopeStack: std.ArrayListUnmanaged(*VarScope) = .empty,
-    // emitHelpers: collections.OrderedSet... (implement later if needed)
+    emitHelpers: std.ArrayListUnmanaged(*const helpers_mod.EmitHelper) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, tree: *ast.Ast, nodeFactory: *NodeFactory) EmitContext {
         return .{
@@ -154,11 +199,20 @@ pub const EmitContext = struct {
 
     pub fn deinit(self: *EmitContext) void {
         self.original.deinit(self.allocator);
+        var it = self.emitNodes.valueIterator();
+        while (it.next()) |node| {
+            if (node.helpers) |*h| {
+                h.deinit(self.allocator);
+            }
+            node.leadingComments.deinit(self.allocator);
+            node.trailingComments.deinit(self.allocator);
+        }
         self.emitNodes.deinit(self.allocator);
         self.assignedName.deinit(self.allocator);
         self.classThis.deinit(self.allocator);
         self.autoGenerate.deinit(self.allocator);
         self.textSource.deinit(self.allocator);
+        self.emitHelpers.deinit(self.allocator);
 
         for (self.varScopeStack.items) |scope| {
             scope.deinit(self.allocator);
@@ -175,11 +229,19 @@ pub const EmitContext = struct {
 
     pub fn reset(self: *EmitContext) void {
         self.original.clearRetainingCapacity();
+        var it = self.emitNodes.valueIterator();
+        while (it.next()) |node| {
+            if (node.helpers) |*h| {
+                h.deinit(self.allocator);
+                node.helpers = null;
+            }
+        }
         self.emitNodes.clearRetainingCapacity();
         self.assignedName.clearRetainingCapacity();
         self.classThis.clearRetainingCapacity();
         self.autoGenerate.clearRetainingCapacity();
         self.textSource.clearRetainingCapacity();
+        self.emitHelpers.clearRetainingCapacity();
     }
 
     pub fn setOriginal(self: *EmitContext, node: ast.NodeIndex, original: ast.NodeIndex) !void {
@@ -194,11 +256,27 @@ pub const EmitContext = struct {
         return expression; // placeholder
     }
 
-    pub fn setTypeNode(self: *EmitContext, node: ast.NodeIndex, typeNode: ast.NodeIndex) void {
+    pub fn setTypeNode(self: *EmitContext, node: ast.NodeIndex, typeNode: ast_gen.NodeIndex) void {
         _ = self;
         _ = node;
         _ = typeNode;
         // Stub for setting type node
+    }
+
+    pub fn getAssignedName(self: *EmitContext, node: ast.NodeIndex) ast.NodeIndex {
+        return self.assignedName.get(node) orelse 0;
+    }
+
+    pub fn setAssignedName(self: *EmitContext, node: ast.NodeIndex, name: ast.NodeIndex) !void {
+        try self.assignedName.put(self.allocator, node, name);
+    }
+
+    pub fn getClassThis(self: *EmitContext, node: ast.NodeIndex) ast.NodeIndex {
+        return self.classThis.get(node) orelse 0;
+    }
+
+    pub fn setClassThis(self: *EmitContext, node: ast.NodeIndex, class_this: ast.NodeIndex) !void {
+        try self.classThis.put(self.allocator, node, class_this);
     }
 
     pub fn getOriginal(self: *EmitContext, node: ast.NodeIndex) ast.NodeIndex {

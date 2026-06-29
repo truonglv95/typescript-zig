@@ -14,11 +14,14 @@ pub const checker_pkg = @import("checker/checker.zig");
 pub const printer_pkg = @import("printer/printer.zig");
 pub const factory = @import("printer/factory.zig");
 pub const emitcontext = @import("printer/emitcontext.zig");
+pub const helpers = @import("printer/helpers.zig");
 pub const textwriter = @import("printer/textwriter.zig");
 pub const transformers_pkg = @import("transformers/transformers.zig");
 pub const typeeraser = @import("transformers/tstransforms/typeeraser.zig");
 pub const core = @import("core/core.zig");
 pub const emitresolver = @import("printer/emitresolver.zig");
+pub const referenceresolver = @import("binder/referenceresolver.zig");
+pub const ast_utils = @import("ast/ast_utils.zig");
 
 test {
     _ = @import("ast/kind.zig");
