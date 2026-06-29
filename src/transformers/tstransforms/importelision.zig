@@ -19,7 +19,7 @@ pub const ImportElisionTransformer = struct {
         if (compilerOptions.verbatimModuleSyntax orelse false) {
             @panic("ImportElisionTransformer should not be used with VerbatimModuleSyntax");
         }
-        
+
         var tx = try allocator.create(ImportElisionTransformer);
         tx.* = .{
             .transformer = undefined,
@@ -52,18 +52,20 @@ pub const ImportElisionTransformer = struct {
             },
             .ImportDeclaration => |n| {
                 if (n.ImportClause) |ic| {
-                    const importClause = tx.transformer.visitor.visitNodeInternal(ic);
-                    if (importClause == 0) {
-                        return 0;
+                    if (ic != 0) {
+                        const importClause = tx.transformer.visitor.visitNodeInternal(ic);
+                        if (importClause == 0) {
+                            return 0;
+                        }
+                        return tx.transformer.factory.updateImportDeclaration(
+                            nodeIndex,
+                            n,
+                            0, // modifiers
+                            importClause,
+                            n.ModuleSpecifier,
+                            tx.transformer.visitor.visitNodeInternal(n.Attributes orelse 0),
+                        );
                     }
-                    return tx.transformer.factory.updateImportDeclaration(
-                        nodeIndex,
-                        n,
-                        0, // modifiers
-                        importClause,
-                        n.ModuleSpecifier,
-                        tx.transformer.visitor.visitNodeInternal(n.Attributes orelse 0),
-                    );
                 }
                 return tx.transformer.visitor.visitEachChild(nodeIndex);
             },

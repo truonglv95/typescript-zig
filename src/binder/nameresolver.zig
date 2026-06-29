@@ -481,7 +481,7 @@ pub const NameResolver = struct {
     pub fn getArgumentsSymbol(self: *NameResolver) ast_gen.SymbolIndex {
         if (self.ArgumentsSymbol == null) {
             var sym = std.mem.zeroes(symbol.Symbol);
-            sym.Name = "arguments";
+            sym.Name = self.binder.allocator.dupe(u8, "arguments") catch unreachable;
             sym.Flags = symbol.SymbolFlags.Property | symbol.SymbolFlags.Transient;
             self.binder.symbols.append(self.binder.allocator, sym) catch unreachable;
             self.ArgumentsSymbol = @as(u32, @intCast(self.binder.symbols.items.len - 1));

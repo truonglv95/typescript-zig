@@ -47,27 +47,26 @@ pub fn getEscapedChar(ch: u21) ?[]const u8 {
     };
 }
 
-pub fn encodeJsxCharacterEntity(b: *std.ArrayList(u8), charCode: u21) !void {
-    try b.appendSlice("&#x");
+pub fn encodeJsxCharacterEntity(allocator: std.mem.Allocator, b: *std.ArrayList(u8), charCode: u21) !void {
+    try b.appendSlice(allocator, "&#x");
     var buf: [16]u8 = undefined;
     const hex = try std.fmt.bufPrint(&buf, "{X}", .{charCode});
-    try b.appendSlice(hex);
-    try b.append(';');
+    try b.appendSlice(allocator, hex);
+    try b.append(allocator, ';');
 }
 
-pub fn encodeUtf16EscapeSequence(b: *std.ArrayList(u8), charCode: u21) !void {
-    try b.appendSlice("\\u");
+pub fn encodeUtf16EscapeSequence(allocator: std.mem.Allocator, b: *std.ArrayList(u8), charCode: u21) !void {
+    try b.appendSlice(allocator, "\\u");
     var buf: [16]u8 = undefined;
     const hex = try std.fmt.bufPrint(&buf, "{X}", .{charCode});
     var i: usize = hex.len;
     while (i < 4) : (i += 1) {
-        try b.append('0');
+        try b.append(allocator, '0');
     }
-    try b.appendSlice(hex);
+    try b.appendSlice(allocator, hex);
 }
 
 pub fn escapeStringWorker(allocator: std.mem.Allocator, s: []const u8, quoteChar: QuoteChar, flags: u32, b: *std.ArrayList(u8)) !void {
-    _ = allocator;
     var pos: usize = 0;
     var i: usize = 0;
     while (i < s.len) {
@@ -79,7 +78,7 @@ pub fn escapeStringWorker(allocator: std.mem.Allocator, s: []const u8, quoteChar
         } else {
             ch = std.unicode.utf8Decode(view[0..len]) catch std.unicode.replacement_character;
         }
-        
+
         var escape = false;
         if (ch >= 0xD800 and ch <= 0xDFFF) {
             escape = true;
@@ -108,45 +107,45 @@ pub fn escapeStringWorker(allocator: std.mem.Allocator, s: []const u8, quoteChar
                 } else if (ch <= '\u{001f}' or ((flags & GetLiteralTextFlags.NeverAsciiEscape) == 0 and ch > '\u{007f}')) {
                     escape = true;
                 }
-            }
+            },
         }
 
         if (escape) {
             if (pos < i) {
-                try b.appendSlice(s[pos..i]);
+                try b.appendSlice(allocator, s[pos..i]);
             }
 
             if ((flags & GetLiteralTextFlags.JsxAttributeEscape) != 0) {
                 if (ch == 0) {
-                    try b.appendSlice("&#0;");
+                    try b.appendSlice(allocator, "&#0;");
                 } else if (getJsxEscapedChar(ch)) |match| {
-                    try b.appendSlice(match);
+                    try b.appendSlice(allocator, match);
                 } else {
-                    try encodeJsxCharacterEntity(b, ch);
+                    try encodeJsxCharacterEntity(allocator, b, ch);
                 }
             } else {
                 if (ch == '\r' and quoteChar == .Backtick and i + 1 < s.len and s[i + 1] == '\n') {
                     // size++ (need to skip '\n' later or what? Wait, the Go code just size++ and it is handled below i += size)
                     // For Zig, we handle next char manually. Let's say we increment i by 1
                     i += 1;
-                    try b.appendSlice("\\r\\n");
+                    try b.appendSlice(allocator, "\\r\\n");
                 } else if (ch > 0xFFFF) {
                     const ch_adjusted = ch - 0x10000;
-                    try encodeUtf16EscapeSequence(b, ((ch_adjusted & 0b11111111110000000000) >> 10) + 0xD800);
-                    try encodeUtf16EscapeSequence(b, (ch_adjusted & 0b00000000001111111111) + 0xDC00);
+                    try encodeUtf16EscapeSequence(allocator, b, ((ch_adjusted & 0b11111111110000000000) >> 10) + 0xD800);
+                    try encodeUtf16EscapeSequence(allocator, b, (ch_adjusted & 0b00000000001111111111) + 0xDC00);
                 } else if (ch >= 0xD800 and ch <= 0xDFFF) {
-                    try encodeUtf16EscapeSequence(b, ch);
+                    try encodeUtf16EscapeSequence(allocator, b, ch);
                 } else if (ch == 0) {
                     if (i + 1 < s.len and std.ascii.isDigit(s[i + 1])) {
-                        try b.appendSlice("\\x00");
+                        try b.appendSlice(allocator, "\\x00");
                     } else {
-                        try b.appendSlice("\\0");
+                        try b.appendSlice(allocator, "\\0");
                     }
                 } else {
                     if (getEscapedChar(ch)) |match| {
-                        try b.appendSlice(match);
+                        try b.appendSlice(allocator, match);
                     } else {
-                        try encodeUtf16EscapeSequence(b, ch);
+                        try encodeUtf16EscapeSequence(allocator, b, ch);
                     }
                 }
             }
@@ -156,32 +155,32 @@ pub fn escapeStringWorker(allocator: std.mem.Allocator, s: []const u8, quoteChar
     }
 
     if (pos < i) {
-        try b.appendSlice(s[pos..i]);
+        try b.appendSlice(allocator, s[pos..i]);
     }
 }
 
 pub fn escapeString(allocator: std.mem.Allocator, s: []const u8, quoteChar: QuoteChar) ![]const u8 {
-    var b = std.ArrayList(u8).init(allocator);
-    errdefer b.deinit();
-    try b.ensureTotalCapacity(s.len + 2);
+    var b = std.ArrayList(u8).empty;
+    errdefer b.deinit(allocator);
+    try b.ensureTotalCapacity(allocator, s.len + 2);
     try escapeStringWorker(allocator, s, quoteChar, GetLiteralTextFlags.NeverAsciiEscape, &b);
-    return b.toOwnedSlice();
+    return b.toOwnedSlice(allocator);
 }
 
 pub fn escapeNonAsciiString(allocator: std.mem.Allocator, s: []const u8, quoteChar: QuoteChar) ![]const u8 {
-    var b = std.ArrayList(u8).init(allocator);
-    errdefer b.deinit();
-    try b.ensureTotalCapacity(s.len + 2);
+    var b = std.ArrayList(u8).empty;
+    errdefer b.deinit(allocator);
+    try b.ensureTotalCapacity(allocator, s.len + 2);
     try escapeStringWorker(allocator, s, quoteChar, GetLiteralTextFlags.None, &b);
-    return b.toOwnedSlice();
+    return b.toOwnedSlice(allocator);
 }
 
 pub fn escapeJsxAttributeString(allocator: std.mem.Allocator, s: []const u8, quoteChar: QuoteChar) ![]const u8 {
-    var b = std.ArrayList(u8).init(allocator);
-    errdefer b.deinit();
-    try b.ensureTotalCapacity(s.len + 2);
+    var b = std.ArrayList(u8).empty;
+    errdefer b.deinit(allocator);
+    try b.ensureTotalCapacity(allocator, s.len + 2);
     try escapeStringWorker(allocator, s, quoteChar, GetLiteralTextFlags.JsxAttributeEscape | GetLiteralTextFlags.NeverAsciiEscape, &b);
-    return b.toOwnedSlice();
+    return b.toOwnedSlice(allocator);
 }
 
 // TODO: port scanner
@@ -224,11 +223,12 @@ pub fn isImmediatelyInvokedFunctionExpressionOrArrowFunction(tree: *ast.Ast, nod
 }
 
 pub fn rangeIsOnSingleLine(tree: *ast.Ast, r: emitcontext.TextRange, sourceFileIndex: ast.NodeIndex) bool {
-    _ = tree;
-    _ = r;
     _ = sourceFileIndex;
-    // TODO: port scanner
-    return false;
+    if (r.pos > r.end or r.end > @as(i64, @intCast(tree.sourceText.len))) return false;
+    const start: usize = @intCast(r.pos);
+    const end: usize = @intCast(r.end);
+    const text = tree.sourceText[start..end];
+    return std.mem.indexOfAny(u8, text, "\r\n") == null;
 }
 
 pub fn rangeStartPositionsAreOnSameLine(tree: *ast.Ast, range1: emitcontext.TextRange, range2: emitcontext.TextRange, sourceFileIndex: ast.NodeIndex) bool {
@@ -312,7 +312,7 @@ pub fn formatGeneratedName(allocator: std.mem.Allocator, privateName: bool, pref
     const p = removeLeadingHash(prefix);
     const b = removeLeadingHash(base);
     const s = removeLeadingHash(suffix);
-    
+
     const name = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ p, b, s });
     if (privateName) {
         // Can optimize by returning # directly from allocPrint but for simplicity:
@@ -334,7 +334,7 @@ pub fn makeIdentifierFromModuleName(allocator: std.mem.Allocator, moduleName: []
     const baseName = std.fs.path.basename(moduleName);
     var builder = std.ArrayList(u8).init(allocator);
     errdefer builder.deinit();
-    
+
     var start: usize = 0;
     var pos: usize = 0;
     while (pos < baseName.len) {
@@ -467,7 +467,7 @@ pub fn tokenToString(token: @import("../ast/kind.zig").Kind) ?[]const u8 {
         .AtToken => "@",
         .HashToken => "#",
         .BacktickToken => "`",
-        
+
         .AbstractKeyword => "abstract",
         .AccessorKeyword => "accessor",
         .AnyKeyword => "any",

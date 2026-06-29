@@ -53,12 +53,16 @@ pub const ESModuleTransformer = struct {
 
         self.currentSourceFile = node;
 
-        var result = visitor.visitEachChild(node);
+        // This transformer currently only adds the external-module marker; it
+        // does not rewrite module syntax. Revisiting every statement here can
+        // re-run child visitors over already transformed imports and elide a
+        // side-effect-only import. Preserve the source-file statements as-is.
+        var result = node;
         const resultNode = tree.getNode(result).SourceFile;
 
         // If it's an external module, and module kind != Preserve, and no statements are external module indicators
         if (ast_utils.isExternalModule(tree, result) and
-            self.compilerOptions.module != .Preserve)
+            (self.compilerOptions.module orelse .None) != .Preserve)
         {
             var hasExternalModuleIndicator = false;
             const statsList = tree.getNodeList(resultNode.Statements);

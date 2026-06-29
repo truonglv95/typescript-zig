@@ -2,33 +2,44 @@ const std = @import("std");
 const ast = @import("../ast/ast.zig");
 
 pub const EmitResolver = struct {
-    pub fn getEnumMemberValue(self: *EmitResolver, a: anytype) struct { value: u32 } { _ = self; _ = a; return .{ .value = 0 }; }
+    pub fn getEnumMemberValue(self: *EmitResolver, a: anytype) struct { value: u32 } {
+        _ = self;
+        _ = a;
+        return .{ .value = 0 };
+    }
 
     // Stub implementation for now. Checker will implement these properly later.
-    
+
     pub fn IsReferencedAliasDeclaration(self: *EmitResolver, node: ast.NodeIndex) bool {
         _ = self;
         _ = node;
         return true;
     }
-    
+
     pub fn IsValueAliasDeclaration(self: *EmitResolver, node: ast.NodeIndex) bool {
         _ = self;
         _ = node;
         return true;
     }
-    
+
     pub fn IsTopLevelValueImportEqualsWithEntityName(self: *EmitResolver, node: ast.NodeIndex) bool {
         _ = self;
         _ = node;
         return true;
     }
-    
+
     pub fn hasVisibleDeclarations(self: *EmitResolver, symbol: ast.SymbolIndex, shouldComputeAliasesToMakeVisible: bool) ?SymbolAccessibilityResult {
         _ = self;
         _ = symbol;
         _ = shouldComputeAliasesToMakeVisible;
         return null;
+    }
+
+    pub fn getTypeReferenceSerializationKind(self: *EmitResolver, a: anytype, b: anytype) u32 {
+        _ = self;
+        _ = a;
+        _ = b;
+        return 0;
     }
 };
 

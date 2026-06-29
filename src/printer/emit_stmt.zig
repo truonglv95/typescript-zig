@@ -3,14 +3,45 @@ const ast_mod = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 const Printer = @import("printer.zig").Printer;
 
-fn printStatement(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try printer.printNode(nodeIndex); }
-fn printArgument(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void { try printer.printNode(nodeIndex); }
+fn printStatement(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+    try printer.printNode(nodeIndex);
+}
+fn printArgument(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+    try printer.printNode(nodeIndex);
+}
 
 // Port of isEmptyBlock
 pub fn isEmptyBlock(printer: *Printer, blockIndex: ast_mod.NodeIndex, statementsIndex: ast_mod.NodeIndex) bool {
     const statements = printer.tree.getNodeList(statementsIndex);
     return statements.len == 0 and
         (printer.currentSourceFile == 0 or printer.rangeEndIsOnSameLineAsRangeStart(blockIndex, blockIndex, printer.currentSourceFile));
+}
+
+pub fn printFunctionBody(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+    const node = printer.tree.getNode(nodeIndex);
+    if (node != .Block) {
+        try printer.printNode(nodeIndex);
+        return;
+    }
+    const state = try printer.enterNode(nodeIndex);
+    try printer.generateNames(nodeIndex);
+    _ = try printer.emitToken(.OpenBraceToken, 0, .Punctuation, nodeIndex);
+
+    const statements = node.Block.Statements;
+    const statementsList = if (statements == 0) &[_]ast_mod.NodeIndex{} else printer.tree.getNodeList(statements);
+
+    const singleLine = printer.shouldEmitBlockFunctionBodyOnSingleLine(nodeIndex);
+    if (singleLine and statementsList.len == 0) {
+        printer.writer.writeSpace(" ");
+    } else {
+        const format = if (singleLine) @import("emit_list.zig").ListFormat.SingleLineFunctionBodyStatements else @import("emit_list.zig").ListFormat.MultiLineBlockStatements;
+        try printer.emitList(printStatement, nodeIndex, statements, format);
+    }
+
+    const endPos = 0;
+    const closeBraceFormat: u32 = 0;
+    _ = try printer.emitTokenEx(.CloseBraceToken, endPos, .Punctuation, nodeIndex, closeBraceFormat);
+    try printer.exitNode(nodeIndex, state);
 }
 
 // emitBlock
@@ -22,20 +53,15 @@ pub fn printBlock(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void
 
     const statements = node.Statements;
     const statementsList = if (statements == 0) &[_]ast_mod.NodeIndex{} else printer.tree.getNodeList(statements);
-    
-    if (!node.MultiLine and statementsList.len == 0) {
+
+    const singleLine = (!node.MultiLine and isEmptyBlock(printer, nodeIndex, statements)) or printer.shouldEmitOnSingleLine(nodeIndex);
+    if (singleLine and statementsList.len == 0) {
         printer.writer.writeSpace(" ");
     } else {
-        var format: u32 = undefined;
-        if (!node.MultiLine) {
-            format = @import("emit_list.zig").ListFormat.SingleLineFunctionBodyStatements;
-        } else {
-            format = @import("emit_list.zig").ListFormat.MultiLineBlockStatements;
-        }
-        
+        const format = if (singleLine) @import("emit_list.zig").ListFormat.SingleLineFunctionBodyStatements else @import("emit_list.zig").ListFormat.MultiLineBlockStatements;
         try printer.emitList(printStatement, nodeIndex, statements, format);
     }
-    
+
     const endPos = 0;
     const closeBraceFormat: u32 = 0;
     _ = try printer.emitTokenEx(.CloseBraceToken, endPos, .Punctuation, nodeIndex, closeBraceFormat);
@@ -68,19 +94,20 @@ pub fn printExpressionStatement(printer: *Printer, nodeIndex: ast_mod.NodeIndex)
     const node = printer.tree.getNode(nodeIndex).ExpressionStatement;
     const state = try printer.enterNode(nodeIndex);
 
-    if (printer.currentSourceFile != 0 ) {
+    if (printer.currentSourceFile != 0) {
         try printer.emitExpression(node.Expression, 0);
     } else if (printer.isImmediatelyInvokedFunctionExpressionOrArrowFunction(node.Expression)) {
         try printIIFEWithParenthesizedCallee(printer, node.Expression);
     } else {
         _ = printer.getLeftmostExpression(node.Expression, false);
-        
+
         try printer.emitExpression(node.Expression, 0);
     }
 
-    if (printer.currentSourceFile == 0 or 
-        true or 
-        printer.nodeIsSynthesized(node.Expression)) {
+    if (printer.currentSourceFile == 0 or
+        true or
+        printer.nodeIsSynthesized(node.Expression))
+    {
         printer.writer.writeTrailingSemicolon(";");
     }
 
@@ -161,8 +188,8 @@ pub fn printWhileStatement(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anye
 
 // emitForInitializer
 pub fn printForInitializer(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-    if (false) {
-        try printer.emitVariableDeclarationList(nodeIndex);
+    if (std.meta.activeTag(printer.tree.getNode(nodeIndex)) == .VariableDeclarationList) {
+        try printer.printNode(nodeIndex);
     } else {
         try printer.emitExpression(nodeIndex, 0);
     }

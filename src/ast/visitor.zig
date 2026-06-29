@@ -93,7 +93,6 @@ pub const NodeVisitor = struct {
 
         for (nodes, 0..) |n, i| {
             const visited = self.visitFn(self.ctx, self, n);
-            std.debug.print("Visitor node loop i={d}, visited={d}\n", .{ i, visited });
             if (visited == 0 or visited != n) {
                 result.appendSlice(self.allocator, nodes[0..i]) catch unreachable;
                 changed = true;
@@ -120,7 +119,6 @@ pub const NodeVisitor = struct {
 
                     nodeIter = nodes[idx];
                     visitedIter = self.visitFn(self.ctx, self, nodeIter);
-                    std.debug.print("Visitor while loop idx={d}, visitedIter={d}\n", .{ idx, visitedIter });
                 }
                 break;
             }

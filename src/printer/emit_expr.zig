@@ -3,6 +3,8 @@ const ast_mod = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 const Printer = @import("printer.zig").Printer;
 const kind = @import("../ast/kind.zig").Kind;
+const precedence = @import("../ast/precedence.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
 
 pub fn printNumericLiteral(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
     const node = printer.tree.getNode(nodeIndex).NumericLiteral;
@@ -42,10 +44,22 @@ pub fn printBigIntLiteral(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyer
 
 pub fn printStringLiteral(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
     const node = printer.tree.getNode(nodeIndex).StringLiteral;
-    const isSingleQuote = (node.TokenFlags & (1 << 13)) != 0;
+    const isSingleQuote = (node.TokenFlags & (1 << 16)) != 0;
     const quoteStr = if (isSingleQuote) "'" else "\"";
     printer.writer.writePunctuation(quoteStr);
-    printer.writer.writeStringLiteral(node.Text);
+
+    const range = printer.tree.positions.items[nodeIndex];
+    if ((node.TokenFlags & (1 << 30)) != 0) {
+        printer.writer.writeStringLiteral(node.Text);
+    } else if (range.end == 0) {
+        const quoteChar = if (isSingleQuote) @import("utilities.zig").QuoteChar.SingleQuote else @import("utilities.zig").QuoteChar.DoubleQuote;
+        const escaped = try @import("utilities.zig").escapeNonAsciiString(printer.tree.allocator, node.Text, quoteChar);
+        defer printer.tree.allocator.free(escaped);
+        printer.writer.writeStringLiteral(escaped);
+    } else {
+        printer.writer.writeStringLiteral(node.Text);
+    }
+
     printer.writer.writePunctuation(quoteStr);
 }
 
@@ -84,9 +98,28 @@ pub fn printArrayLiteralExpression(printer: *Printer, nodeIndex: ast_mod.NodeInd
 
 pub fn printObjectLiteralExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
     const node = printer.tree.getNode(nodeIndex).ObjectLiteralExpression;
+    if (node.MultiLine == 2) {
+        const properties = printer.tree.getNodeList(node.Properties);
+        printer.writer.writePunctuation("{");
+        if (properties.len != 0) printer.writer.writeSpace(" ");
+        printer.writer.increaseIndent();
+        for (properties, 0..) |property, index| {
+            if (index != 0) {
+                printer.writer.writePunctuation(",");
+                printer.writer.writeLine();
+            }
+            try printer.printNode(property);
+        }
+        printer.writer.decreaseIndent();
+        if (properties.len != 0) printer.writer.writeSpace(" ");
+        printer.writer.writePunctuation("}");
+        return;
+    }
     var format: u32 = @import("emit_list.zig").ListFormat.ObjectLiteralExpressionProperties;
-    if (node.MultiLine != 0) {
+    if (node.MultiLine == 1) {
         format |= @import("emit_list.zig").ListFormat.MultiLine | @import("emit_list.zig").ListFormat.SpaceBetweenBraces | @import("emit_list.zig").ListFormat.Indented | @import("emit_list.zig").ListFormat.CommaDelimited;
+    } else if (node.MultiLine == 2) {
+        format |= @import("emit_list.zig").ListFormat.SpaceBetweenBraces | @import("emit_list.zig").ListFormat.Indented | @import("emit_list.zig").ListFormat.CommaDelimited;
     } else {
         format |= @import("emit_list.zig").ListFormat.SingleLine | @import("emit_list.zig").ListFormat.SpaceBetweenBraces | @import("emit_list.zig").ListFormat.CommaDelimited;
     }
@@ -188,13 +221,30 @@ pub fn printCallExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anye
     printer.writer.writePunctuation("(");
     const args = printer.tree.getNodeList(node.Arguments);
     for (args, 0..) |argIndex, i| {
+        const inferred_jsx_child_line = i >= 2 and printer.tree.getNode(argIndex) == .CallExpression and
+            isCreateElementCallee(printer, node.Expression) and
+            isCreateElementCallee(printer, printer.tree.getNode(argIndex).CallExpression.Expression);
+        const starts_on_new_line = (printer.context.getEmitFlags(argIndex) & @import("emitflags.zig").EmitFlags.StartOnNewLine) != 0 or inferred_jsx_child_line;
         if (i > 0) {
             printer.writer.writePunctuation(",");
-            printer.writer.writeSpace(" ");
+            if (starts_on_new_line) {
+                printer.writer.increaseIndent();
+                printer.writer.writeLine();
+            } else {
+                printer.writer.writeSpace(" ");
+            }
         }
         try printer.printNode(argIndex);
+        if (i > 0 and starts_on_new_line) printer.writer.decreaseIndent();
     }
     printer.writer.writePunctuation(")");
+}
+
+fn isCreateElementCallee(printer: *Printer, nodeIndex: ast_mod.NodeIndex) bool {
+    return switch (printer.tree.getNode(nodeIndex)) {
+        .PropertyAccessExpression => |node| std.mem.eql(u8, ast_utils.getTextOfNode(printer.tree, node.name), "createElement"),
+        else => false,
+    };
 }
 
 pub fn printNewExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -230,11 +280,11 @@ pub fn printNewExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyer
 pub fn printTaggedTemplateExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
     const node = printer.tree.getNode(nodeIndex).TaggedTemplateExpression;
     try printer.printNode(node.Tag);
-    
+
     if (node.TypeArguments != null and node.TypeArguments.? != 0) {
         try printer.printTypeArguments(node.TypeArguments.?);
     }
-    
+
     printer.writer.writeSpace(" ");
     try printer.printNode(node.Template);
 }
@@ -250,7 +300,17 @@ pub fn printTypeAssertionExpression(printer: *Printer, nodeIndex: ast_mod.NodeIn
 pub fn printParenthesizedExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
     const node = printer.tree.getNode(nodeIndex).ParenthesizedExpression;
     printer.writer.writePunctuation("(");
+    const multiline_comma = printer.tree.getNode(node.Expression) == .BinaryExpression and
+        printer.tree.getNode(node.Expression).BinaryExpression.linesAfterOperator != 0;
+    if (multiline_comma) {
+        printer.writer.increaseIndent();
+        if ((node.Flags & (1 << 31)) != 0) printer.writer.increaseIndent();
+    }
     try printer.printNode(node.Expression);
+    if (multiline_comma) {
+        if ((node.Flags & (1 << 31)) != 0) printer.writer.decreaseIndent();
+        printer.writer.decreaseIndent();
+    }
     printer.writer.writePunctuation(")");
 }
 
@@ -286,7 +346,7 @@ pub fn printFunctionExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) 
         try printer.printNode(node.Type.?);
     }
     printer.writer.writeSpace(" ");
-    try printer.printNode(node.Body.?);
+    try @import("emit_stmt.zig").printFunctionBody(printer, node.Body.?);
 }
 
 pub fn printArrowFunction(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -335,7 +395,7 @@ pub fn printArrowFunction(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyer
         printer.writer.writePunctuation("=>");
     }
     printer.writer.writeSpace(" ");
-    try printer.printNode(node.Body.?);
+    try @import("emit_stmt.zig").printFunctionBody(printer, node.Body.?);
 }
 
 pub fn printDeleteExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -396,7 +456,28 @@ pub fn printBinaryExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) an
     const node = printer.tree.getNode(nodeIndex).BinaryExpression;
     const opKind = std.meta.activeTag(printer.tree.getNode(node.OperatorToken));
     const isComma = opKind == .CommaToken;
-    try printer.printNode(node.Left);
+
+    const precs = precedence.getBinaryExpressionPrecedence(printer.tree, nodeIndex);
+    var leftPrec = precs.left;
+    var rightPrec = precs.right;
+
+    const emittedLeft = precedence.skipPartiallyEmittedExpressions(printer.tree, node.Left);
+    if (ast_utils.nodeIsSynthesized(printer.tree, emittedLeft) and std.meta.activeTag(printer.tree.getNode(emittedLeft)) == .BinaryExpression) {
+        const leftOp = std.meta.activeTag(printer.tree.getNode(printer.tree.getNode(emittedLeft).BinaryExpression.OperatorToken));
+        if (precedence.mixingBinaryOperatorsRequiresParentheses(opKind, leftOp)) {
+            leftPrec = .Highest;
+        }
+    }
+    const emittedRight = precedence.skipPartiallyEmittedExpressions(printer.tree, node.Right);
+    if (ast_utils.nodeIsSynthesized(printer.tree, emittedRight) and std.meta.activeTag(printer.tree.getNode(emittedRight)) == .BinaryExpression) {
+        const rightOp = std.meta.activeTag(printer.tree.getNode(printer.tree.getNode(emittedRight).BinaryExpression.OperatorToken));
+        if (precedence.mixingBinaryOperatorsRequiresParentheses(opKind, rightOp)) {
+            rightPrec = .Highest;
+        }
+    }
+
+    try printer.emitExpression(node.Left, @intCast(@intFromEnum(leftPrec)));
+
     if (node.linesBeforeOperator > 0) {
         // newline before operator: emit newline + increase indent + operator + decrease
         printer.writer.writeLine();
@@ -412,12 +493,12 @@ pub fn printBinaryExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) an
     if (node.linesAfterOperator > 0) {
         // newline after operator: emit newline + increase indent + right + decrease
         printer.writer.writeLine();
-        printer.writer.increaseIndent();
-        try printer.printNode(node.Right);
-        printer.writer.decreaseIndent();
+        if (!isComma) printer.writer.increaseIndent();
+        try printer.emitExpression(node.Right, @intCast(@intFromEnum(rightPrec)));
+        if (!isComma) printer.writer.decreaseIndent();
     } else {
         printer.writer.writeSpace(" ");
-        try printer.printNode(node.Right);
+        try printer.emitExpression(node.Right, @intCast(@intFromEnum(rightPrec)));
     }
 }
 
@@ -519,7 +600,8 @@ pub fn printClassExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) any
 }
 
 pub fn printOmittedExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-    _ = printer; _ = nodeIndex;
+    _ = printer;
+    _ = nodeIndex;
     // OmittedExpression writes nothing
 }
 

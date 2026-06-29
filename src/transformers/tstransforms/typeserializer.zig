@@ -16,9 +16,19 @@ pub const MetadataSerializerContext = struct {
 };
 
 pub const MetadataSerializer = struct {
-    pub fn new(a: anytype, b: anytype, c: anytype, d: anytype, e: anytype, f: anytype) !*MetadataSerializer { _ = a; _ = b; _ = c; _ = d; _ = e; _ = f; return undefined; }
+    pub fn new(
+        allocator: std.mem.Allocator,
+        resolver: *emitresolver.EmitResolver,
+        f: *factory.NodeFactory,
+        ec: *@import("../../printer/emitcontext.zig").EmitContext,
+        languageVersion: core.ScriptTarget,
+        strictNullChecks: bool,
+    ) !*MetadataSerializer {
+        _ = allocator;
+        return newMetadataSerializer(resolver, f, ec, languageVersion, strictNullChecks);
+    }
 
-    resolver: *printer.EmitResolver,
+    resolver: *emitresolver.EmitResolver,
     languageVersion: core.ScriptTarget,
     strictNullChecks: bool,
     f: *factory.NodeFactory,
@@ -26,13 +36,13 @@ pub const MetadataSerializer = struct {
     c: MetadataSerializerContext,
 
     pub fn newMetadataSerializer(
-        resolver: *printer.EmitResolver,
+        resolver: *emitresolver.EmitResolver,
         f: *factory.NodeFactory,
         ec: *@import("../../printer/emitcontext.zig").EmitContext,
         languageVersion: core.ScriptTarget,
         strictNullChecks: bool,
-    ) *MetadataSerializer {
-        const s = f.allocator.create(MetadataSerializer) ;
+    ) !*MetadataSerializer {
+        const s = try f.allocator.create(MetadataSerializer);
         s.* = .{
             .resolver = resolver,
             .languageVersion = languageVersion,
@@ -70,9 +80,22 @@ pub const MetadataSerializer = struct {
     }
 
     fn serializeTypeOfNodeInternal(self: *MetadataSerializer, node: ast.NodeIndex, container: ast.NodeIndex) ast.NodeIndex {
-        _ = container;
-        _ = self.ec.tree.getNode(node);
-        return self.f.newVoidZeroExpression();
+        const tree = self.ec.tree;
+        const nodeKind = tree.getNodeKind(node);
+        switch (nodeKind) {
+            .PropertyDeclaration, .Parameter => {
+                return self.serializeTypeNode(ast_utils.getTypeNode(tree, node));
+            },
+            .GetAccessor, .SetAccessor => {
+                return self.serializeTypeNode(getAccessorTypeNode(tree, node, container));
+            },
+            .ClassDeclaration, .ClassExpression, .MethodDeclaration => {
+                return self.f.newIdentifier("Function");
+            },
+            else => {
+                return self.f.newVoidZeroExpression();
+            },
+        }
     }
 
     fn serializeParameterTypesOfNodeInternal(self: *MetadataSerializer, node: ast.NodeIndex, container: ast.NodeIndex) ast.NodeIndex {
@@ -83,6 +106,8 @@ pub const MetadataSerializer = struct {
             valueDeclaration = node;
         }
 
+        std.debug.print("serializeParameterTypesOfNodeInternal valueDeclaration: {d} tag: {any}\n", .{ valueDeclaration, self.ec.tree.getNodeKind(valueDeclaration) });
+
         if (valueDeclaration == 0) {
             return self.f.newArrayLiteralExpression(self.f.newNodeList(&[_]ast.NodeIndex{}), false);
         }
@@ -92,6 +117,7 @@ pub const MetadataSerializer = struct {
 
         const parameters = getParametersOfDecoratedDeclaration(self.ec.tree, valueDeclaration, container);
         const paramList = self.ec.tree.getNodeList(parameters);
+        std.debug.print("serializeParameterTypesOfNodeInternal paramList len: {d}\n", .{paramList.len});
 
         for (paramList, 0..) |parameter, i| {
             if (i == 0 and ast_utils.isIdentifier(self.ec.tree, ast_utils.getNameOfNode(self.ec.tree, parameter))) {
@@ -100,6 +126,9 @@ pub const MetadataSerializer = struct {
                     continue;
                 }
             }
+
+            const tNode = ast_utils.getTypeNode(self.ec.tree, parameter);
+            std.debug.print("parameter {d} typeNode: {d} tag: {any}\n", .{ i, tNode, self.ec.tree.getNodeKind(tNode) });
 
             if (ast_utils.getDotDotDotTokenOfParameter(self.ec.tree, parameter) != 0) {
                 expressions.append(self.f.allocator, self.serializeTypeNode(ast_utils.getRestParameterElementType(self.ec.tree, ast_utils.getTypeNode(self.ec.tree, parameter)))) catch unreachable;
@@ -127,6 +156,7 @@ pub const MetadataSerializer = struct {
 
         const skippedNode = ast_utils.skipTypeParentheses(self.ec.tree, node);
         const nodeData = self.ec.tree.getNode(skippedNode);
+        std.debug.print("serializeTypeNode skippedNode: {d} tag: {s}\n", .{ skippedNode, @tagName(nodeData) });
 
         switch (nodeData) {
             .VoidKeyword, .UndefinedKeyword, .NeverKeyword => {
@@ -200,7 +230,7 @@ pub const MetadataSerializer = struct {
                 return self.serializeTypeNode(ast_utils.getTypeNode(self.ec.tree, skippedNode));
             },
             else => {
-                return self.f.newIdentifier("Object") ;
+                return self.f.newIdentifier("Object");
             },
         }
     }
@@ -234,7 +264,7 @@ pub const MetadataSerializer = struct {
             }
 
             const serializedConstituent = self.serializeTypeNode(typeNode);
-            if (ast_utils.isIdentifier(self.ec.tree, serializedConstituent) and std.mem.eql(u8, ast_utils.getTextOfNode(self.ec.tree, serializedConstituent), "Object")) {
+            if (serializedConstituent != 0 and std.meta.activeTag(self.ec.tree.getNode(serializedConstituent)) == .Identifier and std.mem.eql(u8, ast_utils.getTextOfNode(self.ec.tree, serializedConstituent), "Object")) {
                 return serializedConstituent;
             }
 
@@ -299,9 +329,8 @@ pub const MetadataSerializer = struct {
         const typeName = ast_utils.getTypeNameOfNode(self.ec.tree, node);
         const kind_val = self.resolver.getTypeReferenceSerializationKind(self.ec.parseNode(typeName), self.ec.parseNode(serialScope));
 
-        _ = kind_val; return 0;
-
-
+        _ = kind_val;
+        return 0;
     }
 
     fn serializeBigIntConstructor(self: *MetadataSerializer) ast.NodeIndex {
@@ -310,9 +339,9 @@ pub const MetadataSerializer = struct {
         }
         return self.f.newConditionalExpression(
             self.f.newTypeCheck(self.f.newIdentifier("BigInt"), "function"),
-            self.f.newToken(ast_utils.SyntaxKind.QuestionToken),
+            self.f.newToken(.{ .QuestionToken = {} }),
             self.f.newIdentifier("BigInt"),
-            self.f.newToken(ast_utils.SyntaxKind.ColonToken),
+            self.f.newToken(.{ .ColonToken = {} }),
             self.f.newIdentifier("Object"),
         );
     }
@@ -403,8 +432,8 @@ pub const MetadataSerializer = struct {
                 self.equateSerializedTypeNodes(ast_utils.getWhenTrueOfNode(self.ec.tree, left), ast_utils.getWhenTrueOfNode(self.ec.tree, right)) and
                 self.equateSerializedTypeNodes(ast_utils.getWhenFalseOfNode(self.ec.tree, left), ast_utils.getWhenFalseOfNode(self.ec.tree, right));
         }
-        if (ast_utils.isBinaryExpression(self.ec.tree.getNodeKind(left))) {
-            return ast_utils.isBinaryExpression(self.ec.tree.getNodeKind(right)) and
+        if (std.meta.activeTag(self.ec.tree.getNode(left)) == .BinaryExpression) {
+            return std.meta.activeTag(self.ec.tree.getNode(right)) == .BinaryExpression and
                 ast_utils.getOperatorTokenOfNode(self.ec.tree, left) == ast_utils.getOperatorTokenOfNode(self.ec.tree, right) and
                 self.equateSerializedTypeNodes(ast_utils.getLeftOfNode(self.ec.tree, left), ast_utils.getLeftOfNode(self.ec.tree, right)) and
                 self.equateSerializedTypeNodes(ast_utils.getRightOfNode(self.ec.tree, left), ast_utils.getRightOfNode(self.ec.tree, right));
@@ -415,8 +444,7 @@ pub const MetadataSerializer = struct {
 
 pub fn getSetAccessorValueParameter(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
     if (node != 0) {
-        const parameters = ast_utils.getParametersOfNode(tree, node);
-        const paramList = tree.getNodeList(parameters);
+        const paramList = ast_utils.getParametersOfNode(tree, node);
         if (paramList.len > 0) {
             if (paramList.len >= 2 and ast_utils.isThisParameter(tree, paramList[0])) {
                 return paramList[1];
@@ -439,7 +467,7 @@ pub fn getSetAccessorTypeAnnotationNode(tree: *ast.Ast, node: ast.NodeIndex) ast
 }
 
 pub fn getAccessorTypeNode(tree: *ast.Ast, node: ast.NodeIndex, container: ast.NodeIndex) ast.NodeIndex {
-    const accessors = ast_utils.getAllAccessorDeclarations(tree, ast_utils.getMembersOfNode(tree, container), node);
+    const accessors = ast_utils.getAllAccessorDeclarations(tree, tree.getNodeList(ast_utils.getMembersOfNode(tree, container)), node);
     if (accessors.setAccessor != 0) {
         return getSetAccessorTypeAnnotationNode(tree, accessors.setAccessor);
     }
@@ -451,10 +479,10 @@ pub fn getAccessorTypeNode(tree: *ast.Ast, node: ast.NodeIndex, container: ast.N
 
 fn getParametersOfDecoratedDeclaration(tree: *ast.Ast, node: ast.NodeIndex, container: ast.NodeIndex) ast.NodeIndex {
     if (container != 0 and tree.getNode(node) == .GetAccessor) {
-        const acc = ast_utils.getAllAccessorDeclarations(tree, ast_utils.getMembersOfNode(tree, container), node);
+        const acc = ast_utils.getAllAccessorDeclarations(tree, tree.getNodeList(ast_utils.getMembersOfNode(tree, container)), node);
         if (acc.setAccessor != 0) {
-            return ast_utils.getParametersOfNode(tree, acc.setAccessor);
+            return ast_utils.parameters(tree, acc.setAccessor);
         }
     }
-    return ast_utils.getParametersOfNode(tree, node);
+    return ast_utils.parameters(tree, node);
 }

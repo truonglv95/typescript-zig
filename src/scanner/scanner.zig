@@ -22,23 +22,29 @@ const diagnostics = @import("../diagnostics/diagnostics.zig");
 pub const ErrorCallback = *const fn (ctx: ?*anyopaque, diagnostic: *const diagnostics.Message, start: usize, length: usize, args: []const []const u8) void;
 
 pub const TokenFlags = struct {
-    pub const None: u16 = 0;
-    pub const PrecedingLineBreak: u16 = 1 << 0;
-    pub const PrecedingJSDocComment: u16 = 1 << 1;
-    pub const Unterminated: u16 = 1 << 2;
-    pub const ExtendedUnicodeEscape: u16 = 1 << 3;
-    pub const Scientific: u16 = 1 << 4;
-    pub const Octal: u16 = 1 << 5;
-    pub const HexSpecifier: u16 = 1 << 6;
-    pub const BinarySpecifier: u16 = 1 << 7;
-    pub const OctalSpecifier: u16 = 1 << 8;
-    pub const ContainsSeparator: u16 = 1 << 9;
-    pub const UnicodeEscape: u16 = 1 << 10;
-    pub const ContainsInvalidEscape: u16 = 1 << 11;
-    pub const ContainsInvalidStringEscape: u16 = 1 << 12;
-    pub const SingleQuote: u16 = 1 << 13;
-    pub const BinaryOrOctalSpecifier: u16 = BinarySpecifier | OctalSpecifier;
-    pub const NumericLiteralFlags: u16 = Scientific | Octal | HexSpecifier | BinaryOrOctalSpecifier | ContainsSeparator;
+    pub const None: u32 = 0;
+    pub const PrecedingLineBreak: u32 = 1 << 0;
+    pub const PrecedingJSDocComment: u32 = 1 << 1;
+    pub const Unterminated: u32 = 1 << 2;
+    pub const ExtendedUnicodeEscape: u32 = 1 << 3;
+    pub const Scientific: u32 = 1 << 4;
+    pub const Octal: u32 = 1 << 5;
+    pub const HexSpecifier: u32 = 1 << 6;
+    pub const BinarySpecifier: u32 = 1 << 7;
+    pub const OctalSpecifier: u32 = 1 << 8;
+    pub const ContainsSeparator: u32 = 1 << 9;
+    pub const UnicodeEscape: u32 = 1 << 10;
+    pub const ContainsInvalidEscape: u32 = 1 << 11;
+    pub const ContainsInvalidStringEscape: u32 = 1 << 12; // HexEscape is TokenFlagsHexEscape = 1 << 12 in Go
+    pub const ContainsLeadingZero: u32 = 1 << 13;
+    pub const ContainsInvalidSeparator: u32 = 1 << 14;
+    pub const PrecedingJSDocLeadingAsterisks: u32 = 1 << 15;
+    pub const SingleQuote: u32 = 1 << 16;
+    pub const PrecedingJSDocWithDeprecated: u32 = 1 << 17;
+    pub const PrecedingJSDocWithSeeOrLink: u32 = 1 << 18;
+
+    pub const BinaryOrOctalSpecifier: u32 = BinarySpecifier | OctalSpecifier;
+    pub const NumericLiteralFlags: u32 = Scientific | Octal | ContainsLeadingZero | (HexSpecifier | BinaryOrOctalSpecifier) | ContainsSeparator | ContainsInvalidSeparator;
 };
 
 pub const ScannerState = struct {
@@ -47,7 +53,7 @@ pub const ScannerState = struct {
     tokenStart: usize,
     token: kind.Kind,
     tokenValue: []const u8,
-    tokenFlags: u16,
+    tokenFlags: u32,
     skipJSDocLeadingAsterisks: usize,
 };
 
@@ -119,6 +125,18 @@ pub const Scanner = struct {
         self.state.tokenFlags = 0;
     }
 
+    pub fn setSkipJSDocLeadingAsterisks(self: *Scanner, skip: bool) void {
+        if (skip) {
+            self.state.skipJSDocLeadingAsterisks += 1;
+        } else {
+            self.state.skipJSDocLeadingAsterisks -= 1;
+        }
+    }
+
+    pub fn setSkipTrivia(self: *Scanner, skip: bool) void {
+        self.skipTrivia = skip;
+    }
+
     pub fn getToken(self: *const Scanner) kind.Kind {
         return self.state.token;
     }
@@ -127,8 +145,24 @@ pub const Scanner = struct {
         return self.state.tokenValue;
     }
 
-    pub fn getTokenFlags(self: *const Scanner) u16 {
+    pub fn getTokenFlags(self: *const Scanner) u32 {
         return self.state.tokenFlags;
+    }
+
+    pub fn hasPrecedingJSDocComment(self: *const Scanner) bool {
+        return (self.state.tokenFlags & TokenFlags.PrecedingJSDocComment) != 0;
+    }
+
+    pub fn hasPrecedingJSDocLeadingAsterisks(self: *const Scanner) bool {
+        return (self.state.tokenFlags & TokenFlags.PrecedingJSDocLeadingAsterisks) != 0;
+    }
+
+    pub fn hasPrecedingJSDocWithDeprecatedTag(self: *const Scanner) bool {
+        return (self.state.tokenFlags & TokenFlags.PrecedingJSDocWithDeprecated) != 0;
+    }
+
+    pub fn hasPrecedingJSDocWithSeeOrLink(self: *const Scanner) bool {
+        return (self.state.tokenFlags & TokenFlags.PrecedingJSDocWithSeeOrLink) != 0;
     }
 
     pub fn getTokenStart(self: *const Scanner) usize {
@@ -330,6 +364,13 @@ pub const Scanner = struct {
                         }
                     } else {
                         self.state.pos += 1;
+                        if (self.state.skipJSDocLeadingAsterisks != 0 and
+                            (self.state.tokenFlags & TokenFlags.PrecedingJSDocLeadingAsterisks) == 0 and
+                            (self.state.tokenFlags & TokenFlags.PrecedingLineBreak) != 0)
+                        {
+                            self.state.tokenFlags |= TokenFlags.PrecedingJSDocLeadingAsterisks;
+                            continue;
+                        }
                         self.state.token = kind.Kind.AsteriskToken;
                     }
                     return self.state.token;
@@ -557,13 +598,22 @@ pub const Scanner = struct {
                         self.state.token = kind.Kind.SingleLineCommentTrivia;
                         return self.state.token;
                     } else if (next == '*') {
+                        const isJSDoc = (self.charAt(2) != '/');
                         self.state.pos += 2;
                         while (self.state.pos < self.end) {
-                            if (self.char() == '*' and self.charAt(1) == '/') {
+                            const c = self.char();
+                            if (c == '*' and self.charAt(1) == '/') {
                                 self.state.pos += 2;
                                 break;
                             }
+                            if (stringutil.isLineBreak(c)) {
+                                self.state.tokenFlags |= TokenFlags.PrecedingLineBreak;
+                            }
                             self.state.pos += 1;
+                        }
+                        if (isJSDoc) {
+                            self.state.tokenFlags |= TokenFlags.PrecedingJSDocComment;
+                            self.scanJSDocCommentForTags(self.text[self.state.tokenStart..self.state.pos]);
                         }
                         if (self.skipTrivia) continue;
                         self.state.token = kind.Kind.MultiLineCommentTrivia;
@@ -813,6 +863,24 @@ pub const Scanner = struct {
         return (self.state.tokenFlags & TokenFlags.PrecedingLineBreak) != 0;
     }
 
+    pub fn reScanAsteriskEqualsToken(self: *Scanner) kind.Kind {
+        if (self.state.token != kind.Kind.AsteriskEqualsToken) {
+            @panic("'reScanAsteriskEqualsToken' should only be called on a '*='");
+        }
+        self.state.pos = self.state.tokenStart + 1;
+        self.state.token = kind.Kind.EqualsToken;
+        return self.state.token;
+    }
+
+    pub fn reScanQuestionToken(self: *Scanner) kind.Kind {
+        if (self.state.token != kind.Kind.QuestionQuestionToken) {
+            @panic("'reScanQuestionToken' should only be called on a '??'");
+        }
+        self.state.pos = self.state.tokenStart + 1;
+        self.state.token = kind.Kind.QuestionToken;
+        return self.state.token;
+    }
+
     pub fn reScanSlashToken(self: *Scanner) kind.Kind {
         if (self.state.token == kind.Kind.SlashToken or self.state.token == kind.Kind.SlashEqualsToken) {
             var p = self.state.tokenStart + 1;
@@ -846,6 +914,7 @@ pub const Scanner = struct {
                 p += 1;
             }
 
+            const endOfRegExpBody = p;
             if (isTerminated) {
                 p += 1; // Consume closing slash
 
@@ -854,6 +923,47 @@ pub const Scanner = struct {
                     const ch = self.text[p];
                     if ((ch >= 'a' and ch <= 'z') or (ch >= 'A' and ch <= 'Z')) {
                         p += 1;
+                    } else {
+                        break;
+                    }
+                }
+            } else if ((self.state.tokenFlags & TokenFlags.Unterminated) != 0) {
+                p = self.state.tokenStart + 1;
+                inEscape = false;
+                var characterClassDepth: i32 = 0;
+                var inDecimalQuantifier = false;
+                var groupDepth: i32 = 0;
+                while (p < endOfRegExpBody) {
+                    const ch = self.text[p];
+                    if (inEscape) {
+                        inEscape = false;
+                    } else if (ch == '\\') {
+                        inEscape = true;
+                    } else if (ch == '[') {
+                        characterClassDepth += 1;
+                    } else if (ch == ']' and characterClassDepth != 0) {
+                        characterClassDepth -= 1;
+                    } else if (characterClassDepth == 0) {
+                        if (ch == '{') {
+                            inDecimalQuantifier = true;
+                        } else if (ch == '}' and inDecimalQuantifier) {
+                            inDecimalQuantifier = false;
+                        } else if (!inDecimalQuantifier) {
+                            if (ch == '(') {
+                                groupDepth += 1;
+                            } else if (ch == ')' and groupDepth != 0) {
+                                groupDepth -= 1;
+                            } else if (ch == ')' or ch == ']' or ch == '}') {
+                                break;
+                            }
+                        }
+                    }
+                    p += 1;
+                }
+                while (p > self.state.tokenStart + 1) {
+                    const prev_ch = self.text[p - 1];
+                    if (stringutil.isWhiteSpaceLike(@as(u21, prev_ch)) or prev_ch == ';') {
+                        p -= 1;
                     } else {
                         break;
                     }
@@ -901,13 +1011,14 @@ pub const Scanner = struct {
                 break;
             }
             if (ch == '\\') {
-                parts.append(self.allocator, self.text[start..self.state.pos]) catch unreachable;
-                self.state.pos += 1;
-                // Simplified escape sequence scanning
-                if (self.char() != 0) {
-                    self.state.pos += 1;
-                    parts.append(self.allocator, self.text[self.state.pos - 1 .. self.state.pos]) catch unreachable;
+                var next_pos: usize = self.state.pos;
+                const escape_start = self.state.pos;
+                const valid = validateTemplateEscape(self.text, escape_start, &next_pos);
+                if (!valid) {
+                    self.state.tokenFlags |= TokenFlags.ContainsInvalidEscape;
                 }
+                parts.append(self.allocator, self.text[start..next_pos]) catch unreachable;
+                self.state.pos = next_pos;
                 start = self.state.pos;
                 continue;
             }
@@ -945,6 +1056,14 @@ pub const Scanner = struct {
         return self.state.token;
     }
 
+    pub fn reScanHashToken(self: *Scanner) kind.Kind {
+        if (self.state.token == kind.Kind.PrivateIdentifier) {
+            self.state.pos = self.state.tokenStart + 1;
+            self.state.token = kind.Kind.HashToken;
+        }
+        return self.state.token;
+    }
+
     pub fn reScanGreaterThanToken(self: *Scanner) kind.Kind {
         if (self.state.token == kind.Kind.GreaterThanToken) {
             self.state.pos = self.state.tokenStart + 1;
@@ -976,12 +1095,22 @@ pub const Scanner = struct {
     // Go 1:1 Parity - JSDoc Scanning
     // =========================================================================
 
+    pub fn canFollowJSDocAt(self: *const Scanner) bool {
+        if (self.state.pos >= self.text.len) {
+            return true;
+        }
+        const c_info = getUtf8CodePoint(self.text, self.state.pos);
+        return identifier_pkg.isIdentifierStart(c_info.code_point, 0) or
+            stringutil.isWhiteSpaceSingleLine(c_info.code_point) or
+            stringutil.isLineBreak(c_info.code_point);
+    }
+
     pub fn scanJSDocToken(self: *Scanner) kind.Kind {
         self.state.fullStartPos = self.state.pos;
         self.state.tokenFlags = TokenFlags.None;
 
         if (self.state.pos >= self.end) {
-            self.state.token = kind.Kind.EndOfFileToken;
+            self.state.token = kind.Kind.EndOfFile;
             return self.state.token;
         }
 
@@ -1079,6 +1208,81 @@ pub const Scanner = struct {
                 return self.state.token;
             },
         }
+    }
+
+    fn hasJSDocTag(text: []const u8, tag: []const u8) bool {
+        if (!std.mem.startsWith(u8, text, tag)) {
+            return false;
+        }
+        if (text.len == tag.len) {
+            return true;
+        }
+        const ch = text[tag.len];
+        return ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r' or ch == '}' or ch == '*';
+    }
+
+    fn scanJSDocCommentForTags(self: *Scanner, comment_text: []const u8) void {
+        var text = comment_text;
+        while (true) {
+            const idx = std.mem.indexOfScalar(u8, text, '@') orelse return;
+            text = text[idx + 1 ..];
+            if ((self.state.tokenFlags & TokenFlags.PrecedingJSDocWithDeprecated) == 0 and hasJSDocTag(text, "deprecated")) {
+                self.state.tokenFlags |= TokenFlags.PrecedingJSDocWithDeprecated;
+            }
+            if ((self.state.tokenFlags & TokenFlags.PrecedingJSDocWithSeeOrLink) == 0 and
+                (hasJSDocTag(text, "see") or hasJSDocTag(text, "link") or hasJSDocTag(text, "linkcode") or hasJSDocTag(text, "linkplain")))
+            {
+                self.state.tokenFlags |= TokenFlags.PrecedingJSDocWithSeeOrLink;
+            }
+            if ((self.state.tokenFlags & (TokenFlags.PrecedingJSDocWithDeprecated | TokenFlags.PrecedingJSDocWithSeeOrLink)) ==
+                (TokenFlags.PrecedingJSDocWithDeprecated | TokenFlags.PrecedingJSDocWithSeeOrLink))
+            {
+                return;
+            }
+        }
+    }
+
+    pub fn scanJSDocCommentTextToken(self: *Scanner, inBackticks: bool) kind.Kind {
+        self.state.fullStartPos = self.state.pos;
+        self.state.tokenFlags = TokenFlags.None;
+        if (self.state.pos >= self.end) {
+            self.state.token = kind.Kind.EndOfFile;
+            return self.state.token;
+        }
+        self.state.tokenStart = self.state.pos;
+        while (self.state.pos < self.end) {
+            const ch = self.char();
+            if (ch == '\n' or ch == '\r' or ch == '`') {
+                break;
+            }
+            if (!inBackticks) {
+                if (ch == '{') {
+                    break;
+                } else if (ch == '@' and self.state.pos > 0) {
+                    const preceding = self.text[self.state.pos - 1];
+                    if (preceding == ' ' or preceding == '\t') {
+                        if (self.state.pos + 1 < self.end) {
+                            const next_ch = self.charAt(1);
+                            if (identifier_pkg.isIdentifierStart(next_ch, 0)) {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            const len = std.unicode.utf8ByteSequenceLength(self.text[self.state.pos]) catch 1;
+            if (self.state.pos + len <= self.end) {
+                self.state.pos += len;
+            } else {
+                self.state.pos = self.end;
+            }
+        }
+        if (self.state.pos == self.state.tokenStart) {
+            return self.scanJSDocToken();
+        }
+        self.state.tokenValue = self.text[self.state.tokenStart..self.state.pos];
+        self.state.token = kind.Kind.JSDocCommentTextToken;
+        return self.state.token;
     }
 
     // =========================================================================
@@ -1300,6 +1504,313 @@ pub fn getTokenPosOfNode(tree: *ast.Ast, node: ast.NodeIndex, includeJSDoc: bool
     if (nodeTag == .JsxText) {
         return skipTriviaEx(tree.sourceText, tree.positions.items[node].pos, .{ .stopAtComments = true });
     }
-    const inJSDoc = tree.flags.items[node] & ast.NodeFlagsJSDoc != 0;
+    const nodeFlags = tree.getNodeFlags(node);
+    const inJSDoc = nodeFlags & @import("../ast/ast_utils.zig").NodeFlags.JSDoc != 0;
     return skipTriviaEx(tree.sourceText, tree.positions.items[node].pos, .{ .inJSDoc = inJSDoc });
+}
+
+// =========================================================================
+// JSDoc and Comment Ranges Parsing Helpers
+// =========================================================================
+
+pub const CommentRange = struct {
+    pos: u32,
+    end: u32,
+    kind: kind.Kind,
+    hasTrailingNewLine: bool,
+};
+
+pub fn getLeadingCommentRanges(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), text: []const u8, pos: u32) !void {
+    try getCommentRanges(allocator, commentRanges, text, pos, false);
+}
+
+pub fn getTrailingCommentRanges(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), text: []const u8, pos: u32) !void {
+    try getCommentRanges(allocator, commentRanges, text, pos, true);
+}
+
+pub fn getCommentRanges(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), text: []const u8, start_pos: u32, trailing: bool) !void {
+    var pos = start_pos;
+    var pendingPos: u32 = 0;
+    var pendingEnd: u32 = 0;
+    var pendingKind: kind.Kind = .Unknown;
+    var pendingHasTrailingNewLine = false;
+    var hasPendingCommentRange = false;
+    var collecting = trailing;
+    if (pos == 0) {
+        collecting = true;
+        if (isShebangTrivia(text, pos)) {
+            pos = scanShebangTrivia(text, pos);
+        }
+    }
+
+    while (pos < text.len) {
+        const ch_info = getUtf8CodePoint(text, pos);
+        const ch = ch_info.code_point;
+        const size = ch_info.size;
+
+        switch (ch) {
+            '\r' => {
+                if (pos + 1 < text.len and text[pos + 1] == '\n') {
+                    pos += 1;
+                }
+                pos += 1;
+                if (trailing) {
+                    break;
+                }
+                collecting = true;
+                if (hasPendingCommentRange) {
+                    pendingHasTrailingNewLine = true;
+                }
+                continue;
+            },
+            '\n' => {
+                pos += 1;
+                if (trailing) {
+                    break;
+                }
+                collecting = true;
+                if (hasPendingCommentRange) {
+                    pendingHasTrailingNewLine = true;
+                }
+                continue;
+            },
+            '\t', 0x0B, 0x0C, ' ' => {
+                pos += 1;
+                continue;
+            },
+            '/' => {
+                var nextChar: u8 = 0;
+                if (pos + 1 < text.len) {
+                    nextChar = text[pos + 1];
+                }
+                var hasTrailingNewLine = false;
+                if (nextChar == '/' or nextChar == '*') {
+                    const k: kind.Kind = if (nextChar == '/') .SingleLineCommentTrivia else .MultiLineCommentTrivia;
+                    const startPos = pos;
+                    pos += 2;
+                    if (nextChar == '/') {
+                        while (pos < text.len) {
+                            const c_info = getUtf8CodePoint(text, pos);
+                            if (stringutil.isLineBreak(c_info.code_point)) {
+                                hasTrailingNewLine = true;
+                                break;
+                            }
+                            pos += c_info.size;
+                        }
+                    } else {
+                        if (std.mem.indexOfPos(u8, text, pos, "*/")) |idx| {
+                            pos = @as(u32, @intCast(idx + 2));
+                        } else {
+                            pos = @as(u32, @intCast(text.len));
+                        }
+                    }
+
+                    if (collecting) {
+                        if (hasPendingCommentRange) {
+                            try commentRanges.append(allocator, .{
+                                .pos = pendingPos,
+                                .end = pendingEnd,
+                                .kind = pendingKind,
+                                .hasTrailingNewLine = pendingHasTrailingNewLine,
+                            });
+                        }
+                        pendingPos = startPos;
+                        pendingEnd = pos;
+                        pendingKind = k;
+                        pendingHasTrailingNewLine = hasTrailingNewLine;
+                        hasPendingCommentRange = true;
+                    }
+                    continue;
+                }
+                break;
+            },
+            else => {
+                if (ch > 127 and stringutil.isWhiteSpaceLike(ch)) {
+                    if (hasPendingCommentRange and stringutil.isLineBreak(ch)) {
+                        pendingHasTrailingNewLine = true;
+                    }
+                    pos += size;
+                    continue;
+                }
+                break;
+            },
+        }
+    }
+
+    if (hasPendingCommentRange) {
+        try commentRanges.append(allocator, .{
+            .pos = pendingPos,
+            .end = pendingEnd,
+            .kind = pendingKind,
+            .hasTrailingNewLine = pendingHasTrailingNewLine,
+        });
+    }
+}
+
+pub fn isShebangTrivia(text: []const u8, pos: u32) bool {
+    if (text.len < 2) return false;
+    std.debug.assert(pos == 0); // Shebangs check must only be done at the start of the file
+    return text[0] == '#' and text[1] == '!';
+}
+
+pub fn scanShebangTrivia(text: []const u8, start_pos: u32) u32 {
+    var pos = start_pos + 2;
+    while (pos < text.len) {
+        const c_info = getUtf8CodePoint(text, pos);
+        if (stringutil.isLineBreak(c_info.code_point)) {
+            break;
+        }
+        pos += c_info.size;
+    }
+    return pos;
+}
+
+const Utf8Info = struct {
+    code_point: u21,
+    size: u3,
+};
+
+pub fn getUtf8CodePoint(text: []const u8, pos: usize) Utf8Info {
+    const remaining = text[pos..];
+    if (remaining.len == 0) return .{ .code_point = 0, .size = 0 };
+    const first = remaining[0];
+    if (first < 128) {
+        return .{ .code_point = first, .size = 1 };
+    }
+    const len = std.unicode.utf8ByteSequenceLength(first) catch return .{ .code_point = first, .size = 1 };
+    if (len > remaining.len) {
+        return .{ .code_point = first, .size = 1 };
+    }
+    const cp = std.unicode.utf8Decode(remaining[0..len]) catch return .{ .code_point = first, .size = 1 };
+    return .{ .code_point = cp, .size = @as(u3, @intCast(len)) };
+}
+
+pub fn getJSDocCommentRanges(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), tree: *ast.Ast, node: ast.NodeIndex, text: []const u8) !void {
+    const nodeTag = std.meta.activeTag(tree.getNode(node));
+    const nodePos = tree.positions.items[node].pos;
+    const nodeEnd = tree.positions.items[node].end;
+
+    switch (nodeTag) {
+        .Parameter, .TypeParameter, .FunctionExpression, .ArrowFunction, .ParenthesizedExpression, .VariableDeclaration, .ExportSpecifier => {
+            try getTrailingCommentRanges(allocator, commentRanges, text, nodePos);
+            try getLeadingCommentRanges(allocator, commentRanges, text, nodePos);
+        },
+        else => {
+            try getLeadingCommentRanges(allocator, commentRanges, text, nodePos);
+        },
+    }
+
+    // Filter out comments that don't match the JSDoc criteria
+    var i: usize = 0;
+    while (i < commentRanges.items.len) {
+        const comment = commentRanges.items[i];
+        const commentLen = comment.end - comment.pos;
+        const shouldDelete = comment.end > nodeEnd or
+            commentLen < 4 or
+            text[comment.pos + 1] != '*' or
+            text[comment.pos + 2] != '*' or
+            text[comment.pos + 3] == '/';
+
+        if (shouldDelete) {
+            _ = commentRanges.orderedRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn validateTemplateEscape(text: []const u8, start: usize, pos_ptr: *usize) bool {
+    var p = start + 1;
+    if (p >= text.len) {
+        pos_ptr.* = text.len;
+        return false;
+    }
+    const ch = text[p];
+    p += 1;
+    switch (ch) {
+        '0' => {
+            if (p < text.len and text[p] >= '0' and text[p] <= '9') {
+                pos_ptr.* = p + 1;
+                return false;
+            }
+            pos_ptr.* = p;
+            return true;
+        },
+        '1'...'7' => {
+            if (p < text.len and text[p] >= '0' and text[p] <= '7') {
+                p += 1;
+            }
+            pos_ptr.* = p;
+            return false;
+        },
+        '8', '9' => {
+            pos_ptr.* = p;
+            return false;
+        },
+        'b', 't', 'n', 'v', 'f', 'r', '\'', '"', '\\', '\n', '\r' => {
+            pos_ptr.* = p;
+            return true;
+        },
+        'x' => {
+            var valid = true;
+            var count: usize = 0;
+            while (count < 2) : (count += 1) {
+                if (p < text.len and std.ascii.isHex(text[p])) {
+                    p += 1;
+                } else {
+                    valid = false;
+                    break;
+                }
+            }
+            pos_ptr.* = p;
+            return valid;
+        },
+        'u' => {
+            if (p < text.len and text[p] == '{') {
+                p += 1;
+                var val: u32 = 0;
+                var has_digits = false;
+                while (p < text.len and text[p] != '}') : (p += 1) {
+                    const digit = text[p];
+                    if (std.ascii.isHex(digit)) {
+                        has_digits = true;
+                        const d_val = if (digit >= '0' and digit <= '9')
+                            digit - '0'
+                        else if (digit >= 'a' and digit <= 'f')
+                            digit - 'a' + 10
+                        else
+                            digit - 'A' + 10;
+                        val = (val << 4) | d_val;
+                    } else {
+                        pos_ptr.* = p;
+                        return false;
+                    }
+                }
+                if (!has_digits or p >= text.len or text[p] != '}') {
+                    pos_ptr.* = p;
+                    return false;
+                }
+                p += 1; // skip '}'
+                pos_ptr.* = p;
+                return val <= 0x10FFFF;
+            } else {
+                var valid = true;
+                var count: usize = 0;
+                while (count < 4) : (count += 1) {
+                    if (p < text.len and std.ascii.isHex(text[p])) {
+                        p += 1;
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+                pos_ptr.* = p;
+                return valid;
+            }
+        },
+        else => {
+            pos_ptr.* = p;
+            return true;
+        },
+    }
 }

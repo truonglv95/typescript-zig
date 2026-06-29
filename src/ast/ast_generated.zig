@@ -510,32 +510,32 @@ pub const KeywordExpressionNode = struct {
 
 pub const StringLiteralNode = struct {
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     Flags: u32,
 };
 
 pub const NumericLiteralNode = struct {
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     Flags: u32,
 };
 
 pub const BigIntLiteralNode = struct {
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     Flags: u32,
 };
 
 pub const RegularExpressionLiteralNode = struct {
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     Flags: u32,
 };
 
 pub const NoSubstitutionTemplateLiteralNode = struct {
     Flags: u32,
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     RawText: []const u8,
     TemplateFlags: u16,
     Symbol: u32,
@@ -926,7 +926,7 @@ pub const ConstructorTypeNodeNode = struct {
 pub const TemplateHeadNode = struct {
     Flags: u32,
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     RawText: []const u8,
     TemplateFlags: u16,
 };
@@ -934,7 +934,7 @@ pub const TemplateHeadNode = struct {
 pub const TemplateMiddleNode = struct {
     Flags: u32,
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     RawText: []const u8,
     TemplateFlags: u16,
 };
@@ -942,7 +942,7 @@ pub const TemplateMiddleNode = struct {
 pub const TemplateTailNode = struct {
     Flags: u32,
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     RawText: []const u8,
     TemplateFlags: u16,
 };
@@ -1045,7 +1045,7 @@ pub const JsxExpressionNode = struct {
 pub const JsxTextNode = struct {
     Flags: u32,
     Text: []const u8,
-    TokenFlags: u16,
+    TokenFlags: u32,
     ContainsOnlyTriviaWhiteSpaces: u32,
 };
 

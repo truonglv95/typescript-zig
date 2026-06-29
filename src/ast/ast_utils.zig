@@ -55,6 +55,30 @@ pub fn getSourceFileOfNode(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast
     return 0;
 }
 
+pub fn resolveJSDoc(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) []const ast_gen.NodeIndex {
+    // Lazy JSDoc resolution placeholder for now (Phase 2), will be wired to Parser in Phase 3.
+    return tree.jsdocCache.get(nodeIndex) orelse &[_]ast_gen.NodeIndex{};
+}
+
+pub fn getJSDoc(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) []const ast_gen.NodeIndex {
+    const flags = tree.getNodeFlags(nodeIndex);
+    if ((flags & NodeFlags.HasJSDoc) == 0) {
+        return &[_]ast_gen.NodeIndex{};
+    }
+    if (tree.hasLazyJSDoc) {
+        return resolveJSDoc(tree, nodeIndex);
+    }
+    return tree.jsdocCache.get(nodeIndex) orelse &[_]ast_gen.NodeIndex{};
+}
+
+pub fn getEagerJSDoc(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) []const ast_gen.NodeIndex {
+    const flags = tree.getNodeFlags(nodeIndex);
+    if ((flags & NodeFlags.HasJSDoc) == 0) {
+        return &[_]ast_gen.NodeIndex{};
+    }
+    return tree.jsdocCache.get(nodeIndex) orelse &[_]ast_gen.NodeIndex{};
+}
+
 pub fn isNonLocalAlias(tree: *ast_pkg.Ast, symIndex: ast_gen.SymbolIndex, excludes: u32) bool {
     const sym = tree.symbols.items[symIndex];
     return (sym.Flags & (@import("symbol.zig").SymbolFlags.Alias | excludes)) == @import("symbol.zig").SymbolFlags.Alias;
@@ -240,6 +264,24 @@ pub fn hasSyntacticModifier(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex, flag: u32
                 .ConstKeyword => {
                     if ((flag & ModifierFlags.Const) != 0) return true;
                 },
+                .AbstractKeyword => {
+                    if ((flag & ModifierFlags.Abstract) != 0) return true;
+                },
+                .StaticKeyword => {
+                    if ((flag & ModifierFlags.Static) != 0) return true;
+                },
+                .AccessorKeyword => {
+                    if ((flag & ModifierFlags.Accessor) != 0) return true;
+                },
+                .AsyncKeyword => {
+                    if ((flag & ModifierFlags.Async) != 0) return true;
+                },
+                .InKeyword => {
+                    if ((flag & ModifierFlags.In) != 0) return true;
+                },
+                .OutKeyword => {
+                    if ((flag & ModifierFlags.Out) != 0) return true;
+                },
                 else => {},
             }
         }
@@ -309,9 +351,16 @@ pub fn isThisParameter(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     return isThisIdentifier(tree, p.name);
 }
 
-pub fn hasDecorators(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
-    _ = a;
-    _ = nodeIndex;
+pub fn hasDecorators(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const modifiersIndex = getModifiers(tree, nodeIndex) orelse return false;
+    if (modifiersIndex == 0) return false;
+    const modifiers = tree.getNodeList(modifiersIndex);
+    for (modifiers) |modIndex| {
+        std.debug.print("modifier node tag: {any}\n", .{std.meta.activeTag(tree.getNode(modIndex))});
+        if (tree.getNode(modIndex) == .Decorator) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -571,7 +620,7 @@ fn getModuleInstanceStateCached(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, an
 fn getModuleInstanceStateWorker(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, ancestors: *AncestorsArray, visited: *std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ModuleInstanceState)) ModuleInstanceState {
     const node = tree.getNode(nodeIndex);
     switch (node) {
-        .InterfaceDeclaration, .TypeAliasDeclaration, .JSTypeAliasDeclaration => return .NonInstantiated,
+        .InterfaceDeclaration, .TypeAliasDeclaration, .JSTypeAliasDeclaration, .NotEmittedStatement => return .NonInstantiated,
         .EnumDeclaration => {
             if (hasSyntacticModifier(tree, nodeIndex, ModifierFlags.Const)) return .ConstEnumOnly;
             return .Instantiated;
@@ -915,11 +964,135 @@ pub fn getElements(tree: *ast.Ast, node: ast.NodeIndex) []const ast.NodeIndex {
     _ = node;
     return &[_]ast.NodeIndex{};
 }
+fn getExpressionField(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
+    const parentNode = tree.getNode(node);
+    switch (parentNode) {
+        .ComputedPropertyName => |n| return n.Expression,
+        .Decorator => |n| return n.Expression,
+        .IfStatement => |n| return n.Expression,
+        .DoStatement => |n| return n.Expression,
+        .WhileStatement => |n| return n.Expression,
+        .WithStatement => |n| return n.Expression,
+        .ReturnStatement => |n| return n.Expression orelse 0,
+        .SwitchStatement => |n| return n.Expression,
+        .CaseClause => |n| return n.Expression,
+        .ThrowStatement => |n| return n.Expression,
+        .ExpressionStatement => |n| return n.Expression,
+        .ExportAssignment => |n| return n.Expression,
+        .PropertyAccessExpression => |n| return n.Expression,
+        .TemplateSpan => |n| return n.Expression,
+        else => return 0,
+    }
+}
+
 pub fn isIdentifierReference(tree: *ast.Ast, node: ast.NodeIndex, parent: ast.NodeIndex) bool {
-    _ = tree;
-    _ = node;
-    _ = parent;
-    return false;
+    if (parent == 0) return false;
+    const parentNode = tree.getNode(parent);
+    switch (parentNode) {
+        .BinaryExpression, .PrefixUnaryExpression, .PostfixUnaryExpression, .YieldExpression, .AsExpression, .SatisfiesExpression, .ElementAccessExpression, .NonNullExpression, .SpreadElement, .SpreadAssignment, .ParenthesizedExpression, .ArrayLiteralExpression, .DeleteExpression, .TypeOfExpression, .VoidExpression, .AwaitExpression, .TypeAssertionExpression, .ExpressionWithTypeArguments, .JsxSelfClosingElement, .JsxSpreadAttribute, .JsxExpression, .PartiallyEmittedExpression => {
+            return true;
+        },
+        .ComputedPropertyName, .Decorator, .IfStatement, .DoStatement, .WhileStatement, .WithStatement, .ReturnStatement, .SwitchStatement, .CaseClause, .ThrowStatement, .ExpressionStatement, .ExportAssignment, .PropertyAccessExpression, .TemplateSpan => {
+            return getExpressionField(tree, parent) == node;
+        },
+        .VariableDeclaration => {
+            const v = parentNode.VariableDeclaration;
+            return (v.Initializer orelse 0) == node;
+        },
+        .Parameter => {
+            const p = parentNode.Parameter;
+            return (p.Initializer orelse 0) == node;
+        },
+        .BindingElement => {
+            const b = parentNode.BindingElement;
+            return (b.Initializer orelse 0) == node;
+        },
+        .PropertyDeclaration => {
+            const p = parentNode.PropertyDeclaration;
+            return (p.Initializer orelse 0) == node;
+        },
+        .PropertySignature => {
+            const p = parentNode.PropertySignature;
+            return (p.Initializer orelse 0) == node;
+        },
+        .PropertyAssignment => {
+            const p = parentNode.PropertyAssignment;
+            return p.Initializer == node;
+        },
+        .EnumMember => {
+            const e = parentNode.EnumMember;
+            return (e.Initializer orelse 0) == node;
+        },
+        .JsxAttribute => {
+            const j = parentNode.JsxAttribute;
+            return (j.Initializer orelse 0) == node;
+        },
+        .ShorthandPropertyAssignment => {
+            const s = parentNode.ShorthandPropertyAssignment;
+            return (s.ObjectAssignmentInitializer orelse 0) == node;
+        },
+        .ForStatement => {
+            const f = parentNode.ForStatement;
+            return (f.Initializer orelse 0) == node or (f.Condition orelse 0) == node or (f.Incrementor orelse 0) == node;
+        },
+        .ForInStatement => {
+            const f = parentNode.ForInStatement;
+            return f.Initializer == node or f.Expression == node;
+        },
+        .ForOfStatement => {
+            const f = parentNode.ForOfStatement;
+            return f.Initializer == node or f.Expression == node;
+        },
+        .ImportEqualsDeclaration => {
+            const i = parentNode.ImportEqualsDeclaration;
+            return i.ModuleReference == node;
+        },
+        .ArrowFunction => {
+            const a = parentNode.ArrowFunction;
+            return a.Body == node;
+        },
+        .ConditionalExpression => {
+            const c = parentNode.ConditionalExpression;
+            return c.Condition == node or c.WhenTrue == node or c.WhenFalse == node;
+        },
+        .CallExpression => {
+            const c = parentNode.CallExpression;
+            if (c.Expression == node) return true;
+            if (c.Arguments != 0) {
+                for (tree.getNodeList(c.Arguments)) |arg| {
+                    if (arg == node) return true;
+                }
+            }
+            return false;
+        },
+        .NewExpression => {
+            const n = parentNode.NewExpression;
+            if (n.Expression == node) return true;
+            if (n.Arguments != null and n.Arguments.? != 0) {
+                for (tree.getNodeList(n.Arguments.?)) |arg| {
+                    if (arg == node) return true;
+                }
+            }
+            return false;
+        },
+        .TaggedTemplateExpression => {
+            const t = parentNode.TaggedTemplateExpression;
+            return t.Tag == node;
+        },
+        .ImportAttribute => {
+            const i = parentNode.ImportAttribute;
+            return i.Value == node;
+        },
+        .JsxOpeningElement => {
+            const j = parentNode.JsxOpeningElement;
+            return j.TagName == node;
+        },
+        .JsxClosingElement => {
+            const j = parentNode.JsxClosingElement;
+            return j.TagName == node;
+        },
+        else => return false,
+    }
 }
 pub fn isGeneratedIdentifier(context: anytype, node: ast.NodeIndex) bool {
     _ = context;
@@ -932,9 +1105,8 @@ pub fn isLocalName(context: anytype, node: ast.NodeIndex) bool {
     return false;
 }
 pub fn isClassLike(tree: *ast.Ast, node: ast.NodeIndex) bool {
-    _ = tree;
-    _ = node;
-    return false;
+    const k = getKind(tree, node);
+    return k == .ClassDeclaration or k == .ClassExpression;
 }
 pub fn isIdentifier(tree: *ast.Ast, node: ast.NodeIndex) bool {
     if (node == 0) return false;
@@ -959,6 +1131,8 @@ pub fn getText(tree: *ast.Ast, node: ast.NodeIndex) []const u8 {
         .StringLiteral => |n| return n.Text,
         .NumericLiteral => |n| return n.Text,
         .PrivateIdentifier => |n| return n.Text,
+        .RegularExpressionLiteral => |n| return n.Text,
+        .NoSubstitutionTemplateLiteral => |n| return n.Text,
         else => {
             if (node < tree.positions.items.len) {
                 const pos = tree.positions.items[node];
@@ -1000,11 +1174,106 @@ pub fn cloneNode(a: anytype, b: anytype, c: anytype) ast.NodeIndex {
     _ = b;
     return c;
 }
-pub fn childIsDecorated(a: anytype, b: anytype, c: anytype) bool {
-    _ = a;
-    _ = b;
-    _ = c;
-    return false;
+pub fn hasAbstractModifier(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return (getModifierFlags(tree, node) & ModifierFlags.Abstract) != 0;
+}
+pub fn hasAmbientModifier(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return (getModifierFlags(tree, node) & ModifierFlags.Ambient) != 0;
+}
+
+pub fn nodeCanBeDecorated(tree: *ast.Ast, useLegacyDecorators: bool, node: ast_gen.NodeIndex, parent: ast_gen.NodeIndex) bool {
+    const nodeKind = getKind(tree, node);
+    if (useLegacyDecorators) {
+        const nameNode = name(tree, node);
+        if (nameNode != 0 and getKind(tree, nameNode) == .PrivateIdentifier) {
+            return false;
+        }
+    }
+    switch (nodeKind) {
+        .ClassDeclaration => return true,
+        .ClassExpression => return !useLegacyDecorators,
+        .PropertyDeclaration => {
+            if (parent == 0) return false;
+            const parentKind = getKind(tree, parent);
+            if (useLegacyDecorators) {
+                return parentKind == .ClassDeclaration;
+            } else {
+                return (parentKind == .ClassDeclaration or parentKind == .ClassExpression) and
+                    !hasAbstractModifier(tree, node) and !hasAmbientModifier(tree, node);
+            }
+        },
+        .GetAccessor, .SetAccessor, .MethodDeclaration => {
+            if (parent == 0) return false;
+            const parentKind = getKind(tree, parent);
+            const bodyNode = getBodyOfNode(tree, node);
+            if (bodyNode == 0) return false;
+            if (useLegacyDecorators) {
+                return parentKind == .ClassDeclaration;
+            } else {
+                return parentKind == .ClassDeclaration or parentKind == .ClassExpression;
+            }
+        },
+        .Parameter => {
+            if (!useLegacyDecorators) return false;
+            if (parent == 0) return false;
+            const parentKind = getKind(tree, parent);
+            const bodyNode = getBodyOfNode(tree, parent);
+            if (bodyNode == 0) return false;
+
+            const isTargetMethod = parentKind == .Constructor or parentKind == .MethodDeclaration or parentKind == .SetAccessor;
+            if (!isTargetMethod) return false;
+
+            if (isThisParameter(tree, node)) return false;
+
+            return true;
+        },
+        else => return false,
+    }
+}
+
+pub fn nodeIsDecorated(tree: *ast.Ast, useLegacyDecorators: bool, node: ast_gen.NodeIndex, parent: ast_gen.NodeIndex) bool {
+    return hasDecorators(tree, node) and nodeCanBeDecorated(tree, useLegacyDecorators, node, parent);
+}
+
+pub fn nodeOrChildIsDecorated(tree: *ast.Ast, useLegacyDecorators: bool, node: ast_gen.NodeIndex, parent: ast_gen.NodeIndex) bool {
+    return nodeIsDecorated(tree, useLegacyDecorators, node, parent) or childIsDecorated(tree, useLegacyDecorators, node, parent);
+}
+
+pub fn childIsDecorated(tree: *ast.Ast, useLegacyDecorators: bool, node: ast_gen.NodeIndex, parent: ast_gen.NodeIndex) bool {
+    _ = parent;
+    const nodeKind = getKind(tree, node);
+    switch (nodeKind) {
+        .ClassDeclaration, .ClassExpression => {
+            const membersListIndex = switch (tree.getNode(node)) {
+                .ClassDeclaration => |n| n.Members,
+                .ClassExpression => |n| n.Members,
+                else => return false,
+            };
+            const members_slice = tree.getNodeList(membersListIndex);
+            for (members_slice) |m| {
+                if (nodeOrChildIsDecorated(tree, useLegacyDecorators, m, node)) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        .MethodDeclaration, .SetAccessor, .Constructor => {
+            const paramsListIndex = switch (tree.getNode(node)) {
+                .MethodDeclaration => |n| n.Parameters,
+                .SetAccessor => |n| n.Parameters,
+                .Constructor => |n| n.Parameters,
+                else => return false,
+            };
+            const params_slice = tree.getNodeList(paramsListIndex);
+            for (params_slice) |p| {
+                if (nodeIsDecorated(tree, useLegacyDecorators, p, node)) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        else => return false,
+    }
 }
 pub const FlattenLevel = struct {
     pub const All: u32 = 1;
@@ -1022,15 +1291,19 @@ pub fn canHaveIllegalDecorators(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     }
 }
 pub fn convertVariableDeclarationToAssignmentExpression(ctx: anytype, node: ast.NodeIndex) ast.NodeIndex {
-    _ = ctx;
-    _ = node;
-    return 0;
+    const tree = ctx.tree;
+    const v = tree.getNode(node).VariableDeclaration;
+    if (v.Initializer == 0) return 0;
+    const target = v.name;
+    const assignment = ctx.factory.newAssignmentExpression(target, v.Initializer.?);
+    ctx.setOriginal(assignment, node) catch unreachable;
+    ctx.assignCommentAndSourceMapRanges(assignment, node);
+    return assignment;
 }
 
 pub fn isConstructorDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool {
-    _ = tree;
-    _ = node;
-    return false;
+    if (node == 0) return false;
+    return tree.getNode(node) == .Constructor;
 }
 
 pub fn setParent(a: anytype, b: anytype, c: anytype) void {
@@ -1054,10 +1327,40 @@ pub fn getPos(a: anytype, b: anytype) ast.NodeIndex {
     _ = b;
     return 0;
 }
-pub fn getTypeNode(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getTypeNode(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (nodeIndex == 0) return 0;
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .VariableDeclaration => |n| return n.Type orelse 0,
+        .Parameter => |n| return n.Type orelse 0,
+        .PropertySignature => |n| return n.Type orelse 0,
+        .PropertyDeclaration => |n| return n.Type orelse 0,
+        .PropertyAssignment => |n| return n.Type orelse 0,
+        .ShorthandPropertyAssignment => |n| return n.Type,
+        .TypePredicate => |n| return n.Type orelse 0,
+        .ParenthesizedType => |n| return n.Type,
+        .TypeOperator => |n| return n.Type,
+        .MappedType => |n| return n.Type orelse 0,
+        .TypeAssertionExpression => |n| return n.Type,
+        .AsExpression => |n| return n.Type,
+        .SatisfiesExpression => |n| return n.Type,
+        .TypeAliasDeclaration => |n| return n.Type,
+        .NamedTupleMember => |n| return n.Type,
+        .OptionalType => |n| return n.Type,
+        .RestType => |n| return n.Type,
+        .TemplateLiteralTypeSpan => |n| return n.Type,
+        .ExportAssignment => |n| return n.Type,
+        .BinaryExpression => |n| return n.Type orelse 0,
+        // Function-like:
+        .FunctionDeclaration => |n| return n.Type orelse 0,
+        .MethodDeclaration => |n| return n.Type orelse 0,
+        .Constructor => |n| return n.Type orelse 0,
+        .GetAccessor => |n| return n.Type orelse 0,
+        .SetAccessor => |n| return n.Type orelse 0,
+        .FunctionExpression => |n| return n.Type orelse 0,
+        .ArrowFunction => |n| return n.Type orelse 0,
+        else => return 0,
+    }
 }
 
 pub fn setLoc(a: anytype, b: anytype, c: anytype) void {
@@ -1065,10 +1368,12 @@ pub fn setLoc(a: anytype, b: anytype, c: anytype) void {
     _ = b;
     _ = c;
 }
-pub fn skipTypeParentheses(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn skipTypeParentheses(tree: *ast.Ast, nodeIndex: ast.NodeIndex) ast.NodeIndex {
+    var current = nodeIndex;
+    while (current != 0 and tree.getNodeKind(current) == .ParenthesizedType) {
+        current = getTypeNode(tree, current);
+    }
+    return current;
 }
 pub fn getMembersOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
@@ -1076,21 +1381,47 @@ pub fn getMembersOfNode(a: anytype, b: anytype) ast.NodeIndex {
     return 0;
 }
 
-pub fn getLoc(a: anytype, b: anytype) ast.TextRange {
-    _ = a;
-    _ = b;
-    return ast.TextRange{ .pos = 0, .end = 0 };
+pub fn getLoc(tree: *ast.Ast, node: ast_gen.NodeIndex) ast.TextRange {
+    if (node == 0 or node >= tree.positions.items.len) return .{ .pos = 0, .end = 0 };
+    return tree.positions.items[node];
 }
 pub fn getAssertsModifierOfTypePredicate(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
     _ = b;
     return 0;
 }
-pub fn getAllAccessorDeclarations(a: anytype, b: anytype, c: anytype) struct { firstAccessor: ast.NodeIndex, secondAccessor: ast.NodeIndex, getAccessor: ast.NodeIndex, setAccessor: ast.NodeIndex } {
-    _ = a;
-    _ = b;
-    _ = c;
-    return .{ .firstAccessor = 0, .secondAccessor = 0, .getAccessor = 0, .setAccessor = 0 };
+pub fn getAllAccessorDeclarations(tree: *ast.Ast, members_slice: []const ast_gen.NodeIndex, accessor: ast_gen.NodeIndex) struct { firstAccessor: ast.NodeIndex, secondAccessor: ast.NodeIndex, getAccessor: ast.NodeIndex, setAccessor: ast.NodeIndex } {
+    var getAccessor: ast_gen.NodeIndex = 0;
+    var setAccessor: ast_gen.NodeIndex = 0;
+    var firstAccessor: ast_gen.NodeIndex = 0;
+    var secondAccessor: ast_gen.NodeIndex = 0;
+    const accessor_name_node = name(tree, accessor);
+    const accessor_name_text = getText(tree, accessor_name_node);
+    const accessor_is_static = isStatic(tree, accessor);
+    for (members_slice) |m| {
+        const kind_val = getKind(tree, m);
+        if (kind_val == .GetAccessor or kind_val == .SetAccessor) {
+            const m_name_node = name(tree, m);
+            if (std.mem.eql(u8, getText(tree, m_name_node), accessor_name_text) and isStatic(tree, m) == accessor_is_static) {
+                if (kind_val == .GetAccessor) {
+                    getAccessor = m;
+                } else {
+                    setAccessor = m;
+                }
+                if (firstAccessor == 0) {
+                    firstAccessor = m;
+                } else if (secondAccessor == 0) {
+                    secondAccessor = m;
+                }
+            }
+        }
+    }
+    return .{
+        .firstAccessor = firstAccessor,
+        .secondAccessor = secondAccessor,
+        .getAccessor = getAccessor,
+        .setAccessor = setAccessor,
+    };
 }
 
 pub fn getLiteralOfLiteralTypeNode(a: anytype, b: anytype) ast.NodeIndex {
@@ -1136,15 +1467,29 @@ pub fn getLiteralKind(a: anytype, b: anytype) std.meta.Tag(ast_gen.NodeData) {
     return .Unknown;
 }
 
-pub fn classOrConstructorParameterIsDecorated(a: anytype, b: anytype, c: anytype) bool {
-    _ = a;
-    _ = b;
-    _ = c;
-    return false;
+pub fn classOrConstructorParameterIsDecorated(tree: *ast.Ast, useLegacyDecorators: bool, node: ast_gen.NodeIndex) bool {
+    if (nodeIsDecorated(tree, useLegacyDecorators, node, 0)) {
+        return true;
+    }
+    const constructor = getFirstConstructorWithBody(tree, node);
+    return constructor != 0 and childIsDecorated(tree, useLegacyDecorators, constructor, node);
 }
-pub fn getFirstConstructorWithBody(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
+pub fn getFirstConstructorWithBody(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast.NodeIndex {
+    const node = tree.getNode(nodeIndex);
+    const membersListIndex = switch (node) {
+        .ClassDeclaration => |n| n.Members,
+        .ClassExpression => |n| n.Members,
+        else => return 0,
+    };
+    const members_slice = tree.getNodeList(membersListIndex);
+    for (members_slice) |member| {
+        if (getKind(tree, member) == .Constructor) {
+            const bodyNode = getBodyOfNode(tree, member);
+            if (bodyNode != 0) {
+                return member;
+            }
+        }
+    }
     return 0;
 }
 pub fn getOperatorOfTypeOperator(a: anytype, b: anytype) u32 {
@@ -1212,10 +1557,19 @@ pub fn getTypeOfNode(a: anytype, b: anytype) ast.NodeIndex {
     return 0;
 }
 
-pub fn getBodyOfNode(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getBodyOfNode(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast.NodeIndex {
+    if (nodeIndex == 0) return 0;
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .MethodDeclaration => |n| return n.Body orelse 0,
+        .Constructor => |n| return n.Body orelse 0,
+        .GetAccessor => |n| return n.Body orelse 0,
+        .SetAccessor => |n| return n.Body orelse 0,
+        .FunctionDeclaration => |n| return n.Body orelse 0,
+        .FunctionExpression => |n| return n.Body orelse 0,
+        .ArrowFunction => |n| return n.Body orelse 0,
+        else => return 0,
+    }
 }
 pub fn isFunctionLikeDeclaration(a: anytype, b: anytype) bool {
     _ = a;
@@ -1305,9 +1659,9 @@ pub fn getRestParameterElementType(a: anytype, b: anytype) ast.NodeIndex {
     return 0;
 }
 
-pub fn getKind(a: anytype) std.meta.Tag(ast_gen.NodeData) {
-    _ = a;
-    return .Unknown;
+pub fn getKind(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) std.meta.Tag(ast_gen.NodeData) {
+    if (nodeIndex == 0) return .Unknown;
+    return std.meta.activeTag(tree.getNode(nodeIndex));
 }
 pub fn isNumericLiteral(a: anytype, b: anytype) bool {
     _ = a;
@@ -1327,9 +1681,23 @@ pub fn isTypeOfExpression(a: anytype, b: anytype) bool {
     return false;
 }
 
-pub fn getFlags(a: anytype) u32 {
-    _ = a;
-    return 0;
+pub fn getFlags(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
+    if (node == 0) return 0;
+    const nodeData = tree.getNode(node);
+    switch (nodeData) {
+        inline else => |n| {
+            const T = @TypeOf(n);
+            if (@typeInfo(T) == .@"struct") {
+                if (@hasField(T, "Flags")) {
+                    return n.Flags;
+                }
+            }
+            return 0;
+        },
+    }
+}
+pub fn nodeIsSynthesized(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return (getFlags(tree, node) & NodeFlags.Synthesized) != 0;
 }
 pub fn isParenthesizedExpression(a: anytype, b: anytype) bool {
     _ = a;
@@ -1343,13 +1711,49 @@ pub fn isConditionalExpression(a: anytype, b: anytype) bool {
     return false;
 }
 
-pub fn name(a: anytype) ast.NodeIndex {
-    _ = a;
-    return 0;
+pub fn name(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (nodeIndex == 0) return 0;
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .PropertyDeclaration => |n| return n.name,
+        .MethodDeclaration => |n| return n.name,
+        .GetAccessor => |n| return n.name,
+        .SetAccessor => |n| return n.name,
+        .ClassDeclaration => |n| return n.name orelse 0,
+        .ClassExpression => |n| return n.name orelse 0,
+        .FunctionDeclaration => |n| return n.name orelse 0,
+        .FunctionExpression => |n| return n.name orelse 0,
+        .Parameter => |n| return n.name,
+        .VariableDeclaration => |n| return n.name,
+        .EnumMember => |n| return n.name,
+        .ModuleDeclaration => |n| return n.name,
+        .PropertyAccessExpression => |n| return n.name,
+        else => return 0,
+    }
 }
-pub fn expression(a: anytype) ast.NodeIndex {
-    _ = a;
-    return 0;
+pub fn expression(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (nodeIndex == 0) return 0;
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .Decorator => |n| return n.Expression,
+        .ComputedPropertyName => |n| return n.Expression,
+        .PropertyAccessExpression => |n| return n.Expression,
+        .ElementAccessExpression => |n| return n.Expression,
+        .ExpressionStatement => |n| return n.Expression,
+        .ParenthesizedExpression => |n| return n.Expression,
+        .ReturnStatement => |n| return n.Expression orelse 0,
+        .YieldExpression => |n| return n.Expression orelse 0,
+        .AwaitExpression => |n| return n.Expression,
+        .NonNullExpression => |n| return n.Expression,
+        .AsExpression => |n| return n.Expression,
+        .TypeAssertionExpression => |n| return n.Expression,
+        .SpreadElement => |n| return n.Expression,
+        .DeleteExpression => |n| return n.Expression,
+        .TypeOfExpression => |n| return n.Expression,
+        .VoidExpression => |n| return n.Expression,
+        .ThrowStatement => |n| return n.Expression,
+        else => return 0,
+    }
 }
 pub fn getConditionOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
@@ -1373,14 +1777,23 @@ pub fn heritageClauses(a: anytype) ast.NodeIndex {
     _ = a;
     return 0;
 }
-pub fn nodesLen(a: anytype) u32 {
-    _ = a;
-    return 0;
+pub fn nodesLen(tree: *ast.Ast, nodeListIndex: ast_gen.NodeIndex) u32 {
+    if (nodeListIndex == 0) return 0;
+    return @intCast(tree.getNodeList(nodeListIndex).len);
 }
 
-pub fn members(a: anytype) ast.NodeIndex {
-    _ = a;
-    return 0;
+pub fn members(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (nodeIndex == 0) return 0;
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .ClassDeclaration => |n| return n.Members,
+        .ClassExpression => |n| return n.Members,
+        .InterfaceDeclaration => |n| return n.Members,
+        .TypeLiteral => |n| return n.Members,
+        .EnumDeclaration => |n| return n.Members,
+        .ObjectLiteralExpression => |n| return n.Properties,
+        else => return 0,
+    }
 }
 
 pub fn questionDotToken(a: anytype) ast.NodeIndex {
@@ -1395,9 +1808,9 @@ pub fn initializer(a: anytype) ast.NodeIndex {
     _ = a;
     return 0;
 }
-pub fn getNodes(a: anytype) []const ast.NodeIndex {
-    _ = a;
-    return &.{};
+pub fn getNodes(tree: *ast.Ast, nodeListIndex: ast_gen.NodeIndex) []const ast_gen.NodeIndex {
+    if (nodeListIndex == 0) return &.{};
+    return tree.getNodeList(nodeListIndex);
 }
 pub fn getOperatorTokenOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
@@ -1405,28 +1818,39 @@ pub fn getOperatorTokenOfNode(a: anytype, b: anytype) ast.NodeIndex {
     return 0;
 }
 
-pub fn getBody(a: anytype) ast.NodeIndex {
-    _ = a;
-    return 0;
+pub fn getBody(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    return getBodyOfNode(tree, nodeIndex);
 }
-pub fn decorators(a: anytype) ast.NodeIndex {
-    _ = a;
-    return 0;
+pub fn decorators(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    const modifiersIndex = getModifiers(tree, nodeIndex) orelse return 0;
+    if (modifiersIndex == 0) return 0;
+    const modifiers = tree.getNodeList(modifiersIndex);
+    var list = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+    defer list.deinit(tree.allocator);
+    for (modifiers) |modIndex| {
+        if (tree.getNode(modIndex) == .Decorator) {
+            list.append(tree.allocator, modIndex) catch unreachable;
+        }
+    }
+    if (list.items.len == 0) return 0;
+    return tree.pushNodeList(list.items) catch unreachable;
 }
-pub fn isStatic(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
-    return false;
+pub fn isStatic(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return (getModifierFlags(tree, node) & ModifierFlags.Static) != 0;
 }
-pub fn getInitializerOfNode(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getInitializerOfNode(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast.NodeIndex {
+    if (nodeIndex == 0) return 0;
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .PropertyDeclaration => |n| return n.Initializer orelse 0,
+        .VariableDeclaration => |n| return n.Initializer orelse 0,
+        .Parameter => |n| return n.Initializer orelse 0,
+        .EnumMember => |n| return n.Initializer orelse 0,
+        else => return 0,
+    }
 }
-pub fn hasStaticModifier(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
-    return false;
+pub fn hasStaticModifier(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return (getModifierFlags(tree, node) & ModifierFlags.Static) != 0;
 }
 pub fn getAsteriskTokenOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
@@ -1439,9 +1863,15 @@ pub fn isNullishCoalesce(a: anytype, b: anytype) bool {
     _ = b;
     return false;
 }
-pub fn isOptionalChain(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
+pub fn isOptionalChain(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    const flags = getFlags(tree, node);
+    if ((flags & NodeFlags.OptionalChain) != 0) {
+        switch (tree.getNode(node)) {
+            .PropertyAccessExpression, .ElementAccessExpression, .CallExpression, .NonNullExpression => return true,
+            else => {},
+        }
+    }
     return false;
 }
 pub fn isBindingElement(a: anytype, b: anytype) bool {
@@ -1530,9 +1960,18 @@ pub fn getLeftOfNode(a: anytype, b: anytype) ast.NodeIndex {
     return 0;
 }
 
-pub fn parameters(a: anytype) ast.NodeIndex {
-    _ = a;
-    return 0;
+pub fn parameters(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .MethodDeclaration => |n| return n.Parameters,
+        .GetAccessor => |n| return n.Parameters,
+        .SetAccessor => |n| return n.Parameters,
+        .Constructor => |n| return n.Parameters,
+        .FunctionDeclaration => |n| return n.Parameters,
+        .FunctionExpression => |n| return n.Parameters,
+        .ArrowFunction => |n| return n.Parameters,
+        else => return 0,
+    }
 }
 pub fn isPropertyDeclaration(a: anytype) bool {
     _ = a;
@@ -1542,17 +1981,14 @@ pub fn isPrivateIdentifier(a: anytype) bool {
     _ = a;
     return false;
 }
-pub fn canHaveDecorators(a: anytype) bool {
-    _ = a;
-    return false;
+pub fn canHaveDecorators(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const nodeKind = getKind(tree, nodeIndex);
+    switch (nodeKind) {
+        .ClassDeclaration, .ClassExpression, .PropertyDeclaration, .MethodDeclaration, .GetAccessor, .SetAccessor, .Parameter => return true,
+        else => return false,
+    }
 }
-pub fn nodeOrChildIsDecorated(a: anytype, b: anytype, c: anytype, d: anytype) bool {
-    _ = a;
-    _ = b;
-    _ = c;
-    _ = d;
-    return false;
-}
+
 pub fn getRightOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
     _ = b;
@@ -1563,9 +1999,8 @@ pub fn loc(a: anytype) ast.NodeIndex {
     _ = a;
     return 0;
 }
-pub fn hasAccessorModifier(a: anytype) bool {
-    _ = a;
-    return false;
+pub fn hasAccessorModifier(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return (getModifierFlags(tree, node) & ModifierFlags.Accessor) != 0;
 }
 pub fn isSimpleInlineableExpression(a: anytype) bool {
     _ = a;
@@ -1591,11 +2026,42 @@ pub fn asteriskToken(a: anytype) ast.NodeIndex {
     return 0;
 }
 
-pub fn forEachChildBool(a: anytype, b: anytype, c: anytype, d: anytype) bool {
-    _ = a;
-    _ = b;
-    _ = c;
-    _ = d;
+fn ForEachChildBoolVisitor(comptime ContextType: type) type {
+    return struct {
+        tree: *ast.Ast,
+        context: ContextType,
+        check: *const fn (ContextType, ast_gen.NodeIndex) bool,
+
+        pub fn visitNode(self: *@This(), n: ast_gen.NodeIndex) anyerror!void {
+            if (n == 0) return;
+            if (self.check(self.context, n)) {
+                return error.Found;
+            }
+            try for_each.forEachChild(self.tree, n, self);
+        }
+
+        pub fn visitList(self: *@This(), listIndex: ast_gen.NodeIndex) anyerror!void {
+            if (listIndex == 0) return;
+            const nodes = self.tree.getNodeList(listIndex);
+            for (nodes) |n| {
+                try self.visitNode(n);
+            }
+        }
+    };
+}
+
+pub fn forEachChildBool(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, context: anytype, check: anytype) bool {
+    const ContextType = @TypeOf(context);
+    var visitor = ForEachChildBoolVisitor(ContextType){
+        .tree = tree,
+        .context = context,
+        .check = check,
+    };
+
+    for_each.forEachChild(tree, nodeIndex, &visitor) catch |err| {
+        if (err == error.Found) return true;
+        return false;
+    };
     return false;
 }
 
