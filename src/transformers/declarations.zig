@@ -32,9 +32,11 @@ pub const DeclarationTransformer = struct {
                 defer statements.deinit(self.allocator);
                 const original_statements = self.allocator.dupe(ast.NodeIndex, v.tree.getNodeList(source.Statements)) catch unreachable;
                 defer self.allocator.free(original_statements);
+                const is_module = source.ExternalModuleIndicator != null or source.CommonJSModuleIndicator != null;
                 var has_exported_declaration = false;
                 var has_private_class = false;
                 for (original_statements) |statement| {
+                    appendJSDocDeclarationsFromNode(v.tree, f, statement, &statements, self.allocator, is_module);
                     if (!isDeclarationStatement(v.tree, statement)) continue;
                     const is_exported = @import("../ast/ast_utils.zig").hasSyntacticModifier(v.tree, statement, @import("../ast/ast_utils.zig").ModifierFlags.Export);
                     has_exported_declaration = has_exported_declaration or is_exported;
@@ -50,7 +52,7 @@ pub const DeclarationTransformer = struct {
                         }
                     }
                 }
-                appendJSDocTypeAliases(v.tree, f, source.EndOfFileToken, &statements, self.allocator);
+                appendJSDocDeclarationsFromNode(v.tree, f, source.EndOfFileToken, &statements, self.allocator, is_module);
                 if (has_exported_declaration and has_private_class) {
                     const empty = f.newNodeList(&.{});
                     const clause = v.tree.pushNode(.{ .NamedExports = .{ .Flags = 0, .Elements = empty } }) catch unreachable;
@@ -68,6 +70,7 @@ pub const DeclarationTransformer = struct {
                 }
                 break :blk f.updateSourceFile(node, source, f.newNodeList(statements.items), source.EndOfFileToken);
             },
+            .ImportDeclaration => |n| self.transformImportDeclaration(v, node, n),
             .VariableStatement => |n| f.updateVariableStatement(node, n, self.declarationModifiers(v, node, n.modifiers orelse 0), v.visitNode(n.DeclarationList)),
             .ExportAssignment => |n| self.transformExportAssignment(v, node, n),
             .FunctionDeclaration => |n| self.transformFunction(v, node, n),
@@ -87,7 +90,7 @@ pub const DeclarationTransformer = struct {
                 var question_token = n.QuestionToken orelse 0;
                 var type_node = n.Type orelse 0;
 
-                const jsdoc_type = inlineJSDocType(v.tree, node) orelse jsdocParameterType(v.tree, parent, n.name, 0);
+                const jsdoc_type = inlineJSDocType(v.tree, f, node, self.allocator) orelse jsdocParameterType(v.tree, f, parent, n.name, 0, self.allocator);
                 if (type_node == 0) type_node = jsdoc_type orelse inferredType(v, f, 0, n.Initializer orelse 0);
 
                 if (parent != 0 and n.Initializer != null) {
@@ -145,6 +148,48 @@ pub const DeclarationTransformer = struct {
         };
         if (result != 0 and result != node) self.transformer.emitContext.setOriginal(result, node) catch {};
         return result;
+    }
+
+    /// Mirror of Go's transformImportDeclaration: elide namespace/named imports that
+    /// are not referenced in type positions. Without a full semantic resolver we use
+    /// a simple heuristic: if the ImportClause has only a NamespaceImport (no default
+    /// name, no named specifiers) check whether the namespace name appears anywhere
+    /// else in the source-file symbol table. If we have no semantic info, keep it.
+    fn transformImportDeclaration(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, decl: ast_gen.ImportDeclarationNode) ast.NodeIndex {
+        const f = self.transformer.factory;
+        // import "mod" with no clause: always keep (side-effect import)
+        const clause_idx = decl.ImportClause orelse return node;
+        const clause = v.tree.getNode(clause_idx).ImportClause;
+
+        // If it has a default name, keep as-is (conservatively)
+        if (clause.name != null) return node;
+
+        // Namespace import: import * as ns from '...'
+        // Elide when the namespace symbol is unused in declaration positions.
+        if (clause.NamedBindings) |bindings_idx| {
+            const binding_node = v.tree.getNode(bindings_idx);
+            if (binding_node == .NamespaceImport) {
+                const ns = binding_node.NamespaceImport;
+                // If we have semantic info, defer to it.
+                if (self.semantic_program) |_| {
+                    // No resolver, conservatively keep the import.
+                    return node;
+                }
+                // Without semantic program: check if the namespace name is referenced
+                // anywhere outside the import itself (i.e. appears in file symbols)
+                const ns_sym = v.tree.getNodeSymbol(ns.name);
+                if (ns_sym == null) {
+                    // Name has no symbol entry — it is not used as a type; elide it.
+                    _ = f;
+                    return 0;
+                }
+                return node;
+            }
+        }
+
+        // Named imports with no default: elide entirely if nothing is visible.
+        // Conservatively keep.
+        return node;
     }
 
     fn declarationModifiers(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, modifiers: ast.NodeIndex) ast.NodeIndex {
@@ -218,7 +263,7 @@ pub const DeclarationTransformer = struct {
         const f = self.transformer.factory;
         var jsdoc_parameters = std.ArrayListUnmanaged(ast.NodeIndex).empty;
         defer jsdoc_parameters.deinit(self.allocator);
-        collectJSDocTypeParameters(v.tree, node, &jsdoc_parameters, self.allocator);
+        collectJSDocTypeParameters(v.tree, f, node, &jsdoc_parameters, self.allocator);
         const type_parameters = if ((class.TypeParameters orelse 0) != 0)
             v.visitNodes(class.TypeParameters.?)
         else if (jsdoc_parameters.items.len != 0)
@@ -238,7 +283,7 @@ pub const DeclarationTransformer = struct {
             defer self.allocator.free(tag_items);
             var shared_type_parameters = std.ArrayListUnmanaged(ast.NodeIndex).empty;
             defer shared_type_parameters.deinit(self.allocator);
-            collectJSDocTypeParameters(v.tree, node, &shared_type_parameters, self.allocator);
+            collectJSDocTypeParameters(v.tree, f, node, &shared_type_parameters, self.allocator);
             var tag_offset: usize = 0;
             while (tag_offset < tag_items.len) : (tag_offset += 1) {
                 if (v.tree.getNode(tag_items[tag_offset]) != .JSDocOverloadTag) continue;
@@ -248,9 +293,9 @@ pub const DeclarationTransformer = struct {
                 var following = tag_offset + 1;
                 while (following < tag_items.len and v.tree.getNode(tag_items[following]) != .JSDocOverloadTag and return_type == 0) : (following += 1) {
                     switch (v.tree.getNode(tag_items[following])) {
-                        .JSDocParameterTag => |tag| parameters.append(self.allocator, parameterFromJSDocTag(v.tree, f, tag)) catch unreachable,
+                        .JSDocParameterTag => |tag| parameters.append(self.allocator, parameterFromJSDocTag(v.tree, f, tag, self.allocator)) catch unreachable,
                         .JSDocReturnTag => |tag| if (tag.TypeExpression) |expression| {
-                            return_type = unwrapJSDocTypeExpression(v.tree, expression);
+                            return_type = unwrapJSDocTypeExpression(v.tree, f, expression, self.allocator);
                         },
                         else => {},
                     }
@@ -264,14 +309,14 @@ pub const DeclarationTransformer = struct {
 
         var jsdoc_parameters = std.ArrayListUnmanaged(ast.NodeIndex).empty;
         defer jsdoc_parameters.deinit(self.allocator);
-        collectJSDocTypeParameters(v.tree, node, &jsdoc_parameters, self.allocator);
+        collectJSDocTypeParameters(v.tree, f, node, &jsdoc_parameters, self.allocator);
         const type_parameters = if ((method.TypeParameters orelse 0) != 0) v.visitNodes(method.TypeParameters.?) else if (jsdoc_parameters.items.len != 0) f.newNodeList(jsdoc_parameters.items) else 0;
-        return f.updateMethodDeclaration(node, method, v.visitModifiers(method.modifiers orelse 0), method.AsteriskToken orelse 0, method.name, method.PostfixToken orelse 0, type_parameters, v.visitNodes(method.Parameters), method.Type orelse jsdocReturnType(v.tree, node) orelse inferredType(v, f, 0, 0), 0);
+        return f.updateMethodDeclaration(node, method, v.visitModifiers(method.modifiers orelse 0), method.AsteriskToken orelse 0, method.name, method.PostfixToken orelse 0, type_parameters, v.visitNodes(method.Parameters), method.Type orelse jsdocReturnType(v.tree, f, node, self.allocator) orelse inferredType(v, f, 0, 0), 0);
     }
 
     fn transformFunction(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, function: ast_gen.FunctionDeclarationNode) ast.NodeIndex {
         const f = self.transformer.factory;
-        if (applicableJSDocFunctionType(v.tree, node)) |function_type_index| {
+        if (applicableJSDocFunctionType(v.tree, f, node, self.allocator)) |function_type_index| {
             const function_type = v.tree.getNode(function_type_index).FunctionType;
             return f.updateFunctionDeclaration(node, function, self.declarationModifiers(v, node, function.modifiers orelse 0), function.AsteriskToken orelse 0, function.name orelse 0, function_type.TypeParameters orelse 0, function_type.Parameters, function_type.Type orelse f.newToken(.{ .VoidKeyword = {} }), 0);
         }
@@ -281,7 +326,7 @@ pub const DeclarationTransformer = struct {
         const original_parameters = v.tree.getNodeList(function.Parameters);
         for (original_parameters, 0..) |parameter_index, index| {
             const parameter = v.tree.getNode(parameter_index).Parameter;
-            const jsdoc_type = inlineJSDocType(v.tree, parameter_index) orelse jsdocParameterType(v.tree, node, parameter.name, index);
+            const jsdoc_type = inlineJSDocType(v.tree, f, parameter_index, self.allocator) orelse jsdocParameterType(v.tree, f, node, parameter.name, index, self.allocator);
             var type_node = parameter.Type orelse jsdoc_type orelse inferredType(v, f, 0, parameter.Initializer orelse 0);
 
             var question = parameter.QuestionToken orelse 0;
@@ -318,9 +363,9 @@ pub const DeclarationTransformer = struct {
 
         var type_parameters = std.ArrayListUnmanaged(ast.NodeIndex).empty;
         defer type_parameters.deinit(self.allocator);
-        collectJSDocTypeParameters(v.tree, node, &type_parameters, self.allocator);
+        collectJSDocTypeParameters(v.tree, f, node, &type_parameters, self.allocator);
         const type_parameter_list = if ((function.TypeParameters orelse 0) != 0) v.visitNodes(function.TypeParameters.?) else if (type_parameters.items.len != 0) f.newNodeList(type_parameters.items) else 0;
-        const return_type = function.Type orelse jsdocReturnType(v.tree, node) orelse inferFunctionReturnType(v.tree, f, function.Body orelse 0);
+        const return_type = function.Type orelse jsdocReturnType(v.tree, f, node, self.allocator) orelse inferFunctionReturnType(v.tree, f, function.Body orelse 0);
         return f.updateFunctionDeclaration(node, function, self.declarationModifiers(v, node, function.modifiers orelse 0), function.AsteriskToken orelse 0, function.name orelse 0, type_parameter_list, f.newNodeList(parameters.items), return_type, 0);
     }
 
@@ -396,32 +441,6 @@ fn isDeclarationStatement(tree: *ast.Ast, node: ast.NodeIndex) bool {
         .ImportDeclaration, .ImportEqualsDeclaration, .ExportDeclaration, .ExportAssignment, .FunctionDeclaration, .ClassDeclaration, .InterfaceDeclaration, .TypeAliasDeclaration, .EnumDeclaration, .ModuleDeclaration, .VariableStatement => true,
         else => false,
     };
-}
-
-fn parameterFromJSDocTag(tree: *ast.Ast, factory: anytype, tag: ast_gen.JSDocParameterOrPropertyTagNode) ast.NodeIndex {
-    var type_node = if (tag.TypeExpression) |expression| unwrapJSDocTypeExpression(tree, expression) else factory.newToken(.{ .AnyKeyword = {} });
-    var rest_token: ast.NodeIndex = 0;
-    var question_token: ast.NodeIndex = if (tag.IsBracketed != 0) factory.newToken(.{ .QuestionToken = {} }) else 0;
-    if (tree.getNode(type_node) == .JSDocVariadicType) {
-        rest_token = factory.newToken(.{ .DotDotDotToken = {} });
-        type_node = tree.getNode(type_node).JSDocVariadicType.Type;
-    }
-    if (tree.getNode(type_node) == .JSDocOptionalType) {
-        question_token = factory.newToken(.{ .QuestionToken = {} });
-        type_node = tree.getNode(type_node).JSDocOptionalType.Type;
-    }
-    markJSDocTuplesSynthetic(tree, type_node);
-    return tree.pushNode(.{ .Parameter = .{
-        .Flags = 0,
-        .Symbol = 0,
-        .modifiers = null,
-        .modifierFlags = 0,
-        .DotDotDotToken = if (rest_token != 0) rest_token else null,
-        .name = tag.name,
-        .QuestionToken = if (question_token != 0) question_token else null,
-        .Type = type_node,
-        .Initializer = null,
-    } }) catch unreachable;
 }
 
 fn typeContainsUndefined(tree: *ast.Ast, type_node: ast.NodeIndex) bool {
@@ -515,18 +534,230 @@ fn normalizedDeclarationLiteral(tree: *ast.Ast, initializer: ast.NodeIndex) ast.
     return initializer;
 }
 
-fn applicableJSDocFunctionType(tree: *ast.Ast, function_index: ast.NodeIndex) ?ast.NodeIndex {
+fn collectTypeParametersFromJSDoc(tree: *ast.Ast, factory: anytype, jsdoc_node: ast.NodeIndex, output: *std.ArrayListUnmanaged(ast.NodeIndex), allocator: std.mem.Allocator) void {
+    const tags = tree.getNode(jsdoc_node).JSDoc.Tags orelse return;
+    for (tree.getNodeList(tags)) |tag_index| {
+        if (tree.getNode(tag_index) == .JSDocTemplateTag) {
+            const tag = tree.getNode(tag_index).JSDocTemplateTag;
+            const constraint = if (tag.Constraint != 0) unwrapJSDocTypeExpression(tree, factory, tag.Constraint, allocator) else 0;
+            for (tree.getNodeList(tag.TypeParameters)) |parameter_index| {
+                var parameter = tree.getNode(parameter_index).TypeParameter;
+                if ((parameter.Constraint orelse 0) == 0 and constraint != 0) parameter.Constraint = constraint;
+                if (parameter.DefaultType) |default_type| {
+                    const is_empty_array = switch (tree.getNode(default_type)) {
+                        .ArrayLiteralExpression => |array| tree.getNodeList(array.Elements).len == 0,
+                        .TupleType => |tuple| tree.getNodeList(tuple.Elements).len == 0,
+                        else => false,
+                    };
+                    if (is_empty_array) {
+                        const name = tree.pushNode(.{ .Identifier = .{ .Flags = @import("../ast/ast_utils.zig").NodeFlags.Synthesized, .Text = "[]" } }) catch unreachable;
+                        parameter.DefaultType = tree.pushNode(.{ .TypeReference = .{ .Flags = @import("../ast/ast_utils.zig").NodeFlags.Synthesized, .TypeName = name, .TypeArguments = null } }) catch unreachable;
+                    }
+                }
+                const updated = tree.pushNode(.{ .TypeParameter = parameter }) catch unreachable;
+                output.append(allocator, updated) catch unreachable;
+            }
+        }
+    }
+}
+
+fn transformJSDocTypeLiteral(tree: *ast.Ast, factory: anytype, literal_idx: ast.NodeIndex, allocator: std.mem.Allocator) ast.NodeIndex {
+    const literal = tree.getNode(literal_idx).JSDocTypeLiteral;
+    var members = std.ArrayListUnmanaged(ast.NodeIndex).empty;
+    defer members.deinit(allocator);
+    if (literal.JSDocPropertyTags) |tags_idx| {
+        for (tree.getNodeList(tags_idx)) |tag_idx| {
+            const tag_node = tree.getNode(tag_idx);
+            switch (tag_node) {
+                .JSDocPropertyTag => |tag| {
+                    const prop_type = if (tag.TypeExpression != null)
+                        unwrapJSDocTypeExpression(tree, factory, tag.TypeExpression.?, allocator)
+                    else
+                        factory.newToken(.{ .AnyKeyword = {} });
+                    const prop_sig = tree.pushNode(.{ .PropertySignature = .{
+                        .Symbol = 0,
+                        .Flags = 0,
+                        .modifiers = null,
+                        .modifierFlags = 0,
+                        .name = tag.name,
+                        .PostfixToken = if (tag.IsBracketed != 0) factory.newToken(.{ .QuestionToken = {} }) else null,
+                        .Type = prop_type,
+                        .Initializer = 0,
+                    } }) catch unreachable;
+                    members.append(allocator, prop_sig) catch unreachable;
+                },
+                else => {},
+            }
+        }
+    }
+    const members_list = factory.newNodeList(members.items);
+    return tree.pushNode(.{ .TypeLiteral = .{
+        .Flags = 0,
+        .Symbol = 0,
+        .Members = members_list,
+    } }) catch unreachable;
+}
+
+fn unwrapJSDocTypeExpression(tree: *ast.Ast, factory: anytype, node: ast.NodeIndex, allocator: std.mem.Allocator) ast.NodeIndex {
+    const unwrapped = if (tree.getNode(node) == .JSDocTypeExpression) tree.getNode(node).JSDocTypeExpression.Type else node;
+    if (tree.getNode(unwrapped) == .JSDocTypeLiteral) {
+        return transformJSDocTypeLiteral(tree, factory, unwrapped, allocator);
+    }
+    return unwrapped;
+}
+
+fn appendJSDocDeclarationsFromNode(tree: *ast.Ast, factory: anytype, node: ast.NodeIndex, statements: *std.ArrayListUnmanaged(ast.NodeIndex), allocator: std.mem.Allocator, is_module: bool) void {
+    const jsdocs = tree.jsdocCache.get(node) orelse return;
+    for (jsdocs) |doc_index| {
+        const tags = tree.getNode(doc_index).JSDoc.Tags orelse continue;
+        for (tree.getNodeList(tags)) |tag_index| {
+            const tag_node = tree.getNode(tag_index);
+            switch (tag_node) {
+                .JSDocTypedefTag => |tag| {
+                    const name = tag.name orelse continue;
+                    const expression = tag.TypeExpression orelse continue;
+
+                    var type_parameters: std.ArrayListUnmanaged(ast.NodeIndex) = .empty;
+                    defer type_parameters.deinit(allocator);
+                    collectTypeParametersFromJSDoc(tree, factory, doc_index, &type_parameters, allocator);
+                    const tp_list = if (type_parameters.items.len != 0) factory.newNodeList(type_parameters.items) else 0;
+
+                    const ast_utils = @import("../ast/ast_utils.zig");
+                    const modifiers = if (is_module) factory.newModifierList(&.{factory.newToken(.{ .ExportKeyword = {} })}) else null;
+                    const modifier_flags: u32 = if (is_module) ast_utils.ModifierFlags.Export else 0;
+                    const alias = tree.pushNode(.{ .TypeAliasDeclaration = .{
+                        .Symbol = 0,
+                        .Flags = 0,
+                        .modifiers = modifiers,
+                        .modifierFlags = modifier_flags,
+                        .name = name,
+                        .TypeParameters = tp_list,
+                        .Type = unwrapJSDocTypeExpression(tree, factory, expression, allocator),
+                    } }) catch unreachable;
+                    statements.append(allocator, alias) catch unreachable;
+                },
+                .JSDocCallbackTag => |tag| {
+                    const name = tag.name orelse continue;
+                    if (tag.TypeExpression == 0) continue;
+                    const expression = tag.TypeExpression;
+                    if (tree.getNode(expression) != .JSDocSignature) continue;
+                    const sig = tree.getNode(expression).JSDocSignature;
+
+                    var type_parameters: std.ArrayListUnmanaged(ast.NodeIndex) = .empty;
+                    defer type_parameters.deinit(allocator);
+                    collectTypeParametersFromJSDoc(tree, factory, doc_index, &type_parameters, allocator);
+                    const tp_list = if (type_parameters.items.len != 0) factory.newNodeList(type_parameters.items) else 0;
+
+                    var params = std.ArrayListUnmanaged(ast.NodeIndex).empty;
+                    defer params.deinit(allocator);
+                    if (sig.Parameters != 0) {
+                        for (tree.getNodeList(sig.Parameters)) |param_tag_idx| {
+                            const param_node = tree.getNode(param_tag_idx);
+                            switch (param_node) {
+                                .JSDocParameterTag => |p_tag| {
+                                    params.append(allocator, parameterFromJSDocTag(tree, factory, p_tag, allocator)) catch unreachable;
+                                },
+                                else => {},
+                            }
+                        }
+                    }
+                    const params_list = factory.newNodeList(params.items);
+
+                    var return_type: ast.NodeIndex = 0;
+                    if (sig.Type != null) {
+                        const ret_node = tree.getNode(sig.Type.?);
+                        switch (ret_node) {
+                            .JSDocReturnTag => |ret_tag| {
+                                if (ret_tag.TypeExpression) |expr| {
+                                    return_type = unwrapJSDocTypeExpression(tree, factory, expr, allocator);
+                                }
+                            },
+                            else => {},
+                        }
+                    }
+                    if (return_type == 0) {
+                        return_type = factory.newToken(.{ .VoidKeyword = {} });
+                    }
+
+                    const function_type = tree.pushNode(.{ .FunctionType = .{
+                        .Symbol = 0,
+                        .Flags = 0,
+                        .modifiers = null,
+                        .modifierFlags = 0,
+                        .TypeParameters = tp_list,
+                        .Parameters = params_list,
+                        .Type = return_type,
+                        .FullSignature = null,
+                    } }) catch unreachable;
+
+                    const ast_utils = @import("../ast/ast_utils.zig");
+                    const modifiers = if (is_module) factory.newModifierList(&.{factory.newToken(.{ .ExportKeyword = {} })}) else null;
+                    const modifier_flags: u32 = if (is_module) ast_utils.ModifierFlags.Export else 0;
+                    const alias = tree.pushNode(.{ .TypeAliasDeclaration = .{
+                        .Symbol = 0,
+                        .Flags = 0,
+                        .modifiers = modifiers,
+                        .modifierFlags = modifier_flags,
+                        .name = name,
+                        .TypeParameters = tp_list,
+                        .Type = function_type,
+                    } }) catch unreachable;
+                    statements.append(allocator, alias) catch unreachable;
+                },
+                else => {},
+            }
+        }
+    }
+}
+
+fn parameterFromJSDocTag(tree: *ast.Ast, factory: anytype, tag: ast_gen.JSDocParameterOrPropertyTagNode, allocator: std.mem.Allocator) ast.NodeIndex {
+    var type_node = if (tag.TypeExpression) |expression| unwrapJSDocTypeExpression(tree, factory, expression, allocator) else factory.newToken(.{ .AnyKeyword = {} });
+    var rest_token: ast.NodeIndex = 0;
+    var question_token: ast.NodeIndex = if (tag.IsBracketed != 0) factory.newToken(.{ .QuestionToken = {} }) else 0;
+    if (tree.getNode(type_node) == .JSDocVariadicType) {
+        rest_token = factory.newToken(.{ .DotDotDotToken = {} });
+        type_node = tree.getNode(type_node).JSDocVariadicType.Type;
+    }
+    if (tree.getNode(type_node) == .JSDocOptionalType) {
+        question_token = factory.newToken(.{ .QuestionToken = {} });
+        type_node = tree.getNode(type_node).JSDocOptionalType.Type;
+    }
+    markJSDocTuplesSynthetic(tree, type_node);
+    return tree.pushNode(.{ .Parameter = .{
+        .Flags = 0,
+        .Symbol = 0,
+        .modifiers = null,
+        .modifierFlags = 0,
+        .DotDotDotToken = if (rest_token != 0) rest_token else null,
+        .name = tag.name,
+        .QuestionToken = if (question_token != 0) question_token else null,
+        .Type = type_node,
+        .Initializer = null,
+    } }) catch unreachable;
+}
+
+fn applicableJSDocFunctionType(tree: *ast.Ast, factory: anytype, function_index: ast.NodeIndex, allocator: std.mem.Allocator) ?ast.NodeIndex {
     const function = tree.getNode(function_index).FunctionDeclaration;
-    for (tree.getNodeList(function.Parameters)) |parameter| if (inlineJSDocType(tree, parameter) != null) return null;
+    for (tree.getNodeList(function.Parameters)) |parameter| if (inlineJSDocType(tree, factory, parameter, allocator) != null) return null;
     var preceding_signature_tag = false;
     for (@import("../ast/ast_utils.zig").getJSDoc(tree, function_index)) |doc_index| {
         const doc = tree.getNode(doc_index).JSDoc;
         const tags = doc.Tags orelse continue;
+        var is_typedef_or_callback = false;
+        for (tree.getNodeList(tags)) |tag_index| {
+            const kind_val = tree.getNode(tag_index);
+            if (kind_val == .JSDocTypedefTag or kind_val == .JSDocCallbackTag) {
+                is_typedef_or_callback = true;
+                break;
+            }
+        }
+        if (is_typedef_or_callback) continue;
+
         for (tree.getNodeList(tags)) |tag_index| switch (tree.getNode(tag_index)) {
             .JSDocParameterTag, .JSDocReturnTag, .JSDocTemplateTag => preceding_signature_tag = true,
             .JSDocTypeTag => |tag| {
                 if (!preceding_signature_tag) {
-                    const candidate = unwrapJSDocTypeExpression(tree, tag.TypeExpression);
+                    const candidate = unwrapJSDocTypeExpression(tree, factory, tag.TypeExpression, allocator);
                     if (tree.getNode(candidate) == .FunctionType) return candidate;
                 }
                 preceding_signature_tag = true;
@@ -537,54 +768,84 @@ fn applicableJSDocFunctionType(tree: *ast.Ast, function_index: ast.NodeIndex) ?a
     return null;
 }
 
-fn inlineJSDocType(tree: *ast.Ast, node_index: ast.NodeIndex) ?ast.NodeIndex {
+fn inlineJSDocType(tree: *ast.Ast, factory: anytype, node_index: ast.NodeIndex, allocator: std.mem.Allocator) ?ast.NodeIndex {
     const docs = @import("../ast/ast_utils.zig").getJSDoc(tree, node_index);
     for (docs) |doc_index| {
         const doc = tree.getNode(doc_index).JSDoc;
         const tags = doc.Tags orelse continue;
+        var is_typedef_or_callback = false;
+        for (tree.getNodeList(tags)) |tag_index| {
+            const kind_val = tree.getNode(tag_index);
+            if (kind_val == .JSDocTypedefTag or kind_val == .JSDocCallbackTag) {
+                is_typedef_or_callback = true;
+                break;
+            }
+        }
+        if (is_typedef_or_callback) continue;
+
         for (tree.getNodeList(tags)) |tag_index| if (tree.getNode(tag_index) == .JSDocTypeTag) {
-            const result = unwrapJSDocTypeExpression(tree, tree.getNode(tag_index).JSDocTypeTag.TypeExpression);
+            const result = unwrapJSDocTypeExpression(tree, factory, tree.getNode(tag_index).JSDocTypeTag.TypeExpression, allocator);
             return result;
         };
     }
     return null;
 }
 
-fn jsdocParameterType(tree: *ast.Ast, function_index: ast.NodeIndex, parameter_name: ast.NodeIndex, parameter_ordinal: usize) ?ast.NodeIndex {
+fn jsdocParameterType(tree: *ast.Ast, factory: anytype, function_index: ast.NodeIndex, parameter_name: ast.NodeIndex, parameter_ordinal: usize, allocator: std.mem.Allocator) ?ast.NodeIndex {
     const expected_name = if (tree.getNode(parameter_name) == .Identifier) @import("../ast/ast_utils.zig").getText(tree, parameter_name) else "";
     var ordinal: usize = 0;
     for (@import("../ast/ast_utils.zig").getJSDoc(tree, function_index)) |doc_index| {
         const doc = tree.getNode(doc_index).JSDoc;
         const tags = doc.Tags orelse continue;
+        var is_typedef_or_callback = false;
+        for (tree.getNodeList(tags)) |tag_index| {
+            const kind_val = tree.getNode(tag_index);
+            if (kind_val == .JSDocTypedefTag or kind_val == .JSDocCallbackTag) {
+                is_typedef_or_callback = true;
+                break;
+            }
+        }
+        if (is_typedef_or_callback) continue;
+
         for (tree.getNodeList(tags)) |tag_index| if (tree.getNode(tag_index) == .JSDocParameterTag) {
             const tag = tree.getNode(tag_index).JSDocParameterTag;
             const matches = ordinal == parameter_ordinal or (expected_name.len != 0 and std.mem.eql(u8, expected_name, @import("../ast/ast_utils.zig").getText(tree, tag.name)));
             ordinal += 1;
-            if (matches and tag.TypeExpression != null) return unwrapJSDocTypeExpression(tree, tag.TypeExpression.?);
+            if (matches and tag.TypeExpression != null) return unwrapJSDocTypeExpression(tree, factory, tag.TypeExpression.?, allocator);
         };
     }
     return null;
 }
 
-fn jsdocReturnType(tree: *ast.Ast, function_index: ast.NodeIndex) ?ast.NodeIndex {
+fn jsdocReturnType(tree: *ast.Ast, factory: anytype, function_index: ast.NodeIndex, allocator: std.mem.Allocator) ?ast.NodeIndex {
     for (@import("../ast/ast_utils.zig").getJSDoc(tree, function_index)) |doc_index| {
         const doc = tree.getNode(doc_index).JSDoc;
         const tags = doc.Tags orelse continue;
+        var is_typedef_or_callback = false;
+        for (tree.getNodeList(tags)) |tag_index| {
+            const kind_val = tree.getNode(tag_index);
+            if (kind_val == .JSDocTypedefTag or kind_val == .JSDocCallbackTag) {
+                is_typedef_or_callback = true;
+                break;
+            }
+        }
+        if (is_typedef_or_callback) continue;
+
         for (tree.getNodeList(tags)) |tag_index| if (tree.getNode(tag_index) == .JSDocReturnTag) {
             const expression = tree.getNode(tag_index).JSDocReturnTag.TypeExpression orelse continue;
-            return unwrapJSDocTypeExpression(tree, expression);
+            return unwrapJSDocTypeExpression(tree, factory, expression, allocator);
         };
     }
     return null;
 }
 
-fn collectJSDocTypeParameters(tree: *ast.Ast, function_index: ast.NodeIndex, output: *std.ArrayListUnmanaged(ast.NodeIndex), allocator: std.mem.Allocator) void {
+fn collectJSDocTypeParameters(tree: *ast.Ast, factory: anytype, function_index: ast.NodeIndex, output: *std.ArrayListUnmanaged(ast.NodeIndex), allocator: std.mem.Allocator) void {
     for (@import("../ast/ast_utils.zig").getJSDoc(tree, function_index)) |doc_index| {
         const doc = tree.getNode(doc_index).JSDoc;
         const tags = doc.Tags orelse continue;
         for (tree.getNodeList(tags)) |tag_index| if (tree.getNode(tag_index) == .JSDocTemplateTag) {
             const tag = tree.getNode(tag_index).JSDocTemplateTag;
-            const constraint = if (tag.Constraint != 0) unwrapJSDocTypeExpression(tree, tag.Constraint) else 0;
+            const constraint = if (tag.Constraint != 0) unwrapJSDocTypeExpression(tree, factory, tag.Constraint, allocator) else 0;
             for (tree.getNodeList(tag.TypeParameters)) |parameter_index| {
                 var parameter = tree.getNode(parameter_index).TypeParameter;
                 if ((parameter.Constraint orelse 0) == 0 and constraint != 0) parameter.Constraint = constraint;
@@ -619,10 +880,6 @@ fn markJSDocTuplesSynthetic(tree: *ast.Ast, node_index: ast.NodeIndex) void {
         .IntersectionType => |node| for (tree.getNodeList(node.Types)) |child| markJSDocTuplesSynthetic(tree, child),
         else => {},
     }
-}
-
-fn unwrapJSDocTypeExpression(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
-    return if (tree.getNode(node) == .JSDocTypeExpression) tree.getNode(node).JSDocTypeExpression.Type else node;
 }
 
 fn inferFunctionReturnType(tree: *ast.Ast, factory: anytype, body: ast.NodeIndex) ast.NodeIndex {

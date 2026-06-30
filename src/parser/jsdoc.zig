@@ -1362,7 +1362,7 @@ pub fn tryParseChildTag(p: *Parser, target: propertyLikeParse, indent: isize) an
 
     const tagName = try parseJSDocIdentifierName(p, null);
     const indentText = skipWhitespaceOrAsterisk(p);
-    var t: ?propertyLikeParse = null;
+    var t: i32 = 0;
 
     const tagNameText = p.ast.getNode(tagName).Identifier.Text;
     if (std.mem.eql(u8, tagNameText, "type")) {
@@ -1370,16 +1370,16 @@ pub fn tryParseChildTag(p: *Parser, target: propertyLikeParse, indent: isize) an
             return try parseTypeTag(p, &[_]NodeIndex{}, start, tagName, -1, "");
         }
     } else if (std.mem.eql(u8, tagNameText, "prop") or std.mem.eql(u8, tagNameText, "property")) {
-        t = .Property;
+        t = @intFromEnum(propertyLikeParse.Property);
     } else if (std.mem.eql(u8, tagNameText, "arg") or std.mem.eql(u8, tagNameText, "argument") or std.mem.eql(u8, tagNameText, "param")) {
-        t = .Parameter;
+        t = @intFromEnum(propertyLikeParse.Parameter) | @intFromEnum(propertyLikeParse.CallbackParameter);
     } else if (std.mem.eql(u8, tagNameText, "template")) {
         return try parseTemplateTag(p, start, tagName, indent, indentText);
     } else if (std.mem.eql(u8, tagNameText, "this")) {
         return try parseThisTag(p, start, tagName, indent, indentText);
     }
 
-    if (t == null or (@intFromEnum(target) & @intFromEnum(t.?)) == 0) {
+    if (t == 0 or (@intFromEnum(target) & t) == 0) {
         return null;
     }
     return try parseParameterOrPropertyTag(p, start, tagName, target, indent);
