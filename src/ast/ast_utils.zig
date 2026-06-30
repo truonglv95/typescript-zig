@@ -1307,26 +1307,24 @@ pub fn isConstructorDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool {
     return tree.getNode(node) == .Constructor;
 }
 
-pub fn setParent(a: anytype, b: anytype, c: anytype) void {
-    _ = a;
-    _ = b;
-    _ = c;
+pub fn setParent(tree: *ast.Ast, node: ast.NodeIndex, parent: ast.NodeIndex) void {
+    if (node != 0) {
+        tree.setNodeParent(node, parent);
+    }
 }
-pub fn withPos(a: anytype, b: anytype) ast.TextRange {
-    _ = a;
-    _ = b;
-    return ast.TextRange{ .pos = 0, .end = 0 };
+pub fn withPos(range: ast.TextRange, pos: anytype) ast.TextRange {
+    var new_range = range;
+    new_range.pos = @bitCast(@as(i32, @intCast(pos)));
+    return new_range;
 }
 
-pub fn getParent(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getParent(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
+    if (node == 0) return 0;
+    return tree.getNodeParent(node);
 }
-pub fn getPos(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getPos(tree: *ast.Ast, node: ast.NodeIndex) u32 {
+    if (node == 0) return 0;
+    return tree.getNodePos(node);
 }
 pub fn getTypeNode(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
     if (nodeIndex == 0) return 0;
@@ -1364,10 +1362,21 @@ pub fn getTypeNode(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeInd
     }
 }
 
-pub fn setLoc(a: anytype, b: anytype, c: anytype) void {
-    _ = a;
-    _ = b;
-    _ = c;
+pub fn setLoc(tree: *ast.Ast, node: ast.NodeIndex, range: anytype) void {
+    if (node != 0) {
+        const T = @TypeOf(range);
+        if (T == ast.TextRange) {
+            tree.setNodePosition(node, range.pos, range.end);
+        } else if (T == ast.NodeIndex or T == u32) {
+            if (range != 0) {
+                tree.setNodePosition(node, tree.getNodePos(range), tree.getNodeEnd(range));
+            }
+        } else if (@typeInfo(T) == .optional) {
+            if (range) |r| {
+                setLoc(tree, node, r);
+            }
+        }
+    }
 }
 pub fn skipTypeParentheses(tree: *ast.Ast, nodeIndex: ast.NodeIndex) ast.NodeIndex {
     var current = nodeIndex;
@@ -1583,10 +1592,11 @@ pub fn getTrueTypeOfConditionalType(a: anytype, b: anytype) ast.NodeIndex {
     _ = b;
     return 0;
 }
-pub fn getPosOfNode(a: anytype, b: anytype) u32 {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getPosOfNode(tree: *ast.Ast, node: anytype) u32 {
+    const T = @TypeOf(node);
+    const actual_node = if (@typeInfo(T) == .optional) (node orelse return 0) else node;
+    if (actual_node == 0) return 0;
+    return tree.getNodePos(actual_node);
 }
 pub fn getSymbolOfNode(a: anytype, b: anytype) u32 {
     _ = a;
@@ -1608,10 +1618,11 @@ pub fn findConstructorDeclaration(a: anytype, b: anytype) u32 {
     _ = b;
     return 0;
 }
-pub fn getEndOfNode(a: anytype, b: anytype) u32 {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getEndOfNode(tree: *ast.Ast, node: anytype) u32 {
+    const T = @TypeOf(node);
+    const actual_node = if (@typeInfo(T) == .optional) (node orelse return 0) else node;
+    if (actual_node == 0) return 0;
+    return tree.getNodeEnd(actual_node);
 }
 
 pub fn findAncestor(a: anytype, b: anytype, c: anytype) ast.NodeIndex {
@@ -2262,4 +2273,36 @@ pub fn isPartOfTypeQuery(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
         current = a.getNodeParent(current);
     }
     return current != 0 and a.getNode(current) == .TypeQuery;
+}
+
+const ParentFixer = struct {
+    tree: *ast.Ast,
+    parent: ast.NodeIndex,
+
+    pub fn visitNode(self: *ParentFixer, node: ast.NodeIndex) anyerror!void {
+        if (node == 0) return;
+        self.tree.setNodeParent(node, self.parent);
+        var fixer = ParentFixer{
+            .tree = self.tree,
+            .parent = node,
+        };
+        try for_each.forEachChild(self.tree, node, &fixer);
+    }
+
+    pub fn visitList(self: *ParentFixer, list: u32) anyerror!void {
+        if (list == 0) return;
+        const nodes = self.tree.getNodeList(list);
+        for (nodes) |child| {
+            try self.visitNode(child);
+        }
+    }
+};
+
+pub fn fixupParentReferences(tree: *ast.Ast, root: ast.NodeIndex) anyerror!void {
+    if (root == 0) return;
+    var fixer = ParentFixer{
+        .tree = tree,
+        .parent = tree.getNodeParent(root),
+    };
+    try for_each.forEachChild(tree, root, &fixer);
 }
