@@ -435,12 +435,36 @@ pub const ClassFieldsTransformer = struct {
         const Rewriter = struct {
             owner: *ClassFieldsTransformer,
             fields: @TypeOf(fields),
+            destructuring_target: bool = false,
+            temp_receiver: ast_gen.NodeIndex = 0,
+            receiver_assignment: ast_gen.NodeIndex = 0,
             fn visit(ctx: ?*anyopaque, v: *visitor.NodeVisitor, child: ast_gen.NodeIndex) ast_gen.NodeIndex {
                 const rw: *@This() = @ptrCast(@alignCast(ctx.?));
                 if (v.tree.getNode(child) == .MethodDeclaration) {
                     var method = v.tree.getNode(child).MethodDeclaration;
+                    rw.temp_receiver = 0;
                     if (method.Body) |body| method.Body = v.visitNode(body);
+                    if (rw.temp_receiver != 0 and method.Body != null and v.tree.getNode(method.Body.?) == .Block) {
+                        const block = v.tree.getNode(method.Body.?).Block;
+                        const declaration = rw.owner.transformer.factory.newVariableDeclaration(rw.temp_receiver, 0, 0, 0);
+                        const declaration_list = rw.owner.transformer.factory.newVariableDeclarationList(rw.owner.transformer.factory.newNodeList(&[_]ast_gen.NodeIndex{declaration}), 0);
+                        var statements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+                        statements.append(rw.owner.allocator, rw.owner.transformer.factory.newVariableStatement(0, declaration_list)) catch unreachable;
+                        statements.appendSlice(rw.owner.allocator, v.tree.getNodeList(block.Statements)) catch unreachable;
+                        method.Body = rw.owner.transformer.factory.updateBlock(method.Body.?, block, rw.owner.transformer.factory.newNodeList(statements.items), true);
+                    }
                     return v.tree.pushNode(.{ .MethodDeclaration = method }) catch unreachable;
+                }
+                if (v.tree.getNode(child) == .BinaryExpression and ast_utils.isDestructuringAssignment(v.tree, child)) {
+                    const binary = v.tree.getNode(child).BinaryExpression;
+                    rw.destructuring_target = true;
+                    rw.receiver_assignment = 0;
+                    const left = v.visitNode(binary.Left);
+                    rw.destructuring_target = false;
+                    const assignment = rw.owner.transformer.factory.newBinaryExpression(0, left, 0, binary.OperatorToken, v.visitNode(binary.Right));
+                    if (rw.receiver_assignment == 0) return assignment;
+                    const comma = rw.owner.transformer.factory.newToken(.{ .CommaToken = {} });
+                    return rw.owner.transformer.factory.newBinaryExpression(0, rw.receiver_assignment, 0, comma, assignment);
                 }
                 if (v.tree.getNode(child) == .TaggedTemplateExpression) {
                     var tagged = v.tree.getNode(child).TaggedTemplateExpression;
@@ -462,6 +486,17 @@ pub const ClassFieldsTransformer = struct {
                     if (v.tree.getNode(property.name) == .PrivateIdentifier) {
                         const raw = v.tree.getNode(property.name).PrivateIdentifier.Text;
                         for (rw.fields) |field| if (std.mem.eql(u8, field.name, raw)) {
+                            if (rw.destructuring_target) {
+                                rw.owner.transformer.emitContext.requestEmitHelper(&helpers.classPrivateFieldSetHelper);
+                                if (rw.temp_receiver == 0) rw.temp_receiver = rw.owner.transformer.factory.createTempVariable() catch unreachable;
+                                rw.receiver_assignment = rw.owner.transformer.factory.newAssignmentExpression(rw.temp_receiver, v.visitNode(property.Expression));
+                                const parameter = rw.owner.transformer.factory.createTempVariable() catch unreachable;
+                                const args = rw.owner.transformer.factory.newNodeList(&[_]ast_gen.NodeIndex{ rw.temp_receiver, field.storage, parameter, rw.owner.transformer.factory.newStringLiteral("f", false) });
+                                const set_call = rw.owner.transformer.factory.newCallExpression(rw.owner.transformer.factory.newIdentifier("__classPrivateFieldSet"), 0, 0, args, 0);
+                                const accessor = rw.owner.transformer.factory.newSetAccessorDeclaration(0, rw.owner.transformer.factory.newIdentifier("value"), rw.owner.transformer.factory.newNodeList(&[_]ast_gen.NodeIndex{rw.owner.transformer.factory.newParameterDeclaration(0, 0, parameter, 0, 0, 0)}), rw.owner.transformer.factory.newBlock(rw.owner.transformer.factory.newNodeList(&[_]ast_gen.NodeIndex{rw.owner.transformer.factory.newExpressionStatement(set_call)}), false));
+                                const object = rw.owner.transformer.factory.newObjectLiteralExpression(rw.owner.transformer.factory.newNodeList(&[_]ast_gen.NodeIndex{accessor}), false);
+                                return rw.owner.transformer.factory.newPropertyAccessExpression(rw.owner.transformer.factory.newParenthesizedExpression(object), 0, rw.owner.transformer.factory.newIdentifier("value"), 0);
+                            }
                             rw.owner.transformer.emitContext.requestEmitHelper(&helpers.classPrivateFieldGetHelper);
                             const args = rw.owner.transformer.factory.newNodeList(&[_]ast_gen.NodeIndex{
                                 v.visitNode(property.Expression),

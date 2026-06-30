@@ -1117,10 +1117,11 @@ pub fn mostOriginal(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
     return node;
 }
 pub fn classElementOrClassElementParameterIsDecorated(tree: *ast.Ast, legacyDecorators: bool, nodeIndex: ast.NodeIndex, containerIndex: ast.NodeIndex) bool {
-    _ = tree;
     _ = legacyDecorators;
-    _ = nodeIndex;
     _ = containerIndex;
+    if (hasDecorators(tree, nodeIndex)) return true;
+    const parameter_nodes = getParametersOfNode(tree, nodeIndex);
+    for (parameter_nodes) |parameter| if (hasDecorators(tree, parameter)) return true;
     return false;
 }
 pub fn getText(tree: *ast.Ast, node: ast.NodeIndex) []const u8 {

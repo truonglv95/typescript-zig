@@ -290,9 +290,7 @@ pub const RuntimeSyntaxTransformer = struct {
     }
 
     fn visitEnumDeclaration(self: *RuntimeSyntaxTransformer, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        std.debug.print("RuntimeSyntaxTransformer visiting EnumDeclaration! node={d}\n", .{node});
         if (!self.shouldEmitEnumDeclaration(node)) {
-            std.debug.print("shouldEmitEnumDeclaration returned false!\n", .{});
             return self.transformer.emitContext.newNotEmittedStatement(node) catch 0;
         }
 
@@ -334,7 +332,6 @@ pub const RuntimeSyntaxTransformer = struct {
         statements.append(std.heap.page_allocator, enumStatement) catch unreachable;
 
         const result = self.transformer.factory.newSyntaxList(statements.items);
-        std.debug.print("visitEnumDeclaration returning SyntaxList={d} with {d} statements\n", .{ result, statements.items.len });
         return result;
     }
 

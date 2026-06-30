@@ -22,6 +22,12 @@ pub const core = @import("core/core.zig");
 pub const emitresolver = @import("printer/emitresolver.zig");
 pub const referenceresolver = @import("binder/referenceresolver.zig");
 pub const ast_utils = @import("ast/ast_utils.zig");
+pub const declarations = @import("transformers/declarations.zig");
+pub const commandlineparser = @import("compiler/commandlineparser.zig");
+pub const simple_tsconfig = @import("compiler/tsconfigparsing.zig");
+pub const program = @import("compiler/program.zig");
+pub const lsp_transport = @import("lsp/transport.zig");
+pub const lsp_protocol = @import("lsp/protocol_session.zig");
 
 test {
     _ = @import("ast/kind.zig");
@@ -32,6 +38,9 @@ test {
     _ = @import("checker/checker.zig");
     _ = @import("printer/printer.zig");
     _ = @import("lsp/server.zig");
+    _ = @import("lsp/document_store.zig");
+    _ = @import("lsp/transport.zig");
+    _ = @import("lsp/protocol_session.zig");
 
     // Test files that are currently buildable
     _ = @import("parser/parser_test.zig");
@@ -45,6 +54,7 @@ test {
     // Utilities and modules tests
     _ = @import("modulespecifiers/specifiers_test.zig");
     _ = @import("compiler/commandline_test.zig");
+    _ = @import("compiler/program.zig");
 
     // Core compiler tests
     _ = @import("transformers/tstransforms/typeeraser_test.zig");

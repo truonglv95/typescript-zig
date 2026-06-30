@@ -115,7 +115,6 @@ pub fn emitList(printer: *Printer, parentNode: ?ast_mod.NodeIndex, nodeListIndex
     }
 
     if (isEmpty) {
-        std.debug.print("EMPTY LIST format: {d}, multiLine: {d}\n", .{ format, format & @import("emit_list.zig").ListFormat.MultiLine });
         if ((format & ListFormat.MultiLine) != 0) {
             printer.writer.writeLine();
         } else if ((format & ListFormat.SpaceBetweenBraces) != 0 and (format & ListFormat.NoSpaceIfEmpty) == 0) {
@@ -138,7 +137,6 @@ pub fn emitList(printer: *Printer, parentNode: ?ast_mod.NodeIndex, nodeListIndex
 }
 
 pub fn printList(printer: *Printer, format: u32, listIndex: ast_mod.NodeIndex) anyerror!void {
-    std.debug.print("printList called with listIndex: {d}\n", .{listIndex});
     try emitList(printer, null, listIndex, format);
 }
 

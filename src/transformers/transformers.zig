@@ -13,6 +13,7 @@ pub const tstransforms = struct {
 };
 pub const moduletransforms = struct {
     pub const esmodule = @import("moduletransforms/esmodule.zig");
+    pub const commonjs = @import("moduletransforms/commonjs.zig");
 };
 pub const estransforms = struct {
     pub const using = @import("estransforms/using.zig");

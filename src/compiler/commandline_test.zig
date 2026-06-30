@@ -26,10 +26,31 @@ test "Command Line Parser - Basic Flags" {
     try std.testing.expectEqualStrings("file2.ts", parsed.fileNames.items[1]);
 }
 
+test "Command Line Parser - negated boolean flag" {
+    const allocator = std.testing.allocator;
+    var args = [_][]const u8{ "--watch", "--noWatch", "index.ts" };
+    var parsed = try cli.parseCommandLine(allocator, &args);
+    defer parsed.deinit(allocator);
+
+    try std.testing.expectEqual(@as(?bool, false), parsed.options.watch);
+    try std.testing.expectEqual(@as(usize, 1), parsed.fileNames.items.len);
+    try std.testing.expectEqualStrings("index.ts", parsed.fileNames.items[0]);
+}
+
+test "Command Line Parser - list and modern enum options" {
+    const allocator = std.testing.allocator;
+    var args = [_][]const u8{ "--moduleResolution", "bundler", "--lib", "es2022,dom", "index.ts" };
+    var parsed = try cli.parseCommandLine(allocator, &args);
+    defer parsed.deinit(allocator);
+    try std.testing.expectEqual(core.ModuleResolutionKind.Bundler, parsed.options.moduleResolution.?);
+    try std.testing.expectEqualStrings("es2022", parsed.options.lib.?[0]);
+    try std.testing.expectEqualStrings("dom", parsed.options.lib.?[1]);
+}
+
 test "TSConfig Parser - Basic File" {
     const allocator = std.testing.allocator;
 
-    const content = 
+    const content =
         \\{
         \\  "compilerOptions": {
         \\    "strict": true,

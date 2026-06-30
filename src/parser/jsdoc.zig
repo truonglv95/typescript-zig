@@ -1579,7 +1579,17 @@ pub fn withJSDoc(p: *Parser, node: NodeIndex, info: @import("parser.zig").JSDocS
 
     var commentRanges = std.ArrayList(scanner_pkg.CommentRange).empty;
     defer commentRanges.deinit(p.allocator);
-    try scanner_pkg.getJSDocCommentRanges(p.allocator, &commentRanges, &p.ast, node, p.sourceText);
+    try scanner_pkg.getLeadingCommentRangesFromFullStart(p.allocator, &commentRanges, p.sourceText, @intCast(info >> 8));
+    var range_index: usize = 0;
+    while (range_index < commentRanges.items.len) {
+        const comment = commentRanges.items[range_index];
+        const length = comment.end - comment.pos;
+        if (length < 4 or p.sourceText[comment.pos + 1] != '*' or p.sourceText[comment.pos + 2] != '*' or p.sourceText[comment.pos + 3] == '/') {
+            _ = commentRanges.orderedRemove(range_index);
+        } else {
+            range_index += 1;
+        }
+    }
 
     p.hasDeprecatedTag = false;
     var jsdoc_list = std.ArrayList(NodeIndex).empty;

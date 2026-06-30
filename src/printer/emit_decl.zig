@@ -399,8 +399,6 @@ pub fn printParameter(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!
 
 pub fn printPropertyDeclaration(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
     const node = printer.tree.getNode(nodeIndex).PropertyDeclaration;
-    const nameText = ast_utils.getTextOfNode(printer.tree, node.name);
-    std.debug.print("printPropertyDeclaration name: {s}, Initializer: {d}\n", .{ nameText, node.Initializer orelse 0 });
 
     if (node.modifiers) |modifiers| {
         try printer.emitList(null, nodeIndex, modifiers, @import("emit_list.zig").ListFormat.Modifiers);

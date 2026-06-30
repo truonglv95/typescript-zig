@@ -9,10 +9,13 @@ const emitresolver = @import("../../printer/emitresolver.zig");
 const visitor = @import("../../ast/visitor.zig");
 
 pub const ImportElisionTransformer = struct {
+    allocator: std.mem.Allocator,
     transformer: *transformers.Transformer,
     compilerOptions: *core.CompilerOptions,
     currentSourceFile: ?ast_gen.SourceFileNode,
     emitResolver: *emitresolver.EmitResolver,
+    referenced_names: std.StringHashMapUnmanaged(void) = .empty,
+    has_jsx: bool = false,
 
     pub fn new(allocator: std.mem.Allocator, opt: *transformers.TransformOptions) !*transformers.Transformer {
         const compilerOptions = opt.compilerOptions;
@@ -22,10 +25,13 @@ pub const ImportElisionTransformer = struct {
 
         var tx = try allocator.create(ImportElisionTransformer);
         tx.* = .{
+            .allocator = allocator,
             .transformer = undefined,
             .compilerOptions = compilerOptions,
             .currentSourceFile = null,
             .emitResolver = opt.emitResolver,
+            .referenced_names = .empty,
+            .has_jsx = false,
         };
         tx.transformer = try transformers.Transformer.init(allocator, visit, tx, opt.context);
         return tx.transformer;
@@ -114,6 +120,11 @@ pub const ImportElisionTransformer = struct {
                 return tx.transformer.visitor.visitEachChild(nodeIndex);
             },
             .ExportDeclaration => |n| {
+                // `export * from` has no alias declaration to resolve and is
+                // always a runtime module operation.
+                if ((n.ExportClause orelse 0) == 0 and (n.ModuleSpecifier orelse 0) != 0 and n.IsTypeOnly == 0) {
+                    return nodeIndex;
+                }
                 var exportClause: ?ast.NodeIndex = null;
                 if (n.ExportClause) |ec| {
                     const res = tx.transformer.visitor.visitNodeInternal(ec);
@@ -153,6 +164,10 @@ pub const ImportElisionTransformer = struct {
             .SourceFile => |n| {
                 const savedCurrentSourceFile = tx.currentSourceFile;
                 tx.currentSourceFile = n;
+                tx.referenced_names.clearRetainingCapacity();
+                tx.has_jsx = false;
+                var collector = RuntimeReferenceCollector{ .tx = tx };
+                collector.visitNode(nodeIndex) catch unreachable;
                 const result = tx.transformer.visitor.visitEachChild(nodeIndex);
                 tx.currentSourceFile = savedCurrentSourceFile;
                 return result;
@@ -165,7 +180,17 @@ pub const ImportElisionTransformer = struct {
     }
 
     fn shouldEmitAliasDeclaration(tx: *ImportElisionTransformer, nodeIndex: ast.NodeIndex) bool {
-        return ast_utils.isInJSFile(tx.transformer.visitor.tree, nodeIndex) or tx.isReferencedAliasDeclaration(nodeIndex);
+        const tree = tx.transformer.visitor.tree;
+        const name = switch (tree.getNode(nodeIndex)) {
+            .ImportClause => |n| n.name orelse return false,
+            .NamespaceImport => |n| n.name,
+            .ImportSpecifier => |n| n.name,
+            .ImportEqualsDeclaration => |n| n.name,
+            else => return tx.isReferencedAliasDeclaration(nodeIndex),
+        };
+        const text = ast_utils.getText(tree, name);
+        if (tx.has_jsx and tx.compilerOptions.jsx == .React and std.mem.eql(u8, text, "React")) return true;
+        return tx.referenced_names.contains(text);
     }
 
     fn shouldEmitImportEqualsDeclarationByIndex(tx: *ImportElisionTransformer, nodeIndex: ast.NodeIndex) bool {
@@ -202,5 +227,30 @@ pub const ImportElisionTransformer = struct {
             return true;
         }
         return false;
+    }
+};
+
+const RuntimeReferenceCollector = struct {
+    tx: *ImportElisionTransformer,
+
+    pub fn visitNode(self: *@This(), node: ast.NodeIndex) !void {
+        if (node == 0) return;
+        const tree = self.tx.transformer.visitor.tree;
+        switch (tree.getNode(node)) {
+            .ImportDeclaration, .ImportEqualsDeclaration => return,
+            .Identifier => {
+                self.tx.referenced_names.put(self.tx.allocator, ast_utils.getText(tree, node), {}) catch unreachable;
+                return;
+            },
+            .JsxElement, .JsxSelfClosingElement, .JsxFragment => {
+                self.tx.has_jsx = true;
+                try ast.forEachChild(tree, node, self);
+            },
+            else => try ast.forEachChild(tree, node, self),
+        }
+    }
+
+    pub fn visitList(self: *@This(), list: ast.NodeIndex) !void {
+        for (self.tx.transformer.visitor.tree.getNodeList(list)) |node| try self.visitNode(node);
     }
 };

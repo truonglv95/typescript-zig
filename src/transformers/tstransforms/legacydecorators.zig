@@ -743,7 +743,7 @@ pub const LegacyDecoratorsTransformer = struct {
         const prefix = self.getClassMemberPrefix(tx, node, member);
         const memberName = self.getExpressionForPropertyName(tx, member, (ast_utils.getFlags(tx.visitor.tree, member) & ast.NodeFlagsAmbient) == 0);
         var descriptor: ast.NodeIndex = 0;
-        if (ast_utils.isPropertyDeclaration(member) and !ast_utils.hasAccessorModifier(tx.visitor.tree, member)) {
+        if (tx.visitor.tree.getNode(member) == .PropertyDeclaration) {
             descriptor = tx.factory.newVoidZeroExpression();
         } else {
             descriptor = tx.factory.newKeywordExpression(.NullKeyword);
