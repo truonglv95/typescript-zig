@@ -69,6 +69,7 @@ pub const Scanner = struct {
 
     state: ScannerState,
     containsNonASCII: bool,
+    commentDirectives: std.ArrayList(ast.CommentDirective),
 
     pub fn init(allocator: std.mem.Allocator, text: []const u8) Scanner {
         return .{
@@ -81,6 +82,7 @@ pub const Scanner = struct {
             .onErrorCtx = null,
             .skipTrivia = true,
             .containsNonASCII = false,
+            .commentDirectives = .empty,
             .state = .{
                 .pos = 0,
                 .fullStartPos = 0,
@@ -114,6 +116,48 @@ pub const Scanner = struct {
         self.state.tokenFlags = 0;
         self.state.skipJSDocLeadingAsterisks = 0;
         self.containsNonASCII = false;
+        self.commentDirectives.clearRetainingCapacity(self.allocator);
+    }
+
+    pub fn deinit(self: *Scanner) void {
+        self.commentDirectives.deinit(self.allocator);
+    }
+
+    pub fn processCommentDirective(self: *Scanner, start: usize, end: usize, multiline: bool) void {
+        var pos = start;
+        if (multiline) {
+            while (pos < end and (self.text[pos] == ' ' or self.text[pos] == '\t')) {
+                pos += 1;
+            }
+            while (pos < end and (self.text[pos] == '/' or self.text[pos] == '*')) {
+                pos += 1;
+            }
+        } else {
+            pos += 2;
+            while (pos < end and self.text[pos] == '/') {
+                pos += 1;
+            }
+        }
+        while (pos < end and (self.text[pos] == ' ' or self.text[pos] == '\t')) {
+            pos += 1;
+        }
+        if (!(pos < end and self.text[pos] == '@')) {
+            return;
+        }
+        pos += 1;
+        var dir_kind: ast.CommentDirectiveKind = .Unknown;
+        if (std.mem.startsWith(u8, self.text[pos..], "ts-expect-error")) {
+            dir_kind = .ExpectError;
+        } else if (std.mem.startsWith(u8, self.text[pos..], "ts-ignore")) {
+            dir_kind = .Ignore;
+        } else {
+            return;
+        }
+        self.commentDirectives.append(self.allocator, .{
+            .pos = @intCast(start),
+            .end = @intCast(end),
+            .kind = dir_kind,
+        }) catch {};
     }
 
     pub fn resetPos(self: *Scanner, pos: usize) void {
@@ -594,11 +638,13 @@ pub const Scanner = struct {
                             if (c == '\n' or c == '\r') break;
                             self.state.pos += 1;
                         }
+                        self.processCommentDirective(self.state.tokenStart, self.state.pos, false);
                         if (self.skipTrivia) continue;
                         self.state.token = kind.Kind.SingleLineCommentTrivia;
                         return self.state.token;
                     } else if (next == '*') {
                         const isJSDoc = (self.charAt(2) != '/');
+                        var lastLineStart = self.state.tokenStart;
                         self.state.pos += 2;
                         while (self.state.pos < self.end) {
                             const c = self.char();
@@ -606,15 +652,18 @@ pub const Scanner = struct {
                                 self.state.pos += 2;
                                 break;
                             }
-                            if (stringutil.isLineBreak(c)) {
+                            const is_lb = stringutil.isLineBreak(c);
+                            self.state.pos += 1;
+                            if (is_lb) {
+                                lastLineStart = self.state.pos;
                                 self.state.tokenFlags |= TokenFlags.PrecedingLineBreak;
                             }
-                            self.state.pos += 1;
                         }
                         if (isJSDoc) {
                             self.state.tokenFlags |= TokenFlags.PrecedingJSDocComment;
                             self.scanJSDocCommentForTags(self.text[self.state.tokenStart..self.state.pos]);
                         }
+                        self.processCommentDirective(lastLineStart, self.state.pos, true);
                         if (self.skipTrivia) continue;
                         self.state.token = kind.Kind.MultiLineCommentTrivia;
                         return self.state.token;

@@ -159,6 +159,14 @@ pub fn transpileFile(init: std.process.Init, filepath: []const u8, outpath: ?[]c
     // 1. Parse TS source to AST
     var p = parser_pkg.Parser.init(alloc, content);
     p.setScriptKind(scriptKindForPath(filepath));
+    p.ast.impliedNodeFormat = if (std.mem.endsWith(u8, filepath, ".mts") or std.mem.endsWith(u8, filepath, ".mjs") or std.mem.endsWith(u8, filepath, ".d.mts"))
+        .ESNext
+    else if (std.mem.endsWith(u8, filepath, ".cts") or std.mem.endsWith(u8, filepath, ".cjs") or std.mem.endsWith(u8, filepath, ".d.cts"))
+        .CommonJS
+    else if (package_is_module)
+        .ESNext
+    else
+        .CommonJS;
     const astIndex = try p.parseSourceFile();
 
     // 2. Setup Compiler Context
@@ -260,10 +268,26 @@ pub fn transpileFile(init: std.process.Init, filepath: []const u8, outpath: ?[]c
     transformers_buf[tr_len] = taggedTemplateTx;
     tr_len += 1;
     const module_kind = compiler_options.module orelse .None;
-    const extension_forces_commonjs = std.mem.endsWith(u8, filepath, ".cts") or std.mem.endsWith(u8, filepath, ".cjs");
-    const extension_forces_esm = std.mem.endsWith(u8, filepath, ".mts") or std.mem.endsWith(u8, filepath, ".mjs");
     const legacy_default_commonjs = module_kind == .None and (compiler_options.allowJs orelse false) and @intFromEnum(compiler_options.target orelse core.ScriptTarget.Latest) <= @intFromEnum(core.ScriptTarget.ES5);
-    transformers_buf[tr_len] = if (extension_forces_commonjs or (!extension_forces_esm and (module_kind == .CommonJS or legacy_default_commonjs or ((module_kind == .Node16 or module_kind == .NodeNext) and !package_is_module)))) commonJsTx else esModuleTx;
+    const emit_module_format: core.ModuleKind = blk: {
+        if (module_kind == .Node16 or module_kind == .NodeNext) {
+            break :blk p.ast.impliedNodeFormat;
+        }
+        if (module_kind == .None) {
+            const extension_forces_commonjs = std.mem.endsWith(u8, filepath, ".cts") or std.mem.endsWith(u8, filepath, ".cjs");
+            const extension_forces_esm = std.mem.endsWith(u8, filepath, ".mts") or std.mem.endsWith(u8, filepath, ".mjs");
+            if (extension_forces_commonjs) break :blk .CommonJS;
+            if (extension_forces_esm) break :blk .ESNext;
+            if (legacy_default_commonjs) break :blk .CommonJS;
+            const target = compiler_options.target orelse .ESNext;
+            if (@intFromEnum(target) >= @intFromEnum(core.ScriptTarget.ES2015)) {
+                break :blk .ESNext;
+            }
+            break :blk .CommonJS;
+        }
+        break :blk module_kind;
+    };
+    transformers_buf[tr_len] = if (emit_module_format == .CommonJS) commonJsTx else esModuleTx;
     tr_len += 1;
 
     var tx = try transformers_pkg.chain.ChainedTransformer.init(alloc, transformers_buf[0..tr_len], &options);

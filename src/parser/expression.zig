@@ -1076,7 +1076,7 @@ pub fn parseLiteralOfTemplateSpan(p: *parser_pkg.Parser, isTaggedTemplate: bool)
         p.token = p.scanner.reScanTemplateToken(isTaggedTemplate);
         return parseTemplateMiddleOrTail(p);
     }
-    // TODO: parseErrorAtCurrentToken
+    p.parseError("Expected '}'");
     return p.ast.pushNode(.{ .TemplateTail = .{ .Flags = 0, .TokenFlags = 0, .Text = "", .RawText = "", .TemplateFlags = 0 } });
 }
 
