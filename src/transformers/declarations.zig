@@ -74,15 +74,73 @@ pub const DeclarationTransformer = struct {
             .ClassDeclaration => |n| self.transformClass(v, node, n),
             .MethodDeclaration => |n| self.transformMethod(v, node, n),
             .Constructor => |n| self.transformConstructor(v, node, n),
-            .GetAccessor => |n| f.updateGetAccessorDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, v.visitNodes(n.TypeParameters orelse 0), v.visitNodes(n.Parameters), inferredType(v.tree, f, n.Type orelse 0, 0), 0),
+            .GetAccessor => |n| f.updateGetAccessorDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, v.visitNodes(n.TypeParameters orelse 0), v.visitNodes(n.Parameters), inferredType(v, f, n.Type orelse 0, 0), 0),
             .SetAccessor => |n| f.updateSetAccessorDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, v.visitNodes(n.TypeParameters orelse 0), v.visitNodes(n.Parameters), 0, 0),
-            .PropertyDeclaration => |n| f.updatePropertyDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, n.PostfixToken orelse 0, inferredType(v.tree, f, n.Type orelse 0, n.Initializer orelse 0), 0),
+            .PropertyDeclaration => |n| f.updatePropertyDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, n.PostfixToken orelse 0, inferredType(v, f, n.Type orelse 0, n.Initializer orelse 0), 0),
             .VariableDeclaration => |n| blk: {
                 const initializer = n.Initializer orelse 0;
                 const preserve_literal = isConstVariable(v.tree, node) and isDeclarationLiteral(v.tree, initializer);
-                break :blk f.updateVariableDeclaration(node, n, v.visitNode(n.name), 0, if (preserve_literal) 0 else self.inferredDeclarationType(v.tree, f, n.name, n.Type orelse 0, initializer), if (preserve_literal) normalizedDeclarationLiteral(v.tree, initializer) else 0);
+                break :blk f.updateVariableDeclaration(node, n, v.visitNode(n.name), 0, if (preserve_literal) 0 else self.inferredDeclarationType(v, f, n.name, n.Type orelse 0, initializer), if (preserve_literal) normalizedDeclarationLiteral(v.tree, initializer) else 0);
             },
-            .Parameter => |n| f.updateParameterDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.DotDotDotToken orelse 0, v.visitNode(n.name), n.QuestionToken orelse 0, inferredType(v.tree, f, n.Type orelse 0, n.Initializer orelse 0), 0),
+            .Parameter => |n| blk: {
+                const parent = v.tree.getNodeParent(node);
+                var question_token = n.QuestionToken orelse 0;
+                var type_node = n.Type orelse 0;
+
+                const jsdoc_type = inlineJSDocType(v.tree, node) orelse jsdocParameterType(v.tree, parent, n.name, 0);
+                if (type_node == 0) type_node = jsdoc_type orelse inferredType(v, f, 0, n.Initializer orelse 0);
+
+                if (parent != 0 and n.Initializer != null) {
+                    const parent_node = v.tree.getNode(parent);
+                    const params_list_idx: ?u32 = switch (parent_node) {
+                        .FunctionDeclaration => |p| p.Parameters,
+                        .MethodDeclaration => |p| p.Parameters,
+                        .Constructor => |p| p.Parameters,
+                        .GetAccessor => |p| p.Parameters,
+                        .SetAccessor => |p| p.Parameters,
+                        .ArrowFunction => |p| p.Parameters,
+                        .FunctionExpression => |p| p.Parameters,
+                        else => null,
+                    };
+                    if (params_list_idx) |list_idx| {
+                        const original_parameters = v.tree.getNodeList(list_idx);
+                        var current_index: ?usize = null;
+                        for (original_parameters, 0..) |p_idx, i| {
+                            if (p_idx == node) {
+                                current_index = i;
+                                break;
+                            }
+                        }
+                        if (current_index) |idx| {
+                            var all_subsequent_optional = true;
+                            for (original_parameters[idx + 1 ..]) |sub_idx| {
+                                const sub = v.tree.getNode(sub_idx).Parameter;
+                                if (sub.Initializer == null and sub.QuestionToken == null and sub.DotDotDotToken == null) {
+                                    all_subsequent_optional = false;
+                                    break;
+                                }
+                            }
+                            if (all_subsequent_optional) {
+                                if (question_token == 0) {
+                                    question_token = f.tree.pushNode(.{ .QuestionToken = {} }) catch unreachable;
+                                }
+                            } else {
+                                if (type_node != 0 and !typeContainsUndefined(v.tree, type_node)) {
+                                    const undefined_kw = f.tree.pushNode(.{ .UndefinedKeyword = {} }) catch unreachable;
+                                    const types_arr = [_]ast.NodeIndex{ type_node, undefined_kw };
+                                    const types_list = f.tree.pushNodeList(&types_arr) catch unreachable;
+                                    type_node = f.tree.pushNode(.{ .UnionType = .{
+                                        .Flags = 0,
+                                        .Types = types_list,
+                                    } }) catch unreachable;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                break :blk f.updateParameterDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.DotDotDotToken orelse 0, v.visitNode(n.name), question_token, type_node, 0);
+            },
             else => v.visitEachChild(node),
         };
         if (result != 0 and result != node) self.transformer.emitContext.setOriginal(result, node) catch {};
@@ -107,16 +165,44 @@ pub const DeclarationTransformer = struct {
         defer properties.deinit(self.allocator);
         var parameters = std.ArrayListUnmanaged(ast.NodeIndex).empty;
         defer parameters.deinit(self.allocator);
-        for (v.tree.getNodeList(constructor.Parameters)) |parameter_index| {
+        const original_parameters = v.tree.getNodeList(constructor.Parameters);
+        for (original_parameters, 0..) |parameter_index, index| {
             const parameter = v.tree.getNode(parameter_index).Parameter;
             const is_property = utils.isParameterPropertyDeclaration(v.tree, parameter_index, node);
-            const type_node = inferredType(v.tree, f, parameter.Type orelse 0, parameter.Initializer orelse 0);
+            var type_node = inferredType(v, f, parameter.Type orelse 0, parameter.Initializer orelse 0);
+
+            var question = parameter.QuestionToken orelse 0;
+            if (parameter.Initializer != null) {
+                var all_subsequent_optional = true;
+                for (original_parameters[index + 1 ..]) |sub_idx| {
+                    const sub = v.tree.getNode(sub_idx).Parameter;
+                    if (sub.Initializer == null and sub.QuestionToken == null and sub.DotDotDotToken == null) {
+                        all_subsequent_optional = false;
+                        break;
+                    }
+                }
+                if (all_subsequent_optional) {
+                    if (question == 0) {
+                        question = f.tree.pushNode(.{ .QuestionToken = {} }) catch unreachable;
+                    }
+                } else {
+                    if (type_node != 0 and !typeContainsUndefined(v.tree, type_node)) {
+                        const undefined_kw = f.tree.pushNode(.{ .UndefinedKeyword = {} }) catch unreachable;
+                        const types_arr = [_]ast.NodeIndex{ type_node, undefined_kw };
+                        const types_list = f.tree.pushNodeList(&types_arr) catch unreachable;
+                        type_node = f.tree.pushNode(.{ .UnionType = .{
+                            .Flags = 0,
+                            .Types = types_list,
+                        } }) catch unreachable;
+                    }
+                }
+            }
+
             if (is_property) {
                 const property = f.newPropertyDeclaration(v.visitModifiers(parameter.modifiers orelse 0), parameter.name, parameter.QuestionToken orelse 0, type_node, 0);
                 self.transformer.emitContext.setOriginal(property, parameter_index) catch {};
                 properties.append(self.allocator, property) catch unreachable;
             }
-            const question = parameter.QuestionToken orelse if (parameter.Initializer != null) f.newToken(.{ .QuestionToken = {} }) else 0;
             const updated = f.updateParameterDeclaration(parameter_index, parameter, if (is_property) 0 else v.visitModifiers(parameter.modifiers orelse 0), parameter.DotDotDotToken orelse 0, parameter.name, question, type_node, 0);
             if (updated != parameter_index) self.transformer.emitContext.setOriginal(updated, parameter_index) catch {};
             parameters.append(self.allocator, updated) catch unreachable;
@@ -180,7 +266,7 @@ pub const DeclarationTransformer = struct {
         defer jsdoc_parameters.deinit(self.allocator);
         collectJSDocTypeParameters(v.tree, node, &jsdoc_parameters, self.allocator);
         const type_parameters = if ((method.TypeParameters orelse 0) != 0) v.visitNodes(method.TypeParameters.?) else if (jsdoc_parameters.items.len != 0) f.newNodeList(jsdoc_parameters.items) else 0;
-        return f.updateMethodDeclaration(node, method, v.visitModifiers(method.modifiers orelse 0), method.AsteriskToken orelse 0, method.name, method.PostfixToken orelse 0, type_parameters, v.visitNodes(method.Parameters), method.Type orelse jsdocReturnType(v.tree, node) orelse inferredType(v.tree, f, 0, 0), 0);
+        return f.updateMethodDeclaration(node, method, v.visitModifiers(method.modifiers orelse 0), method.AsteriskToken orelse 0, method.name, method.PostfixToken orelse 0, type_parameters, v.visitNodes(method.Parameters), method.Type orelse jsdocReturnType(v.tree, node) orelse inferredType(v, f, 0, 0), 0);
     }
 
     fn transformFunction(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, function: ast_gen.FunctionDeclarationNode) ast.NodeIndex {
@@ -196,8 +282,36 @@ pub const DeclarationTransformer = struct {
         for (original_parameters, 0..) |parameter_index, index| {
             const parameter = v.tree.getNode(parameter_index).Parameter;
             const jsdoc_type = inlineJSDocType(v.tree, parameter_index) orelse jsdocParameterType(v.tree, node, parameter.name, index);
-            const type_node = parameter.Type orelse jsdoc_type orelse inferredType(v.tree, f, 0, parameter.Initializer orelse 0);
-            const updated = f.updateParameterDeclaration(parameter_index, parameter, v.visitModifiers(parameter.modifiers orelse 0), parameter.DotDotDotToken orelse 0, v.visitNode(parameter.name), parameter.QuestionToken orelse 0, type_node, 0);
+            var type_node = parameter.Type orelse jsdoc_type orelse inferredType(v, f, 0, parameter.Initializer orelse 0);
+
+            var question = parameter.QuestionToken orelse 0;
+            if (parameter.Initializer != null) {
+                var all_subsequent_optional = true;
+                for (original_parameters[index + 1 ..]) |sub_idx| {
+                    const sub = v.tree.getNode(sub_idx).Parameter;
+                    if (sub.Initializer == null and sub.QuestionToken == null and sub.DotDotDotToken == null) {
+                        all_subsequent_optional = false;
+                        break;
+                    }
+                }
+                if (all_subsequent_optional) {
+                    if (question == 0) {
+                        question = f.tree.pushNode(.{ .QuestionToken = {} }) catch unreachable;
+                    }
+                } else {
+                    if (type_node != 0 and !typeContainsUndefined(v.tree, type_node)) {
+                        const undefined_kw = f.tree.pushNode(.{ .UndefinedKeyword = {} }) catch unreachable;
+                        const types_arr = [_]ast.NodeIndex{ type_node, undefined_kw };
+                        const types_list = f.tree.pushNodeList(&types_arr) catch unreachable;
+                        type_node = f.tree.pushNode(.{ .UnionType = .{
+                            .Flags = 0,
+                            .Types = types_list,
+                        } }) catch unreachable;
+                    }
+                }
+            }
+
+            const updated = f.updateParameterDeclaration(parameter_index, parameter, v.visitModifiers(parameter.modifiers orelse 0), parameter.DotDotDotToken orelse 0, v.visitNode(parameter.name), question, type_node, 0);
             if (updated != parameter_index) self.transformer.emitContext.setOriginal(updated, parameter_index) catch {};
             parameters.append(self.allocator, updated) catch unreachable;
         }
@@ -210,8 +324,9 @@ pub const DeclarationTransformer = struct {
         return f.updateFunctionDeclaration(node, function, self.declarationModifiers(v, node, function.modifiers orelse 0), function.AsteriskToken orelse 0, function.name orelse 0, type_parameter_list, f.newNodeList(parameters.items), return_type, 0);
     }
 
-    fn inferredDeclarationType(self: *DeclarationTransformer, tree: *ast.Ast, factory: anytype, name: ast.NodeIndex, explicit_type: ast.NodeIndex, initializer: ast.NodeIndex) ast.NodeIndex {
+    fn inferredDeclarationType(self: *DeclarationTransformer, v: *visitor.NodeVisitor, factory: anytype, name: ast.NodeIndex, explicit_type: ast.NodeIndex, initializer: ast.NodeIndex) ast.NodeIndex {
         if (explicit_type != 0) return explicit_type;
+        const tree = v.tree;
         if (tree.getNode(initializer) == .ClassExpression) return anonymousClassConstructorType(tree, factory);
         if (self.semantic_program) |program| if (self.semantic_file) |file| {
             if (tree.getNode(name) == .Identifier) if (program.getPublicType(file, @import("../ast/ast_utils.zig").getText(tree, name))) |semantic_type| {
@@ -225,7 +340,7 @@ pub const DeclarationTransformer = struct {
                 });
             };
         };
-        return inferredType(tree, factory, explicit_type, initializer);
+        return inferredType(v, factory, explicit_type, initializer);
     }
 
     fn transformExportAssignment(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, assignment: ast_gen.ExportAssignmentNode) ast.NodeIndex {
@@ -309,11 +424,58 @@ fn parameterFromJSDocTag(tree: *ast.Ast, factory: anytype, tag: ast_gen.JSDocPar
     } }) catch unreachable;
 }
 
-fn inferredType(tree: *ast.Ast, factory: anytype, explicit_type: ast.NodeIndex, initializer: ast.NodeIndex) ast.NodeIndex {
+fn typeContainsUndefined(tree: *ast.Ast, type_node: ast.NodeIndex) bool {
+    if (type_node == 0) return false;
+    const node = tree.getNode(type_node);
+    switch (node) {
+        .UndefinedKeyword => return true,
+        .UnionType => |union_type| {
+            for (tree.getNodeList(union_type.Types)) |t_idx| {
+                if (typeContainsUndefined(tree, t_idx)) return true;
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
+fn inferredType(v: *visitor.NodeVisitor, factory: anytype, explicit_type: ast.NodeIndex, initializer: ast.NodeIndex) ast.NodeIndex {
+    return inferredTypeInner(v.tree, factory, explicit_type, initializer, v);
+}
+
+fn inferredTypeInner(tree: *ast.Ast, factory: anytype, explicit_type: ast.NodeIndex, initializer: ast.NodeIndex, visitor_opt: ?*visitor.NodeVisitor) ast.NodeIndex {
     if (explicit_type != 0) return explicit_type;
     if (tree.getNode(initializer) == .NewExpression) {
         const expression = tree.getNode(initializer).NewExpression.Expression;
         if (tree.getNode(expression) == .Identifier) return factory.tree.pushNode(.{ .TypeReference = .{ .Flags = 0, .TypeArguments = null, .TypeName = expression } }) catch unreachable;
+    }
+    if (tree.getNode(initializer) == .ArrowFunction) {
+        const arrow = tree.getNode(initializer).ArrowFunction;
+        const params = if (visitor_opt) |v| v.visitNodes(arrow.Parameters) else arrow.Parameters;
+        return factory.tree.pushNode(.{ .FunctionType = .{
+            .Symbol = 0,
+            .Flags = 0,
+            .modifiers = null,
+            .modifierFlags = 0,
+            .TypeParameters = arrow.TypeParameters orelse 0,
+            .Parameters = params,
+            .Type = arrow.Type orelse 0,
+            .FullSignature = null,
+        } }) catch unreachable;
+    }
+    if (tree.getNode(initializer) == .FunctionExpression) {
+        const func = tree.getNode(initializer).FunctionExpression;
+        const params = if (visitor_opt) |v| v.visitNodes(func.Parameters) else func.Parameters;
+        return factory.tree.pushNode(.{ .FunctionType = .{
+            .Symbol = 0,
+            .Flags = 0,
+            .modifiers = null,
+            .modifierFlags = 0,
+            .TypeParameters = func.TypeParameters orelse 0,
+            .Parameters = params,
+            .Type = func.Type orelse 0,
+            .FullSignature = null,
+        } }) catch unreachable;
     }
     return factory.newToken(switch (tree.getNode(initializer)) {
         .StringLiteral, .NoSubstitutionTemplateLiteral => .{ .StringKeyword = {} },
@@ -466,7 +628,7 @@ fn unwrapJSDocTypeExpression(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex 
 fn inferFunctionReturnType(tree: *ast.Ast, factory: anytype, body: ast.NodeIndex) ast.NodeIndex {
     if (body != 0 and tree.getNode(body) == .Block) {
         for (tree.getNodeList(tree.getNode(body).Block.Statements)) |statement| if (tree.getNode(statement) == .ReturnStatement) {
-            if (tree.getNode(statement).ReturnStatement.Expression) |expression| return inferredType(tree, factory, 0, expression);
+            if (tree.getNode(statement).ReturnStatement.Expression) |expression| return inferredTypeInner(tree, factory, 0, expression, null);
         };
     }
     return factory.newToken(.{ .VoidKeyword = {} });

@@ -682,6 +682,8 @@ pub const Parser = struct {
         sourceFileNode.SourceFile.ExternalModuleIndicator = @import("../ast/ast_utils.zig").isFileProbablyExternalModule(&self.ast, sourceFileIndex);
         self.ast.nodes.set(sourceFileIndex, sourceFileNode);
 
+        try @import("../ast/ast_utils.zig").fixupParentReferences(&self.ast, sourceFileIndex);
+
         return sourceFileIndex;
     }
 
@@ -3444,7 +3446,7 @@ pub const Parser = struct {
         const parameters = try self.parseParameters();
         var returnType: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.EqualsGreaterThanToken)) {
-            returnType = try self.parseType();
+            returnType = try self.parseTypeOrTypePredicate();
         }
 
         if (isConstructorType) {
