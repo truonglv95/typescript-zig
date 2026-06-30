@@ -13,6 +13,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const transpile_driver_mod = b.createModule(.{
+        .root_source_file = b.path("cmd/transpile/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "tsc", .module = mod }},
+    });
 
     // libtsc: C ABI dynamic library for Go CGO interop
     const libtsc = b.addLibrary(.{
@@ -31,6 +37,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "tsc", .module = mod },
+                .{ .name = "transpile_driver", .module = transpile_driver_mod },
             },
         }),
     });
@@ -54,6 +61,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "tsc", .module = mod },
+                .{ .name = "transpile_driver", .module = transpile_driver_mod },
             },
         }),
     });
@@ -63,16 +71,26 @@ pub fn build(b: *std.Build) void {
     // Transpiler tool
     const transpile_exe = b.addExecutable(.{
         .name = "transpile",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("cmd/transpile/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "tsc", .module = mod },
-            },
-        }),
+        .root_module = transpile_driver_mod,
     });
     b.installArtifact(transpile_exe);
+
+    const lsp_exe = b.addExecutable(.{
+        .name = "typescript-zig-language-server",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("cmd/lsp/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "tsc", .module = mod }},
+        }),
+    });
+    b.installArtifact(lsp_exe);
+    const install_libs = b.addInstallDirectory(.{
+        .source_dir = b.path("src/bundled/libs"),
+        .install_dir = .lib,
+        .install_subdir = "typescript-zig",
+    });
+    b.getInstallStep().dependOn(&install_libs.step);
 
     // `zig build transpile` step
     const transpile_run_cmd = b.addRunArtifact(transpile_exe);

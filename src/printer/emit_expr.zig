@@ -593,8 +593,6 @@ pub fn printClassExpression(printer: *Printer, nodeIndex: ast_mod.NodeIndex) any
     }
     printer.writer.writeSpace(" ");
     printer.writer.writePunctuation("{");
-    const members = printer.tree.getNodeList(node.Members);
-    std.debug.print("MEMBERS LEN: {d}\n", .{members.len});
     try printer.emitList(null, nodeIndex, node.Members, @import("emit_list.zig").ListFormat.ClassMembers);
     printer.writer.writePunctuation("}");
 }

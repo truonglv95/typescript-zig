@@ -42,7 +42,7 @@ pub const JSDocInfo = struct {
     jsDocs: []const ast_gen.NodeIndex,
 };
 
-pub const JSDocScannerInfo = u8;
+pub const JSDocScannerInfo = usize;
 pub const jsdocScannerInfoHasJSDoc: JSDocScannerInfo = 1 << 0;
 pub const jsdocScannerInfoHasDeprecated: JSDocScannerInfo = 1 << 1;
 pub const jsdocScannerInfoHasSeeOrLink: JSDocScannerInfo = 1 << 2;
@@ -83,9 +83,13 @@ pub const Parser = struct {
 
     pub fn setScriptKind(self: *Parser, kind_val: core.ScriptKind) void {
         self.scriptKind = kind_val;
+        self.setLanguageVariant(switch (kind_val) {
+            .JSX, .TSX => .JSX,
+            else => .Standard,
+        });
     }
 
-    pub fn jsdocScannerInfo(self: *const Parser) JSDocScannerInfo {
+    pub fn jsdocScannerInfo(self: *Parser) JSDocScannerInfo {
         if (!self.scanner.hasPrecedingJSDocComment()) {
             return 0;
         }
@@ -96,7 +100,7 @@ pub const Parser = struct {
         if (self.scanner.hasPrecedingJSDocWithSeeOrLink()) {
             info |= jsdocScannerInfoHasSeeOrLink;
         }
-        return info;
+        return info | (self.scanner.getTokenFullStart() << 8);
     }
 
     pub const Mark = struct {
@@ -616,6 +620,10 @@ pub const Parser = struct {
         self.ast.deinit();
     }
 
+    pub fn diagnosticCount(self: *const Parser) u32 {
+        return self.parseDiagnosticsCount;
+    }
+
     pub fn nextToken(self: *Parser) void {
         self.token = self.scanner.scan();
     }
@@ -648,7 +656,18 @@ pub const Parser = struct {
     pub fn parseSourceFile(self: *Parser) anyerror!ast_gen.NodeIndex {
         self.ast.sourceText = self.sourceText;
         const statements = try self.parseList(.SourceElements, parseStatement);
+        var eof_jsdoc_info = self.jsdocScannerInfo();
+        if (eof_jsdoc_info == 0) {
+            if (std.mem.lastIndexOf(u8, self.sourceText, "/**")) |comment_start| {
+                if (std.mem.lastIndexOf(u8, self.sourceText, "*/")) |comment_end| {
+                    if (comment_end >= comment_start and std.mem.trim(u8, self.sourceText[comment_end + 2 ..], " \t\r\n").len == 0) {
+                        eof_jsdoc_info = jsdocScannerInfoHasJSDoc | (comment_start << 8);
+                    }
+                }
+            }
+        }
         const endOfFileToken = try self.ast.pushNode(.{ .EndOfFile = void{} });
+        _ = try jsdoc.withJSDoc(self, endOfFileToken, eof_jsdoc_info);
 
         const sourceFileIndex = try self.ast.pushNode(.{ .SourceFile = .{
             .Symbol = 0,
@@ -1655,6 +1674,7 @@ pub const Parser = struct {
             if (self.token == kind.Kind.OpenBraceToken) {
                 self.nextToken();
                 var elements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+                defer elements.deinit(self.allocator);
                 while (self.token != kind.Kind.CloseBraceToken and self.token != kind.Kind.EndOfFile) {
                     const startPos = self.scanner.state.pos;
 
@@ -1894,9 +1914,7 @@ pub const Parser = struct {
         const jsdoc_info = self.jsdocScannerInfo();
         const name = try self.parseIdentifierOrPattern();
         const nameNode = self.ast.getNode(name);
-        if (nameNode == .Identifier) {
-            std.debug.print("Parsing var: {s} (errors so far: {d})\n", .{ nameNode.Identifier.Text, self.parseDiagnosticsCount });
-        }
+        if (nameNode == .Identifier) {}
 
         var exclamationToken: ?ast_gen.NodeIndex = null;
         if (self.token == kind.Kind.ExclamationToken and !self.scanner.hasPrecedingLineBreak()) {
@@ -2072,6 +2090,7 @@ pub const Parser = struct {
     }
 
     pub fn parseParameter(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const jsdoc_info = self.jsdocScannerInfo();
         const modifiers = try self.parseModifiers();
         const modifierFlags = self.modifiersToFlags(modifiers);
 
@@ -2099,7 +2118,7 @@ pub const Parser = struct {
             initializer = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
         }
 
-        return self.ast.pushNode(.{ .Parameter = .{
+        const result = try self.ast.pushNode(.{ .Parameter = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -2110,6 +2129,8 @@ pub const Parser = struct {
             .Type = paramType,
             .Initializer = initializer,
         } });
+        _ = try jsdoc.withJSDoc(self, result, jsdoc_info);
+        return result;
     }
 
     pub fn parseParameterWrapper(self: *Parser) ast_gen.NodeIndex {
@@ -2410,6 +2431,13 @@ pub const Parser = struct {
     }
 
     pub fn parseClassElement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const jsdoc_info = self.jsdocScannerInfo();
+        const result = try self.parseClassElementWorker();
+        _ = try jsdoc.withJSDoc(self, result, jsdoc_info);
+        return result;
+    }
+
+    fn parseClassElementWorker(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.token == kind.Kind.SemicolonToken) {
             self.nextToken();
             return self.ast.pushNode(.{ .SemicolonClassElement = .{
@@ -2995,7 +3023,6 @@ pub const Parser = struct {
             if (self.token == kind.Kind.CloseBraceToken) {
                 self.token = self.scanner.reScanTemplateToken(false);
             } else {
-                std.debug.print("parseTemplateLiteralType error recovery: token is .{s} at pos {d}\n", .{ @tagName(self.token), self.scanner.state.pos });
                 // error recovery
             }
 
@@ -3051,7 +3078,6 @@ pub const Parser = struct {
             self.nextToken();
             return true;
         }
-        std.debug.print("parseError: Expected token {s}, but got {s} at pos {d}\n", .{ @tagName(t), @tagName(self.token), self.scanner.state.pos });
         self.parseError("Expected token");
         return false;
     }
@@ -3248,9 +3274,9 @@ pub const Parser = struct {
     }
 
     pub fn parseError(self: *Parser, msg: []const u8) void {
+        _ = msg;
         const pos = @as(i32, @intCast(self.scanner.state.pos));
         if (pos == self.lastErrorPos) return;
-        std.debug.print("parseError at pos {d}: {s} at token {s}, contexts: {x}\n", .{ pos, msg, @tagName(self.token), self.parsingContexts });
         self.parseDiagnosticsCount += 1;
         self.lastErrorPos = pos;
     }

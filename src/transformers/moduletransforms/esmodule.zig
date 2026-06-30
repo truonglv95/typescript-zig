@@ -45,10 +45,11 @@ pub const ESModuleTransformer = struct {
         const tree = visitor.tree;
         const n = tree.getNode(node).SourceFile;
 
+        const force_module = (self.compilerOptions.moduleDetection orelse .Auto) == .Force;
         if (ast_utils.isDeclarationFile(tree, node) or
             (!ast_utils.isExternalModule(tree, node) and !(self.compilerOptions.isolatedModules orelse false)))
         {
-            return node;
+            if (!force_module) return node;
         }
 
         self.currentSourceFile = node;
@@ -61,7 +62,7 @@ pub const ESModuleTransformer = struct {
         const resultNode = tree.getNode(result).SourceFile;
 
         // If it's an external module, and module kind != Preserve, and no statements are external module indicators
-        if (ast_utils.isExternalModule(tree, result) and
+        if ((ast_utils.isExternalModule(tree, result) or force_module) and
             (self.compilerOptions.module orelse .None) != .Preserve)
         {
             var hasExternalModuleIndicator = false;

@@ -44,10 +44,7 @@ pub const TypeEraserTransformer = struct {
         const tree = visitor.tree;
 
         if (node == 0) return 0;
-        const kind_val = tree.getNodeKind(node);
-        std.debug.print("TypeEraser visiting: {d} tag: {any}\n", .{ node, kind_val });
         if (ast_utils.hasSyntacticModifier(tree, node, ast_utils.ModifierFlags.Ambient)) {
-            std.debug.print("TypeEraser eliding ambient node: {d}\n", .{node});
             return self.elide(node);
         }
 
@@ -73,7 +70,6 @@ pub const TypeEraserTransformer = struct {
             .ModuleDeclaration => |n| {
                 const nameNode = tree.getNode(n.name);
                 const isInstantiated = ast_utils.isInstantiatedModule(tree, node, self.compilerOptions.preserveConstEnums orelse false);
-                std.debug.print("TypeEraser Module: {s}, isInst: {}\n", .{ ast_utils.getText(tree, n.name), isInstantiated });
                 if (nameNode != .Identifier or
                     !isInstantiated or
                     n.Body == null)
@@ -108,7 +104,6 @@ pub const TypeEraserTransformer = struct {
                     return 0;
                 }
                 const visited_init = visitor.visitNodeInternal(n.Initializer orelse 0);
-                std.debug.print("TypeEraser PropertyDeclaration: {d} name: {d}, original init: {d}, visited init: {d}\n", .{ node, n.name, n.Initializer orelse 0, visited_init });
                 return self.transformer.factory.updatePropertyDeclaration(
                     node,
                     n,
@@ -125,7 +120,6 @@ pub const TypeEraserTransformer = struct {
                     return 0;
                 }
                 const visited_params = visitor.visitNodesInternal(n.Parameters);
-                std.debug.print("Constructor original params len: {d}, visited params len: {d}\n", .{ tree.getNodeList(n.Parameters).len, tree.getNodeList(visited_params).len });
                 return self.transformer.factory.updateConstructorDeclaration(
                     node,
                     n,
@@ -291,7 +285,6 @@ pub const TypeEraserTransformer = struct {
             },
 
             .Parameter => |n| {
-                std.debug.print("visit Parameter name: {s}, hasDecorators: {any}, modifiers: {d}\n", .{ ast_utils.getText(tree, n.name), ast_utils.hasDecorators(tree, node), n.modifiers orelse 0 });
                 if (ast_utils.isThisParameter(tree, node)) {
                     return 0;
                 }
@@ -320,7 +313,6 @@ pub const TypeEraserTransformer = struct {
                             all_mods.appendSlice(visitor.allocator, visited_decs.items) catch unreachable;
                             modifiers = self.transformer.factory.newModifierList(all_mods.items);
                         }
-                        std.debug.print("visited_decs count: {d}, returned modifiers: {d}\n", .{ visited_decs.items.len, modifiers });
                     }
                 }
                 const res = self.transformer.factory.updateParameterDeclaration(

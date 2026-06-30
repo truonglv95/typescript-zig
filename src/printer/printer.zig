@@ -8,10 +8,19 @@ const ast_utils = @import("../ast/ast_utils.zig");
 const helpers_mod = @import("helpers.zig");
 
 pub const Printer = struct {
+    pub const SourceMapHook = struct {
+        context: *anyopaque,
+        addMapping: *const fn (*anyopaque, usize, usize, usize, usize) void,
+    };
+
     tree: *ast_mod.Ast,
     context: *emitcontext.EmitContext,
     writer: *emittextwriter.EmitTextWriter,
     currentSourceFile: ast_mod.NodeIndex,
+    sourceMapHook: ?SourceMapHook,
+    sourceLineStarts: []const usize,
+    currentNode: ast_mod.NodeIndex,
+    generatedNameCandidates: std.StringHashMapUnmanaged(void),
 
     pub fn init(
         tree: *ast_mod.Ast,
@@ -23,7 +32,21 @@ pub const Printer = struct {
             .context = context,
             .writer = writer,
             .currentSourceFile = 0,
+            .sourceMapHook = null,
+            .sourceLineStarts = &.{},
+            .currentNode = 0,
+            .generatedNameCandidates = .empty,
         };
+    }
+
+    pub fn setSourceMapHook(self: *Printer, hook: SourceMapHook) void {
+        self.sourceMapHook = hook;
+        var starts = std.ArrayListUnmanaged(usize).empty;
+        starts.append(self.context.allocator, 0) catch return;
+        for (self.tree.sourceText, 0..) |byte, index| {
+            if (byte == '\n') starts.append(self.context.allocator, index + 1) catch return;
+        }
+        self.sourceLineStarts = starts.items;
     }
 
     pub fn printSourceFile(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -101,6 +124,7 @@ pub const Printer = struct {
 
     pub fn printNode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         if (nodeIndex == 0) return;
+        self.recordSourceMapping(nodeIndex);
         const node = self.tree.getNode(nodeIndex);
         switch (node) {
             .Unknown => try self.printUnknown(nodeIndex),
@@ -457,6 +481,37 @@ pub const Printer = struct {
         }
     }
 
+    fn recordSourceMapping(self: *Printer, nodeIndex: ast_mod.NodeIndex) void {
+        const hook = self.sourceMapHook orelse return;
+        var original = nodeIndex;
+        var depth: usize = 0;
+        while (depth < 16) : (depth += 1) {
+            const next = self.context.getOriginal(original);
+            if (next == 0 or next == original) break;
+            original = next;
+        }
+        if (original >= self.tree.positions.items.len) return;
+        const range = self.tree.positions.items[original];
+        if (range.end <= range.pos or range.pos >= self.tree.sourceText.len) return;
+
+        var low: usize = 0;
+        var high = self.sourceLineStarts.len;
+        while (low < high) {
+            const middle = low + (high - low) / 2;
+            if (self.sourceLineStarts[middle] <= range.pos) low = middle + 1 else high = middle;
+        }
+        const line = if (low == 0) 0 else low - 1;
+        const column = range.pos - self.sourceLineStarts[line];
+        hook.addMapping(hook.context, self.writer.getLine(), self.writer.getColumn(), line, column);
+    }
+
+    fn printTriviaText(self: *Printer, nodeIndex: ast_mod.NodeIndex) void {
+        if (nodeIndex >= self.tree.positions.items.len) return;
+        const range = self.tree.positions.items[nodeIndex];
+        if (range.end <= range.pos or range.end > self.tree.sourceText.len) return;
+        self.writer.write(self.tree.sourceText[range.pos..range.end]);
+    }
+
     pub const printNumericLiteral = @import("emit_expr.zig").printNumericLiteral;
     pub const printBigIntLiteral = @import("emit_expr.zig").printBigIntLiteral;
     pub const printStringLiteral = @import("emit_expr.zig").printStringLiteral;
@@ -540,34 +595,31 @@ pub const Printer = struct {
         _ = nodeIndex;
     }
     pub fn printSingleLineCommentTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.printTriviaText(nodeIndex);
     }
     pub fn printMultiLineCommentTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.printTriviaText(nodeIndex);
     }
     pub fn printNewLineTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
         _ = nodeIndex;
+        self.writer.writeLine();
     }
     pub fn printWhitespaceTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.printTriviaText(nodeIndex);
     }
     pub fn printConflictMarkerTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.printTriviaText(nodeIndex);
     }
     pub fn printNonTextFileMarkerTrivia(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.printTriviaText(nodeIndex);
     }
     pub fn printJsxText(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).JsxText;
         self.writer.writeLiteral(node.Text);
     }
     pub fn printJsxTextAllWhiteSpaces(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
+        // The parser intentionally represents all-whitespace JSX text without
+        // payload; its normalized spacing is handled by the surrounding list.
         _ = self;
         _ = nodeIndex;
     }
@@ -1309,7 +1361,11 @@ pub const Printer = struct {
     pub fn printTupleType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).TupleType;
         self.writer.writePunctuation("[");
-        try self.printList(@import("emit_list.zig").ListFormat.TupleTypeElements, node.Elements);
+        const format = if ((node.Flags & @import("../ast/ast_utils.zig").NodeFlags.Synthesized) != 0)
+            @import("emit_list.zig").ListFormat.CommaDelimited | @import("emit_list.zig").ListFormat.SpaceBetweenSiblings | @import("emit_list.zig").ListFormat.SingleLine
+        else
+            @import("emit_list.zig").ListFormat.TupleTypeElements;
+        try self.printList(format, node.Elements);
         self.writer.writePunctuation("]");
     }
     pub fn printOptionalType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -1865,8 +1921,16 @@ pub const Printer = struct {
     }
     pub const printHeritageClause = @import("emit_decl.zig").printHeritageClause;
     pub fn printCatchClause(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).CatchClause;
+        self.writer.writeKeyword("catch");
+        self.writer.writeSpace(" ");
+        if (node.VariableDeclaration) |declaration| if (declaration != 0) {
+            self.writer.writePunctuation("(");
+            try self.printNode(declaration);
+            self.writer.writePunctuation(")");
+            self.writer.writeSpace(" ");
+        };
+        try self.printNode(node.Block);
     }
     pub fn printImportAttributes(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).ImportAttributes;
@@ -1895,178 +1959,278 @@ pub const Printer = struct {
         try @import("emit_expr.zig").printSpreadAssignment(self, nodeIndex);
     }
     pub fn printJSDocTypeExpression(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.writer.writePunctuation("{");
+        try self.printNode(self.tree.getNode(nodeIndex).JSDocTypeExpression.Type);
+        self.writer.writePunctuation("}");
     }
     pub fn printJSDocNameReference(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        try self.printNode(self.tree.getNode(nodeIndex).JSDocNameReference.name);
     }
     pub fn printJSDocAllType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
         _ = nodeIndex;
+        self.writer.writePunctuation("*");
     }
     pub fn printJSDocNullableType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.writer.writePunctuation("?");
+        try self.printNode(self.tree.getNode(nodeIndex).JSDocNullableType.Type);
     }
     pub fn printJSDocNonNullableType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.writer.writePunctuation("!");
+        try self.printNode(self.tree.getNode(nodeIndex).JSDocNonNullableType.Type);
     }
     pub fn printJSDocOptionalType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        try self.printNode(self.tree.getNode(nodeIndex).JSDocOptionalType.Type);
+        self.writer.writePunctuation("=");
     }
     pub fn printJSDocVariadicType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.writer.writePunctuation("...");
+        try self.printNode(self.tree.getNode(nodeIndex).JSDocVariadicType.Type);
     }
     pub fn printJSDoc(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDoc;
+        self.writer.writeComment("/**");
+        if (node.Comment != 0) {
+            self.writer.writeSpace(" ");
+            try self.printNode(node.Comment);
+        }
+        if (node.Tags) |tags| if (tags != 0) {
+            for (self.tree.getNodeList(tags)) |tag| {
+                self.writer.writeLine();
+                self.writer.writeComment(" * ");
+                try self.printNode(tag);
+            }
+        };
+        self.writer.writeLine();
+        self.writer.writeComment(" */");
     }
     pub fn printJSDocText(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        self.writer.writeComment(self.tree.getNode(nodeIndex).JSDocText.text);
     }
     pub fn printJSDocTypeLiteral(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocTypeLiteral;
+        self.writer.writePunctuation("{");
+        if (node.JSDocPropertyTags) |tags| if (tags != 0) try self.printList(@import("emit_list.zig").ListFormat.CommaDelimited | @import("emit_list.zig").ListFormat.SpaceBetweenSiblings, tags);
+        self.writer.writePunctuation("}");
     }
     pub fn printJSDocSignature(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocSignature;
+        if (node.TypeParameters) |types| if (types != 0) try self.printTypeParameters(types);
+        self.writer.writePunctuation("(");
+        try self.printList(@import("emit_list.zig").ListFormat.Parameters, node.Parameters);
+        self.writer.writePunctuation(")");
+        if (node.Type) |return_type| if (return_type != 0) {
+            self.writer.writePunctuation(":");
+            self.writer.writeSpace(" ");
+            try self.printNode(return_type);
+        };
     }
     pub fn printJSDocLink(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocLink;
+        self.writer.writeComment("{@link ");
+        if (node.name) |name| try self.printNode(name);
+        if (node.text.len != 0) self.writer.writeComment(node.text);
+        self.writer.writeComment("}");
     }
     pub fn printJSDocLinkCode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocLinkCode;
+        self.writer.writeComment("{@linkcode ");
+        if (node.name) |name| try self.printNode(name);
+        if (node.text.len != 0) self.writer.writeComment(node.text);
+        self.writer.writeComment("}");
     }
     pub fn printJSDocLinkPlain(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocLinkPlain;
+        self.writer.writeComment("{@linkplain ");
+        if (node.name) |name| try self.printNode(name);
+        if (node.text.len != 0) self.writer.writeComment(node.text);
+        self.writer.writeComment("}");
+    }
+    fn printJSDocComment(self: *Printer, comment: ?u32) anyerror!void {
+        if (comment) |value| if (value != 0) {
+            self.writer.writeSpace(" ");
+            try self.printNode(value);
+        };
+    }
+    fn printJSDocTagParts(self: *Printer, tag_name: u32, payload: ?u32, comment: ?u32) anyerror!void {
+        self.writer.writePunctuation("@");
+        try self.printNode(tag_name);
+        if (payload) |value| if (value != 0) {
+            self.writer.writeSpace(" ");
+            try self.printNode(value);
+        };
+        try self.printJSDocComment(comment);
     }
     pub fn printJSDocUnknownTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocUnknownTag;
+        try self.printJSDocTagParts(node.TagName, null, node.Comment);
     }
     pub fn printJSDocAugmentsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocAugmentsTag;
+        try self.printJSDocTagParts(node.TagName, node.ClassName, node.Comment);
     }
     pub fn printJSDocImplementsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocImplementsTag;
+        try self.printJSDocTagParts(node.TagName, node.ClassName, node.Comment);
     }
     pub fn printJSDocDeprecatedTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocDeprecatedTag;
+        try self.printJSDocTagParts(node.TagName, null, node.Comment);
     }
     pub fn printJSDocPublicTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocPublicTag;
+        try self.printJSDocTagParts(node.TagName, null, node.Comment);
     }
     pub fn printJSDocPrivateTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocPrivateTag;
+        try self.printJSDocTagParts(node.TagName, null, node.Comment);
     }
     pub fn printJSDocProtectedTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocProtectedTag;
+        try self.printJSDocTagParts(node.TagName, null, node.Comment);
     }
     pub fn printJSDocReadonlyTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocReadonlyTag;
+        try self.printJSDocTagParts(node.TagName, null, node.Comment);
     }
     pub fn printJSDocOverrideTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocOverrideTag;
+        try self.printJSDocTagParts(node.TagName, null, node.Comment);
     }
     pub fn printJSDocCallbackTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocCallbackTag;
+        try self.printJSDocTagParts(node.TagName, node.name, null);
+        self.writer.writeSpace(" ");
+        try self.printNode(node.TypeExpression);
+        try self.printJSDocComment(node.Comment);
     }
     pub fn printJSDocOverloadTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocOverloadTag;
+        try self.printJSDocTagParts(node.TagName, node.TypeExpression, node.Comment);
     }
     pub fn printJSDocParameterTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocParameterTag;
+        self.writer.writePunctuation("@");
+        try self.printNode(node.TagName);
+        if (node.IsNameFirst == 0 and node.TypeExpression != null) {
+            self.writer.writeSpace(" ");
+            try self.printNode(node.TypeExpression.?);
+        }
+        self.writer.writeSpace(" ");
+        if (node.IsBracketed != 0) self.writer.writePunctuation("[");
+        try self.printNode(node.name);
+        if (node.IsBracketed != 0) self.writer.writePunctuation("]");
+        if (node.IsNameFirst != 0 and node.TypeExpression != null) {
+            self.writer.writeSpace(" ");
+            try self.printNode(node.TypeExpression.?);
+        }
+        try self.printJSDocComment(node.Comment);
     }
     pub fn printJSDocReturnTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocReturnTag;
+        try self.printJSDocTagParts(node.TagName, node.TypeExpression, node.Comment);
     }
     pub fn printJSDocThisTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocThisTag;
+        try self.printJSDocTagParts(node.TagName, node.TypeExpression, node.Comment);
     }
     pub fn printJSDocTypeTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocTypeTag;
+        try self.printJSDocTagParts(node.TagName, node.TypeExpression, node.Comment);
     }
     pub fn printJSDocTemplateTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocTemplateTag;
+        self.writer.writePunctuation("@");
+        try self.printNode(node.TagName);
+        if (node.Constraint != 0) {
+            self.writer.writeSpace(" ");
+            try self.printNode(node.Constraint);
+        }
+        self.writer.writeSpace(" ");
+        try self.printList(@import("emit_list.zig").ListFormat.CommaDelimited | @import("emit_list.zig").ListFormat.SpaceBetweenSiblings, node.TypeParameters);
+        try self.printJSDocComment(node.Comment);
     }
     pub fn printJSDocTypedefTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocTypedefTag;
+        try self.printJSDocTagParts(node.TagName, node.TypeExpression, null);
+        if (node.name) |name| {
+            self.writer.writeSpace(" ");
+            try self.printNode(name);
+        }
+        try self.printJSDocComment(node.Comment);
     }
     pub fn printJSDocSeeTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocSeeTag;
+        try self.printJSDocTagParts(node.TagName, node.NameExpression, node.Comment);
     }
     pub fn printJSDocPropertyTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocPropertyTag;
+        self.writer.writePunctuation("@");
+        try self.printNode(node.TagName);
+        if (node.IsNameFirst == 0 and node.TypeExpression != null) {
+            self.writer.writeSpace(" ");
+            try self.printNode(node.TypeExpression.?);
+        }
+        self.writer.writeSpace(" ");
+        if (node.IsBracketed != 0) self.writer.writePunctuation("[");
+        try self.printNode(node.name);
+        if (node.IsBracketed != 0) self.writer.writePunctuation("]");
+        if (node.IsNameFirst != 0 and node.TypeExpression != null) {
+            self.writer.writeSpace(" ");
+            try self.printNode(node.TypeExpression.?);
+        }
+        try self.printJSDocComment(node.Comment);
     }
     pub fn printJSDocThrowsTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocThrowsTag;
+        try self.printJSDocTagParts(node.TagName, node.TypeExpression, node.Comment);
     }
     pub fn printJSDocSatisfiesTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocSatisfiesTag;
+        try self.printJSDocTagParts(node.TagName, node.TypeExpression, node.Comment);
     }
     pub fn printJSDocImportTag(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const node = self.tree.getNode(nodeIndex).JSDocImportTag;
+        self.writer.writePunctuation("@");
+        try self.printNode(node.TagName);
+        self.writer.writeSpace(" ");
+        if (node.ImportClause) |clause| if (clause != 0) {
+            try self.printNode(clause);
+            self.writer.writeSpace(" ");
+            self.writer.writeKeyword("from");
+            self.writer.writeSpace(" ");
+        };
+        try self.printNode(node.ModuleSpecifier);
+        if (node.Attributes) |attributes| if (attributes != 0) {
+            self.writer.writeSpace(" ");
+            try self.printNode(attributes);
+        };
+        try self.printJSDocComment(node.Comment);
     }
     pub fn printSyntaxList(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        const children = self.tree.getNode(nodeIndex).SyntaxList.Children;
+        for (self.tree.getNodeList(children)) |child| try self.printNode(child);
     }
     pub fn printJSTypeAliasDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        try self.printTypeAliasDeclaration(nodeIndex);
     }
     pub fn printJSImportDeclaration(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        try self.printImportDeclaration(nodeIndex);
     }
     pub fn printSyntheticReferenceExpression(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        try self.printNode(self.tree.getNode(nodeIndex).SyntheticReferenceExpression.Expression);
     }
     pub fn printNotEmittedTypeElement(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         _ = self;
         _ = nodeIndex;
     }
     pub fn enterNode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!u32 {
-        _ = self;
-        _ = nodeIndex;
-        return 0;
+        const previous = self.currentNode;
+        self.currentNode = nodeIndex;
+        self.recordSourceMapping(nodeIndex);
+        return previous;
     }
     pub fn exitNode(self: *Printer, nodeIndex: ast_mod.NodeIndex, state: u32) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
-        _ = state;
+        if (self.currentNode == nodeIndex) self.currentNode = state;
     }
 
     pub fn writeTokenText(self: *Printer, token: @import("../ast/kind.zig").Kind, writeKind: anytype, pos: usize) anyerror!usize {
@@ -2110,8 +2274,26 @@ pub const Printer = struct {
     }
 
     pub fn generateNames(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
-        _ = self;
-        _ = nodeIndex;
+        if (nodeIndex == 0) return;
+        const Visitor = struct {
+            printer: *Printer,
+
+            pub fn visitNode(visitor: *@This(), child: ast_mod.NodeIndex) anyerror!void {
+                if (child == 0) return;
+                if (visitor.printer.tree.getNode(child) == .Identifier) {
+                    const text = ast_utils.getText(visitor.printer.tree, child);
+                    if (text.len != 0) try visitor.printer.generatedNameCandidates.put(visitor.printer.context.allocator, text, {});
+                }
+                try ast_mod.forEachChild(visitor.printer.tree, child, visitor);
+            }
+
+            pub fn visitList(visitor: *@This(), list: u32) anyerror!void {
+                if (list == 0) return;
+                for (visitor.printer.tree.getNodeList(list)) |child| try visitor.visitNode(child);
+            }
+        };
+        var visitor = Visitor{ .printer = self };
+        try visitor.visitNode(nodeIndex);
     }
     pub fn emitModifierList(self: *Printer, nodeIndex: ast_mod.NodeIndex, modifiersOpt: ?u32, flags: bool) anyerror!void {
         _ = flags;
@@ -2158,9 +2340,13 @@ pub const Printer = struct {
     pub const OperatorPrecedenceComma: u32 = 0;
 
     pub fn isImmediatelyInvokedFunctionExpressionOrArrowFunction(self: *Printer, expr: u32) bool {
-        _ = self;
-        _ = expr;
-        return false;
+        const skipped = precedence.skipPartiallyEmittedExpressions(self.tree, expr);
+        if (self.tree.getNode(skipped) != .CallExpression) return false;
+        const callee = precedence.skipPartiallyEmittedExpressions(self.tree, self.tree.getNode(skipped).CallExpression.Expression);
+        return switch (self.tree.getNode(callee)) {
+            .FunctionExpression, .ArrowFunction => true,
+            else => false,
+        };
     }
 
     pub fn getLeftmostExpression(self: *Printer, nodeIndex: u32, stopAtCallExpressions: bool) u32 {
@@ -2188,11 +2374,9 @@ pub const Printer = struct {
     }
 
     pub fn rangeEndIsOnSameLineAsRangeStart(self: *Printer, start: u32, end: u32, node: u32) bool {
-        _ = self;
-        _ = start;
-        _ = end;
         _ = node;
-        return true;
+        if (start > end or end > self.tree.sourceText.len) return false;
+        return std.mem.indexOfScalar(u8, self.tree.sourceText[start..end], '\n') == null;
     }
     pub fn shouldEmitOnSingleLine(self: *Printer, nodeIndex: u32) bool {
         return (self.context.getEmitFlags(nodeIndex) & @import("emitflags.zig").EmitFlags.SingleLine) != 0;
@@ -2225,9 +2409,12 @@ pub const Printer = struct {
         }
     }
     pub fn writeLineOrSpace(self: *Printer, parent: u32, node1: u32, node2: u32) anyerror!void {
-        _ = parent;
         _ = node1;
         _ = node2;
+        if (self.shouldEmitOnSingleLine(parent)) {
+            self.writer.writeSpace(" ");
+            return;
+        }
         self.writer.writeLine();
     }
     pub fn getLinesBetweenPositions(self: *Printer, pos1: u32, pos2: u32) u32 {
@@ -2252,9 +2439,8 @@ pub const Printer = struct {
     }
 
     pub fn emitTypeArguments(self: *Printer, nodeIndex: u32, typeArgs: ?u32) anyerror!void {
-        _ = self;
         _ = nodeIndex;
-        _ = typeArgs;
+        if (typeArgs) |list| if (list != 0) try self.printTypeArguments(list);
     }
     pub fn emitCatchClause(self: *Printer, clause: u32) anyerror!void {
         if (clause != 0) {

@@ -51,6 +51,7 @@ pub const AsyncTransformer = struct {
             .Identifier => |n| self.visitIdentifier(node, n),
             .PropertyAssignment => |n| self.visitPropertyAssignment(v, n),
             .BindingElement => |n| self.visitBindingElement(v, n),
+            .JsxAttribute => |n| self.visitJsxAttribute(v, n),
             .FunctionDeclaration => |n| self.visitFunction(v, node, n),
             .MethodDeclaration => |n| self.visitMethod(v, node, n),
             .Constructor => |n| self.visitConstructor(v, node, n),
@@ -89,6 +90,16 @@ pub const AsyncTransformer = struct {
         if (data.name) |name| updated.name = v.visitNode(name);
         if (data.Initializer) |initializer| updated.Initializer = v.visitNode(initializer);
         return v.tree.pushNode(.{ .BindingElement = updated }) catch unreachable;
+    }
+
+    fn visitJsxAttribute(self: *AsyncTransformer, v: *visitor_mod.NodeVisitor, data: ast_gen.JsxAttributeNode) ast.NodeIndex {
+        var updated = data;
+        const previous = self.suppress_arguments_substitution;
+        self.suppress_arguments_substitution = true;
+        updated.name = v.visitNode(data.name);
+        self.suppress_arguments_substitution = previous;
+        if (data.Initializer) |initializer| updated.Initializer = v.visitNode(initializer);
+        return v.tree.pushNode(.{ .JsxAttribute = updated }) catch unreachable;
     }
 
     fn visitFunction(self: *AsyncTransformer, v: *visitor_mod.NodeVisitor, node: ast.NodeIndex, data: ast_gen.FunctionDeclarationNode) ast.NodeIndex {

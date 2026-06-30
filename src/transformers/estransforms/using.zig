@@ -101,7 +101,6 @@ pub const UsingDeclarationTransformer = struct {
             while (pos < rest.len) {
                 const statement = rest[pos];
                 const uk = getUsingKind(tree, statement);
-                std.debug.print("statement at pos {d}: kind={any}, usingKind={any}\n", .{ pos, tree.getNode(statement), uk });
                 if (uk != .None) {
                     if (pos > 0) {
                         const visitedRestSlice = visitor.visitSlice(rest[0..pos]);
@@ -119,7 +118,6 @@ pub const UsingDeclarationTransformer = struct {
             const envBinding = self.createEnvBinding();
             var bodyStatements = self.transformUsingDeclarations(visitor, rest[pos..], envBinding, &topLevelStatements);
             defer bodyStatements.deinit(self.allocator);
-            std.debug.print("bodyStatements len from transformUsingDeclarations: {d}\n", .{bodyStatements.items.len});
 
             // add export {} declarations for hoisted bindings.
             if (self.exportBindings.count() > 0) {
@@ -236,7 +234,6 @@ pub const UsingDeclarationTransformer = struct {
             }
 
             const result = visit(self, visitor, statement);
-            std.debug.print("transformUsingDeclarations result: {any}\n", .{visitor.tree.getNode(result)});
             if (result != 0) {
                 const nodeData = visitor.tree.getNode(result);
                 if (nodeData == .SyntaxList) {

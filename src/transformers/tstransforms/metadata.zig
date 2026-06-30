@@ -42,9 +42,7 @@ pub const MetadataTransformer = struct {
         _ = v;
         const tx: *MetadataTransformer = @ptrCast(@alignCast(ctx));
         if (nodeIndex == 0) return 0;
-
         const tree = tx.transformer.visitor.tree;
-        std.debug.print("MetadataTransformer visiting: {any}\n", .{tree.getNodeKind(nodeIndex)});
 
         // if ((ast_utils.getSubtreeFacts(tree, nodeIndex) & ast_utils.SubtreeFacts.ContainsDecorators) == 0) {
         //     return nodeIndex;
@@ -215,12 +213,8 @@ pub const MetadataTransformer = struct {
 
     fn injectClassTypeMetadata(tx: *MetadataTransformer, listIndex: ast.NodeIndex, nodeIndex: ast.NodeIndex) ast.NodeIndex {
         const metadata = tx.getTypeMetadata(nodeIndex, nodeIndex);
-        std.debug.print("injectClassTypeMetadata, metadata len: {d}\n", .{metadata.len});
         if (metadata.len > 0) {
             const tree = tx.transformer.visitor.tree;
-            for (metadata, 0..) |m, idx| {
-                std.debug.print(" -> metadata[{d}] tag: {any}\n", .{ idx, tree.getNodeKind(m) });
-            }
             var originalNodes: []const ast.NodeIndex = &[_]ast.NodeIndex{};
             if (listIndex != 0) {
                 originalNodes = tree.getNodeList(listIndex);
@@ -323,9 +317,6 @@ pub const MetadataTransformer = struct {
 
     fn getOldTypeMetadata(tx: *MetadataTransformer, nodeIndex: ast.NodeIndex, containerIndex: ast.NodeIndex) []const ast.NodeIndex {
         var decorators = std.ArrayListUnmanaged(ast.NodeIndex).empty;
-
-        const tree = tx.transformer.visitor.tree;
-        std.debug.print("getOldTypeMetadata nodeKind: {any}, shouldAddParamTypes: {}\n", .{ tree.getNodeKind(nodeIndex), tx.shouldAddParamTypesMetadata(nodeIndex) });
 
         if (tx.shouldAddTypeMetadata(nodeIndex)) {
             const ctx = metadataserializer.MetadataSerializerContext{

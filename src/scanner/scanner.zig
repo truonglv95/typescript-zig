@@ -1521,21 +1521,25 @@ pub const CommentRange = struct {
 };
 
 pub fn getLeadingCommentRanges(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), text: []const u8, pos: u32) !void {
-    try getCommentRanges(allocator, commentRanges, text, pos, false);
+    try getCommentRanges(allocator, commentRanges, text, pos, false, false);
+}
+
+pub fn getLeadingCommentRangesFromFullStart(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), text: []const u8, pos: u32) !void {
+    try getCommentRanges(allocator, commentRanges, text, pos, false, true);
 }
 
 pub fn getTrailingCommentRanges(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), text: []const u8, pos: u32) !void {
-    try getCommentRanges(allocator, commentRanges, text, pos, true);
+    try getCommentRanges(allocator, commentRanges, text, pos, true, true);
 }
 
-pub fn getCommentRanges(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), text: []const u8, start_pos: u32, trailing: bool) !void {
+pub fn getCommentRanges(allocator: std.mem.Allocator, commentRanges: *std.ArrayList(CommentRange), text: []const u8, start_pos: u32, trailing: bool, collect_at_start: bool) !void {
     var pos = start_pos;
     var pendingPos: u32 = 0;
     var pendingEnd: u32 = 0;
     var pendingKind: kind.Kind = .Unknown;
     var pendingHasTrailingNewLine = false;
     var hasPendingCommentRange = false;
-    var collecting = trailing;
+    var collecting = collect_at_start;
     if (pos == 0) {
         collecting = true;
         if (isShebangTrivia(text, pos)) {
