@@ -63,7 +63,7 @@ pub const Parser = struct {
     disallowInContext: bool = false,
     contextFlags: u32 = 0,
 
-    // JSDoc support fields
+    diagnostics: std.ArrayListUnmanaged(diagnostics.Diagnostic) = .empty,
     jsdocDiagnostics: std.ArrayListUnmanaged(diagnostics.Diagnostic) = .empty,
     jsdocInfos: std.ArrayListUnmanaged(JSDocInfo) = .empty,
     jsdocCommentRangesSpace: std.ArrayListUnmanaged(scanner_pkg.CommentRange) = .empty,
@@ -618,6 +618,11 @@ pub const Parser = struct {
 
     pub fn deinit(self: *Parser) void {
         self.ast.deinit();
+        self.scanner.deinit();
+        self.diagnostics.deinit(self.allocator);
+        self.jsdocDiagnostics.deinit(self.allocator);
+        self.jsdocInfos.deinit(self.allocator);
+        self.jsdocCommentRangesSpace.deinit(self.allocator);
     }
 
     pub fn diagnosticCount(self: *const Parser) u32 {
@@ -683,6 +688,22 @@ pub const Parser = struct {
         self.ast.nodes.set(sourceFileIndex, sourceFileNode);
 
         try @import("../ast/ast_utils.zig").fixupParentReferences(&self.ast, sourceFileIndex);
+
+        // Copy comment directives from scanner to AST
+        try self.ast.commentDirectives.appendSlice(self.allocator, self.scanner.commentDirectives.items);
+
+        // Parse pragmas
+        try self.getCommentPragmas(&self.ast.pragmas);
+
+        // Process pragmas into fields
+        try self.processPragmasIntoFields(self.ast.pragmas.items);
+
+        // Collect external module references
+        try self.collectExternalModuleReferences(sourceFileIndex);
+
+        // Copy diagnostics
+        try self.ast.diagnostics.appendSlice(self.allocator, self.diagnostics.items);
+        try self.ast.jsdocDiagnostics.appendSlice(self.allocator, self.jsdocDiagnostics.items);
 
         return sourceFileIndex;
     }
@@ -3276,11 +3297,25 @@ pub const Parser = struct {
     }
 
     pub fn parseError(self: *Parser, msg: []const u8) void {
-        _ = msg;
         const pos = @as(i32, @intCast(self.scanner.state.pos));
         if (pos == self.lastErrorPos) return;
         self.parseDiagnosticsCount += 1;
         self.lastErrorPos = pos;
+
+        var message: *const diagnostics.Message = &diagnostics.generated.Identifier_expected;
+        var args: []const []const u8 = &[_][]const u8{};
+        if (std.mem.eql(u8, msg, "';' expected.")) {
+            message = &diagnostics.generated.X_0_expected;
+            args = &[_][]const u8{";"};
+        } else if (std.mem.eql(u8, msg, "An enum member must be followed by a comma")) {
+            message = &diagnostics.generated.Trailing_comma_not_allowed;
+        }
+
+        self.diagnostics.append(self.allocator, .{
+            .message = message,
+            .nodeIndex = 0,
+            .args = args,
+        }) catch {};
     }
 
     pub fn isIndexSignature(self: *Parser) bool {
@@ -4004,12 +4039,405 @@ pub const Parser = struct {
         }
         return false;
     }
+
+    pub fn getCommentPragmas(self: *Parser, pragmas: *std.ArrayListUnmanaged(ast.Pragma)) !void {
+        var commentRanges = std.ArrayList(scanner_pkg.CommentRange).empty;
+        defer commentRanges.deinit(self.allocator);
+        try scanner_pkg.getLeadingCommentRanges(self.allocator, &commentRanges, self.sourceText, 0);
+        for (commentRanges.items) |commentRange| {
+            const comment = self.sourceText[commentRange.pos..commentRange.end];
+            try self.extractPragmas(commentRange, comment, pragmas);
+        }
+    }
+
+    fn extractPragmas(self: *Parser, commentRange: scanner_pkg.CommentRange, text: []const u8, pragmas: *std.ArrayListUnmanaged(ast.Pragma)) !void {
+        if (commentRange.kind == .SingleLineCommentTrivia) {
+            var pos: usize = 2;
+            const tripleSlash = (pos < text.len and text[pos] == '/');
+            if (tripleSlash) {
+                pos += 1;
+            }
+            pos = skipBlanks(text, pos);
+            if (tripleSlash and pos < text.len and text[pos] == '<') {
+                const tagName = extractName(text, pos + 1);
+                if (!std.mem.eql(u8, tagName, "reference")) {
+                    return;
+                }
+                pos += 10;
+                var args = std.ArrayList(ast.PragmaArgument).empty;
+                errdefer {
+                    for (args.items) |arg| {
+                        self.allocator.free(arg.name);
+                        self.allocator.free(arg.value);
+                    }
+                    args.deinit(self.allocator);
+                }
+                while (true) {
+                    pos = skipBlanks(text, pos);
+                    if (std.mem.startsWith(u8, text[pos..], "/>")) {
+                        break;
+                    }
+                    const argName = extractName(text, pos);
+                    if (argName.len == 0) {
+                        break;
+                    }
+                    pos = skipBlanks(text, pos + argName.len);
+                    if (!(pos < text.len and text[pos] == '=')) {
+                        break;
+                    }
+                    pos = skipBlanks(text, pos + 1);
+                    var value_buf: []const u8 = "";
+                    const ok = extractQuotedString(text, pos, &value_buf);
+                    if (!ok) {
+                        break;
+                    }
+                    const name_dup = try self.allocator.dupe(u8, argName);
+                    const val_dup = try self.allocator.dupe(u8, value_buf);
+                    try args.append(self.allocator, .{
+                        .pos = @intCast(commentRange.pos + pos + 1),
+                        .end = @intCast(commentRange.pos + pos + 1 + value_buf.len),
+                        .name = name_dup,
+                        .value = val_dup,
+                    });
+                    pos += value_buf.len + 2;
+                }
+                const name_dup = try self.allocator.dupe(u8, "reference");
+                try pragmas.append(self.allocator, .{
+                    .pos = commentRange.pos,
+                    .end = commentRange.end,
+                    .kind = commentRange.kind,
+                    .hasTrailingNewLine = commentRange.hasTrailingNewLine,
+                    .name = name_dup,
+                    .args = try args.toOwnedSlice(self.allocator),
+                });
+                return;
+            }
+            if (pos < text.len and text[pos] == '@') {
+                pos += 1;
+                const pragmaName = extractName(text, pos);
+                if (std.mem.eql(u8, pragmaName, "ts-check") or std.mem.eql(u8, pragmaName, "ts-nocheck")) {
+                    const name_dup = try self.allocator.dupe(u8, pragmaName);
+                    try pragmas.append(self.allocator, .{
+                        .pos = commentRange.pos,
+                        .end = commentRange.end,
+                        .kind = commentRange.kind,
+                        .hasTrailingNewLine = commentRange.hasTrailingNewLine,
+                        .name = name_dup,
+                        .args = &[_]ast.PragmaArgument{},
+                    });
+                }
+                return;
+            }
+        }
+        if (commentRange.kind == .MultiLineCommentTrivia) {
+            var text_trimmed = text;
+            if (std.mem.endsWith(u8, text_trimmed, "*/")) {
+                text_trimmed = text_trimmed[0 .. text_trimmed.len - 2];
+            }
+            var pos: usize = 2;
+            while (true) {
+                pos = skipTo(text_trimmed, pos, "@");
+                if (pos == @as(usize, @bitCast(@as(isize, -1)))) {
+                    break;
+                }
+                const namePos = pos + 1;
+                const nameEnd = skipNonBlanks(text_trimmed, namePos);
+                if (nameEnd == namePos) {
+                    pos += 1;
+                    continue;
+                }
+                const lineEnd = lineEndPos(text_trimmed, pos);
+                const pragmaName = std.ascii.allocLowerString(self.allocator, text_trimmed[namePos..nameEnd]) catch |err| return err;
+                defer self.allocator.free(pragmaName);
+                if (std.mem.eql(u8, pragmaName, "jsx") or std.mem.eql(u8, pragmaName, "jsxfrag") or std.mem.eql(u8, pragmaName, "jsximportsource") or std.mem.eql(u8, pragmaName, "jsxruntime")) {
+                    const start = skipBlanks(text_trimmed, nameEnd);
+                    const argEnd = skipNonBlanks(text_trimmed, start);
+                    if (argEnd != start) {
+                        var args = try self.allocator.alloc(ast.PragmaArgument, 1);
+                        args[0] = .{
+                            .pos = @intCast(commentRange.pos + start),
+                            .end = @intCast(commentRange.pos + argEnd),
+                            .name = try self.allocator.dupe(u8, "factory"),
+                            .value = try self.allocator.dupe(u8, text_trimmed[start..argEnd]),
+                        };
+                        const name_dup = try self.allocator.dupe(u8, pragmaName);
+                        try pragmas.append(self.allocator, .{
+                            .pos = commentRange.pos,
+                            .end = commentRange.end,
+                            .kind = commentRange.kind,
+                            .hasTrailingNewLine = commentRange.hasTrailingNewLine,
+                            .name = name_dup,
+                            .args = args,
+                        });
+                    }
+                }
+                pos = lineEnd;
+            }
+        }
+    }
+
+    fn skipBlanks(text: []const u8, pos: usize) usize {
+        var p = pos;
+        while (p < text.len and (text[p] == ' ' or text[p] == '\t')) {
+            p += 1;
+        }
+        return p;
+    }
+
+    fn skipNonBlanks(text: []const u8, pos: usize) usize {
+        var p = pos;
+        while (p < text.len and text[p] != ' ' and text[p] != '\t' and text[p] != '\r' and text[p] != '\n') {
+            p += 1;
+        }
+        return p;
+    }
+
+    fn skipTo(text: []const u8, pos: usize, s: []const u8) usize {
+        if (pos >= text.len) {
+            return @as(usize, @bitCast(@as(isize, -1)));
+        }
+        if (std.mem.indexOf(u8, text[pos..], s)) |i| {
+            return pos + i;
+        }
+        return @as(usize, @bitCast(@as(isize, -1)));
+    }
+
+    fn lineEndPos(text: []const u8, pos: usize) usize {
+        var p = pos;
+        while (p < text.len) {
+            if (p < text.len and (text[p] == '\n' or text[p] == '\r')) {
+                return p;
+            }
+            p += 1;
+        }
+        return text.len;
+    }
+
+    fn extractName(text: []const u8, pos: usize) []const u8 {
+        var p = pos;
+        while (p < text.len and ((text[p] >= 'A' and text[p] <= 'Z') or (text[p] >= 'a' and text[p] <= 'z') or text[p] == '-')) {
+            p += 1;
+        }
+        return text[pos..p];
+    }
+
+    fn extractQuotedString(text: []const u8, pos: usize, out_val: *[]const u8) bool {
+        if (pos >= text.len) {
+            return false;
+        }
+        const quote = text[pos];
+        if (quote != '\'' and quote != '"') {
+            return false;
+        }
+        var p = pos + 1;
+        const start = p;
+        while (p < text.len and text[p] != quote) {
+            p += 1;
+        }
+        if (p >= text.len) {
+            return false;
+        }
+        out_val.* = text[start..p];
+        return true;
+    }
+
+    fn processPragmasIntoFields(self: *Parser, pragmas: []const ast.Pragma) !void {
+        self.ast.checkJsDirective = null;
+        self.ast.referencedFiles.clearRetainingCapacity();
+        self.ast.typeReferenceDirectives.clearRetainingCapacity();
+        self.ast.libReferenceDirectives.clearRetainingCapacity();
+
+        for (pragmas) |pragma| {
+            if (std.mem.eql(u8, pragma.name, "reference")) {
+                var types_arg: ?ast.PragmaArgument = null;
+                var lib_arg: ?ast.PragmaArgument = null;
+                var path_arg: ?ast.PragmaArgument = null;
+                var resolution_mode_arg: ?ast.PragmaArgument = null;
+                var preserve_arg: ?ast.PragmaArgument = null;
+                var no_default_lib_arg: ?ast.PragmaArgument = null;
+
+                for (pragma.args) |arg| {
+                    if (std.mem.eql(u8, arg.name, "types")) {
+                        types_arg = arg;
+                    } else if (std.mem.eql(u8, arg.name, "lib")) {
+                        lib_arg = arg;
+                    } else if (std.mem.eql(u8, arg.name, "path")) {
+                        path_arg = arg;
+                    } else if (std.mem.eql(u8, arg.name, "resolution-mode")) {
+                        resolution_mode_arg = arg;
+                    } else if (std.mem.eql(u8, arg.name, "preserve")) {
+                        preserve_arg = arg;
+                    } else if (std.mem.eql(u8, arg.name, "no-default-lib")) {
+                        no_default_lib_arg = arg;
+                    }
+                }
+
+                if (no_default_lib_arg != null and std.mem.eql(u8, no_default_lib_arg.?.value, "true")) {
+                    // Ignored
+                } else if (types_arg) |types| {
+                    var parsed: core.ResolutionMode = .None;
+                    if (resolution_mode_arg) |mode| {
+                        parsed = self.parseResolutionMode(mode.value);
+                    }
+                    try self.ast.typeReferenceDirectives.append(self.allocator, .{
+                        .pos = types.pos,
+                        .end = types.end,
+                        .fileName = try self.allocator.dupe(u8, types.value),
+                        .resolutionMode = parsed,
+                        .preserve = (preserve_arg != null and std.mem.eql(u8, preserve_arg.?.value, "true")),
+                    });
+                } else if (lib_arg) |lib| {
+                    try self.ast.libReferenceDirectives.append(self.allocator, .{
+                        .pos = lib.pos,
+                        .end = lib.end,
+                        .fileName = try self.allocator.dupe(u8, lib.value),
+                        .resolutionMode = .None,
+                        .preserve = (preserve_arg != null and std.mem.eql(u8, preserve_arg.?.value, "true")),
+                    });
+                } else if (path_arg) |path| {
+                    try self.ast.referencedFiles.append(self.allocator, .{
+                        .pos = path.pos,
+                        .end = path.end,
+                        .fileName = try self.allocator.dupe(u8, path.value),
+                        .resolutionMode = .None,
+                        .preserve = (preserve_arg != null and std.mem.eql(u8, preserve_arg.?.value, "true")),
+                    });
+                } else {
+                    self.parseError("Invalid reference directive syntax");
+                }
+            } else if (std.mem.eql(u8, pragma.name, "ts-check") or std.mem.eql(u8, pragma.name, "ts-nocheck")) {
+                if (self.ast.checkJsDirective == null or pragma.pos > self.ast.checkJsDirective.?.pos) {
+                    self.ast.checkJsDirective = .{
+                        .enabled = std.mem.eql(u8, pragma.name, "ts-check"),
+                        .pos = pragma.pos,
+                        .end = pragma.end,
+                    };
+                }
+            }
+        }
+    }
+
+    fn parseResolutionMode(self: *Parser, mode: []const u8) core.ResolutionMode {
+        _ = self;
+        if (std.mem.eql(u8, mode, "import")) {
+            return .ESNext;
+        } else if (std.mem.eql(u8, mode, "require")) {
+            return .CommonJS;
+        }
+        return .None;
+    }
+
+    fn collectExternalModuleReferences(self: *Parser, sourceFileIndex: ast_gen.NodeIndex) !void {
+        const sourceFileNode = self.ast.getNode(sourceFileIndex).SourceFile;
+        const statements = self.ast.getNodeList(sourceFileNode.Statements);
+        for (statements) |statement| {
+            try self.collectModuleReferences(sourceFileIndex, statement, false);
+        }
+
+        const flags = self.ast.getNodeFlags(sourceFileIndex);
+        const is_js = self.isJavaScript();
+        if ((flags & @import("../ast/ast_utils.zig").NodeFlags.PossiblyContainsDynamicImport) != 0 or is_js) {
+            var i: u32 = 1;
+            while (i < self.ast.nodes.len) : (i += 1) {
+                const node = self.ast.getNode(i);
+                if (node == .CallExpression) {
+                    const call = node.CallExpression;
+                    const expr_kind = self.ast.getNodeKind(call.Expression);
+                    if (expr_kind == .ImportKeyword) {
+                        const args = self.ast.getNodeList(call.Arguments);
+                        if (args.len > 0) {
+                            try self.ast.imports.append(self.allocator, args[0]);
+                        }
+                    } else if (expr_kind == .Identifier) {
+                        const id = self.ast.getNode(call.Expression).Identifier;
+                        if (std.mem.eql(u8, id.Text, "require")) {
+                            const args = self.ast.getNodeList(call.Arguments);
+                            if (args.len > 0) {
+                                try self.ast.imports.append(self.allocator, args[0]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn collectModuleReferences(self: *Parser, sourceFileIndex: ast_gen.NodeIndex, nodeIndex: ast_gen.NodeIndex, inAmbientModule: bool) !void {
+        const node = self.ast.getNode(nodeIndex);
+        const is_any_import_reexport = switch (node) {
+            .ImportDeclaration, .ImportEqualsDeclaration, .ExportDeclaration, .JSImportDeclaration, .ExportAssignment => true,
+            else => false,
+        };
+        if (is_any_import_reexport) {
+            var moduleNameExpr: ast_gen.NodeIndex = 0;
+            switch (node) {
+                .ImportDeclaration => |n| moduleNameExpr = n.ModuleSpecifier,
+                .JSImportDeclaration => |n| moduleNameExpr = n.ModuleSpecifier,
+                .ExportDeclaration => |n| moduleNameExpr = n.ModuleSpecifier orelse 0,
+                .ImportEqualsDeclaration => |n| {
+                    if (self.ast.getNodeKind(n.ModuleReference) == .ExternalModuleReference) {
+                        moduleNameExpr = self.ast.getNode(n.ModuleReference).ExternalModuleReference.Expression;
+                    }
+                },
+                else => {},
+            }
+            if (moduleNameExpr != 0 and self.ast.getNodeKind(moduleNameExpr) == .StringLiteral) {
+                const moduleName = self.ast.getNode(moduleNameExpr).StringLiteral.Text;
+                const is_relative = std.mem.startsWith(u8, moduleName, "./") or std.mem.startsWith(u8, moduleName, "../") or std.mem.startsWith(u8, moduleName, "/");
+                if (moduleName.len > 0 and (!inAmbientModule or !is_relative)) {
+                    try self.ast.imports.append(self.allocator, moduleNameExpr);
+                    if (self.ast.usesUriStyleNodeCoreModules != .True and self.ast.getNode(sourceFileIndex).SourceFile.EndOfFileToken != 0) {
+                        if (std.mem.startsWith(u8, moduleName, "node:")) {
+                            self.ast.usesUriStyleNodeCoreModules = .True;
+                        } else if (self.ast.usesUriStyleNodeCoreModules == .Unknown) {
+                            const unprefixed_core_modules = &[_][]const u8{ "fs", "path", "os", "child_process", "crypto", "http", "https", "net", "stream", "util" };
+                            var is_unprefixed_core = false;
+                            for (unprefixed_core_modules) |core_mod| {
+                                if (std.mem.eql(u8, moduleName, core_mod)) {
+                                    is_unprefixed_core = true;
+                                    break;
+                                }
+                            }
+                            if (is_unprefixed_core) {
+                                self.ast.usesUriStyleNodeCoreModules = .False;
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        if (node == .ModuleDeclaration) {
+            const decl = node.ModuleDeclaration;
+            const name_kind = self.ast.getNodeKind(decl.name);
+            const nameText = if (name_kind == .StringLiteral) self.ast.getNode(decl.name).StringLiteral.Text else (if (name_kind == .Identifier) self.ast.getNode(decl.name).Identifier.Text else "");
+            const is_ambient = @import("../ast/ast_utils.zig").isAmbientModule(&self.ast, nodeIndex);
+            const is_external = @import("../ast/ast_utils.zig").isExternalModule(&self.ast, sourceFileIndex);
+            const is_relative = std.mem.startsWith(u8, nameText, "./") or std.mem.startsWith(u8, nameText, "../") or std.mem.startsWith(u8, nameText, "/");
+
+            if (is_external or (inAmbientModule and !is_relative)) {
+                try self.ast.moduleAugmentations.append(self.allocator, decl.name);
+            } else if (!inAmbientModule and is_ambient) {
+                const name_dup = try self.allocator.dupe(u8, nameText);
+                try self.ast.ambientModuleNames.append(self.allocator, name_dup);
+                if (decl.Body) |body| {
+                    if (self.ast.getNodeKind(body) == .ModuleBlock) {
+                        const block = self.ast.getNode(body).ModuleBlock;
+                        const block_statements = self.ast.getNodeList(block.Statements);
+                        for (block_statements) |statement| {
+                            try self.collectModuleReferences(sourceFileIndex, statement, true);
+                        }
+                    }
+                }
+            }
+        }
+    }
 };
 
 pub fn parseSourceFile(allocator: std.mem.Allocator, options: ast.SourceFileParseOptions, text: []const u8, scriptKind: core.ScriptKind) anyerror!ast_gen.NodeIndex {
-    _ = allocator;
     _ = options;
-    _ = text;
-    _ = scriptKind;
-    return 0;
+    var p = Parser.init(allocator, text);
+    p.setScriptKind(scriptKind);
+    defer p.deinit();
+    return p.parseSourceFile();
 }

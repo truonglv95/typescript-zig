@@ -77,8 +77,33 @@ pub const DeclarationTransformer = struct {
             .ClassDeclaration => |n| self.transformClass(v, node, n),
             .MethodDeclaration => |n| self.transformMethod(v, node, n),
             .Constructor => |n| self.transformConstructor(v, node, n),
-            .GetAccessor => |n| f.updateGetAccessorDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, v.visitNodes(n.TypeParameters orelse 0), v.visitNodes(n.Parameters), inferredType(v, f, n.Type orelse 0, 0), 0),
-            .SetAccessor => |n| f.updateSetAccessorDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, v.visitNodes(n.TypeParameters orelse 0), v.visitNodes(n.Parameters), 0, 0),
+            .GetAccessor => |n| blk: {
+                if (v.tree.getNode(n.name) == .PrivateIdentifier) break :blk 0;
+                break :blk f.updateGetAccessorDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, v.visitNodes(n.TypeParameters orelse 0), v.visitNodes(n.Parameters), inferredType(v, f, n.Type orelse 0, 0), 0);
+            },
+            .SetAccessor => |n| blk: {
+                if (v.tree.getNode(n.name) == .PrivateIdentifier) break :blk 0;
+                // Synthesize `value: any` when there are no parameters (Go behavior)
+                const params_list = v.visitNodes(n.Parameters);
+                const params_arr = v.tree.getNodeList(params_list);
+                const final_params = if (params_arr.len == 0) blk2: {
+                    const any_kw = f.newToken(.{ .AnyKeyword = {} });
+                    const value_id = v.tree.pushNode(.{ .Identifier = .{ .Flags = 0, .Text = "value" } }) catch unreachable;
+                    const synth_param = v.tree.pushNode(.{ .Parameter = .{
+                        .Flags = 0,
+                        .Symbol = 0,
+                        .modifiers = null,
+                        .modifierFlags = 0,
+                        .DotDotDotToken = null,
+                        .name = value_id,
+                        .QuestionToken = null,
+                        .Type = any_kw,
+                        .Initializer = null,
+                    } }) catch unreachable;
+                    break :blk2 f.newNodeList(&.{synth_param});
+                } else params_list;
+                break :blk f.updateSetAccessorDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, v.visitNodes(n.TypeParameters orelse 0), final_params, 0, 0);
+            },
             .PropertyDeclaration => |n| f.updatePropertyDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.name, n.PostfixToken orelse 0, inferredType(v, f, n.Type orelse 0, n.Initializer orelse 0), 0),
             .VariableDeclaration => |n| blk: {
                 const initializer = n.Initializer orelse 0;
@@ -144,6 +169,31 @@ pub const DeclarationTransformer = struct {
 
                 break :blk f.updateParameterDeclaration(node, n, v.visitModifiers(n.modifiers orelse 0), n.DotDotDotToken orelse 0, v.visitNode(n.name), question_token, type_node, 0);
             },
+            .EnumMember => |n| blk: {
+                // Normalize `-NaN` → `NaN` in enum initializers (Go behavior: -NaN evaluates to NaN)
+                const init = n.Initializer orelse break :blk v.visitEachChild(node);
+                const init_node = v.tree.getNode(init);
+                const normalized_init: ast.NodeIndex = if (init_node == .PrefixUnaryExpression) norm: {
+                    const pue = init_node.PrefixUnaryExpression;
+                    const is_minus = @as(@import("../ast/kind.zig").Kind, @enumFromInt(pue.Operator)) == .MinusToken;
+                    if (!is_minus) break :norm init;
+                    const operand = v.tree.getNode(pue.Operand);
+                    if (operand == .Identifier and std.mem.eql(u8, operand.Identifier.Text, "NaN")) {
+                        break :norm f.newIdentifier("NaN");
+                    }
+                    break :norm init;
+                } else init;
+                if (normalized_init == init) break :blk v.visitEachChild(node);
+                break :blk v.tree.pushNode(.{ .EnumMember = .{
+                    .Flags = n.Flags,
+                    .Symbol = n.Symbol,
+                    .modifiers = n.modifiers,
+                    .modifierFlags = n.modifierFlags,
+                    .name = n.name,
+                    .PostfixToken = n.PostfixToken,
+                    .Initializer = normalized_init,
+                } }) catch unreachable;
+            },
             else => v.visitEachChild(node),
         };
         if (result != 0 and result != node) self.transformer.emitContext.setOriginal(result, node) catch {};
@@ -159,7 +209,9 @@ pub const DeclarationTransformer = struct {
         const f = self.transformer.factory;
         // import "mod" with no clause: always keep (side-effect import)
         const clause_idx = decl.ImportClause orelse return node;
-        const clause = v.tree.getNode(clause_idx).ImportClause;
+        const clause_node = v.tree.getNode(clause_idx);
+        if (clause_node != .ImportClause) return node;
+        const clause = clause_node.ImportClause;
 
         // If it has a default name, keep as-is (conservatively)
         if (clause.name != null) return node;
@@ -195,7 +247,12 @@ pub const DeclarationTransformer = struct {
     fn declarationModifiers(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, modifiers: ast.NodeIndex) ast.NodeIndex {
         const visited = v.visitModifiers(modifiers);
         const utils = @import("../ast/ast_utils.zig");
+        // Don't add `declare` if already ambient
         if (utils.hasSyntacticModifier(v.tree, node, utils.ModifierFlags.Ambient)) return visited;
+        // Only add `declare` when the node is a direct child of SourceFile (matching Go's ensureModifierFlags)
+        const parent = v.tree.getNodeParent(node);
+        const parent_is_file = parent == 0 or v.tree.getNode(parent) == .SourceFile;
+        if (!parent_is_file) return visited;
         var items = std.ArrayListUnmanaged(ast.NodeIndex).empty;
         defer items.deinit(self.allocator);
         if (visited != 0) items.appendSlice(self.allocator, v.tree.getNodeList(visited)) catch unreachable;
@@ -275,6 +332,39 @@ pub const DeclarationTransformer = struct {
 
     fn transformMethod(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, method: ast_gen.MethodDeclarationNode) ast.NodeIndex {
         const f = self.transformer.factory;
+        const utils = @import("../ast/ast_utils.zig");
+        // Private-identifier methods are elided entirely
+        if (v.tree.getNode(method.name) == .PrivateIdentifier) return 0;
+        // Methods with `private` modifier become property declarations with no type (omitPrivateMethodType)
+        if (utils.hasSyntacticModifier(v.tree, node, utils.ModifierFlags.Private)) {
+            // Build modifier list stripping `async`, `override`, `abstract` (not valid on properties)
+            const invalid_on_prop = utils.ModifierFlags.Async | utils.ModifierFlags.Override | utils.ModifierFlags.Abstract;
+            var prop_mods = std.ArrayListUnmanaged(ast.NodeIndex).empty;
+            defer prop_mods.deinit(self.allocator);
+            if (method.modifiers) |mods_idx| {
+                for (v.tree.getNodeList(mods_idx)) |mod_idx| {
+                    const mod_tag = std.meta.activeTag(v.tree.getNode(mod_idx));
+                    const mod_flag: u32 = switch (mod_tag) {
+                        .AsyncKeyword => utils.ModifierFlags.Async,
+                        .OverrideKeyword => utils.ModifierFlags.Override,
+                        .AbstractKeyword => utils.ModifierFlags.Abstract,
+                        else => 0,
+                    };
+                    if (mod_flag & invalid_on_prop == 0) prop_mods.append(self.allocator, mod_idx) catch unreachable;
+                }
+            }
+            const mods_list = if (prop_mods.items.len > 0) f.newModifierList(prop_mods.items) else null;
+            return v.tree.pushNode(.{ .PropertyDeclaration = .{
+                .Flags = 0,
+                .Symbol = 0,
+                .modifiers = mods_list,
+                .modifierFlags = utils.ModifierFlags.Private,
+                .name = method.name,
+                .PostfixToken = null,
+                .Type = null,
+                .Initializer = null,
+            } }) catch unreachable;
+        }
         var overloads = std.ArrayListUnmanaged(ast.NodeIndex).empty;
         defer overloads.deinit(self.allocator);
         for (@import("../ast/ast_utils.zig").getJSDoc(v.tree, node)) |doc_index| {

@@ -85,6 +85,8 @@ pub const ModuleKind = enum(u32) {
     Preserve = 200,
 };
 
+pub const ResolutionMode = ModuleKind;
+
 pub const ModuleResolutionKind = enum(u32) {
     Classic = 1,
     NodeJs = 2,

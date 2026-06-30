@@ -429,6 +429,25 @@ pub const RuntimeSyntaxTransformer = struct {
                     else => return null,
                 }
             },
+            .PrefixUnaryExpression => |n| {
+                const op_kind = std.meta.activeTag(self.transformer.visitor.tree.getNode(n.Operator));
+                if (op_kind != .MinusToken and op_kind != .PlusToken and op_kind != .TildeToken) return null;
+                const operand_val = self.evaluateEnumInitializer(n.Operand) orelse return null;
+                switch (op_kind) {
+                    .MinusToken => switch (operand_val) {
+                        .NaN => return .NaN, // -NaN === NaN
+                        .Int => |v| return .{ .Int = 0 -% v },
+                        .Double => |v| return .{ .Double = -v },
+                        else => return null,
+                    },
+                    .PlusToken => return operand_val,
+                    .TildeToken => switch (operand_val) {
+                        .Int => |v| return .{ .Int = ~v },
+                        else => return null,
+                    },
+                    else => return null,
+                }
+            },
             else => return null,
         }
     }

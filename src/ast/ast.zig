@@ -3,6 +3,9 @@ const kind = @import("kind.zig");
 const ast_gen = @import("ast_generated.zig");
 pub const flow = @import("flow.zig");
 
+const core = @import("../core/core.zig");
+const diagnostics_pkg = @import("../diagnostics/diagnostics.zig");
+
 pub const NodeIndex = u32;
 pub const SourceFile = opaque {};
 
@@ -16,6 +19,54 @@ pub const TextRange = struct {
 pub const SourceFileParseOptions = struct {
     FileName: []const u8,
     Path: []const u8,
+};
+
+pub const CommentDirectiveKind = enum(i32) {
+    Unknown = 0,
+    ExpectError = 1,
+    Ignore = 2,
+};
+
+pub const CommentDirective = struct {
+    pos: u32,
+    end: u32,
+    kind: CommentDirectiveKind,
+};
+
+pub const FileReference = struct {
+    pos: u32,
+    end: u32,
+    fileName: []const u8,
+    resolutionMode: core.ResolutionMode,
+    preserve: bool,
+};
+
+pub const CheckJsDirective = struct {
+    enabled: bool,
+    pos: u32,
+    end: u32,
+};
+
+pub const SourceFileMetaData = struct {
+    PackageJsonType: []const u8 = "",
+    PackageJsonDirectory: []const u8 = "",
+    ImpliedNodeFormat: core.ResolutionMode = .None,
+};
+
+pub const PragmaArgument = struct {
+    pos: u32,
+    end: u32,
+    name: []const u8,
+    value: []const u8,
+};
+
+pub const Pragma = struct {
+    pos: u32,
+    end: u32,
+    kind: kind.Kind,
+    hasTrailingNewLine: bool,
+    name: []const u8,
+    args: []const PragmaArgument,
 };
 
 /// Hệ thống AST dựa trên Data-Oriented Design.
@@ -38,6 +89,21 @@ pub const Ast = struct {
     jsdocCache: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, []const ast_gen.NodeIndex),
     hasLazyJSDoc: bool,
 
+    diagnostics: std.ArrayListUnmanaged(diagnostics_pkg.Diagnostic),
+    jsDiagnostics: std.ArrayListUnmanaged(diagnostics_pkg.Diagnostic),
+    jsdocDiagnostics: std.ArrayListUnmanaged(diagnostics_pkg.Diagnostic),
+    commentDirectives: std.ArrayListUnmanaged(CommentDirective),
+    pragmas: std.ArrayListUnmanaged(Pragma),
+    referencedFiles: std.ArrayListUnmanaged(FileReference),
+    typeReferenceDirectives: std.ArrayListUnmanaged(FileReference),
+    libReferenceDirectives: std.ArrayListUnmanaged(FileReference),
+    checkJsDirective: ?CheckJsDirective,
+    imports: std.ArrayListUnmanaged(ast_gen.NodeIndex),
+    moduleAugmentations: std.ArrayListUnmanaged(ast_gen.NodeIndex),
+    ambientModuleNames: std.ArrayListUnmanaged([]const u8),
+    usesUriStyleNodeCoreModules: core.Tristate,
+    impliedNodeFormat: core.ResolutionMode,
+
     pub fn getNodeKind(self: *Ast, node: ast_gen.NodeIndex) std.meta.Tag(ast_gen.NodeData) {
         if (node == 0) return .Unknown;
         return std.meta.activeTag(self.getNode(node));
@@ -55,7 +121,22 @@ pub const Ast = struct {
             .localSymbols = .empty,
             .jsdocCache = .empty,
             .hasLazyJSDoc = false,
+            .diagnostics = .empty,
+            .jsDiagnostics = .empty,
+            .jsdocDiagnostics = .empty,
+            .commentDirectives = .empty,
+            .pragmas = .empty,
+            .referencedFiles = .empty,
+            .typeReferenceDirectives = .empty,
+            .libReferenceDirectives = .empty,
+            .checkJsDirective = null,
+            .imports = .empty,
+            .moduleAugmentations = .empty,
+            .ambientModuleNames = .empty,
+            .usesUriStyleNodeCoreModules = .Unknown,
+            .impliedNodeFormat = .None,
         };
+
         // Reserve index 0 as "null/empty"
         a.nodes.append(allocator, .{ .Unknown = void{} }) catch unreachable;
         a.extraData.append(allocator, 0) catch unreachable;
@@ -76,6 +157,43 @@ pub const Ast = struct {
         self.positions.deinit(self.allocator);
         self.localSymbols.deinit(self.allocator);
         self.symbols.deinit(self.allocator);
+
+        for (self.pragmas.items) |pragma| {
+            for (pragma.args) |arg| {
+                self.allocator.free(arg.name);
+                self.allocator.free(arg.value);
+            }
+            self.allocator.free(pragma.args);
+            self.allocator.free(pragma.name);
+        }
+        self.pragmas.deinit(self.allocator);
+
+        for (self.referencedFiles.items) |ref| {
+            self.allocator.free(ref.fileName);
+        }
+        self.referencedFiles.deinit(self.allocator);
+
+        for (self.typeReferenceDirectives.items) |ref| {
+            self.allocator.free(ref.fileName);
+        }
+        self.typeReferenceDirectives.deinit(self.allocator);
+
+        for (self.libReferenceDirectives.items) |ref| {
+            self.allocator.free(ref.fileName);
+        }
+        self.libReferenceDirectives.deinit(self.allocator);
+
+        for (self.ambientModuleNames.items) |name| {
+            self.allocator.free(name);
+        }
+        self.ambientModuleNames.deinit(self.allocator);
+
+        self.imports.deinit(self.allocator);
+        self.moduleAugmentations.deinit(self.allocator);
+        self.diagnostics.deinit(self.allocator);
+        self.jsDiagnostics.deinit(self.allocator);
+        self.jsdocDiagnostics.deinit(self.allocator);
+        self.commentDirectives.deinit(self.allocator);
     }
 
     /// Thêm một Node mới vào AST và trả về NodeIndex (chính là u32 pointer).
