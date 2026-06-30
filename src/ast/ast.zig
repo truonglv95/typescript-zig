@@ -194,6 +194,22 @@ pub const Ast = struct {
         }
         self.nodes.set(index, node);
     }
+
+    pub fn getNodePos(self: *Ast, index: NodeIndex) u32 {
+        if (index >= self.positions.items.len) return 0;
+        return self.positions.items[index].pos;
+    }
+
+    pub fn getNodeEnd(self: *Ast, index: NodeIndex) u32 {
+        if (index >= self.positions.items.len) return 0;
+        return self.positions.items[index].end;
+    }
+
+    pub fn setNodePosition(self: *Ast, index: NodeIndex, pos: u32, end: u32) void {
+        if (index < self.positions.items.len) {
+            self.positions.items[index] = .{ .pos = pos, .end = end };
+        }
+    }
 };
 
 pub const SubtreeContainsDecorators: u32 = 0;

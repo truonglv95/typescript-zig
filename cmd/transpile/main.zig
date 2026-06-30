@@ -81,7 +81,10 @@ pub fn transpileFile(init: std.process.Init, filepath: []const u8, outpath: ?[]c
         var colon_it = std.mem.splitScalar(u8, opt_part, ':');
         const key = std.mem.trim(u8, colon_it.next() orelse "", " \t\r\n");
         const raw_val = std.mem.trim(u8, colon_it.next() orelse "", " \t\r\n");
-        const val = std.mem.trim(u8, if (std.mem.indexOfScalar(u8, raw_val, ',')) |comma| raw_val[0..comma] else raw_val, " \t\r\n");
+        var val = std.mem.trim(u8, if (std.mem.indexOfScalar(u8, raw_val, ',')) |comma| raw_val[0..comma] else raw_val, " \t\r\n");
+        if (std.mem.endsWith(u8, val, ";")) {
+            val = std.mem.trim(u8, val[0 .. val.len - 1], " \t\r\n");
+        }
         if (key.len == 0 or val.len == 0) continue;
 
         if (std.mem.eql(u8, key, "target")) {
@@ -392,7 +395,14 @@ fn declarationPath(allocator: std.mem.Allocator, input: []const u8, js_output: ?
     const base = js_output orelse input;
     const extension: []const u8 = if (std.mem.endsWith(u8, input, ".mts") or std.mem.endsWith(u8, input, ".mjs")) ".d.mts" else if (std.mem.endsWith(u8, input, ".cts") or std.mem.endsWith(u8, input, ".cjs")) ".d.cts" else ".d.ts";
     const file_name = try std.fmt.allocPrint(allocator, "{s}{s}", .{ std.fs.path.stem(base), extension });
-    if (declaration_dir) |directory| return std.fs.path.join(allocator, &.{ directory, file_name });
+    if (declaration_dir) |directory| {
+        const base_dir = std.fs.path.dirname(base) orelse ".";
+        var dir = directory;
+        while (dir.len > 0 and (dir[0] == '/' or dir[0] == '\\')) {
+            dir = dir[1..];
+        }
+        return std.fs.path.join(allocator, &.{ base_dir, dir, file_name });
+    }
     return std.fs.path.join(allocator, &.{ std.fs.path.dirname(base) orelse ".", file_name });
 }
 
