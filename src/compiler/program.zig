@@ -603,6 +603,26 @@ pub const Program = struct {
     }
 
     fn resolvePackageSelfName(self: *Program, io: std.Io, containing_file: []const u8, package_name: []const u8, subpath: []const u8) !?[]const u8 {
+        const hasOutDir = self.opts.options.outDir != null or self.opts.options.declarationDir != null;
+        std.debug.print("DEBUG resolveSelfName: pkg={s}, hasOutDir={}, outDir={?s}, declDir={?s}, rootDir={?s}, cfg={?s}\n", .{ package_name, hasOutDir, self.opts.options.outDir, self.opts.options.declarationDir, self.opts.options.rootDir, self.opts.options.configFilePath });
+        if (hasOutDir and std.mem.indexOf(u8, containing_file, "/node_modules/") == null) {
+            var contains = false;
+            if (self.opts.options.configFilePath) |configFilePath| {
+                const configDir = std.fs.path.dirname(configFilePath) orelse "";
+                const pkgDir = std.fs.path.dirname(containing_file) orelse "";
+                contains = std.mem.startsWith(u8, pkgDir, configDir);
+                if (contains and pkgDir.len > configDir.len and pkgDir[configDir.len] != '/' and configDir[configDir.len - 1] != '/') {
+                    contains = false;
+                }
+            }
+            if (self.opts.options.configFilePath == null or contains) {
+                if (self.opts.options.rootDir == null and self.opts.options.configFilePath == null) {
+                    std.debug.print("DEBUG resolveSelfName: returning null because of ambiguity\n", .{});
+                    // Ambiguous project root for self-referencing package with outDir (TS2209)
+                    return null;
+                }
+            }
+        }
         var directory = std.fs.path.dirname(containing_file) orelse ".";
         while (true) {
             const package_json = try std.fs.path.join(self.allocator, &.{ directory, "package.json" });

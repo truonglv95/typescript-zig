@@ -825,12 +825,39 @@ pub const ResolutionState = struct {
     }
 
     pub fn tryLoadInputFileForPath(self: *ResolutionState, finalPath: []const u8, entry: []const u8, packagePath: []const u8, isImports: bool) !?*Resolved {
-        _ = self;
-        _ = finalPath;
-        _ = entry;
-        _ = packagePath;
-        _ = isImports;
-        return continueSearching();
+        const hasDeclarationDir = self.compilerOptions.declarationDir != null;
+        const hasOutDir = self.compilerOptions.outDir != null;
+
+        std.debug.print("DEBUG tryLoad: finalPath={s}, hasOutDir={}, hasDeclDir={}, outDir={?s}\n", .{ finalPath, hasOutDir, hasDeclarationDir, self.compilerOptions.outDir });
+
+        if (!self.isConfigLookup and (hasDeclarationDir or hasOutDir) and std.mem.indexOf(u8, finalPath, "/node_modules/") == null) {
+            var contains = false;
+            if (self.compilerOptions.configFilePath) |configFilePath| {
+                const configDir = try tspath.getDirectoryPath(self.allocator, configFilePath);
+                const pkgDir = try tspath.getDirectoryPath(self.allocator, packagePath);
+                contains = std.mem.startsWith(u8, pkgDir, configDir);
+                // Also ensure it is actually a subdirectory and not just a string prefix
+                if (contains and pkgDir.len > configDir.len and pkgDir[configDir.len] != '/' and configDir[configDir.len - 1] != '/') {
+                    contains = false;
+                }
+            }
+
+            if (self.compilerOptions.configFilePath == null or contains) {
+                if (self.compilerOptions.rootDir == null and self.compilerOptions.configFilePath == null) {
+                    const diagnostic = try @import("../diagnostics/diagnostics.zig").Diagnostic.init(self.allocator, 0, 0, 0, if (isImports)
+                        @import("../diagnostics/diagnostics_generated.zig").The_project_root_is_ambiguous_but_is_required_to_resolve_import_map_entry_0_in_file_1_Supply_the_roo_2210
+                    else
+                        @import("../diagnostics/diagnostics_generated.zig").The_project_root_is_ambiguous_but_is_required_to_resolve_export_map_entry_0_in_file_1_Supply_the_roo_2209, &.{
+                        if (entry.len == 0) "." else entry,
+                        packagePath,
+                    });
+                    try self.diagnostics.append(self.allocator, diagnostic);
+                    return try self.unresolved();
+                }
+                // TODO: the rest of tryLoadInputFileForPath (scanning output directories)
+            }
+        }
+        return self.continueSearching();
     }
 
     pub fn getPackageScopeForPath(self: *ResolutionState, directory: []const u8) ?*packagejson.InfoCacheEntry {

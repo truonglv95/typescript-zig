@@ -30,8 +30,12 @@ pub fn main(init: std.process.Init) !void {
     }
 
     var roots = [_][]const u8{filepath};
+    var options: tsc.core.CompilerOptions = .{};
+    if (outpath) |out| {
+        options.outDir = std.fs.path.dirname(out) orelse ".";
+    }
     var graph = tsc.program.Program.init(allocator, .{
-        .options = .{},
+        .options = options,
         .rootNames = &roots,
         .projectName = std.fs.path.dirname(filepath) orelse ".",
     });
