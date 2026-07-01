@@ -23,6 +23,63 @@ const BinderVisitor = struct {
     }
 };
 
+test "binder marks CommonJS modules and declares assignment exports" {
+    const parser = @import("../parser/parser.zig");
+    var parsed = parser.Parser.init(std.testing.allocator,
+        \\module.exports = function main() {};
+        \\exports.foo = 1;
+        \\module.exports.bar = 2;
+        \\Object.defineProperty(exports, "hidden", { value: 3 });
+        \\require("dependency");
+    );
+    defer parsed.deinit();
+    parsed.setScriptKind(.JS);
+    const source_file = try parsed.parseSourceFile();
+    var binder = try Binder.init(std.testing.allocator, &parsed.ast);
+    defer binder.deinit();
+    try binder.bindSourceFile(source_file);
+
+    try std.testing.expect(ast_utils.getCommonJSModuleIndicator(&parsed.ast, source_file) != 0);
+    const source_symbol = parsed.ast.getNodeSymbol(source_file) orelse return error.ExpectedCommonJSModuleSymbol;
+    const exports = binder.symbolExports.getPtr(source_symbol) orelse return error.ExpectedCommonJSExports;
+    try std.testing.expect(exports.contains(symbol.InternalSymbolNameExportEquals));
+    try std.testing.expect(exports.contains("foo"));
+    try std.testing.expect(exports.contains("bar"));
+    try std.testing.expect(exports.contains("hidden"));
+    const locals = binder.nodeLocals.getPtr(source_file) orelse return error.ExpectedCommonJSLocals;
+    try std.testing.expect(locals.contains("module"));
+    try std.testing.expect(locals.contains("exports"));
+    const module_symbol = locals.get("module").?;
+    const module_members = binder.symbolMembers.getPtr(module_symbol) orelse return error.ExpectedModuleMembers;
+    try std.testing.expect(module_members.contains("exports"));
+}
+
+test "binder declares JavaScript this-property assignments on class symbols" {
+    const parser = @import("../parser/parser.zig");
+    var parsed = parser.Parser.init(std.testing.allocator,
+        \\class C {
+        \\  constructor() { this.instanceValue = 1; }
+        \\  static { this.blockValue = 2; }
+        \\  static initialize() { this.staticValue = 2; }
+        \\}
+    );
+    defer parsed.deinit();
+    parsed.setScriptKind(.JS);
+    const source_file = try parsed.parseSourceFile();
+    var binder = try Binder.init(std.testing.allocator, &parsed.ast);
+    defer binder.deinit();
+    try binder.bindSourceFile(source_file);
+
+    const statements = parsed.ast.getNodeList(parsed.ast.getNode(source_file).SourceFile.Statements);
+    const class_node = statements[0];
+    const class_symbol = parsed.ast.getNodeSymbol(class_node) orelse return error.ExpectedClassSymbol;
+    const members = binder.symbolMembers.getPtr(class_symbol) orelse return error.ExpectedClassMembers;
+    const exports = binder.symbolExports.getPtr(class_symbol) orelse return error.ExpectedClassExports;
+    try std.testing.expect(members.contains("instanceValue"));
+    try std.testing.expect(exports.contains("blockValue"));
+    try std.testing.expect(exports.contains("staticValue"));
+}
+
 pub const ContainerFlags = struct {
     pub const None: u32 = 0;
     pub const IsContainer: u32 = 1 << 0;
@@ -461,9 +518,18 @@ pub const Binder = struct {
     }
 
     fn bindSourceFileAsExternalModule(self: *Binder) !void {
-        // b.bindAnonymousDeclaration(b.file.AsNode(), ast.SymbolFlagsValueModule, "\""+tspath.RemoveFileExtension(b.file.FileName())+"\"")
-        // Hardcode "\"/test\"" for now because that's what Go outputs for "/test.ts"
-        _ = try self.bindAnonymousDeclaration(self.file, symbol.SymbolFlags.ValueModule, "\"/test\"");
+        const file_name = if (self.ast.fileName.len != 0) self.ast.fileName else "/test.ts";
+        const extension = std.fs.path.extension(file_name);
+        const without_extension = file_name[0 .. file_name.len - extension.len];
+        const module_name = try std.fmt.allocPrint(self.allocator, "\"{s}\"", .{without_extension});
+        defer self.allocator.free(module_name);
+        _ = try self.bindAnonymousDeclaration(self.file, symbol.SymbolFlags.ValueModule, module_name);
+    }
+
+    fn declareCommonJSVariable(self: *Binder, name: []const u8, add_exports_member: bool) !void {
+        if (self.nodeLocals.getPtr(self.file)) |locals| if (locals.contains(name)) return;
+        const variable = try self.declareSymbolEx(.Locals, self.file, 0, symbol.SymbolFlags.FunctionScopedVariable | symbol.SymbolFlags.ModuleExports, symbol.SymbolFlags.None, name, false, false);
+        if (add_exports_member) _ = try self.declareSymbolEx(.Members, variable, 0, symbol.SymbolFlags.ModuleExports | symbol.SymbolFlags.Property, symbol.SymbolFlags.None, "exports", false, false);
     }
 
     fn isAmbientContext(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
@@ -583,11 +649,28 @@ pub const Binder = struct {
                     try self.bindEachStatementFunctionsFirst(n.Statements);
                 }
 
+                if (ast_utils.isInJSFile(self.ast, nodeIndex)) {
+                    if (n.Statements != 0) {
+                        for (self.ast.getNodeList(n.Statements)) |statement| {
+                            if (self.ast.getNode(statement) == .JSTypeAliasDeclaration) {
+                                const st_node = self.ast.getNode(statement).JSTypeAliasDeclaration;
+                                _ = try self.bindBlockScopedDeclaration(statement, symbol.SymbolFlags.TypeAlias, symbol.SymbolFlags.TypeAliasExcludes, self.getIdentifierName(st_node.name));
+                            }
+                        }
+                    }
+                }
+
+                const current_source = self.ast.getNode(nodeIndex).SourceFile;
+                if (current_source.CommonJSModuleIndicator != null) {
+                    try self.declareCommonJSVariable("module", true);
+                    try self.declareCommonJSVariable("exports", false);
+                }
+
                 if (ast_utils.isExternalOrCommonJSModule(self.ast, self.file)) {
                     if (self.ast.getNodeSymbol(nodeIndex)) |sym| {
                         try self.bindCommonJSTypeExports(sym);
                     }
-                    if (n.CommonJSModuleIndicator) |indicator| {
+                    if (current_source.CommonJSModuleIndicator) |indicator| {
                         self.setExportContextFlag(indicator);
                     }
                 }
@@ -1139,6 +1222,10 @@ pub const Binder = struct {
                 if (n.ImportClause) |clause| try self.bind(clause);
                 try self.bind(n.ModuleSpecifier);
             },
+            .JSImportDeclaration => |n| {
+                if (n.ImportClause) |clause| try self.bind(clause);
+                try self.bind(n.ModuleSpecifier);
+            },
             .ImportEqualsDeclaration => |n| {
                 _ = try self.declareSymbolAndAddToSymbolTable(nodeIndex, symbol.SymbolFlags.Alias, symbol.SymbolFlags.AliasExcludes, self.getIdentifierName(n.name));
                 try self.bind(n.name);
@@ -1205,8 +1292,13 @@ pub const Binder = struct {
                 if (n.Expression != 0) try self.bind(n.Expression);
             },
             .BinaryExpression => {
-                const isProp = self.getAssignmentDeclarationKindIsProperty(nodeIndex);
-                if (isProp) {
+                if (self.isThisPropertyAssignment(nodeIndex)) {
+                    try self.bindThisPropertyAssignment(nodeIndex);
+                } else if (self.isModuleExportsAssignment(nodeIndex)) {
+                    try self.bindModuleExportsAssignment(nodeIndex);
+                } else if (self.isExportsPropertyAssignment(nodeIndex)) {
+                    try self.bindExportsOrObjectDefineProperty(nodeIndex);
+                } else if (self.getAssignmentDeclarationKindIsProperty(nodeIndex)) {
                     try self.bindExpandoPropertyAssignment(nodeIndex);
                 }
                 self.checkStrictModeBinaryExpression(nodeIndex);
@@ -1351,6 +1443,8 @@ pub const Binder = struct {
                 try self.bindAccessExpressionFlow(nodeIndex);
             },
             .CallExpression => {
+                if (self.isRequireCall(nodeIndex)) _ = try self.setCommonJSModuleIndicator(nodeIndex);
+                if (self.isObjectDefinePropertyExports(nodeIndex)) try self.bindExportsOrObjectDefineProperty(nodeIndex);
                 try self.bindCallExpressionFlow(nodeIndex);
             },
             .NonNullExpression => {
@@ -1360,9 +1454,19 @@ pub const Binder = struct {
                 if (self.blockScopeContainer != null and self.ast.getNode(self.blockScopeContainer.?) != .SourceFile) {
                     _ = try self.bindBlockScopedDeclaration(nodeIndex, symbol.SymbolFlags.TypeAlias, symbol.SymbolFlags.TypeAliasExcludes, self.getIdentifierName(n.name));
                 }
+                const saveContainer = self.container;
+                self.container = nodeIndex;
+                if (n.TypeParameters) |tp| {
+                    try self.bindNodeList(tp);
+                }
+                try self.bind(n.Type);
+                self.container = saveContainer;
             },
             .ClassStaticBlockDeclaration => {
-                // To be implemented
+                // Static blocks are containers for flow, but their statements
+                // still participate in class symbol binding (notably
+                // `this.x = value` static property declarations).
+                try self.bindChildren(nodeIndex);
             },
             else => {
                 try self.bindChildren(nodeIndex);
@@ -1398,6 +1502,67 @@ pub const Binder = struct {
             return self.isEntityNameExpression(eae.Expression);
         }
         return false;
+    }
+
+    fn isModuleExportsAssignment(self: *Binder, node_index: ast_gen.NodeIndex) bool {
+        if (self.ast.getNode(node_index) != .BinaryExpression) return false;
+        const binary = self.ast.getNode(node_index).BinaryExpression;
+        if (self.ast.getNode(binary.OperatorToken) != .EqualsToken) return false;
+        return self.isModuleExportsAccess(binary.Left);
+    }
+
+    fn isThisPropertyAssignment(self: *Binder, node_index: ast_gen.NodeIndex) bool {
+        if (self.ast.getNode(node_index) != .BinaryExpression) return false;
+        const binary = self.ast.getNode(node_index).BinaryExpression;
+        if (self.ast.getNode(binary.OperatorToken) != .EqualsToken) return false;
+        return switch (self.ast.getNode(binary.Left)) {
+            .PropertyAccessExpression => |access| self.ast.getNode(access.Expression) == .ThisKeyword,
+            .ElementAccessExpression => |access| self.ast.getNode(access.Expression) == .ThisKeyword,
+            else => false,
+        };
+    }
+
+    fn isRequireCall(self: *Binder, node_index: ast_gen.NodeIndex) bool {
+        if (self.ast.getNode(node_index) != .CallExpression) return false;
+        const call = self.ast.getNode(node_index).CallExpression;
+        return self.isIdentifierText(call.Expression, "require") and self.ast.getNodeList(call.Arguments).len != 0;
+    }
+
+    fn isObjectDefinePropertyExports(self: *Binder, node_index: ast_gen.NodeIndex) bool {
+        if (self.ast.getNode(node_index) != .CallExpression) return false;
+        const call = self.ast.getNode(node_index).CallExpression;
+        const callee = self.ast.getNode(call.Expression);
+        if (callee != .PropertyAccessExpression or !self.isIdentifierText(callee.PropertyAccessExpression.Expression, "Object") or !self.isIdentifierText(callee.PropertyAccessExpression.name, "defineProperty")) return false;
+        const arguments = self.ast.getNodeList(call.Arguments);
+        if (arguments.len < 2) return false;
+        return self.isIdentifierText(arguments[0], "exports") or self.isModuleExportsAccess(arguments[0]);
+    }
+
+    fn isExportsPropertyAssignment(self: *Binder, node_index: ast_gen.NodeIndex) bool {
+        if (self.ast.getNode(node_index) != .BinaryExpression) return false;
+        const binary = self.ast.getNode(node_index).BinaryExpression;
+        if (self.ast.getNode(binary.OperatorToken) != .EqualsToken) return false;
+        return switch (self.ast.getNode(binary.Left)) {
+            .PropertyAccessExpression => |access| self.isIdentifierText(access.Expression, "exports") or self.isModuleExportsAccess(access.Expression),
+            .ElementAccessExpression => |access| self.isIdentifierText(access.Expression, "exports") or self.isModuleExportsAccess(access.Expression),
+            else => false,
+        };
+    }
+
+    fn isModuleExportsAccess(self: *Binder, node_index: ast_gen.NodeIndex) bool {
+        return switch (self.ast.getNode(node_index)) {
+            .PropertyAccessExpression => |access| self.isIdentifierText(access.Expression, "module") and self.isIdentifierText(access.name, "exports"),
+            .ElementAccessExpression => |access| self.isIdentifierText(access.Expression, "module") and self.isStringLiteralText(access.ArgumentExpression, "exports"),
+            else => false,
+        };
+    }
+
+    fn isIdentifierText(self: *Binder, node_index: ast_gen.NodeIndex, text: []const u8) bool {
+        return self.ast.getNode(node_index) == .Identifier and std.mem.eql(u8, ast_utils.getText(self.ast, node_index), text);
+    }
+
+    fn isStringLiteralText(self: *Binder, node_index: ast_gen.NodeIndex, text: []const u8) bool {
+        return self.ast.getNode(node_index) == .StringLiteral and std.mem.eql(u8, ast_utils.getText(self.ast, node_index), text);
     }
 
     fn bindExpandoPropertyAssignment(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
@@ -1517,6 +1682,9 @@ pub const Binder = struct {
             const left = self.ast.getNode(node.BinaryExpression.Left);
             if (left == .PropertyAccessExpression) {
                 return self.getIdentifierName(left.PropertyAccessExpression.name);
+            } else if (left == .ElementAccessExpression) {
+                const argument = left.ElementAccessExpression.ArgumentExpression;
+                if (self.ast.getNode(argument) == .StringLiteral or self.ast.getNode(argument) == .NumericLiteral) return ast_utils.getText(self.ast, argument);
             }
         }
         return symbol.InternalSymbolNameMissing;
@@ -2155,7 +2323,7 @@ pub const Binder = struct {
 
     pub fn checkStrictModePrefixUnaryExpression(self: *Binder, nodeIndex: ast_gen.NodeIndex) void {
         const expr = self.ast.getNode(nodeIndex).PrefixUnaryExpression;
-        const op = self.ast.getNode(expr.Operator);
+        const op: @import("../ast/kind.zig").Kind = @enumFromInt(expr.Operator);
         if (op == .PlusPlusToken or op == .MinusMinusToken) {
             self.checkStrictModeEvalOrArguments(nodeIndex, expr.Operand);
         }
@@ -2194,39 +2362,83 @@ pub const Binder = struct {
     }
 
     pub fn bindModuleExportsAssignment(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
-        if (self.setCommonJSModuleIndicator(nodeIndex)) {
+        if (try self.setCommonJSModuleIndicator(nodeIndex)) {
             try self.trackNestedCJSExport(nodeIndex);
             const container = self.file;
             const right = self.ast.getNode(nodeIndex).BinaryExpression.Right;
-            const isAlias = ast_utils.isExpressionAlias(self.ast, right);
-            const flags = if (isAlias) symbol.SymbolFlags.Alias else symbol.SymbolFlags.Property;
+            const isAlias = self.isEntityNameExpression(right) or self.ast.getNode(right) == .ClassExpression;
+            const flags = (if (isAlias) symbol.SymbolFlags.Alias else symbol.SymbolFlags.Property) | symbol.SymbolFlags.Assignment;
 
             const containerSym = self.ast.getNodeSymbol(container).?;
-            _ = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, 0, symbol.InternalSymbolNameMissing, false, false);
+            _ = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, 0, symbol.InternalSymbolNameExportEquals, false, false);
         }
     }
 
     pub fn bindExportsOrObjectDefineProperty(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
-        if (self.setCommonJSModuleIndicator(nodeIndex)) {
+        if (try self.setCommonJSModuleIndicator(nodeIndex)) {
             try self.trackNestedCJSExport(nodeIndex);
             const container = self.file;
             const isBin = self.ast.getNode(nodeIndex) == .BinaryExpression;
-            const isAlias = isBin and ast_utils.isExpressionAlias(self.ast, self.ast.getNode(nodeIndex).BinaryExpression.Right);
-            const flags = if (isAlias) symbol.SymbolFlags.Alias else symbol.SymbolFlags.FunctionScopedVariable;
+            const isAlias = isBin and (self.isEntityNameExpression(self.ast.getNode(nodeIndex).BinaryExpression.Right) or self.ast.getNode(self.ast.getNode(nodeIndex).BinaryExpression.Right) == .ClassExpression);
+            const flags = (if (isAlias) symbol.SymbolFlags.Alias else symbol.SymbolFlags.FunctionScopedVariable) | symbol.SymbolFlags.Assignment;
 
             const containerSym = self.ast.getNodeSymbol(container).?;
-            _ = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, symbol.SymbolFlags.FunctionScopedVariableExcludes, symbol.InternalSymbolNameMissing, false, false);
+            const export_name = self.commonJSExportName(nodeIndex) orelse symbol.InternalSymbolNameMissing;
+            _ = try self.declareSymbolEx(.Exports, containerSym, nodeIndex, flags, symbol.SymbolFlags.FunctionScopedVariableExcludes, export_name, false, false);
         }
     }
 
-    pub fn bindThisPropertyAssignment(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
-        _ = self;
-        _ = nodeIndex;
+    fn commonJSExportName(self: *Binder, node_index: ast_gen.NodeIndex) ?[]const u8 {
+        return switch (self.ast.getNode(node_index)) {
+            .BinaryExpression => |binary| switch (self.ast.getNode(binary.Left)) {
+                .PropertyAccessExpression => |access| ast_utils.getText(self.ast, access.name),
+                .ElementAccessExpression => |access| if (self.ast.getNode(access.ArgumentExpression) == .StringLiteral or self.ast.getNode(access.ArgumentExpression) == .NumericLiteral) ast_utils.getText(self.ast, access.ArgumentExpression) else null,
+                else => null,
+            },
+            .CallExpression => |call| blk: {
+                const arguments = self.ast.getNodeList(call.Arguments);
+                if (arguments.len >= 2 and (self.ast.getNode(arguments[1]) == .StringLiteral or self.ast.getNode(arguments[1]) == .NumericLiteral)) break :blk ast_utils.getText(self.ast, arguments[1]);
+                break :blk null;
+            },
+            else => null,
+        };
     }
 
-    pub fn setCommonJSModuleIndicator(self: *Binder, nodeIndex: ast_gen.NodeIndex) bool {
-        _ = self;
-        _ = nodeIndex;
+    pub fn bindThisPropertyAssignment(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
+        if (!ast_utils.isInJSFile(self.ast, nodeIndex)) return;
+        const binary = self.ast.getNode(nodeIndex).BinaryExpression;
+        const property_name: ?[]const u8 = switch (self.ast.getNode(binary.Left)) {
+            .PropertyAccessExpression => |access| if (self.ast.getNode(access.name) == .PrivateIdentifier) null else ast_utils.getText(self.ast, access.name),
+            .ElementAccessExpression => |access| if (self.ast.getNode(access.ArgumentExpression) == .StringLiteral or self.ast.getNode(access.ArgumentExpression) == .NumericLiteral) ast_utils.getText(self.ast, access.ArgumentExpression) else null,
+            else => null,
+        };
+        const name = property_name orelse return;
+        var member = self.ast.getNodeParent(nodeIndex);
+        var containing_member: ast_gen.NodeIndex = 0;
+        var class_node: ast_gen.NodeIndex = 0;
+        while (member != 0) {
+            const current = self.ast.getNode(member);
+            if (containing_member == 0 and (current == .Constructor or current == .MethodDeclaration or current == .GetAccessor or current == .SetAccessor or current == .PropertyDeclaration or current == .ClassStaticBlockDeclaration)) containing_member = member;
+            if (current == .ClassDeclaration or current == .ClassExpression) {
+                class_node = member;
+                break;
+            }
+            member = self.ast.getNodeParent(member);
+        }
+        if (class_node == 0) return;
+        const class_symbol = self.ast.getNodeSymbol(class_node) orelse return;
+        const is_static = containing_member != 0 and (self.ast.getNode(containing_member) == .ClassStaticBlockDeclaration or ast_utils.hasSyntacticModifier(self.ast, containing_member, ast_utils.ModifierFlags.Static));
+        _ = try self.declareSymbolEx(if (is_static) .Exports else .Members, class_symbol, nodeIndex, symbol.SymbolFlags.Property | symbol.SymbolFlags.Assignment, symbol.SymbolFlags.None, name, true, false);
+    }
+
+    pub fn setCommonJSModuleIndicator(self: *Binder, nodeIndex: ast_gen.NodeIndex) !bool {
+        var source = self.ast.getNode(self.file).SourceFile;
+        if (source.ExternalModuleIndicator != null and source.ExternalModuleIndicator.? != self.file) return false;
+        if (source.CommonJSModuleIndicator == null) {
+            source.CommonJSModuleIndicator = nodeIndex;
+            self.ast.nodes.set(self.file, .{ .SourceFile = source });
+            if (source.ExternalModuleIndicator == null) try self.bindSourceFileAsExternalModule();
+        }
         return true;
     }
 

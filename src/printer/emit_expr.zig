@@ -48,19 +48,215 @@ pub fn printStringLiteral(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyer
     const quoteStr = if (isSingleQuote) "'" else "\"";
     printer.writer.writePunctuation(quoteStr);
 
-    const range = printer.tree.positions.items[nodeIndex];
     if ((node.TokenFlags & (1 << 30)) != 0) {
         printer.writer.writeStringLiteral(node.Text);
-    } else if (range.end == 0) {
-        const quoteChar = if (isSingleQuote) @import("utilities.zig").QuoteChar.SingleQuote else @import("utilities.zig").QuoteChar.DoubleQuote;
-        const escaped = try @import("utilities.zig").escapeNonAsciiString(printer.tree.allocator, node.Text, quoteChar);
-        defer printer.tree.allocator.free(escaped);
-        printer.writer.writeStringLiteral(escaped);
     } else {
-        printer.writer.writeStringLiteral(node.Text);
+        const range = printer.tree.positions.items[nodeIndex];
+        if (range.end == 0 or printer.inside_literal_type) {
+            const quoteChar = if (isSingleQuote) @import("utilities.zig").QuoteChar.SingleQuote else @import("utilities.zig").QuoteChar.DoubleQuote;
+            const code_points = try decodeStringToCodePoints(printer.tree.allocator, node.Text);
+            defer printer.tree.allocator.free(code_points);
+
+            const escape_non_ascii = !printer.inside_literal_type;
+            try escapeAndPrintCodePoints(printer, code_points, quoteChar, escape_non_ascii);
+        } else {
+            printer.writer.writeStringLiteral(node.Text);
+        }
     }
 
     printer.writer.writePunctuation(quoteStr);
+}
+
+fn decodeStringToCodePoints(allocator: std.mem.Allocator, s: []const u8) ![]u21 {
+    var result = std.ArrayList(u21).empty;
+    errdefer result.deinit(allocator);
+    var i: usize = 0;
+    while (i < s.len) {
+        if (s[i] == '\\' and i + 1 < s.len) {
+            const next = s[i + 1];
+            switch (next) {
+                'n' => {
+                    try result.append(allocator, '\n');
+                    i += 2;
+                },
+                'r' => {
+                    try result.append(allocator, '\r');
+                    i += 2;
+                },
+                't' => {
+                    try result.append(allocator, '\t');
+                    i += 2;
+                },
+                'b' => {
+                    try result.append(allocator, '\x08');
+                    i += 2;
+                },
+                'f' => {
+                    try result.append(allocator, '\x0c');
+                    i += 2;
+                },
+                'v' => {
+                    try result.append(allocator, '\x0b');
+                    i += 2;
+                },
+                '0' => {
+                    try result.append(allocator, '\x00');
+                    i += 2;
+                },
+                '\\' => {
+                    try result.append(allocator, '\\');
+                    i += 2;
+                },
+                '\'' => {
+                    try result.append(allocator, '\'');
+                    i += 2;
+                },
+                '"' => {
+                    try result.append(allocator, '"');
+                    i += 2;
+                },
+                'u' => {
+                    if (i + 2 < s.len and s[i + 2] == '{') {
+                        // ES6 brace escape: \u{XXXX}
+                        var j = i + 3;
+                        var val: u32 = 0;
+                        var has_digits = false;
+                        while (j < s.len and s[j] != '}') : (j += 1) {
+                            const digit = std.fmt.charToDigit(s[j], 16) catch break;
+                            val = (val << 4) | digit;
+                            has_digits = true;
+                        }
+                        if (has_digits and j < s.len and s[j] == '}') {
+                            try result.append(allocator, @intCast(val));
+                            i = j + 1;
+                        } else {
+                            try result.append(allocator, '\\');
+                            i += 1;
+                        }
+                    } else if (i + 5 < s.len) {
+                        // Standard \uXXXX
+                        const val = std.fmt.parseInt(u16, s[i + 2 .. i + 6], 16) catch blk: {
+                            try result.append(allocator, '\\');
+                            i += 1;
+                            break :blk null;
+                        };
+                        if (val) |v| {
+                            var decoded_surrogate = false;
+                            if (v >= 0xD800 and v <= 0xDBFF and i + 11 < s.len and s[i + 6] == '\\' and s[i + 7] == 'u') {
+                                const next_v = std.fmt.parseInt(u16, s[i + 8 .. i + 12], 16) catch 0;
+                                if (next_v >= 0xDC00 and next_v <= 0xDFFF) {
+                                    const cp = (@as(u32, v - 0xD800) << 10) + (next_v - 0xDC00) + 0x10000;
+                                    try result.append(allocator, @intCast(cp));
+                                    i += 12;
+                                    decoded_surrogate = true;
+                                }
+                            }
+                            if (!decoded_surrogate) {
+                                try result.append(allocator, v);
+                                i += 6;
+                            }
+                        }
+                    } else {
+                        try result.append(allocator, '\\');
+                        i += 1;
+                    }
+                },
+                'x' => {
+                    if (i + 3 < s.len) {
+                        const val = std.fmt.parseInt(u8, s[i + 2 .. i + 4], 16) catch blk: {
+                            try result.append(allocator, '\\');
+                            i += 1;
+                            break :blk null;
+                        };
+                        if (val) |v| {
+                            try result.append(allocator, v);
+                            i += 4;
+                        }
+                    } else {
+                        try result.append(allocator, '\\');
+                        i += 1;
+                    }
+                },
+                else => {
+                    try result.append(allocator, next);
+                    i += 2;
+                },
+            }
+        } else {
+            const view = s[i..];
+            const len = std.unicode.utf8ByteSequenceLength(view[0]) catch 1;
+            const ch = if (len == 1) @as(u21, view[0]) else (std.unicode.utf8Decode(view[0..@min(len, view.len)]) catch std.unicode.replacement_character);
+            try result.append(allocator, ch);
+            i += @min(len, view.len);
+        }
+    }
+    return result.toOwnedSlice(allocator);
+}
+
+fn escapeAndPrintCodePoints(printer: *Printer, code_points: []const u21, quoteChar: @import("utilities.zig").QuoteChar, escape_non_ascii: bool) !void {
+    for (code_points) |ch| {
+        var escape = false;
+        if (ch >= 0xD800 and ch <= 0xDFFF) {
+            escape = true;
+        } else if (ch == std.unicode.replacement_character) {
+            escape = true;
+        }
+
+        switch (ch) {
+            '\\' => {
+                escape = true;
+            },
+            '$' => {
+                if (quoteChar == .Backtick) {
+                    escape = true;
+                }
+            },
+            '\u{2028}', '\u{2029}', '\u{0085}', '\r' => {
+                escape = true;
+            },
+            '\n' => {
+                if (quoteChar != .Backtick) escape = true;
+            },
+            else => {
+                if (ch == @intFromEnum(quoteChar)) {
+                    escape = true;
+                } else if (ch <= '\u{001f}' or (escape_non_ascii and ch > '\u{007f}')) {
+                    escape = true;
+                }
+            },
+        }
+
+        if (escape) {
+            if (ch == '\r' and quoteChar == .Backtick) {
+                printer.writer.writeStringLiteral("\\r");
+            } else if (ch > 0xFFFF) {
+                const ch_adjusted = ch - 0x10000;
+                const high = ((ch_adjusted & 0b11111111110000000000) >> 10) + 0xD800;
+                const low = (ch_adjusted & 0b00000000001111111111) + 0xDC00;
+                var buf: [32]u8 = undefined;
+                const hex = std.fmt.bufPrint(&buf, "\\u{X:0>4}\\u{X:0>4}", .{ high, low }) catch unreachable;
+                printer.writer.writeStringLiteral(hex);
+            } else if (ch >= 0xD800 and ch <= 0xDFFF) {
+                var buf: [16]u8 = undefined;
+                const hex = std.fmt.bufPrint(&buf, "\\u{X:0>4}", .{ch}) catch unreachable;
+                printer.writer.writeStringLiteral(hex);
+            } else if (ch == 0) {
+                printer.writer.writeStringLiteral("\\0");
+            } else {
+                if (@import("utilities.zig").getEscapedChar(ch)) |match| {
+                    printer.writer.writeStringLiteral(match);
+                } else {
+                    var hex_buf: [16]u8 = undefined;
+                    const hex = std.fmt.bufPrint(&hex_buf, "\\u{X:0>4}", .{ch}) catch unreachable;
+                    printer.writer.writeStringLiteral(hex);
+                }
+            }
+        } else {
+            var buf: [4]u8 = undefined;
+            const len = std.unicode.utf8Encode(ch, &buf) catch 1;
+            printer.writer.writeStringLiteral(buf[0..len]);
+        }
+    }
 }
 
 pub fn printRegularExpressionLiteral(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {

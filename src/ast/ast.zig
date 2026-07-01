@@ -79,6 +79,7 @@ pub const Ast = struct {
     }
 
     sourceText: []const u8,
+    fileName: []const u8,
     symbols: std.ArrayListUnmanaged(u32),
     allocator: std.mem.Allocator,
     nodes: std.MultiArrayList(ast_gen.NodeData),
@@ -112,6 +113,7 @@ pub const Ast = struct {
     pub fn init(allocator: std.mem.Allocator) Ast {
         var a = Ast{
             .sourceText = "",
+            .fileName = "",
             .allocator = allocator,
             .symbols = .empty,
             .nodes = .{},
@@ -242,6 +244,10 @@ pub const Ast = struct {
             return .{ .Unknown = {} };
         }
         return self.nodes.get(index);
+    }
+
+    pub fn setNode(self: *Ast, index: NodeIndex, data: ast_gen.NodeData) void {
+        self.nodes.set(index, data);
     }
 
     /// Lấy danh sách NodeIndex từ extraData

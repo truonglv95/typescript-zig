@@ -1,6 +1,10 @@
 const std = @import("std");
 const documents = @import("document_store.zig");
 const parser_mod = @import("../parser/parser.zig");
+const binder_mod = @import("../binder/binder.zig");
+const checker_mod = @import("../checker/checker.zig");
+const core = @import("../core/core.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -78,11 +82,28 @@ pub const Session = struct {
             const open_document = self.store.get(uri) orelse return try errorResponse(self.allocator, object.get("id"), -32602, "Document is not open");
             var parser = parser_mod.Parser.init(self.allocator, open_document.text);
             defer parser.deinit();
-            _ = try parser.parseSourceFile();
-            const result = if (parser.diagnosticCount() == 0)
-                try self.allocator.dupe(u8, "{\"kind\":\"full\",\"items\":[]}")
-            else
-                try std.fmt.allocPrint(self.allocator, "{{\"kind\":\"full\",\"items\":[{{\"range\":{{\"start\":{{\"line\":0,\"character\":0}},\"end\":{{\"line\":0,\"character\":1}}}},\"severity\":1,\"source\":\"typescript-zig\",\"code\":1005,\"message\":\"Syntax errors: {d}\"}}]}}", .{parser.diagnosticCount()});
+            parser.setScriptKind(scriptKindForUri(uri));
+            const source_file = try parser.parseSourceFile();
+            var bound = try binder_mod.Binder.init(self.allocator, &parser.ast);
+            defer bound.deinit();
+            try bound.bindSourceFile(source_file);
+            var checker = checker_mod.Checker.init(self.allocator, &bound);
+            defer checker.deinit();
+            try checker.checkStatement(source_file);
+
+            const DiagnosticItem = struct {
+                range: documents.Range,
+                severity: u8 = 1,
+                source: []const u8 = "typescript-zig",
+                code: u32,
+                message: []const u8,
+            };
+            var items: std.ArrayList(DiagnosticItem) = .empty;
+            defer items.deinit(self.allocator);
+            for (parser.ast.diagnostics.items) |diagnostic| try appendDiagnosticItem(self.allocator, &items, &parser, open_document.text, diagnostic);
+            for (bound.diagnosticsList.items) |diagnostic| try appendDiagnosticItem(self.allocator, &items, &parser, open_document.text, diagnostic);
+            const report = .{ .kind = "full", .items = items.items };
+            const result = try std.json.Stringify.valueAlloc(self.allocator, report, .{});
             defer self.allocator.free(result);
             return try response(self.allocator, object.get("id"), result);
         } else if (object.get("id") != null) {
@@ -91,6 +112,32 @@ pub const Session = struct {
         return null;
     }
 };
+
+fn appendDiagnosticItem(allocator: std.mem.Allocator, items: anytype, parser: *parser_mod.Parser, text: []const u8, diagnostic: anytype) !void {
+    var start_offset: usize = parser.ast.getNodePos(diagnostic.nodeIndex);
+    var end_offset: usize = parser.ast.getNodeEnd(diagnostic.nodeIndex);
+    if (start_offset == 0 and diagnostic.nodeIndex != 0) {
+        const node_text = ast_utils.getText(&parser.ast, diagnostic.nodeIndex);
+        if (node_text.len != 0) if (std.mem.lastIndexOf(u8, text, node_text)) |located| {
+            start_offset = located;
+            end_offset = located + node_text.len;
+        };
+    }
+    if (end_offset <= start_offset) end_offset = @min(start_offset + 1, text.len);
+    try items.append(allocator, .{
+        .range = .{ .start = documents.positionAt(text, start_offset), .end = documents.positionAt(text, end_offset) },
+        .code = diagnostic.message.code,
+        .message = diagnostic.message.text,
+    });
+}
+
+fn scriptKindForUri(uri: []const u8) core.ScriptKind {
+    if (std.mem.endsWith(u8, uri, ".tsx")) return .TSX;
+    if (std.mem.endsWith(u8, uri, ".jsx")) return .JSX;
+    if (std.mem.endsWith(u8, uri, ".js") or std.mem.endsWith(u8, uri, ".mjs") or std.mem.endsWith(u8, uri, ".cjs")) return .JS;
+    if (std.mem.endsWith(u8, uri, ".json")) return .JSON;
+    return .TS;
+}
 
 fn response(allocator: std.mem.Allocator, id: ?std.json.Value, result_json: []const u8) ![]u8 {
     const id_json = if (id) |value| try std.json.Stringify.valueAlloc(allocator, value, .{}) else try allocator.dupe(u8, "null");
@@ -175,4 +222,17 @@ test "protocol session serves pull diagnostics from the document overlay" {
     const diagnostics = (try session.handle("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/diagnostic\",\"params\":{\"textDocument\":{\"uri\":\"file:///bad.ts\"}}}")).?;
     defer allocator.free(diagnostics);
     try std.testing.expect(std.mem.indexOf(u8, diagnostics, "typescript-zig") != null);
+}
+
+test "protocol session includes checker diagnostics" {
+    const allocator = std.testing.allocator;
+    var session = Session.init(allocator);
+    defer session.deinit();
+    const initialize = (try session.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}")).?;
+    defer allocator.free(initialize);
+    _ = try session.handle("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file:///semantic.ts\",\"version\":1,\"text\":\"const face = '😀';\\nconst value: string = 1;\"}}}");
+    const diagnostics = (try session.handle("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/diagnostic\",\"params\":{\"textDocument\":{\"uri\":\"file:///semantic.ts\"}}}")).?;
+    defer allocator.free(diagnostics);
+    try std.testing.expect(std.mem.indexOf(u8, diagnostics, "2322") != null);
+    try std.testing.expect(std.mem.indexOf(u8, diagnostics, "\"range\"") != null);
 }

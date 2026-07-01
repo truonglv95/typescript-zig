@@ -143,7 +143,14 @@ pub fn printVariableDeclaration(printer: *Printer, nodeIndex: ast_mod.NodeIndex)
             } else {
                 printer.writer.writeSpace(" ");
             }
-            try printer.printNode(init);
+            if (printer.isDeclarationPrinter) {
+                const hook = printer.sourceMapHook;
+                printer.sourceMapHook = null;
+                defer printer.sourceMapHook = hook;
+                try printer.printNode(init);
+            } else {
+                try printer.printNode(init);
+            }
         }
     }
 }
@@ -321,7 +328,14 @@ pub fn printEnumMember(printer: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror
             printer.writer.writeSpace(" ");
             _ = try printer.emitToken(.EqualsToken, 0, .Operator, nodeIndex);
             printer.writer.writeSpace(" ");
-            try printer.printNode(init);
+            if (printer.isDeclarationPrinter) {
+                const hook = printer.sourceMapHook;
+                printer.sourceMapHook = null;
+                defer printer.sourceMapHook = hook;
+                try printer.printNode(init);
+            } else {
+                try printer.printNode(init);
+            }
         }
     }
     try printer.exitNode(nodeIndex, state);

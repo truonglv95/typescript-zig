@@ -28,6 +28,8 @@ pub const simple_tsconfig = @import("compiler/tsconfigparsing.zig");
 pub const program = @import("compiler/program.zig");
 pub const lsp_transport = @import("lsp/transport.zig");
 pub const lsp_protocol = @import("lsp/protocol_session.zig");
+pub const execute = @import("execute/execute.zig");
+pub const sys_pkg = @import("sys.zig");
 
 test {
     _ = @import("ast/kind.zig");

@@ -78,6 +78,7 @@ pub const Checker = struct {
     typesList: std.ArrayListUnmanaged(types.Type),
 
     unionTypesPool: std.ArrayListUnmanaged(types.TypeIndex),
+    tupleTypesPool: std.ArrayListUnmanaged(types.TypeIndex),
 
     // Flow analysis state
     freeFlowState: ?*flow.FlowState = null,
@@ -149,12 +150,14 @@ pub const Checker = struct {
             .resolver = nameresolver.NameResolver.init(b.ast, b, null),
             .typesList = std.ArrayListUnmanaged(types.Type).empty,
             .unionTypesPool = std.ArrayListUnmanaged(types.TypeIndex).empty,
+            .tupleTypesPool = std.ArrayListUnmanaged(types.TypeIndex).empty,
         };
     }
 
     pub fn deinit(self: *Checker) void {
         self.typesList.deinit(self.allocator);
         self.unionTypesPool.deinit(self.allocator);
+        self.tupleTypesPool.deinit(self.allocator);
         self.sharedFlows.deinit(self.allocator);
         self.antecedentTypes.deinit(self.allocator);
         self.nodeFlowNodes.deinit(self.allocator);
@@ -499,9 +502,8 @@ pub const Checker = struct {
     }
 
     pub fn getSymbolValueDeclaration(c: *Checker, sym: ast.symbolIndex) ast.NodeIndex {
-        _ = c;
-        _ = sym;
-        return undefined; // Stub
+        if (sym >= c.binder.symbols.items.len) return 0;
+        return c.binder.symbols.items[sym].ValueDeclaration orelse 0;
     }
 
     pub fn fillMissingTypeArguments(c: *Checker, typeArguments: []const types.TypeIndex, typeParameters: []const types.TypeIndex, minParams: usize, nodeIsInJsFile: bool) []const types.TypeIndex {
@@ -639,9 +641,7 @@ pub const Checker = struct {
     }
 
     pub fn getUnionTypeFromArray(c: *Checker, typesArr: []const types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = typesArr;
-        return undefined; // Stub
+        return c.createUnionType(typesArr) catch c.getAnyType() catch 0;
     }
 
     pub fn getPermissiveInstantiation(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -934,6 +934,48 @@ pub const Checker = struct {
 
     pub fn getTypeOfSymbol(self: *Checker, symIndex: u32) anyerror!u32 {
         const sym = self.binder.symbols.items[symIndex];
+        var declaration_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer declaration_types.deinit(self.allocator);
+
+        // Assignment declarations are used by the binder for JavaScript
+        // expando properties, `this.x = value`, and CommonJS exports.  A
+        // symbol may have several of them, so its inferred type is the union
+        // of all right-hand sides rather than just its first declaration.
+        for (sym.Declarations.items) |decl_index| {
+            const declaration_type: ?types.TypeIndex = switch (self.binder.ast.getNode(decl_index)) {
+                .BinaryExpression => |binary| switch (self.binder.ast.getNode(binary.OperatorToken)) {
+                    .EqualsToken => try self.checkExpression(binary.Right),
+                    else => null,
+                },
+                .TypeAliasDeclaration => |declaration| try self.getTypeOfNode(declaration.Type),
+                .JSTypeAliasDeclaration => |declaration| try self.getTypeOfNode(declaration.Type),
+                .InterfaceDeclaration => return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = types.ObjectFlags.Interface,
+                    .id = 0,
+                    .symbol = symIndex,
+                    .alias = null,
+                    .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
+                }),
+                .ClassDeclaration, .ClassExpression => return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = types.ObjectFlags.Class,
+                    .id = 0,
+                    .symbol = symIndex,
+                    .alias = null,
+                    .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
+                }),
+                else => null,
+            };
+            if (declaration_type) |type_index| {
+                if (!containsTypeIndex(declaration_types.items, type_index)) {
+                    try declaration_types.append(self.allocator, type_index);
+                }
+            }
+        }
+        if (declaration_types.items.len != 0) {
+            return try self.createUnionType(declaration_types.items);
+        }
         if (sym.ValueDeclaration) |declIndex| {
             return try self.getTypeOfNode(declIndex);
         }
@@ -1015,21 +1057,36 @@ pub const Checker = struct {
                     } },
                 });
             },
-            .ArrayType => {
-                // T[] -> return base number type as placeholder
-                // TODO: full array type support
-                return try self.getAnyType();
+            .ArrayType => |array| {
+                const element_type = try self.getTypeOfNode(array.ElementType);
+                return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = types.ObjectFlags.Reference,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
+                    .data = .{ .Array = .{ .elementType = element_type } },
+                });
             },
             .UnionType => |u| {
-                // A | B -> return union type
-                if (u.Types != 0) {
-                    const typeNodes = self.binder.ast.getNodeList(u.Types);
-                    if (typeNodes.len > 0) {
-                        // Simplified: return first member's type
-                        return try self.getTypeOfNode(typeNodes[0]);
-                    }
-                }
-                return try self.getAnyType();
+                const type_nodes = self.binder.ast.getNodeList(u.Types);
+                var members = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                defer members.deinit(self.allocator);
+                for (type_nodes) |type_node| try members.append(self.allocator, try self.getTypeOfNode(type_node));
+                return try self.createUnionType(members.items);
+            },
+            .TupleType => |tuple| {
+                const element_nodes = self.binder.ast.getNodeList(tuple.Elements);
+                const start: u32 = @intCast(self.tupleTypesPool.items.len);
+                for (element_nodes) |element| try self.tupleTypesPool.append(self.allocator, try self.getTypeOfNode(element));
+                return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = types.ObjectFlags.Reference | types.ObjectFlags.Tuple,
+                    .id = 0,
+                    .symbol = null,
+                    .alias = null,
+                    .data = .{ .Tuple = .{ .typesStart = start, .typesLen = @intCast(element_nodes.len) } },
+                });
             },
             .TypeLiteral => |tl| {
                 return try self.createType(.{
@@ -1044,8 +1101,14 @@ pub const Checker = struct {
             .LiteralType => |lt| {
                 return try self.getTypeOfNode(lt.Literal);
             },
-            .TypeReference => {
-                // Named type reference - TODO: proper resolution
+            .ParenthesizedType => |parenthesized| return self.getTypeOfNode(parenthesized.Type),
+            .TypeReference => |reference| {
+                if (self.binder.ast.getNode(reference.TypeName) == .Identifier) {
+                    const name = ast_utils.getText(self.binder.ast, reference.TypeName);
+                    if (self.resolver.resolve(reference.TypeName, name, symbol.SymbolFlags.Type, null, false, false)) |sym_index| {
+                        return try self.getTypeOfSymbol(sym_index);
+                    }
+                }
                 return try self.getAnyType();
             },
             else => return try self.getAnyType(),
@@ -1207,28 +1270,20 @@ pub const Checker = struct {
                 });
             },
             .ArrayLiteralExpression => |ale| {
-                var elementType: u32 = 0;
+                var element_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                defer element_types.deinit(self.allocator);
                 if (ale.Elements != 0) {
                     const elems = self.binder.ast.getNodeList(ale.Elements);
-                    if (elems.len > 0) {
-                        elementType = try self.checkExpression(elems[0]);
-                        for (elems[1..]) |elem| {
-                            const t = try self.checkExpression(elem);
-                            if (t != elementType) {
-                                elementType = try self.getAnyType();
-                                break;
-                            }
-                        }
-                    }
+                    for (elems) |elem| try element_types.append(self.allocator, try self.checkExpression(elem));
                 }
-                if (elementType == 0) elementType = try self.getAnyType();
+                const element_type = if (element_types.items.len == 0) try self.getNeverType() else try self.createUnionType(element_types.items);
                 return try self.createType(.{
                     .flags = types.TypeFlags.Object,
-                    .objectFlags = types.ObjectFlags.ArrayLiteral,
+                    .objectFlags = types.ObjectFlags.Reference | types.ObjectFlags.ArrayLiteral,
                     .id = 0,
                     .symbol = null,
                     .alias = null,
-                    .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
+                    .data = .{ .Array = .{ .elementType = element_type } },
                 });
             },
 
@@ -1569,12 +1624,24 @@ pub const Checker = struct {
     // =========================================================================
 
     fn getUnionType(self: *Checker, typeA: u32, typeB: u32) !u32 {
-        if (typeA == typeB) return typeA;
+        return self.createUnionType(&.{ typeA, typeB });
+    }
 
-        // Record union member indices
+    fn createUnionType(self: *Checker, input_types: []const types.TypeIndex) !types.TypeIndex {
+        if (input_types.len == 0) return self.getNeverType();
+        var unique = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer unique.deinit(self.allocator);
+        for (input_types) |type_index| {
+            if (type_index < self.typesList.items.len and self.typesList.items[type_index].flags & types.TypeFlags.Union != 0 and self.typesList.items[type_index].data == .Union) {
+                const union_data = self.typesList.items[type_index].data.Union;
+                for (self.unionTypesPool.items[union_data.typesStart .. union_data.typesStart + union_data.typesLen]) |member| if (!containsTypeIndex(unique.items, member)) try unique.append(self.allocator, member);
+            } else if (!containsTypeIndex(unique.items, type_index)) {
+                try unique.append(self.allocator, type_index);
+            }
+        }
+        if (unique.items.len == 1) return unique.items[0];
         const start = @as(u32, @intCast(self.unionTypesPool.items.len));
-        try self.unionTypesPool.append(self.allocator, typeA);
-        try self.unionTypesPool.append(self.allocator, typeB);
+        try self.unionTypesPool.appendSlice(self.allocator, unique.items);
 
         return try self.createType(.{
             .flags = types.TypeFlags.Union,
@@ -1582,7 +1649,7 @@ pub const Checker = struct {
             .id = 0,
             .symbol = null,
             .alias = null,
-            .data = .{ .Union = .{ .typesStart = start, .typesLen = 2 } },
+            .data = .{ .Union = .{ .typesStart = start, .typesLen = @intCast(unique.items.len) } },
         });
     }
 
@@ -1858,10 +1925,10 @@ pub const Checker = struct {
             },
 
             // Import/Export declarations (no type checking needed here)
-            .ImportDeclaration, .ExportDeclaration => {},
+            .ImportDeclaration, .ExportDeclaration, .JSImportDeclaration => {},
 
             // Interface/TypeAlias: type-only, no runtime checking
-            .InterfaceDeclaration, .TypeAliasDeclaration => {},
+            .InterfaceDeclaration, .TypeAliasDeclaration, .JSTypeAliasDeclaration => {},
 
             // Enum
             .EnumDeclaration => |ed| {
@@ -2209,21 +2276,19 @@ pub const Checker = struct {
     }
 
     pub fn isEmptyAnonymousObjectType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false; // Stub
+        if (t >= c.typesList.items.len) return false;
+        const ty = c.typesList.items[t];
+        return ty.data == .Object and
+            (ty.objectFlags & types.ObjectFlags.Anonymous) != 0 and
+            ty.data.Object.propertiesLen == 0;
     }
 
     pub fn isFunctionObjectType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false; // Stub
+        return t < c.typesList.items.len and c.typesList.items[t].data == .Function;
     }
 
     pub fn isArrayType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false; // Stub
+        return t < c.typesList.items.len and c.typesList.items[t].data == .Array;
     }
 
     pub fn isReadonlyArrayType(c: *Checker, t: types.TypeIndex) bool {
@@ -2251,15 +2316,14 @@ pub const Checker = struct {
     }
 
     pub fn getValueDeclarationOfSymbol(c: *Checker, sym: types.symbolIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = sym;
-        return 0; // Stub
+        if (sym >= c.binder.symbols.items.len) return 0;
+        return c.binder.symbols.items[sym].ValueDeclaration orelse 0;
     }
 
     pub fn getFirstDeclarationOfSymbol(c: *Checker, sym: types.symbolIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = sym;
-        return 0; // Stub
+        if (sym >= c.binder.symbols.items.len) return 0;
+        const declarations = c.binder.symbols.items[sym].Declarations.items;
+        return if (declarations.len == 0) 0 else declarations[0];
     }
 
     pub fn getNodeKind(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SyntaxKind {
@@ -2279,18 +2343,88 @@ pub const Checker = struct {
     }
 
     pub fn getTypeFlags(c: *Checker, t: types.TypeIndex) u32 {
-        _ = c;
-        _ = t;
-        return 0; // Stub
+        return if (t < c.typesList.items.len) c.typesList.items[t].flags else types.TypeFlags.None;
     }
 
     pub fn getSymbolOfType(c: *Checker, t: types.TypeIndex) types.symbolIndex {
-        _ = c;
-        _ = t;
-        return 0; // Stub
+        if (t >= c.typesList.items.len) return 0;
+        return c.typesList.items[t].symbol orelse 0;
     }
 
     pub fn reportUnreliableMapperStub(c: *Checker) void {
         _ = c; // Stub
     }
 };
+
+fn containsTypeIndex(items: []const types.TypeIndex, needle: types.TypeIndex) bool {
+    for (items) |item| if (item == needle) return true;
+    return false;
+}
+
+test "checker models tuple array and union types without collapsing to any" {
+    const parser = @import("../parser/parser.zig");
+    var parsed = parser.Parser.init(std.testing.allocator,
+        \\type Pair = [number, string];
+        \\const values: (number | string)[] = [1, "x"];
+        \\const pair: Pair = [1, "x"];
+    );
+    defer parsed.deinit();
+    const source_file = try parsed.parseSourceFile();
+    var bound = try binder.Binder.init(std.testing.allocator, &parsed.ast);
+    defer bound.deinit();
+    try bound.bindSourceFile(source_file);
+    var checker = Checker.init(std.testing.allocator, &bound);
+    defer checker.deinit();
+
+    const statements = parsed.ast.getNodeList(parsed.ast.getNode(source_file).SourceFile.Statements);
+    const pair_type_node = parsed.ast.getNode(statements[0]).TypeAliasDeclaration.Type;
+    const pair_type = try checker.getTypeOfNode(pair_type_node);
+    try std.testing.expect(checker.typesList.items[pair_type].data == .Tuple);
+    try std.testing.expectEqual(@as(u32, 2), checker.typesList.items[pair_type].data.Tuple.typesLen);
+
+    const declaration_list = parsed.ast.getNode(statements[1]).VariableStatement.DeclarationList;
+    const declaration = parsed.ast.getNodeList(parsed.ast.getNode(declaration_list).VariableDeclarationList.Declarations)[0];
+    const array_type = try checker.getTypeOfNode(parsed.ast.getNode(declaration).VariableDeclaration.Type.?);
+    try std.testing.expect(checker.typesList.items[array_type].data == .Array);
+    const element_type = checker.typesList.items[array_type].data.Array.elementType;
+    try std.testing.expect(checker.typesList.items[element_type].flags & types.TypeFlags.Union != 0);
+
+    const inferred_array = try checker.checkExpression(parsed.ast.getNode(declaration).VariableDeclaration.Initializer.?);
+    try std.testing.expect(checker.typesList.items[inferred_array].data == .Array);
+    const inferred_element = checker.typesList.items[inferred_array].data.Array.elementType;
+    try std.testing.expect(checker.typesList.items[inferred_element].flags & types.TypeFlags.Union != 0);
+
+    const pair_declaration_list = parsed.ast.getNode(statements[2]).VariableStatement.DeclarationList;
+    const pair_declaration = parsed.ast.getNodeList(parsed.ast.getNode(pair_declaration_list).VariableDeclarationList.Declarations)[0];
+    const referenced_pair = try checker.getTypeOfNode(parsed.ast.getNode(pair_declaration).VariableDeclaration.Type.?);
+    try std.testing.expect(checker.typesList.items[referenced_pair].data == .Tuple);
+}
+
+test "checker infers merged JavaScript this-property assignment types" {
+    const parser = @import("../parser/parser.zig");
+    var parsed = parser.Parser.init(std.testing.allocator,
+        \\class Box {
+        \\  constructor(flag) {
+        \\    this.value = 1;
+        \\    if (flag) this.value = "ready";
+        \\  }
+        \\}
+    );
+    defer parsed.deinit();
+    parsed.setScriptKind(.JS);
+    const source_file = try parsed.parseSourceFile();
+    var bound = try binder.Binder.init(std.testing.allocator, &parsed.ast);
+    defer bound.deinit();
+    try bound.bindSourceFile(source_file);
+    var checker = Checker.init(std.testing.allocator, &bound);
+    defer checker.deinit();
+
+    const statements = parsed.ast.getNodeList(parsed.ast.getNode(source_file).SourceFile.Statements);
+    const class_symbol = parsed.ast.getNodeSymbol(statements[0]) orelse return error.ExpectedClassSymbol;
+    const members = bound.symbolMembers.getPtr(class_symbol) orelse return error.ExpectedClassMembers;
+    const value_symbol = members.get("value") orelse return error.ExpectedValueMember;
+    const value_type = try checker.getTypeOfSymbol(value_symbol);
+    try std.testing.expect(checker.typesList.items[value_type].flags & types.TypeFlags.Union != 0);
+    const value_union = checker.typesList.items[value_type].data.Union;
+    try std.testing.expectEqual(@as(u32, 2), value_union.typesLen);
+}

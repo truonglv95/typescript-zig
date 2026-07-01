@@ -17,10 +17,12 @@ pub const Printer = struct {
     context: *emitcontext.EmitContext,
     writer: *emittextwriter.EmitTextWriter,
     currentSourceFile: ast_mod.NodeIndex,
-    sourceMapHook: ?SourceMapHook,
-    sourceLineStarts: []const usize,
-    currentNode: ast_mod.NodeIndex,
-    generatedNameCandidates: std.StringHashMapUnmanaged(void),
+    inside_literal_type: bool = false,
+    sourceMapHook: ?SourceMapHook = null,
+    sourceLineStarts: []const usize = &.{},
+    currentNode: ast_mod.NodeIndex = 0,
+    generatedNameCandidates: std.StringHashMapUnmanaged(void) = .empty,
+    isDeclarationPrinter: bool = false,
 
     pub fn init(
         tree: *ast_mod.Ast,
@@ -36,6 +38,7 @@ pub const Printer = struct {
             .sourceLineStarts = &.{},
             .currentNode = 0,
             .generatedNameCandidates = .empty,
+            .inside_literal_type = false,
         };
     }
 
@@ -124,7 +127,7 @@ pub const Printer = struct {
 
     pub fn printNode(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         if (nodeIndex == 0) return;
-        self.recordSourceMapping(nodeIndex);
+        const state = try self.enterNode(nodeIndex);
         const node = self.tree.getNode(nodeIndex);
         switch (node) {
             .Unknown => try self.printUnknown(nodeIndex),
@@ -479,10 +482,12 @@ pub const Printer = struct {
             .SyntheticReferenceExpression => try self.printSyntheticReferenceExpression(nodeIndex),
             .NotEmittedTypeElement => try self.printNotEmittedTypeElement(nodeIndex),
         }
+        try self.exitNode(nodeIndex, state);
     }
 
     fn recordSourceMapping(self: *Printer, nodeIndex: ast_mod.NodeIndex) void {
         const hook = self.sourceMapHook orelse return;
+        if (self.tree.getNode(nodeIndex) == .SourceFile) return;
         var original = nodeIndex;
         var depth: usize = 0;
         while (depth < 16) : (depth += 1) {
@@ -490,9 +495,14 @@ pub const Printer = struct {
             if (next == 0 or next == original) break;
             original = next;
         }
-        if (original >= self.tree.positions.items.len) return;
+        if (original >= self.tree.positions.items.len) {
+            std.debug.print("MAP_FAIL: original {} >= len {}\n", .{ original, self.tree.positions.items.len });
+            return;
+        }
         const range = self.tree.positions.items[original];
-        if (range.end <= range.pos or range.pos >= self.tree.sourceText.len) return;
+        if (range.end <= range.pos or range.pos >= self.tree.sourceText.len) {
+            return;
+        }
 
         var low: usize = 0;
         var high = self.sourceLineStarts.len;
@@ -502,6 +512,31 @@ pub const Printer = struct {
         }
         const line = if (low == 0) 0 else low - 1;
         const column = range.pos - self.sourceLineStarts[line];
+        hook.addMapping(hook.context, self.writer.getLine(), self.writer.getColumn(), line, column);
+    }
+
+    fn recordSourceMappingEnd(self: *Printer, nodeIndex: ast_mod.NodeIndex) void {
+        const hook = self.sourceMapHook orelse return;
+        if (self.tree.getNode(nodeIndex) == .SourceFile) return;
+        var original = nodeIndex;
+        var depth: usize = 0;
+        while (depth < 16) : (depth += 1) {
+            const next = self.context.getOriginal(original);
+            if (next == 0 or next == original) break;
+            original = next;
+        }
+        if (original >= self.tree.positions.items.len) return;
+        const range = self.tree.positions.items[original];
+        if (range.end <= range.pos or range.end > self.tree.sourceText.len) return;
+
+        var low: usize = 0;
+        var high = self.sourceLineStarts.len;
+        while (low < high) {
+            const middle = low + (high - low) / 2;
+            if (self.sourceLineStarts[middle] <= range.end) low = middle + 1 else high = middle;
+        }
+        const line = if (low == 0) 0 else low - 1;
+        const column = range.end - self.sourceLineStarts[line];
         hook.addMapping(hook.context, self.writer.getLine(), self.writer.getColumn(), line, column);
     }
 
@@ -1354,14 +1389,14 @@ pub const Printer = struct {
     }
     pub fn printArrayType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).ArrayType;
-        try self.printNode(node.ElementType);
+        try self.printTypeNode(node.ElementType, .Postfix);
         self.writer.writePunctuation("[");
         self.writer.writePunctuation("]");
     }
     pub fn printTupleType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).TupleType;
         self.writer.writePunctuation("[");
-        const format = if ((node.Flags & @import("../ast/ast_utils.zig").NodeFlags.Synthesized) != 0)
+        const format = if ((node.Flags & @import("../ast/ast_utils.zig").NodeFlags.Synthesized) != 0 or self.shouldEmitOnSingleLine(nodeIndex))
             @import("emit_list.zig").ListFormat.CommaDelimited | @import("emit_list.zig").ListFormat.SpaceBetweenSiblings | @import("emit_list.zig").ListFormat.SingleLine
         else
             @import("emit_list.zig").ListFormat.TupleTypeElements;
@@ -1370,25 +1405,88 @@ pub const Printer = struct {
     }
     pub fn printOptionalType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).OptionalType;
-        try self.printNode(node.Type);
+        try self.printTypeNode(node.Type, .Postfix);
         self.writer.writePunctuation("?");
     }
     pub fn printRestType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).RestType;
         self.writer.writePunctuation("...");
-        try self.printNode(node.Type);
+        try self.printTypeNode(node.Type, .Lowest);
     }
+    pub const TypePrecedence = enum(i32) {
+        Lowest = 0,
+        JSDoc = 1,
+        Function = 2,
+        Union = 3,
+        Intersection = 4,
+        TypeOperator = 5,
+        Postfix = 6,
+        NonArray = 7,
+    };
+
+    pub fn getTypeNodePrecedence(self: *Printer, nodeIndex: ast_mod.NodeIndex) TypePrecedence {
+        if (nodeIndex == 0) return .Lowest;
+        const node = self.tree.getNode(nodeIndex);
+        switch (node) {
+            .ConditionalType => return .Lowest,
+            .JSDocOptionalType, .JSDocVariadicType => return .JSDoc,
+            .FunctionType, .ConstructorType => return .Function,
+            .UnionType => return .Union,
+            .IntersectionType => return .Intersection,
+            .TypeOperator => return .TypeOperator,
+            .InferType => |n| {
+                if (n.TypeParameter != 0) {
+                    const tp = self.tree.getNode(n.TypeParameter).TypeParameter;
+                    if (tp.Constraint != 0) return .Function;
+                }
+                return .TypeOperator;
+            },
+            .IndexedAccessType, .ArrayType, .OptionalType => return .Postfix,
+            .TypeQuery => return .Postfix,
+            else => return .NonArray,
+        }
+    }
+
+    pub fn printTypeNode(self: *Printer, nodeIndex: ast_mod.NodeIndex, prec: TypePrecedence) anyerror!void {
+        const parens = @intFromEnum(self.getTypeNodePrecedence(nodeIndex)) < @intFromEnum(prec);
+        if (parens) {
+            self.writer.writePunctuation("(");
+        }
+        try self.printNode(nodeIndex);
+        if (parens) {
+            self.writer.writePunctuation(")");
+        }
+    }
+
     pub fn printUnionType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).UnionType;
-        try self.printList(@import("emit_list.zig").ListFormat.UnionTypeElements, node.Types);
+        const types = self.tree.getNodeList(node.Types);
+        for (types, 0..) |t, i| {
+            if (i > 0) {
+                self.writer.writeSpace(" ");
+                self.writer.writePunctuation("|");
+                self.writer.writeSpace(" ");
+            }
+            try self.printTypeNode(t, .Union);
+        }
     }
+
     pub fn printIntersectionType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).IntersectionType;
-        try self.printList(@import("emit_list.zig").ListFormat.IntersectionTypeElements, node.Types);
+        const types = self.tree.getNodeList(node.Types);
+        for (types, 0..) |t, i| {
+            if (i > 0) {
+                self.writer.writeSpace(" ");
+                self.writer.writePunctuation("&");
+                self.writer.writeSpace(" ");
+            }
+            try self.printTypeNode(t, .TypeOperator);
+        }
     }
+
     pub fn printConditionalType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).ConditionalType;
-        try self.printNode(node.CheckType);
+        try self.printTypeNode(node.CheckType, .Union);
         self.writer.writeSpace(" ");
         self.writer.writeKeyword("extends");
         self.writer.writeSpace(" ");
@@ -1429,7 +1527,8 @@ pub const Printer = struct {
             self.writer.writeKeyword("readonly");
         }
         self.writer.writeSpace(" ");
-        try self.printNode(node.Type);
+        const target_prec: TypePrecedence = if (opKind == .ReadonlyKeyword) .Postfix else .TypeOperator;
+        try self.printTypeNode(node.Type, target_prec);
     }
     pub fn printIndexedAccessType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).IndexedAccessType;
@@ -1495,6 +1594,9 @@ pub const Printer = struct {
     }
     pub fn printLiteralType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex);
+        const prev = self.inside_literal_type;
+        self.inside_literal_type = true;
+        defer self.inside_literal_type = prev;
         try self.printNode(node.LiteralType.Literal);
     }
     pub fn printNamedTupleMember(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
@@ -2230,6 +2332,7 @@ pub const Printer = struct {
         return previous;
     }
     pub fn exitNode(self: *Printer, nodeIndex: ast_mod.NodeIndex, state: u32) anyerror!void {
+        self.recordSourceMappingEnd(nodeIndex);
         if (self.currentNode == nodeIndex) self.currentNode = state;
     }
 

@@ -1238,11 +1238,11 @@ pub const Scanner = struct {
                 self.state.token = kind.Kind.BacktickToken;
                 return self.state.token;
             },
-            'a'...'z', 'A'...'Z', '_', '$' => {
+            'a'...'z', 'A'...'Z', '_', '$', '-' => {
                 // Simplified identifier scanning for JSDoc
                 while (self.state.pos < self.end) {
                     const ch2 = self.char();
-                    if ((ch2 >= 'a' and ch2 <= 'z') or (ch2 >= 'A' and ch2 <= 'Z') or (ch2 >= '0' and ch2 <= '9') or ch2 == '_' or ch2 == '$') {
+                    if ((ch2 >= 'a' and ch2 <= 'z') or (ch2 >= 'A' and ch2 <= 'Z') or (ch2 >= '0' and ch2 <= '9') or ch2 == '_' or ch2 == '$' or ch2 == '-') {
                         self.state.pos += 1;
                     } else {
                         break;

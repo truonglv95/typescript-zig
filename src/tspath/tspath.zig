@@ -5,10 +5,29 @@ pub const ExtensionTsx = ".tsx";
 pub const ExtensionJs = ".js";
 pub const ExtensionJsx = ".jsx";
 pub const ExtensionJson = ".json";
+pub const ExtensionDts = ".d.ts";
+pub const ExtensionDmts = ".d.mts";
+pub const ExtensionDcts = ".d.cts";
+pub const ExtensionMjs = ".mjs";
+pub const ExtensionMts = ".mts";
+pub const ExtensionCjs = ".cjs";
+pub const ExtensionCts = ".cts";
 
+pub const extensionsToRemove = [_][]const u8{ ExtensionDts, ExtensionDmts, ExtensionDcts, ExtensionMjs, ExtensionMts, ExtensionCjs, ExtensionCts, ExtensionTs, ExtensionJs, ExtensionTsx, ExtensionJsx, ExtensionJson };
+
+pub fn tryGetExtensionFromPath(path: []const u8) []const u8 {
+    for (extensionsToRemove) |ext| {
+        if (std.mem.endsWith(u8, path, ext)) {
+            return ext;
+        }
+    }
+    return "";
+}
 
 pub fn toPath(allocator: std.mem.Allocator, fileName: []const u8, basePath: ?[]const u8, useCaseSensitiveFileNames: bool) !Path {
-    _ = allocator; _ = basePath; _ = useCaseSensitiveFileNames;
+    _ = allocator;
+    _ = basePath;
+    _ = useCaseSensitiveFileNames;
     return fileName;
 }
 
@@ -21,6 +40,58 @@ pub fn removeExtension(path: []const u8, extension: []const u8) []const u8 {
         return path[0 .. path.len - extension.len];
     }
     return path;
+}
+
+pub fn removeFileExtension(path: []const u8) []const u8 {
+    for (extensionsToRemove) |ext| {
+        if (std.mem.endsWith(u8, path, ext)) {
+            return path[0 .. path.len - ext.len];
+        }
+    }
+    return path;
+}
+
+pub const SupportedDeclarationExtensions = [_][]const u8{ ExtensionDts, ExtensionDcts, ExtensionDmts };
+
+pub fn isDeclarationFileName(fileName: []const u8) bool {
+    return getDeclarationFileExtension(fileName).len > 0;
+}
+
+pub const SupportedTSImplementationExtensions = [_][]const u8{ ExtensionTs, ExtensionTsx, ExtensionMts, ExtensionCts };
+
+pub fn hasImplementationTSFileExtension(path: []const u8) bool {
+    for (SupportedTSImplementationExtensions) |ext| {
+        if (std.mem.endsWith(u8, path, ext)) {
+            return !isDeclarationFileName(path);
+        }
+    }
+    return false;
+}
+
+pub const supportedTSExtensionsForExtractExtension = [_][]const u8{ ExtensionTs, ExtensionTsx, ExtensionDts, ExtensionMts, ExtensionDmts, ExtensionCts, ExtensionDcts };
+
+pub fn tryExtractTSExtension(fileName: []const u8) []const u8 {
+    for (supportedTSExtensionsForExtractExtension) |ext| {
+        if (std.mem.endsWith(u8, fileName, ext)) {
+            return ext;
+        }
+    }
+    return "";
+}
+
+pub fn getDeclarationFileExtension(fileName: []const u8) []const u8 {
+    const base = getBaseFileName(fileName);
+    for (SupportedDeclarationExtensions) |ext| {
+        if (std.mem.endsWith(u8, base, ext)) {
+            return ext;
+        }
+    }
+    if (std.mem.endsWith(u8, base, ExtensionTs)) {
+        if (std.mem.indexOf(u8, base, ".d.")) |idx| {
+            return base[idx..];
+        }
+    }
+    return "";
 }
 
 pub const GetBaseFileName = getBaseFileName;
@@ -41,8 +112,6 @@ pub fn GetNormalizedAbsolutePath(allocator: std.mem.Allocator, path: []const u8,
     _ = currentDirectory;
     return path; // stub
 }
-
-pub const ExtensionDts = ".d.ts";
 
 pub fn FileExtensionIs(path: []const u8, extension: []const u8) bool {
     return std.mem.endsWith(u8, path, extension);
@@ -232,4 +301,52 @@ pub fn getDirectoryPath(allocator: std.mem.Allocator, path: []const u8) ![]const
     }
     const limit = @max(root_len, last_slash.?);
     return allocator.dupe(u8, no_trail[0..limit]);
+}
+
+pub const ComparePathsOptions = struct {
+    useCaseSensitiveFileNames: bool = true,
+    currentDirectory: []const u8 = "",
+};
+
+pub fn comparePaths(a: []const u8, b: []const u8, options: ComparePathsOptions) i32 {
+    if (std.mem.eql(u8, a, b)) return 0;
+    if (a.len == 0) return -1;
+    if (b.len == 0) return 1;
+
+    if (options.useCaseSensitiveFileNames) {
+        return compareStrings(a, b);
+    } else {
+        return compareStringsCaseInsensitive(a, b);
+    }
+}
+
+fn compareStrings(a: []const u8, b: []const u8) i32 {
+    const min_len = @min(a.len, b.len);
+    for (a[0..min_len], b[0..min_len]) |char_a, char_b| {
+        if (char_a < char_b) return -1;
+        if (char_a > char_b) return 1;
+    }
+    if (a.len < b.len) return -1;
+    if (a.len > b.len) return 1;
+    return 0;
+}
+
+fn compareStringsCaseInsensitive(a: []const u8, b: []const u8) i32 {
+    const min_len = @min(a.len, b.len);
+    for (a[0..min_len], b[0..min_len]) |char_a, char_b| {
+        const lower_a = std.ascii.toLower(char_a);
+        const lower_b = std.ascii.toLower(char_b);
+        if (lower_a < lower_b) return -1;
+        if (lower_a > lower_b) return 1;
+    }
+    if (a.len < b.len) return -1;
+    if (a.len > b.len) return 1;
+    return 0;
+}
+
+pub fn ensureTrailingDirectorySeparator(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    if (!hasTrailingDirectorySeparator(path)) {
+        return try std.fmt.allocPrint(allocator, "{s}/", .{path});
+    }
+    return try allocator.dupe(u8, path);
 }

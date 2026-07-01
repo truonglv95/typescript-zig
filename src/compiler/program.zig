@@ -5,6 +5,8 @@ const parser = @import("../parser/parser.zig");
 const binder = @import("../binder/binder.zig");
 const checker = @import("../checker/checker.zig");
 const core = @import("../core/core.zig");
+const semver = @import("../semver/version.zig");
+const semver_range = @import("../semver/version_range.zig");
 
 pub const FileId = u32;
 
@@ -27,6 +29,18 @@ pub const ProgramOptions = struct {
 pub const Dependency = struct {
     specifier: []const u8,
     resolved: ?FileId,
+};
+
+pub const PackageIdentity = struct {
+    name: []u8,
+    version: []u8,
+    sub_module_name: []u8,
+
+    fn deinit(self: PackageIdentity, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.version);
+        allocator.free(self.sub_module_name);
+    }
 };
 
 pub const SymbolMeaning = packed struct {
@@ -52,6 +66,10 @@ pub const ProgramDiagnostic = struct {
     message: []const u8,
 };
 
+const CachedResolution = struct {
+    path: ?[]u8,
+};
+
 pub const SemanticType = enum(u8) {
     unknown,
     any,
@@ -74,6 +92,7 @@ pub const SourceUnit = struct {
     dependencies: std.ArrayList(Dependency) = .empty,
     is_root: bool = false,
     is_default_library: bool = false,
+    package_id: ?PackageIdentity = null,
 
     pub fn tree(self: *SourceUnit) *ast.Ast {
         return &self.parser_instance.ast;
@@ -90,6 +109,7 @@ pub const Program = struct {
     loading: std.StringHashMap(void),
     exports_by_key: std.StringHashMap(ExportedSymbol),
     aliases_by_key: std.StringHashMap(AliasSymbol),
+    resolution_cache: std.StringHashMap(CachedResolution),
     diagnostics: std.ArrayList(ProgramDiagnostic) = .empty,
     public_types: std.StringHashMap(SemanticType),
 
@@ -101,6 +121,7 @@ pub const Program = struct {
             .loading = std.StringHashMap(void).init(allocator),
             .exports_by_key = std.StringHashMap(ExportedSymbol).init(allocator),
             .aliases_by_key = std.StringHashMap(AliasSymbol).init(allocator),
+            .resolution_cache = std.StringHashMap(CachedResolution).init(allocator),
             .public_types = std.StringHashMap(SemanticType).init(allocator),
         };
     }
@@ -112,6 +133,7 @@ pub const Program = struct {
                 self.allocator.destroy(instance);
             }
             for (unit.dependencies.items) |dependency| self.allocator.free(dependency.specifier);
+            if (unit.package_id) |package_id| package_id.deinit(self.allocator);
             unit.dependencies.deinit(self.allocator);
             unit.parser_instance.deinit();
             self.allocator.destroy(unit.parser_instance);
@@ -128,6 +150,10 @@ pub const Program = struct {
         freeMapKeys(self.allocator, &self.aliases_by_key);
         self.exports_by_key.deinit();
         self.aliases_by_key.deinit();
+        var cached_resolutions = self.resolution_cache.valueIterator();
+        while (cached_resolutions.next()) |resolution| if (resolution.path) |path| self.allocator.free(path);
+        freeMapKeys(self.allocator, &self.resolution_cache);
+        self.resolution_cache.deinit();
         for (self.diagnostics.items) |diagnostic| self.allocator.free(diagnostic.message);
         self.diagnostics.deinit(self.allocator);
         freeMapKeys(self.allocator, &self.public_types);
@@ -181,11 +207,63 @@ pub const Program = struct {
     fn loadConfiguredTypes(self: *Program, io: std.Io) !void {
         const requested_types = self.opts.options.types orelse return;
         for (requested_types) |type_name| {
+            if (std.mem.eql(u8, type_name, "*")) {
+                try self.loadWildcardTypePackages(io);
+                continue;
+            }
             if (try self.resolveTypeReference(io, type_name)) |path| {
                 _ = try self.loadFile(io, path, false);
                 self.allocator.free(path);
             }
         }
+    }
+
+    fn loadWildcardTypePackages(self: *Program, io: std.Io) !void {
+        var roots = std.ArrayList([]const u8).empty;
+        defer {
+            for (roots.items) |root| self.allocator.free(root);
+            roots.deinit(self.allocator);
+        }
+        if (self.opts.options.typeRoots) |configured_roots| {
+            for (configured_roots) |root| try roots.append(self.allocator, try self.allocator.dupe(u8, root));
+        } else {
+            var directory = if (self.opts.projectName.len != 0) self.opts.projectName else ".";
+            while (true) {
+                try roots.append(self.allocator, try std.fs.path.join(self.allocator, &.{ directory, "node_modules", "@types" }));
+                const parent = std.fs.path.dirname(directory) orelse break;
+                if (std.mem.eql(u8, parent, directory)) break;
+                directory = parent;
+            }
+        }
+
+        var package_roots = std.ArrayList([]const u8).empty;
+        defer {
+            for (package_roots.items) |root| self.allocator.free(root);
+            package_roots.deinit(self.allocator);
+        }
+        for (roots.items) |root| {
+            var directory = std.Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch continue;
+            defer directory.close(io);
+            var iterator = directory.iterate();
+            while (try iterator.next(io)) |entry| {
+                if (entry.kind != .directory or entry.name.len == 0 or entry.name[0] == '.') continue;
+                const package_root = try std.fs.path.join(self.allocator, &.{ root, entry.name });
+                if (try isNotNeededTypePackage(self.allocator, io, package_root)) {
+                    self.allocator.free(package_root);
+                    continue;
+                }
+                try package_roots.append(self.allocator, package_root);
+            }
+        }
+        std.mem.sort([]const u8, package_roots.items, {}, struct {
+            fn lessThan(_: void, left: []const u8, right: []const u8) bool {
+                return std.mem.lessThan(u8, left, right);
+            }
+        }.lessThan);
+        for (package_roots.items) |package_root| if (try self.resolveTypePackage(io, package_root)) |path| {
+            _ = try self.loadFile(io, path, false);
+            self.allocator.free(path);
+        };
     }
 
     fn resolveTypeReference(self: *Program, io: std.Io, type_name: []const u8) !?[]const u8 {
@@ -257,6 +335,7 @@ pub const Program = struct {
         const content = try std.Io.Dir.cwd().readFileAlloc(io, normalized, self.allocator, @enumFromInt(std.math.maxInt(usize)));
         const parser_instance = try self.allocator.create(parser.Parser);
         parser_instance.* = parser.Parser.init(self.allocator, content);
+        parser_instance.ast.fileName = normalized;
         parser_instance.setScriptKind(scriptKindForPath(normalized));
         const source_file = try parser_instance.parseSourceFile();
 
@@ -268,6 +347,7 @@ pub const Program = struct {
             .parser_instance = parser_instance,
             .source_file = source_file,
             .is_root = is_root,
+            .package_id = try self.packageIdentityForFile(io, normalized),
         };
         const id: FileId = @intCast(self.units.items.len);
         try self.units.append(self.allocator, unit);
@@ -275,6 +355,44 @@ pub const Program = struct {
 
         try self.collectDependencies(io, id);
         return id;
+    }
+
+    fn packageIdentityForFile(self: *Program, io: std.Io, file_name: []const u8) !?PackageIdentity {
+        if (std.mem.indexOf(u8, file_name, "node_modules") == null) return null;
+        var directory = std.fs.path.dirname(file_name) orelse return null;
+        while (true) {
+            const package_json = try std.fs.path.join(self.allocator, &.{ directory, "package.json" });
+            defer self.allocator.free(package_json);
+            if (fileExists(io, package_json)) {
+                const content = try std.Io.Dir.cwd().readFileAlloc(io, package_json, self.allocator, @enumFromInt(4 * 1024 * 1024));
+                defer self.allocator.free(content);
+                if (std.json.parseFromSlice(std.json.Value, self.allocator, content, .{})) |parsed_value| {
+                    var parsed = parsed_value;
+                    defer parsed.deinit();
+                    if (parsed.value == .object) {
+                        const name = parsed.value.object.get("name") orelse return null;
+                        const version = parsed.value.object.get("version") orelse return null;
+                        if (name != .string or version != .string) return null;
+                        const relative = try std.fs.path.relative(self.allocator, ".", null, directory, file_name);
+                        defer self.allocator.free(relative);
+                        const extension = std.fs.path.extension(relative);
+                        var submodule = relative[0 .. relative.len - extension.len];
+                        if (std.mem.endsWith(u8, submodule, ".d")) submodule = submodule[0 .. submodule.len - 2];
+                        if (std.mem.eql(u8, submodule, "index")) submodule = "";
+                        return .{
+                            .name = try self.allocator.dupe(u8, name.string),
+                            .version = try self.allocator.dupe(u8, version.string),
+                            .sub_module_name = try self.allocator.dupe(u8, submodule),
+                        };
+                    }
+                } else |_| {}
+                return null;
+            }
+            const parent = std.fs.path.dirname(directory) orelse break;
+            if (std.mem.eql(u8, parent, directory) or std.mem.endsWith(u8, directory, "node_modules")) break;
+            directory = parent;
+        }
+        return null;
     }
 
     fn collectDependencies(self: *Program, io: std.Io, file_id: FileId) anyerror!void {
@@ -287,23 +405,58 @@ pub const Program = struct {
             const specifier = ast_utils.getText(tree, specifier_node);
             const owned_specifier = try self.allocator.dupe(u8, specifier);
             var resolved: ?FileId = null;
-            if (specifier.len > 0 and (specifier[0] == '.' or specifier[0] == '/')) {
-                if (try self.resolveRelative(io, unit.path, specifier)) |path| {
-                    resolved = try self.loadFile(io, path, false);
-                    self.allocator.free(path);
-                }
-            } else if (try self.resolveMapped(io, specifier)) |path| {
-                resolved = try self.loadFile(io, path, false);
-                self.allocator.free(path);
-            } else if (try self.resolvePackageImport(io, unit.path, specifier)) |path| {
-                resolved = try self.loadFile(io, path, false);
-                self.allocator.free(path);
-            } else if (try self.resolveBare(io, unit.path, specifier)) |path| {
+            if (try self.resolveModuleCached(io, unit.path, specifier)) |path| {
                 resolved = try self.loadFile(io, path, false);
                 self.allocator.free(path);
             }
             try unit.dependencies.append(self.allocator, .{ .specifier = owned_specifier, .resolved = resolved });
+            if (resolved == null) try self.appendDiagnostic(file_id, 2307, try std.fmt.allocPrint(self.allocator, "Cannot find module '{s}' or its corresponding type declarations.", .{specifier}));
         }
+        for (tree.referencedFiles.items) |reference| {
+            const owned_specifier = try self.allocator.dupe(u8, reference.fileName);
+            var resolved: ?FileId = null;
+            if (try self.resolveRelative(io, unit.path, reference.fileName)) |path| {
+                resolved = try self.loadFile(io, path, false);
+                self.allocator.free(path);
+            }
+            try unit.dependencies.append(self.allocator, .{ .specifier = owned_specifier, .resolved = resolved });
+            if (resolved == null) try self.appendDiagnostic(file_id, 6053, try std.fmt.allocPrint(self.allocator, "File '{s}' not found.", .{reference.fileName}));
+        }
+        for (tree.typeReferenceDirectives.items) |reference| {
+            const owned_specifier = try self.allocator.dupe(u8, reference.fileName);
+            var resolved: ?FileId = null;
+            if (try self.resolveTypeReference(io, reference.fileName)) |path| {
+                resolved = try self.loadFile(io, path, false);
+                self.allocator.free(path);
+            }
+            try unit.dependencies.append(self.allocator, .{ .specifier = owned_specifier, .resolved = resolved });
+            if (resolved == null) try self.appendDiagnostic(file_id, 2688, try std.fmt.allocPrint(self.allocator, "Cannot find type definition file for '{s}'.", .{reference.fileName}));
+        }
+        for (tree.libReferenceDirectives.items) |reference| try self.loadLibraryByName(io, reference.fileName);
+    }
+
+    fn resolveModuleCached(self: *Program, io: std.Io, containing_file: []const u8, specifier: []const u8) !?[]const u8 {
+        const require_mode = try self.usesRequireConditionsForFile(io, containing_file);
+        const key = try std.fmt.allocPrint(self.allocator, "{s}\x00{s}\x00{c}", .{ containing_file, specifier, if (require_mode) @as(u8, 'r') else @as(u8, 'i') });
+        if (self.resolution_cache.get(key)) |cached| {
+            self.allocator.free(key);
+            return if (cached.path) |path| try self.allocator.dupe(u8, path) else null;
+        }
+
+        const resolved = if (specifier.len > 0 and (specifier[0] == '.' or specifier[0] == '/'))
+            try self.resolveRelative(io, containing_file, specifier)
+        else if (try self.resolveMapped(io, specifier)) |path|
+            path
+        else if (try self.resolvePackageImport(io, containing_file, specifier)) |path|
+            path
+        else
+            try self.resolveBare(io, containing_file, specifier);
+        try self.resolution_cache.put(key, .{ .path = if (resolved) |path| try self.allocator.dupe(u8, path) else null });
+        return resolved;
+    }
+
+    fn appendDiagnostic(self: *Program, file: FileId, code: u32, owned_message: []u8) !void {
+        try self.diagnostics.append(self.allocator, .{ .file = file, .code = code, .message = owned_message });
     }
 
     fn resolveRelative(self: *Program, io: std.Io, containing_file: []const u8, specifier: []const u8) !?[]const u8 {
@@ -342,6 +495,7 @@ pub const Program = struct {
         const package_end = packageNameEnd(specifier);
         const package_name = specifier[0..package_end];
         const subpath = if (package_end < specifier.len) specifier[package_end + 1 ..] else "";
+        if (try self.resolvePackageSelfName(io, containing_file, package_name, subpath)) |resolved| return resolved;
         var directory = std.fs.path.dirname(containing_file) orelse ".";
         while (true) {
             const package_root = try std.fs.path.join(self.allocator, &.{ directory, "node_modules", package_name });
@@ -357,8 +511,11 @@ pub const Program = struct {
                     if (parsed.value == .object) if (parsed.value.object.get("exports")) |exports| {
                         const export_key = if (subpath.len == 0) "." else try std.fmt.allocPrint(self.allocator, "./{s}", .{subpath});
                         defer if (subpath.len != 0) self.allocator.free(export_key);
-                        if (try self.resolvePackageMap(io, package_root, exports, export_key)) |resolved| return resolved;
+                        if (try self.resolvePackageMap(io, package_root, exports, export_key, try self.usesRequireConditionsForFile(io, containing_file))) |resolved| return resolved;
                         if (self.opts.options.resolvePackageJsonExports orelse true) return null;
+                    };
+                    if (subpath.len != 0 and parsed.value == .object) if (parsed.value.object.get("typesVersions")) |types_versions| {
+                        if (try self.resolveTypesVersions(io, package_root, types_versions, subpath)) |resolved| return resolved;
                     };
                 } else |_| {}
             }
@@ -391,6 +548,115 @@ pub const Program = struct {
             directory = parent;
         }
         return null;
+    }
+
+    fn resolveTypesVersions(self: *Program, io: std.Io, package_root: []const u8, types_versions: std.json.Value, subpath: []const u8) !?[]const u8 {
+        if (types_versions != .object) return null;
+        var arena_state = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        const compiler_version = semver.tryParseVersion(arena, "7.0.0-dev") catch return null;
+        var versions = types_versions.object.iterator();
+        while (versions.next()) |version_entry| {
+            const range = semver_range.tryParseVersionRange(arena, version_entry.key_ptr.*) catch continue;
+            if (!range.testVersion(&compiler_version)) continue;
+            if (version_entry.value_ptr.* != .object) return null;
+            return self.resolveTypesVersionsPaths(io, package_root, version_entry.value_ptr.*.object, subpath);
+        }
+        return null;
+    }
+
+    fn resolveTypesVersionsPaths(self: *Program, io: std.Io, package_root: []const u8, paths: std.json.ObjectMap, subpath: []const u8) !?[]const u8 {
+        if (paths.get(subpath)) |targets| return self.resolveTypesVersionsTargets(io, package_root, targets, "");
+        var best_key: ?[]const u8 = null;
+        var best_capture: []const u8 = "";
+        var iterator = paths.iterator();
+        while (iterator.next()) |entry| {
+            const star = std.mem.indexOfScalar(u8, entry.key_ptr.*, '*') orelse continue;
+            const prefix = entry.key_ptr.*[0..star];
+            const suffix = entry.key_ptr.*[star + 1 ..];
+            if (!std.mem.startsWith(u8, subpath, prefix) or !std.mem.endsWith(u8, subpath, suffix) or subpath.len < prefix.len + suffix.len) continue;
+            const best_prefix_len = if (best_key) |key| std.mem.indexOfScalar(u8, key, '*') orelse 0 else 0;
+            if (best_key == null or prefix.len > best_prefix_len or (prefix.len == best_prefix_len and entry.key_ptr.*.len > best_key.?.len)) {
+                best_key = entry.key_ptr.*;
+                best_capture = subpath[prefix.len .. subpath.len - suffix.len];
+            }
+        }
+        if (best_key) |key| return self.resolveTypesVersionsTargets(io, package_root, paths.get(key).?, best_capture);
+        return null;
+    }
+
+    fn resolveTypesVersionsTargets(self: *Program, io: std.Io, package_root: []const u8, targets: std.json.Value, capture: []const u8) !?[]const u8 {
+        if (targets != .array) return null;
+        for (targets.array.items) |target| {
+            if (target != .string) continue;
+            const replaced = if (std.mem.indexOfScalar(u8, target.string, '*')) |star|
+                try std.fmt.allocPrint(self.allocator, "{s}{s}{s}", .{ target.string[0..star], capture, target.string[star + 1 ..] })
+            else
+                try self.allocator.dupe(u8, target.string);
+            defer self.allocator.free(replaced);
+            const candidate = try std.fs.path.join(self.allocator, &.{ package_root, replaced });
+            defer self.allocator.free(candidate);
+            if (try self.resolvePathCandidate(io, candidate)) |resolved| return resolved;
+        }
+        return null;
+    }
+
+    fn resolvePackageSelfName(self: *Program, io: std.Io, containing_file: []const u8, package_name: []const u8, subpath: []const u8) !?[]const u8 {
+        var directory = std.fs.path.dirname(containing_file) orelse ".";
+        while (true) {
+            const package_json = try std.fs.path.join(self.allocator, &.{ directory, "package.json" });
+            defer self.allocator.free(package_json);
+            if (fileExists(io, package_json)) {
+                const content = try std.Io.Dir.cwd().readFileAlloc(io, package_json, self.allocator, @enumFromInt(4 * 1024 * 1024));
+                defer self.allocator.free(content);
+                if (std.json.parseFromSlice(std.json.Value, self.allocator, content, .{})) |parsed_value| {
+                    var parsed = parsed_value;
+                    defer parsed.deinit();
+                    if (parsed.value == .object) {
+                        const name = parsed.value.object.get("name");
+                        const exports = parsed.value.object.get("exports");
+                        if (name != null and name.? == .string and std.mem.eql(u8, name.?.string, package_name) and exports != null) {
+                            const export_key = if (subpath.len == 0) "." else try std.fmt.allocPrint(self.allocator, "./{s}", .{subpath});
+                            defer if (subpath.len != 0) self.allocator.free(export_key);
+                            return self.resolvePackageMap(io, directory, exports.?, export_key, try self.usesRequireConditionsForFile(io, containing_file));
+                        }
+                    }
+                } else |_| {}
+                // The nearest package scope owns self-name resolution.
+                return null;
+            }
+            const parent = std.fs.path.dirname(directory) orelse break;
+            if (std.mem.eql(u8, parent, directory)) break;
+            directory = parent;
+        }
+        return null;
+    }
+
+    fn usesRequireConditionsForFile(self: *Program, io: std.Io, containing_file: []const u8) !bool {
+        if (usesRequireConditions(containing_file)) return true;
+        if (std.mem.endsWith(u8, containing_file, ".mts") or std.mem.endsWith(u8, containing_file, ".mjs") or std.mem.endsWith(u8, containing_file, ".d.mts")) return false;
+        var directory = std.fs.path.dirname(containing_file) orelse ".";
+        while (true) {
+            const package_json = try std.fs.path.join(self.allocator, &.{ directory, "package.json" });
+            defer self.allocator.free(package_json);
+            if (fileExists(io, package_json)) {
+                const content = try std.Io.Dir.cwd().readFileAlloc(io, package_json, self.allocator, @enumFromInt(4 * 1024 * 1024));
+                defer self.allocator.free(content);
+                if (std.json.parseFromSlice(std.json.Value, self.allocator, content, .{})) |parsed_value| {
+                    var parsed = parsed_value;
+                    defer parsed.deinit();
+                    if (parsed.value == .object) if (parsed.value.object.get("type")) |package_type| {
+                        return package_type != .string or !std.mem.eql(u8, package_type.string, "module");
+                    };
+                } else |_| {}
+                return true;
+            }
+            const parent = std.fs.path.dirname(directory) orelse break;
+            if (std.mem.eql(u8, parent, directory)) break;
+            directory = parent;
+        }
+        return true;
     }
 
     fn resolveMapped(self: *Program, io: std.Io, specifier: []const u8) !?[]const u8 {
@@ -427,7 +693,7 @@ pub const Program = struct {
                     var parsed = parsed_value;
                     defer parsed.deinit();
                     if (parsed.value == .object) if (parsed.value.object.get("imports")) |imports| {
-                        if (try self.resolvePackageMap(io, directory, imports, specifier)) |resolved| return resolved;
+                        if (try self.resolvePackageMap(io, directory, imports, specifier, try self.usesRequireConditionsForFile(io, containing_file))) |resolved| return resolved;
                     };
                 } else |_| {}
             }
@@ -438,10 +704,12 @@ pub const Program = struct {
         return null;
     }
 
-    fn resolvePackageMap(self: *Program, io: std.Io, package_root: []const u8, map: std.json.Value, requested_key: []const u8) !?[]const u8 {
-        if (map == .string or map == .array) return self.resolvePackageTarget(io, package_root, map, "");
+    fn resolvePackageMap(self: *Program, io: std.Io, package_root: []const u8, map: std.json.Value, requested_key: []const u8, prefer_require: bool) !?[]const u8 {
+        if (map == .string or map == .array) return self.resolvePackageTarget(io, package_root, map, "", prefer_require);
         if (map != .object) return null;
-        if (map.object.get(requested_key)) |target| return self.resolvePackageTarget(io, package_root, target, "");
+        if (map.object.get(requested_key)) |target| return self.resolvePackageTarget(io, package_root, target, "", prefer_require);
+        var best_key: ?[]const u8 = null;
+        var best_capture: []const u8 = "";
         var iterator = map.object.iterator();
         while (iterator.next()) |entry| {
             const star = std.mem.indexOfScalar(u8, entry.key_ptr.*, '*') orelse continue;
@@ -449,29 +717,61 @@ pub const Program = struct {
             const suffix = entry.key_ptr.*[star + 1 ..];
             if (!std.mem.startsWith(u8, requested_key, prefix) or !std.mem.endsWith(u8, requested_key, suffix) or requested_key.len < prefix.len + suffix.len) continue;
             const capture = requested_key[prefix.len .. requested_key.len - suffix.len];
-            if (try self.resolvePackageTarget(io, package_root, entry.value_ptr.*, capture)) |resolved| return resolved;
+            const best_prefix_len = if (best_key) |key| std.mem.indexOfScalar(u8, key, '*') orelse 0 else 0;
+            if (best_key == null or prefix.len > best_prefix_len or (prefix.len == best_prefix_len and entry.key_ptr.*.len > best_key.?.len)) {
+                best_key = entry.key_ptr.*;
+                best_capture = capture;
+            }
         }
+        if (best_key) |key| if (try self.resolvePackageTarget(io, package_root, map.object.get(key).?, best_capture, prefer_require)) |resolved| return resolved;
         // A condition object at the root (for the "." export).
-        if (std.mem.eql(u8, requested_key, ".")) return self.resolvePackageTarget(io, package_root, map, "");
+        if (std.mem.eql(u8, requested_key, ".")) return self.resolvePackageTarget(io, package_root, map, "", prefer_require);
         return null;
     }
 
-    fn resolvePackageTarget(self: *Program, io: std.Io, package_root: []const u8, target: std.json.Value, capture: []const u8) !?[]const u8 {
+    fn resolvePackageTarget(self: *Program, io: std.Io, package_root: []const u8, target: std.json.Value, capture: []const u8, prefer_require: bool) !?[]const u8 {
         switch (target) {
             .string => |text| {
                 const replaced = if (std.mem.indexOfScalar(u8, text, '*')) |star| try std.fmt.allocPrint(self.allocator, "{s}{s}{s}", .{ text[0..star], capture, text[star + 1 ..] }) else try self.allocator.dupe(u8, text);
                 defer self.allocator.free(replaced);
                 const requested = try std.fs.path.join(self.allocator, &.{ package_root, replaced });
                 defer self.allocator.free(requested);
+                if (std.mem.endsWith(u8, requested, ".js") or std.mem.endsWith(u8, requested, ".jsx") or std.mem.endsWith(u8, requested, ".mjs") or std.mem.endsWith(u8, requested, ".cjs")) {
+                    const extension = std.fs.path.extension(requested);
+                    const stem = requested[0 .. requested.len - extension.len];
+                    const substitutions = if (std.mem.eql(u8, extension, ".mjs"))
+                        [_][]const u8{ ".mts", ".d.mts", ".mjs", "" }
+                    else if (std.mem.eql(u8, extension, ".cjs"))
+                        [_][]const u8{ ".cts", ".d.cts", ".cjs", "" }
+                    else
+                        [_][]const u8{ ".ts", ".tsx", ".d.ts", ".js" };
+                    for (substitutions) |replacement_extension| {
+                        if (replacement_extension.len == 0) continue;
+                        const candidate = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ stem, replacement_extension });
+                        if (fileExists(io, candidate)) return candidate;
+                        self.allocator.free(candidate);
+                    }
+                }
                 return self.resolvePathCandidate(io, requested);
             },
             .array => |items| {
-                for (items.items) |item| if (try self.resolvePackageTarget(io, package_root, item, capture)) |resolved| return resolved;
+                for (items.items) |item| if (try self.resolvePackageTarget(io, package_root, item, capture, prefer_require)) |resolved| return resolved;
             },
             .object => |conditions| {
-                const preferred = [_][]const u8{ "types", "import", "require", "node", "default" };
-                for (preferred) |condition| if (conditions.get(condition)) |value| if (try self.resolvePackageTarget(io, package_root, value, capture)) |resolved| return resolved;
-                for (self.opts.options.customConditions orelse &.{}) |condition| if (conditions.get(condition)) |value| if (try self.resolvePackageTarget(io, package_root, value, capture)) |resolved| return resolved;
+                // Node conditional exports are order-sensitive: select the first
+                // property whose condition is active, rather than imposing our
+                // own priority over the package author's object order.
+                var iterator = conditions.iterator();
+                while (iterator.next()) |entry| {
+                    const condition = entry.key_ptr.*;
+                    const active = std.mem.eql(u8, condition, "types") or
+                        std.mem.eql(u8, condition, "node") or
+                        std.mem.eql(u8, condition, "default") or
+                        (prefer_require and std.mem.eql(u8, condition, "require")) or
+                        (!prefer_require and std.mem.eql(u8, condition, "import")) or
+                        containsString(self.opts.options.customConditions orelse &.{}, condition);
+                    if (active) if (try self.resolvePackageTarget(io, package_root, entry.value_ptr.*, capture, prefer_require)) |resolved| return resolved;
+                }
             },
             else => {},
         }
@@ -621,16 +921,20 @@ pub const Program = struct {
         for (tree.getNodeList(source.Statements)) |statement| {
             if (tree.getNode(statement) != .ImportDeclaration) continue;
             const declaration = tree.getNode(statement).ImportDeclaration;
-            const target = dependencyTarget(unit, ast_utils.getText(tree, declaration.ModuleSpecifier)) orelse continue;
+            const module_specifier = ast_utils.getText(tree, declaration.ModuleSpecifier);
+            const target = dependencyTarget(unit, module_specifier);
+            const target_file = target orelse continue;
             const clause_index = declaration.ImportClause orelse continue;
-            const clause = tree.getNode(clause_index).ImportClause;
-            if ((clause.name orelse 0) != 0) try self.putAlias(file, ast_utils.getText(tree, clause.name.?), target, "default");
+            const clause_node = tree.getNode(clause_index);
+            if (clause_node != .ImportClause) continue;
+            const clause = clause_node.ImportClause;
+            if ((clause.name orelse 0) != 0) try self.putAlias(file, ast_utils.getText(tree, clause.name.?), target_file, "default");
             if ((clause.NamedBindings orelse 0) == 0) continue;
             switch (tree.getNode(clause.NamedBindings.?)) {
-                .NamespaceImport => |namespace| try self.putAlias(file, ast_utils.getText(tree, namespace.name), target, "*"),
+                .NamespaceImport => |namespace| try self.putAlias(file, ast_utils.getText(tree, namespace.name), target_file, "*"),
                 .NamedImports => |named| for (tree.getNodeList(named.Elements)) |element| {
                     const specifier = tree.getNode(element).ImportSpecifier;
-                    try self.putAlias(file, ast_utils.getText(tree, specifier.name), target, ast_utils.getText(tree, specifier.PropertyName orelse specifier.name));
+                    try self.putAlias(file, ast_utils.getText(tree, specifier.name), target_file, ast_utils.getText(tree, specifier.PropertyName orelse specifier.name));
                 },
                 else => {},
             }
@@ -767,6 +1071,11 @@ pub const Program = struct {
         return self.public_types.get(key);
     }
 
+    pub fn getBinder(self: *Program, file: FileId) ?*binder.Binder {
+        if (file >= self.units.items.len) return null;
+        return self.units.items[file].binder_instance;
+    }
+
     pub fn signatureHash(self: *Program, file: FileId) u64 {
         var hash = std.hash.Wyhash.init(0);
         var exports = self.exports_by_key.iterator();
@@ -811,6 +1120,7 @@ fn scriptKindForPath(path: []const u8) core.ScriptKind {
 fn moduleSpecifier(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
     return switch (tree.getNode(node)) {
         .ImportDeclaration => |declaration| declaration.ModuleSpecifier,
+        .JSImportDeclaration => |declaration| declaration.ModuleSpecifier,
         .ExportDeclaration => |declaration| declaration.ModuleSpecifier orelse 0,
         .ImportEqualsDeclaration => |declaration| switch (tree.getNode(declaration.ModuleReference)) {
             .ExternalModuleReference => |reference| reference.Expression,
@@ -840,8 +1150,23 @@ fn canonicalPath(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]
 
 fn fileExists(io: std.Io, path: []const u8) bool {
     const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return false;
-    file.close(io);
-    return true;
+    defer file.close(io);
+    const stat = file.stat(io) catch return false;
+    return stat.kind == .file;
+}
+
+fn isNotNeededTypePackage(allocator: std.mem.Allocator, io: std.Io, package_root: []const u8) !bool {
+    const package_json = try std.fs.path.join(allocator, &.{ package_root, "package.json" });
+    defer allocator.free(package_json);
+    if (!fileExists(io, package_json)) return false;
+    const content = try std.Io.Dir.cwd().readFileAlloc(io, package_json, allocator, @enumFromInt(4 * 1024 * 1024));
+    defer allocator.free(content);
+    if (std.json.parseFromSlice(std.json.Value, allocator, content, .{})) |parsed_value| {
+        var parsed = parsed_value;
+        defer parsed.deinit();
+        if (parsed.value == .object) if (parsed.value.object.get("typings")) |typings| return typings == .null;
+    } else |_| {}
+    return false;
 }
 
 fn isPathInside(path: []const u8, directory: []const u8) bool {
@@ -851,6 +1176,15 @@ fn isPathInside(path: []const u8, directory: []const u8) bool {
 
 fn isJsxPath(path: []const u8) bool {
     return std.mem.endsWith(u8, path, ".tsx") or std.mem.endsWith(u8, path, ".jsx");
+}
+
+fn usesRequireConditions(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".cts") or std.mem.endsWith(u8, path, ".cjs") or std.mem.endsWith(u8, path, ".d.cts");
+}
+
+fn containsString(values: []const []const u8, needle: []const u8) bool {
+    for (values) |value| if (std.mem.eql(u8, value, needle)) return true;
+    return false;
 }
 
 fn defaultLibraryName(target: core.ScriptTarget) []const u8 {
@@ -1034,4 +1368,135 @@ test "program loads configured type packages from typeRoots" {
     defer program.deinit();
     try program.load(threaded.io());
     try std.testing.expectEqual(@as(usize, 2), program.fileCount());
+}
+
+test "program expands wildcard types and skips not-needed packages" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const root = "zig-cache-program-wildcard-types-test";
+    defer std.Io.Dir.cwd().deleteTree(threaded.io(), root) catch {};
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root ++ "/types/alpha");
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root ++ "/types/not-needed");
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root ++ "/types/.ignored");
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/main.ts", .data = "export const value = alpha;" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/types/alpha/index.d.ts", .data = "declare const alpha: string;" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/types/not-needed/package.json", .data = "{\"typings\":null}" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/types/not-needed/index.d.ts", .data = "declare const skipped: string;" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/types/.ignored/index.d.ts", .data = "declare const ignored: string;" });
+    const type_root = try std.fs.path.resolve(std.testing.allocator, &.{root ++ "/types"});
+    defer std.testing.allocator.free(type_root);
+    var type_roots = [_][]const u8{type_root};
+    var types = [_][]const u8{"*"};
+    var roots = [_][]const u8{root ++ "/main.ts"};
+    var program = Program.init(std.testing.allocator, .{ .options = .{ .typeRoots = &type_roots, .types = &types }, .rootNames = &roots });
+    defer program.deinit();
+    try program.load(threaded.io());
+    try std.testing.expectEqual(@as(usize, 2), program.fileCount());
+    try std.testing.expect(std.mem.endsWith(u8, program.getUnit(1).path, "alpha/index.d.ts"));
+}
+
+test "program includes triple-slash path and type references in the graph" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const root = "zig-cache-program-reference-directives-test";
+    defer std.Io.Dir.cwd().deleteTree(threaded.io(), root) catch {};
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root ++ "/types/example");
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/main.ts", .data = "/// <reference path=\"./globals.d.ts\" />\n/// <reference types=\"example\" />\nexport const value = globalValue;" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/globals.d.ts", .data = "declare const globalValue: string;" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/types/example/index.d.ts", .data = "declare const exampleValue: string;" });
+    const type_root = try std.fs.path.resolve(std.testing.allocator, &.{root ++ "/types"});
+    defer std.testing.allocator.free(type_root);
+    var type_roots = [_][]const u8{type_root};
+    var roots = [_][]const u8{root ++ "/main.ts"};
+    var program = Program.init(std.testing.allocator, .{ .options = .{ .typeRoots = &type_roots }, .rootNames = &roots });
+    defer program.deinit();
+    try program.load(threaded.io());
+    try std.testing.expectEqual(@as(usize, 3), program.fileCount());
+    try std.testing.expectEqual(@as(usize, 2), program.getUnit(0).dependencies.items.len);
+    try std.testing.expect(program.getUnit(0).dependencies.items[0].resolved != null);
+    try std.testing.expect(program.getUnit(0).dependencies.items[1].resolved != null);
+}
+
+test "program reports unresolved module and reference directives" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const root = "zig-cache-program-unresolved-test";
+    defer std.Io.Dir.cwd().deleteTree(threaded.io(), root) catch {};
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root);
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/main.ts", .data = "/// <reference path=\"./missing.d.ts\" />\n/// <reference types=\"missing-types\" />\nimport 'missing-package';" });
+    var roots = [_][]const u8{root ++ "/main.ts"};
+    var program = Program.init(std.testing.allocator, .{ .options = .{}, .rootNames = &roots, .projectName = root });
+    defer program.deinit();
+    try program.load(threaded.io());
+    try std.testing.expectEqual(@as(usize, 3), program.diagnostics.items.len);
+    try std.testing.expectEqual(@as(u32, 2307), program.diagnostics.items[0].code);
+    try std.testing.expectEqual(@as(u32, 6053), program.diagnostics.items[1].code);
+    try std.testing.expectEqual(@as(u32, 2688), program.diagnostics.items[2].code);
+}
+
+test "program resolves package imports wildcard with JavaScript extension substitution" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const root = "zig-cache-program-package-imports-test";
+    defer std.Io.Dir.cwd().deleteTree(threaded.io(), root) catch {};
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root ++ "/src/features");
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/package.json", .data = "{\"name\":\"pkg\",\"type\":\"module\",\"imports\":{\"#/*\":\"./src/*\"}}" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/index.ts", .data = "import { foo } from '#/features/foo.js'; export { foo };" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/src/features/foo.ts", .data = "export const foo = 1;" });
+    var roots = [_][]const u8{root ++ "/index.ts"};
+    var program = Program.init(std.testing.allocator, .{ .options = .{ .moduleResolution = .NodeNext }, .rootNames = &roots });
+    defer program.deinit();
+    try program.load(threaded.io());
+    try std.testing.expectEqual(@as(usize, 2), program.fileCount());
+    try std.testing.expect(program.getUnit(0).dependencies.items[0].resolved != null);
+    try std.testing.expectEqual(@as(usize, 1), program.resolution_cache.count());
+}
+
+test "program resolves package self-name exports using import and require conditions" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const root = "zig-cache-program-self-name-test";
+    defer std.Io.Dir.cwd().deleteTree(threaded.io(), root) catch {};
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root ++ "/src");
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/package.json", .data = "{\"name\":\"pkg\",\"type\":\"module\",\"exports\":{\"./feature\":{\"import\":\"./src/feature.mts\",\"require\":\"./src/feature.cts\"}}}" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/main.mts", .data = "import { mode } from 'pkg/feature'; export { mode };" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/main.cts", .data = "import { mode } from 'pkg/feature'; export { mode };" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/main.ts", .data = "import { mode } from 'pkg/feature'; export { mode };" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/src/feature.mts", .data = "export const mode = 'import';" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/src/feature.cts", .data = "export const mode = 'require';" });
+    var roots = [_][]const u8{ root ++ "/main.mts", root ++ "/main.cts", root ++ "/main.ts" };
+    var program = Program.init(std.testing.allocator, .{ .options = .{ .moduleResolution = .NodeNext }, .rootNames = &roots });
+    defer program.deinit();
+    try program.load(threaded.io());
+    try std.testing.expectEqual(@as(usize, 5), program.fileCount());
+    const import_target = program.getUnit(0).dependencies.items[0].resolved orelse return error.ExpectedImportResolution;
+    const require_target = program.getUnit(2).dependencies.items[0].resolved orelse return error.ExpectedRequireResolution;
+    const package_module_target = program.getUnit(4).dependencies.items[0].resolved orelse return error.ExpectedPackageModuleResolution;
+    try std.testing.expect(std.mem.endsWith(u8, program.getUnit(import_target).path, "feature.mts"));
+    try std.testing.expect(std.mem.endsWith(u8, program.getUnit(require_target).path, "feature.cts"));
+    try std.testing.expect(std.mem.endsWith(u8, program.getUnit(package_module_target).path, "feature.mts"));
+}
+
+test "program resolves matching package typesVersions paths" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const root = "zig-cache-program-typesversions-test";
+    defer std.Io.Dir.cwd().deleteTree(threaded.io(), root) catch {};
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root ++ "/node_modules/pkg/ts7");
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), root ++ "/node_modules/pkg/legacy");
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/main.ts", .data = "import { feature } from 'pkg/feature'; export { feature };" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/node_modules/pkg/package.json", .data = "{\"name\":\"pkg\",\"version\":\"1.0.0\",\"typesVersions\":{\">=7.0\":{\"*\":[\"ts7/*\"]},\"*\":{\"*\":[\"legacy/*\"]}}}" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/node_modules/pkg/ts7/feature.d.ts", .data = "export declare const feature: 'ts7';" });
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = root ++ "/node_modules/pkg/legacy/feature.d.ts", .data = "export declare const feature: 'legacy';" });
+    var roots = [_][]const u8{root ++ "/main.ts"};
+    var program = Program.init(std.testing.allocator, .{ .options = .{ .moduleResolution = .NodeJs }, .rootNames = &roots, .projectName = root });
+    defer program.deinit();
+    try program.load(threaded.io());
+    try std.testing.expectEqual(@as(usize, 2), program.fileCount());
+    const target = program.getUnit(0).dependencies.items[0].resolved orelse return error.ExpectedTypesVersionsResolution;
+    try std.testing.expect(std.mem.endsWith(u8, program.getUnit(target).path, "ts7/feature.d.ts"));
+    const package_id = program.getUnit(target).package_id orelse return error.ExpectedPackageIdentity;
+    try std.testing.expectEqualStrings("pkg", package_id.name);
+    try std.testing.expectEqualStrings("1.0.0", package_id.version);
+    try std.testing.expectEqualStrings("ts7/feature", package_id.sub_module_name);
 }
