@@ -107,7 +107,7 @@ pub const DeclarationTransformer = struct {
                     const decl_name = getDeclarationNameText(v.tree, statement);
                     if (is_module and !is_exported and decl_name.len > 0 and !isAmbientModuleOrGlobalAugmentation(v.tree, statement)) {
                         const has_runtime_body = (v.tree.getNode(statement) == .FunctionDeclaration and (v.tree.getNode(statement).FunctionDeclaration.Body != null or identifierUsedAsExportedShorthand(v.tree, decl_name))) or v.tree.getNode(statement) == .ClassDeclaration;
-                        if (!identifierUsedByDeclaration(v.tree, statement, decl_name, self.allocator, false) and !(has_runtime_body and identifierUsedOutsideNode(v.tree, statement, decl_name))) continue;
+                        if (!identifierUsedByDeclaration(v.tree, statement, decl_name, self.allocator, false, true) and !(has_runtime_body and identifierUsedOutsideNode(v.tree, statement, decl_name))) continue;
                     }
                     if (is_module and !is_exported and isIdentityHelperFunction(v.tree, statement)) continue;
                     if (is_module and !is_exported and v.tree.getNode(statement) == .InterfaceDeclaration) has_private_declaration = true;
@@ -168,7 +168,7 @@ pub const DeclarationTransformer = struct {
                 const regular = v.tree.pushNode(.{ .ImportDeclaration = n }) catch unreachable;
                 break :blk regular;
             },
-            .ImportEqualsDeclaration => |n| if (identifierUsedByDeclaration(v.tree, node, @import("../ast/ast_utils.zig").getText(v.tree, n.name), self.allocator, false)) v.visitEachChild(node) else 0,
+            .ImportEqualsDeclaration => |n| if (identifierUsedByDeclaration(v.tree, node, @import("../ast/ast_utils.zig").getText(v.tree, n.name), self.allocator, false, true)) v.visitEachChild(node) else 0,
             .VariableStatement => |n| self.transformVariableStatement(v, node, n),
             .ExportAssignment => |n| self.transformExportAssignment(v, node, n),
             .FunctionDeclaration => |n| self.transformFunction(v, node, n),
@@ -399,10 +399,11 @@ pub const DeclarationTransformer = struct {
         const clause = clause_node.ImportClause;
         if ((clause.PhaseModifier orelse 0) != 0 and v.tree.getNodeKind(clause.PhaseModifier.?) == .TypeKeyword) return node;
 
+        const resolvable = self.isModuleResolvable(self.semantic_file orelse 0, decl.ModuleSpecifier, v.tree);
         var used = false;
         if (clause.name) |name| {
             const name_text = @import("../ast/ast_utils.zig").getText(v.tree, name);
-            used = used or self.referenced_identifiers.contains(name_text) or identifierUsedByDeclaration(v.tree, node, name_text, self.allocator, false);
+            used = used or self.referenced_identifiers.contains(name_text) or identifierUsedByDeclaration(v.tree, node, name_text, self.allocator, false, resolvable);
         }
 
         // Namespace import: import * as ns from '...'
@@ -412,7 +413,7 @@ pub const DeclarationTransformer = struct {
             if (binding_node == .NamespaceImport) {
                 const ns = binding_node.NamespaceImport;
                 const ns_text = @import("../ast/ast_utils.zig").getText(v.tree, ns.name);
-                used = used or self.referenced_identifiers.contains(ns_text) or identifierUsedByDeclaration(v.tree, node, ns_text, self.allocator, false);
+                used = used or self.referenced_identifiers.contains(ns_text) or identifierUsedByDeclaration(v.tree, node, ns_text, self.allocator, false, resolvable);
             } else if (binding_node == .NamedImports) {
                 for (v.tree.getNodeList(binding_node.NamedImports.Elements)) |specifier_index| {
                     const specifier = v.tree.getNode(specifier_index).ImportSpecifier;
@@ -422,7 +423,7 @@ pub const DeclarationTransformer = struct {
                     used = used or self.referenced_identifiers.contains(local_name) or if (can_inline_spread)
                         identifierHasNonInlineUse(v.tree, node, local_name)
                     else
-                        identifierUsedByDeclaration(v.tree, node, local_name, self.allocator, false);
+                        identifierUsedByDeclaration(v.tree, node, local_name, self.allocator, false, resolvable);
                 }
             }
         }
@@ -1311,17 +1312,25 @@ pub const DeclarationTransformer = struct {
             var tag_offset: usize = 0;
             while (tag_offset < tag_items.len) : (tag_offset += 1) {
                 if (v.tree.getNode(tag_items[tag_offset]) != .JSDocOverloadTag) continue;
+                const overload_tag = v.tree.getNode(tag_items[tag_offset]).JSDocOverloadTag;
                 var parameters = std.ArrayListUnmanaged(ast.NodeIndex).empty;
                 defer parameters.deinit(self.allocator);
                 var return_type: ast.NodeIndex = 0;
-                var following = tag_offset + 1;
-                while (following < tag_items.len and v.tree.getNode(tag_items[following]) != .JSDocOverloadTag and return_type == 0) : (following += 1) {
-                    switch (v.tree.getNode(tag_items[following])) {
-                        .JSDocParameterTag => |tag| parameters.append(self.allocator, parameterFromJSDocTag(v.tree, f, tag, self.allocator)) catch unreachable,
-                        .JSDocReturnTag => |tag| if (tag.TypeExpression) |expression| {
-                            return_type = unwrapJSDocTypeExpression(v.tree, f, expression, self.allocator);
-                        },
-                        else => {},
+
+                if (overload_tag.TypeExpression != 0) {
+                    const sig = v.tree.getNode(overload_tag.TypeExpression).JSDocSignature;
+                    if (sig.Parameters != 0) {
+                        for (v.tree.getNodeList(sig.Parameters)) |param| {
+                            parameters.append(self.allocator, parameterFromJSDocTag(v.tree, f, v.tree.getNode(param).JSDocParameterTag, self.allocator)) catch unreachable;
+                        }
+                    }
+                    if (sig.Type) |sig_type| {
+                        if (sig_type != 0) {
+                            const ret_tag = v.tree.getNode(sig_type).JSDocReturnTag;
+                            if (ret_tag.TypeExpression != null and ret_tag.TypeExpression.? != 0) {
+                                return_type = unwrapJSDocTypeExpression(v.tree, f, ret_tag.TypeExpression.?, self.allocator);
+                            }
+                        }
                     }
                 }
                 const overload = f.updateMethodDeclaration(node, method, self.classMemberModifiers(v, method.modifiers orelse 0), method.AsteriskToken orelse 0, method.name, method.PostfixToken orelse 0, if (shared_type_parameters.items.len != 0) f.newNodeList(shared_type_parameters.items) else 0, f.newNodeList(parameters.items), if (return_type != 0) return_type else f.newToken(.{ .AnyKeyword = {} }), 0);
@@ -1428,6 +1437,22 @@ pub const DeclarationTransformer = struct {
         defer kept.deinit(self.allocator);
         for (v.tree.getNodeList(visited)) |modifier| if (v.tree.getNodeKind(modifier) != .AsyncKeyword) kept.append(self.allocator, modifier) catch unreachable;
         return if (kept.items.len == 0) 0 else self.transformer.factory.newModifierList(kept.items);
+    }
+    fn isModuleResolvable(self: *DeclarationTransformer, file_id: u32, module_specifier: ast.NodeIndex, target_tree: *ast.Ast) bool {
+        const program = self.semantic_program orelse return true;
+        std.debug.print("Node kind: {s}\n", .{@tagName(target_tree.getNode(module_specifier))});
+        if (target_tree.getNode(module_specifier) != .StringLiteral) return true;
+        const module_name = @import("../ast/ast_utils.zig").getText(target_tree, module_specifier);
+        std.debug.print("module_name: {s}\n", .{module_name});
+        const unit = program.getUnit(file_id);
+        for (unit.dependencies.items) |dep| {
+            if (std.mem.eql(u8, dep.specifier, module_name)) {
+                std.debug.print("Matched dep.specifier: {s}, resolved: {any}\n", .{ dep.specifier, dep.resolved });
+                return dep.resolved != null;
+            }
+        }
+        std.debug.print("Did not match any dep.specifier for {s}\n", .{module_name});
+        return false;
     }
 
     fn inferredDeclarationType(self: *DeclarationTransformer, v: *visitor.NodeVisitor, factory: anytype, name: ast.NodeIndex, explicit_type: ast.NodeIndex, initializer: ast.NodeIndex) ast.NodeIndex {
@@ -1617,6 +1642,67 @@ pub const DeclarationTransformer = struct {
             } }) catch unreachable;
         }
         if (self.semantic_program) |program| if (self.semantic_file) |file| {
+            if (tree.getNode(initializer) == .Identifier) {
+                const init_name = @import("../ast/ast_utils.zig").getText(tree, initializer);
+                if (program.resolveAlias(file, init_name)) |symbol| {
+                    const target_tree = program.getUnit(symbol.declaration_file).tree();
+                    if (symbol.declaration != 0) {
+                        const target_node = target_tree.getNode(symbol.declaration);
+                        if (target_node == .NamespaceImport or target_node == .ExternalModuleReference or target_node == .ImportEqualsDeclaration) {
+                            var resolvable = true;
+                            if (target_node == .NamespaceImport) {
+                                const parent = target_tree.getNodeParent(symbol.declaration);
+                                if (parent != 0 and target_tree.getNode(parent) == .ImportClause) {
+                                    const decl = target_tree.getNodeParent(parent);
+                                    if (decl != 0 and target_tree.getNode(decl) == .ImportDeclaration) {
+                                        const module_specifier = target_tree.getNode(decl).ImportDeclaration.ModuleSpecifier;
+                                        resolvable = self.isModuleResolvable(symbol.declaration_file, module_specifier, target_tree);
+                                    }
+                                }
+                            } else if (target_node == .ExternalModuleReference) {
+                                const expr = target_tree.getNode(symbol.declaration).ExternalModuleReference.Expression;
+                                resolvable = self.isModuleResolvable(symbol.declaration_file, expr, target_tree);
+                            }
+                            if (resolvable) {
+                                return tree.pushNode(.{ .TypeQuery = .{
+                                    .Flags = 0,
+                                    .TypeArguments = null,
+                                    .ExprName = initializer,
+                                } }) catch unreachable;
+                            }
+                        }
+                    }
+                } else if (self.semantic_binder) |bound| {
+                    const target_decl = self.findDeclarationInFile(tree, bound, init_name);
+                    if (target_decl != 0) {
+                        const target_node = tree.getNode(target_decl);
+                        if (target_node == .NamespaceImport or target_node == .ExternalModuleReference or target_node == .ImportEqualsDeclaration) {
+                            var resolvable = true;
+                            if (target_node == .NamespaceImport) {
+                                const parent = tree.getNodeParent(target_decl);
+                                if (parent != 0 and tree.getNode(parent) == .ImportClause) {
+                                    const decl = tree.getNodeParent(parent);
+                                    if (decl != 0 and tree.getNode(decl) == .ImportDeclaration) {
+                                        const module_specifier = tree.getNode(decl).ImportDeclaration.ModuleSpecifier;
+                                        resolvable = self.isModuleResolvable(file, module_specifier, tree);
+                                    }
+                                }
+                            } else if (target_node == .ExternalModuleReference) {
+                                const expr = tree.getNode(target_decl).ExternalModuleReference.Expression;
+                                resolvable = self.isModuleResolvable(file, expr, tree);
+                            }
+                            if (resolvable) {
+                                return tree.pushNode(.{ .TypeQuery = .{
+                                    .Flags = 0,
+                                    .TypeArguments = null,
+                                    .ExprName = initializer,
+                                } }) catch unreachable;
+                            }
+                        }
+                    }
+                }
+            }
+
             if (tree.getNode(name) == .Identifier) if (program.getPublicType(file, @import("../ast/ast_utils.zig").getText(tree, name))) |semantic_type| {
                 return factory.newToken(switch (semantic_type) {
                     .boolean => .{ .BooleanKeyword = {} },
@@ -2962,6 +3048,7 @@ fn hasSymbolInitializedDeclaration(tree: *ast.Ast, statement: ast.NodeIndex) boo
 const IdentifierUseCollector = struct {
     name: []const u8,
     ignore_object_spreads: bool = false,
+    is_resolvable: bool = true,
     found: bool = false,
 
     fn visit(ctx: ?*anyopaque, node_visitor: *visitor.NodeVisitor, node: ast.NodeIndex) ast.NodeIndex {
@@ -2971,7 +3058,15 @@ const IdentifierUseCollector = struct {
         switch (kind) {
             .VariableDeclaration => |vd| {
                 _ = node_visitor.visitNode(vd.name);
-                _ = node_visitor.visitNode(vd.Type orelse 0);
+                if (vd.Type) |type_node| {
+                    _ = node_visitor.visitNode(type_node);
+                } else if (self.is_resolvable) {
+                    if (vd.Initializer) |init_node| {
+                        if (tree.getNode(init_node) == .Identifier) {
+                            _ = node_visitor.visitNode(init_node);
+                        }
+                    }
+                }
                 return node;
             },
             .FunctionDeclaration => |fd| {
@@ -3012,7 +3107,8 @@ const IdentifierUseCollector = struct {
                 return node;
             },
             .Identifier => {
-                if (std.mem.eql(u8, @import("../ast/ast_utils.zig").getText(tree, node), self.name)) {
+                const id_text = @import("../ast/ast_utils.zig").getText(tree, node);
+                if (std.mem.eql(u8, id_text, self.name)) {
                     if (self.ignore_object_spreads) {
                         const parent = tree.getNodeParent(node);
                         if (parent != 0 and tree.getNode(parent) == .SpreadAssignment and tree.getNode(parent).SpreadAssignment.Expression == node) return node;
@@ -3028,9 +3124,9 @@ const IdentifierUseCollector = struct {
     }
 };
 
-fn identifierUsedByDeclaration(tree: *ast.Ast, import_node: ast.NodeIndex, name: []const u8, allocator: std.mem.Allocator, ignore_object_spreads: bool) bool {
+fn identifierUsedByDeclaration(tree: *ast.Ast, import_node: ast.NodeIndex, name: []const u8, allocator: std.mem.Allocator, ignore_object_spreads: bool, is_resolvable: bool) bool {
     const source = sourceFileAncestor(tree, import_node) orelse return false;
-    var collector = IdentifierUseCollector{ .name = name, .ignore_object_spreads = ignore_object_spreads };
+    var collector = IdentifierUseCollector{ .name = name, .ignore_object_spreads = ignore_object_spreads, .is_resolvable = is_resolvable };
     var node_visitor = visitor.NodeVisitor.init(allocator, tree, &collector, IdentifierUseCollector.visit, .{});
     for (tree.getNodeList(tree.getNode(source).SourceFile.Statements)) |statement| {
         if (statement == import_node or !isDeclarationStatement(tree, statement)) continue;
@@ -3040,7 +3136,9 @@ fn identifierUsedByDeclaration(tree: *ast.Ast, import_node: ast.NodeIndex, name:
             }
         }
         _ = node_visitor.visitNode(statement);
-        if (collector.found) return true;
+        if (collector.found) {
+            return true;
+        }
     }
     return false;
 }
@@ -4099,17 +4197,23 @@ fn unwrapJSDocTypeInner(tree: *ast.Ast, factory: anytype, node: ast.NodeIndex, a
 }
 
 fn parameterFromJSDocTag(tree: *ast.Ast, factory: anytype, tag: ast_gen.JSDocParameterOrPropertyTagNode, allocator: std.mem.Allocator) ast.NodeIndex {
-    var type_node = if (tag.TypeExpression) |expression| unwrapJSDocTypeExpression(tree, factory, expression, allocator) else factory.newToken(.{ .AnyKeyword = {} });
     var rest_token: ast.NodeIndex = 0;
     var question_token: ast.NodeIndex = if (tag.IsBracketed != 0) factory.newToken(.{ .QuestionToken = {} }) else 0;
-    if (tree.getNode(type_node) == .JSDocVariadicType) {
-        rest_token = factory.newToken(.{ .DotDotDotToken = {} });
-        type_node = tree.getNode(type_node).JSDocVariadicType.Type;
+
+    var inner_type: ast.NodeIndex = 0;
+    if (tag.TypeExpression) |expression| {
+        inner_type = if (tree.getNode(expression) == .JSDocTypeExpression) tree.getNode(expression).JSDocTypeExpression.Type else expression;
+        if (tree.getNode(inner_type) == .JSDocVariadicType) {
+            rest_token = factory.newToken(.{ .DotDotDotToken = {} });
+            inner_type = tree.getNode(inner_type).JSDocVariadicType.Type;
+        }
+        if (tree.getNode(inner_type) == .JSDocOptionalType) {
+            question_token = factory.newToken(.{ .QuestionToken = {} });
+            inner_type = tree.getNode(inner_type).JSDocOptionalType.Type;
+        }
     }
-    if (tree.getNode(type_node) == .JSDocOptionalType) {
-        question_token = factory.newToken(.{ .QuestionToken = {} });
-        type_node = tree.getNode(type_node).JSDocOptionalType.Type;
-    }
+
+    const type_node = if (inner_type != 0) unwrapJSDocTypeInner(tree, factory, inner_type, allocator) else factory.newToken(.{ .AnyKeyword = {} });
     markJSDocTuplesSynthetic(tree, type_node);
     var name_node = tag.name;
     if (tree.getNode(name_node) == .Identifier) {
