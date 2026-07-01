@@ -6,6 +6,20 @@ const emittextwriter = @import("emittextwriter.zig");
 const precedence = @import("../ast/precedence.zig");
 const ast_utils = @import("../ast/ast_utils.zig");
 const helpers_mod = @import("helpers.zig");
+const core = @import("../core/core.zig");
+
+pub const PrinterOptions = struct {
+    removeComments: bool = false,
+    newLine: ?core.NewLineKind = null,
+    omitTrailingSemicolon: bool = false,
+    noEmitHelpers: bool = false,
+    sourceMap: bool = false,
+    inlineSourceMap: bool = false,
+    inlineSources: bool = false,
+    target: ?core.ScriptTarget = null,
+    onlyPrintJSDocStyle: bool = false,
+    omitBraceSourceMapPositions: bool = false,
+};
 
 pub const Printer = struct {
     pub const SourceMapHook = struct {

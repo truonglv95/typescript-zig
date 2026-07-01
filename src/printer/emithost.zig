@@ -2,12 +2,14 @@ const std = @import("std");
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 
+const core = @import("../core/core.zig");
+
 // Placeholders for types that are not yet fully ported.
-pub const CompilerOptions = opaque {};
+pub const CompilerOptions = core.CompilerOptions;
 pub const ModuleKind = u32;
 pub const Path = []const u8;
 pub const SourceOutputAndProjectReference = opaque {};
-pub const EmitResolver = opaque {};
+pub const EmitResolver = @import("emitresolver.zig").EmitResolver;
 
 pub const EmitHost = struct {
     ptr: *anyopaque,

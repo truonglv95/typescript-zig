@@ -24,6 +24,21 @@ pub fn tryGetExtensionFromPath(path: []const u8) []const u8 {
     return "";
 }
 
+pub fn getNormalizedAbsolutePath(allocator: std.mem.Allocator, fileName: []const u8, currentDirectory: []const u8) ![]const u8 {
+    var absPath: []const u8 = undefined;
+    if (std.fs.path.isAbsolute(fileName)) {
+        absPath = try allocator.dupe(u8, fileName);
+    } else {
+        if (currentDirectory.len == 0) {
+            absPath = try allocator.dupe(u8, fileName);
+        } else {
+            absPath = try std.fs.path.join(allocator, &.{ currentDirectory, fileName });
+        }
+    }
+    // Simple normalization for now
+    return absPath;
+}
+
 pub fn toPath(allocator: std.mem.Allocator, fileName: []const u8, basePath: ?[]const u8, useCaseSensitiveFileNames: bool) !Path {
     _ = allocator;
     _ = basePath;
@@ -40,6 +55,23 @@ pub fn removeExtension(path: []const u8, extension: []const u8) []const u8 {
         return path[0 .. path.len - extension.len];
     }
     return path;
+}
+
+pub fn getCanonicalFileName(allocator: std.mem.Allocator, fileName: []const u8, useCaseSensitiveFileNames: bool) ![]const u8 {
+    if (useCaseSensitiveFileNames) {
+        return try allocator.dupe(u8, fileName);
+    }
+    return try std.ascii.allocLowerString(allocator, fileName);
+}
+
+pub fn getDeclarationEmitExtensionForPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    _ = allocator;
+    if (std.mem.endsWith(u8, path, ExtensionMts) or std.mem.endsWith(u8, path, ExtensionMjs)) {
+        return ExtensionDmts;
+    } else if (std.mem.endsWith(u8, path, ExtensionCts) or std.mem.endsWith(u8, path, ExtensionCjs)) {
+        return ExtensionDcts;
+    }
+    return ExtensionDts;
 }
 
 pub fn removeFileExtension(path: []const u8) []const u8 {
@@ -166,12 +198,12 @@ pub fn hasTrailingDirectorySeparator(path: []const u8) bool {
 }
 
 pub fn combinePaths(allocator: std.mem.Allocator, first_path: []const u8, paths: []const []const u8) ![]const u8 {
-    var b = std.ArrayList(u8).init(allocator);
-    defer b.deinit();
+    var b = std.ArrayList(u8).empty;
+    defer b.deinit(allocator);
 
     const fp_normalized = try normalizeSlashes(allocator, first_path);
     defer allocator.free(fp_normalized);
-    try b.appendSlice(fp_normalized);
+    try b.appendSlice(allocator, fp_normalized);
 
     var start: usize = 0;
 
@@ -182,12 +214,12 @@ pub fn combinePaths(allocator: std.mem.Allocator, first_path: []const u8, paths:
 
         if (b.items[start..].len == 0 or getRootLength(tp_norm) != 0) {
             start = b.items.len;
-            try b.appendSlice(tp_norm);
+            try b.appendSlice(allocator, tp_norm);
         } else {
             if (!hasTrailingDirectorySeparator(b.items[start..])) {
-                try b.append(directory_separator);
+                try b.append(allocator, directory_separator);
             }
-            try b.appendSlice(tp_norm);
+            try b.appendSlice(allocator, tp_norm);
         }
     }
 
@@ -349,4 +381,23 @@ pub fn ensureTrailingDirectorySeparator(allocator: std.mem.Allocator, path: []co
         return try std.fmt.allocPrint(allocator, "{s}/", .{path});
     }
     return try allocator.dupe(u8, path);
+}
+
+pub fn getRelativePathToDirectoryOrUrl(allocator: std.mem.Allocator, directoryPathOrUrl: []const u8, relativeOrAbsolutePath: []const u8, isAbsolutePathAnUrl: bool, options: ComparePathsOptions) ![]const u8 {
+    var components = try GetPathComponentsRelativeTo(allocator, directoryPathOrUrl, relativeOrAbsolutePath, options);
+    defer allocator.free(components);
+
+    if (components.len > 0 and isAbsolutePathAnUrl and isRootedDiskPath(components[0])) {
+        var prefix: []const u8 = undefined;
+        if (components[0][0] == directory_separator) {
+            prefix = "file://";
+        } else {
+            prefix = "file:///";
+        }
+        const newFirst = try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, components[0] });
+        defer allocator.free(components[0]);
+        components[0] = newFirst;
+    }
+
+    return GetPathFromPathComponents(allocator, components);
 }

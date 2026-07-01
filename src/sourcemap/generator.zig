@@ -58,15 +58,26 @@ pub const Generator = struct {
             .sourceRoot = sourceRoot,
             .sourcesDirectoryPath = sourcesDirectoryPath,
             .pathOptions = options,
-            .rawSources = std.ArrayList([]const u8).init(allocator),
-            .sources = std.ArrayList([]const u8).init(allocator),
+            .rawSources = .empty,
+            .sources = .empty,
             .sourceToSourceIndexMap = std.StringHashMap(SourceIndex).init(allocator),
-            .sourcesContent = std.ArrayList(?[]const u8).init(allocator),
-            .names = std.ArrayList([]const u8).init(allocator),
+            .sourcesContent = .empty,
+            .names = .empty,
             .nameToNameIndexMap = std.StringHashMap(NameIndex).init(allocator),
-            .mappings = std.ArrayList(u8).init(allocator),
+            .mappings = .empty,
         };
         return gen;
+    }
+
+    pub fn deinit(self: *Generator) void {
+        self.rawSources.deinit(self.allocator);
+        self.sources.deinit(self.allocator);
+        self.sourceToSourceIndexMap.deinit();
+        self.sourcesContent.deinit(self.allocator);
+        self.names.deinit(self.allocator);
+        self.nameToNameIndexMap.deinit();
+        self.mappings.deinit(self.allocator);
+        self.allocator.destroy(self);
     }
 
     pub fn getSources(self: *Generator) [][]const u8 {
@@ -85,8 +96,8 @@ pub const Generator = struct {
             return sourceIndex;
         } else {
             const sourceIndex: SourceIndex = @intCast(self.sources.items.len);
-            self.sources.append(source) catch unreachable;
-            self.rawSources.append(fileName) catch unreachable;
+            self.sources.append(self.allocator, source) catch unreachable;
+            self.rawSources.append(self.allocator, fileName) catch unreachable;
             self.sourceToSourceIndexMap.put(source, sourceIndex) catch unreachable;
             return sourceIndex;
         }
@@ -97,7 +108,7 @@ pub const Generator = struct {
             return error.SourceIndexOutOfRange;
         }
         while (self.sourcesContent.items.len <= sourceIndex) {
-            self.sourcesContent.append(null) catch unreachable;
+            self.sourcesContent.append(self.allocator, null) catch unreachable;
         }
         self.sourcesContent.items[sourceIndex] = content;
     }
@@ -107,7 +118,7 @@ pub const Generator = struct {
             return nameIndex;
         } else {
             const nameIndex: NameIndex = @intCast(self.names.items.len);
-            self.names.append(name) catch unreachable;
+            self.names.append(self.allocator, name) catch unreachable;
             self.nameToNameIndexMap.put(name, nameIndex) catch unreachable;
             return nameIndex;
         }
@@ -139,7 +150,7 @@ pub const Generator = struct {
     }
 
     fn appendMappingCharCode(self: *Generator, charCode: u8) void {
-        self.mappings.append(charCode) catch unreachable;
+        self.mappings.append(self.allocator, charCode) catch unreachable;
     }
 
     fn appendBase64VLQ(self: *Generator, inValue_: i32) void {
@@ -296,6 +307,36 @@ pub const Generator = struct {
             .sourcesContent = self.sourcesContent.items,
         };
         return map;
+    }
+
+    pub fn base64DataURL(self: *Generator, allocator: std.mem.Allocator) ![]const u8 {
+        const rawMap = self.toRawSourceMap();
+        var out = std.ArrayListUnmanaged(u8).empty;
+        defer out.deinit(allocator);
+        try out.print(allocator, "{}", .{std.json.fmt(rawMap.*, .{})});
+        self.allocator.destroy(rawMap);
+
+        const encoder = std.base64.standard.Encoder;
+        const encodedLen = encoder.calcSize(out.items.len);
+
+        var base64Url = try std.ArrayListUnmanaged(u8).initCapacity(allocator, 29 + encodedLen);
+        defer base64Url.deinit(allocator);
+        try base64Url.appendSlice(allocator, "data:application/json;base64,");
+
+        const start = base64Url.items.len;
+        base64Url.items.len += encodedLen;
+        _ = encoder.encode(base64Url.items[start..], out.items);
+
+        return base64Url.toOwnedSlice(allocator);
+    }
+
+    pub fn toString(self: *Generator, allocator: std.mem.Allocator) ![]const u8 {
+        const rawMap = self.toRawSourceMap();
+        var out = std.ArrayListUnmanaged(u8).empty;
+        defer out.deinit(allocator);
+        try out.print(allocator, "{}", .{std.json.fmt(rawMap.*, .{})});
+        self.allocator.destroy(rawMap);
+        return out.toOwnedSlice(allocator);
     }
 };
 

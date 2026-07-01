@@ -1,12 +1,19 @@
 const std = @import("std");
+const emithost = @import("../printer/emithost.zig");
+const emitter_mod = @import("emitter.zig");
+const outputpaths = @import("../outputpaths/outputpaths.zig");
+const printer = @import("../printer/printer.zig");
 const ast = @import("../ast/ast.zig");
+const ast_gen = @import("../ast/ast_generated.zig");
 const ast_utils = @import("../ast/ast_utils.zig");
+const diagnostics = @import("../diagnostics/diagnostics.zig");
 const parser = @import("../parser/parser.zig");
 const binder = @import("../binder/binder.zig");
 const checker = @import("../checker/checker.zig");
 const core = @import("../core/core.zig");
 const semver = @import("../semver/version.zig");
 const semver_range = @import("../semver/version_range.zig");
+const text_writer = @import("../printer/textwriter.zig");
 
 pub const FileId = u32;
 
@@ -158,6 +165,178 @@ pub const Program = struct {
         self.diagnostics.deinit(self.allocator);
         freeMapKeys(self.allocator, &self.public_types);
         self.public_types.deinit();
+    }
+
+    // --- EmitHost Implementation ---
+
+    fn eh_options(ptr: *anyopaque) *emithost.CompilerOptions {
+        const self: *Program = @ptrCast(@alignCast(ptr));
+        return @ptrCast(&self.opts.options);
+    }
+
+    fn eh_sourceFiles(ptr: *anyopaque) []const ast_gen.NodeIndex {
+        _ = ptr;
+        // This should return the node index of each source file.
+        // Wait, Program stores units (*SourceUnit), not NodeIndex directly.
+        // I will implement a dynamic list and return it or store it.
+        unreachable;
+    }
+
+    fn eh_useCaseSensitiveFileNames(ptr: *anyopaque) bool {
+        _ = ptr;
+        // Mac/Linux default to true, Windows to false.
+        // But TS uses current OS semantics.
+        return true;
+    }
+
+    fn eh_getCurrentDirectory(ptr: *anyopaque) []const u8 {
+        const self: *Program = @ptrCast(@alignCast(ptr));
+        return self.opts.projectName;
+    }
+
+    fn eh_commonSourceDirectory(ptr: *anyopaque) []const u8 {
+        _ = ptr;
+        return ""; // TODO
+    }
+
+    fn eh_isEmitBlocked(ptr: *anyopaque, file: []const u8) bool {
+        _ = ptr;
+        _ = file;
+        return false;
+    }
+
+    fn eh_writeFile(ptr: *anyopaque, fileName: []const u8, text: []const u8) anyerror!void {
+        _ = ptr;
+        _ = fileName;
+        _ = text;
+        // TODO: actually write file
+    }
+
+    fn eh_getEmitModuleFormatOfFile(ptr: *anyopaque, file: ast_gen.NodeIndex) emithost.ModuleKind {
+        _ = ptr;
+        _ = file;
+        return 0; // TODO
+    }
+
+    fn eh_getEmitResolver(ptr: *anyopaque) *emithost.EmitResolver {
+        _ = ptr;
+        unreachable;
+    }
+
+    fn eh_getProjectReferenceFromSource(ptr: *anyopaque, path: emithost.Path) ?*emithost.SourceOutputAndProjectReference {
+        _ = ptr;
+        _ = path;
+        return null;
+    }
+
+    fn eh_isSourceFileFromExternalLibrary(ptr: *anyopaque, file: ast_gen.NodeIndex) bool {
+        _ = ptr;
+        _ = file;
+        return false;
+    }
+
+    const emit_host_vtable = emithost.EmitHost.VTable{
+        .options = eh_options,
+        .sourceFiles = eh_sourceFiles,
+        .useCaseSensitiveFileNames = eh_useCaseSensitiveFileNames,
+        .getCurrentDirectory = eh_getCurrentDirectory,
+        .commonSourceDirectory = eh_commonSourceDirectory,
+        .isEmitBlocked = eh_isEmitBlocked,
+        .writeFile = eh_writeFile,
+        .getEmitModuleFormatOfFile = eh_getEmitModuleFormatOfFile,
+        .getEmitResolver = eh_getEmitResolver,
+        .getProjectReferenceFromSource = eh_getProjectReferenceFromSource,
+        .isSourceFileFromExternalLibrary = eh_isSourceFileFromExternalLibrary,
+    };
+
+    pub fn getEmitHost(self: *Program) emithost.EmitHost {
+        return .{
+            .ptr = self,
+            .vtable = &emit_host_vtable,
+        };
+    }
+
+    // Program emit coordination logic
+    // Analogous to EmitFilesAndReportErrors in Go
+    pub fn emit(self: *Program, emit_only: emitter_mod.EmitOnly) !*emitter_mod.EmitResult {
+        // Create an arena for this emit run
+        var emit_arena = std.heap.ArenaAllocator.init(self.allocator);
+        const emit_alloc = emit_arena.allocator();
+
+        var result = try emit_alloc.create(emitter_mod.EmitResult);
+        result.* = .{
+            .EmitSkipped = false,
+            .Diagnostics = &[_]diagnostics.Diagnostic{},
+            .EmittedFiles = &[_][]const u8{},
+            .SourceMaps = &[_]*emitter_mod.SourceMapEmitResult{},
+        };
+
+        var all_diagnostics = std.ArrayList(diagnostics.Diagnostic).empty;
+        var all_emitted_files = std.ArrayList([]const u8).empty;
+        var all_source_maps = std.ArrayList(*emitter_mod.SourceMapEmitResult).empty;
+        var emit_skipped = false;
+
+        const host = self.getEmitHost();
+        const options = self.opts.options;
+
+        const OutputPathsHostVTable = outputpaths.OutputPathsHost.VTable{
+            .commonSourceDirectory = eh_commonSourceDirectory,
+            .getCurrentDirectory = eh_getCurrentDirectory,
+            .useCaseSensitiveFileNames = eh_useCaseSensitiveFileNames,
+        };
+
+        // Create an outputpaths host based on emit host.
+        var op_host = outputpaths.OutputPathsHost{
+            .astState = undefined, // Needs to be filled or unused?
+            .ptr = self,
+            .vtable = &OutputPathsHostVTable,
+        };
+
+        for (self.units.items) |unit| {
+            if (unit.is_default_library) continue;
+            if (std.mem.endsWith(u8, unit.path, ".d.ts")) continue;
+            // Depending on emit_only, we might skip some files
+            // if (unit.ast == null) continue;
+
+            op_host.astState = unit.tree();
+            const paths = try outputpaths.getOutputPathsFor(emit_alloc, unit.source_file, &options, op_host, emit_only == .EmitOnlyForcedDts);
+
+            var writer = text_writer.TextWriter.init(emit_alloc, "\n", 0);
+            var emit_writer = writer.getEmitTextWriter();
+
+            var e = emitter_mod.Emitter{
+                .allocator = emit_alloc,
+                .host = host,
+                .emitOnly = emit_only,
+                .emitterDiagnostics = std.ArrayList(diagnostics.Diagnostic).empty,
+                .writer = &emit_writer,
+                .paths = paths,
+                .sourceFile = unit.source_file,
+                .tree = unit.tree(),
+                .emitResult = emitter_mod.EmitResult{
+                    .EmitSkipped = true,
+                    .Diagnostics = &[_]diagnostics.Diagnostic{},
+                    .EmittedFiles = &[_][]const u8{},
+                    .SourceMaps = &[_]*emitter_mod.SourceMapEmitResult{},
+                },
+                .writeFile = null, // TODO
+                .tr = null,
+            };
+
+            try e.emit();
+
+            if (e.emitResult.EmitSkipped) emit_skipped = true;
+            try all_diagnostics.appendSlice(emit_alloc, e.emitResult.Diagnostics);
+            try all_emitted_files.appendSlice(emit_alloc, e.emitResult.EmittedFiles);
+            try all_source_maps.appendSlice(emit_alloc, e.emitResult.SourceMaps);
+        }
+
+        result.EmitSkipped = emit_skipped;
+        result.Diagnostics = try all_diagnostics.toOwnedSlice(emit_alloc);
+        result.EmittedFiles = try all_emitted_files.toOwnedSlice(emit_alloc);
+        result.SourceMaps = try all_source_maps.toOwnedSlice(emit_alloc);
+
+        return result;
     }
 
     pub fn load(self: *Program, io: std.Io) !void {

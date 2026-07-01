@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init) !void {
     var os_sys = OsSystem.init(allocator);
     var sys = os_sys.sys();
 
-    const result = tsc.execute.tsc.commandLine(&os_sys, &sys, raw_args.items, null);
+    const result = tsc.execute.tsc_module.commandLine(&os_sys, &sys, raw_args.items, null);
     switch (result.status) {
         .Success => {},
         .DiagnosticsPresent_OutputsSkipped, .DiagnosticsPresent_OutputsGenerated => {
