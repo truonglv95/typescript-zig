@@ -69,6 +69,7 @@ pub const ScriptTarget = enum(u32) {
 };
 
 pub const CompilerOptions = @import("compiler_options_generated.zig").CompilerOptions;
+pub const PathsMappings = @import("compiler_options_generated.zig").PathsMappings;
 
 pub const ModuleKind = enum(u32) {
     None = 0,

@@ -205,7 +205,13 @@ pub const NodeFlags = struct {
 
 pub fn isInJSFile(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     if (nodeIndex == 0) return false;
-    return (a.getNodeFlags(nodeIndex) & NodeFlags.JavaScriptFile) != 0;
+    var current = nodeIndex;
+    while (current != 0) {
+        if ((a.getNodeFlags(current) & NodeFlags.JavaScriptFile) != 0) return true;
+        if (a.getNode(current) == .SourceFile) return false;
+        current = a.getNodeParent(current);
+    }
+    return false;
 }
 
 pub fn getModifiers(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ?u32 {
@@ -356,7 +362,6 @@ pub fn hasDecorators(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     if (modifiersIndex == 0) return false;
     const modifiers = tree.getNodeList(modifiersIndex);
     for (modifiers) |modIndex| {
-        std.debug.print("modifier node tag: {any}\n", .{std.meta.activeTag(tree.getNode(modIndex))});
         if (tree.getNode(modIndex) == .Decorator) {
             return true;
         }
@@ -1939,10 +1944,9 @@ pub fn isClassElement(a: anytype, b: anytype) bool {
     return false;
 }
 
-pub fn getCommonJSModuleIndicator(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getCommonJSModuleIndicator(tree: *ast.Ast, node_index: ast.NodeIndex) ast.NodeIndex {
+    if (node_index == 0 or tree.getNode(node_index) != .SourceFile) return 0;
+    return tree.getNode(node_index).SourceFile.CommonJSModuleIndicator orelse 0;
 }
 pub fn isLeftHandSideExpression(a: anytype, b: anytype) bool {
     _ = a;

@@ -1,6 +1,9 @@
 const std = @import("std");
 const core = @import("core.zig");
 
+/// Paths mappings: pattern -> list of substitution strings (mirrors Go's OrderedMap[string, []string])
+pub const PathsMappings = std.StringHashMap([]const []const u8);
+
 pub const CompilerOptions = struct {
     allowJs: ?bool = null,
     allowArbitraryExtensions: ?bool = null,
@@ -68,7 +71,8 @@ pub const CompilerOptions = struct {
     noImplicitOverride: ?bool = null,
     noUncheckedSideEffectImports: ?bool = null,
     outDir: ?[]const u8 = null,
-    paths: ?*std.AutoHashMap([]const u8, void) = null,
+    paths: ?*PathsMappings = null,
+
     preserveConstEnums: ?bool = null,
     preserveSymlinks: ?bool = null,
     project: ?[]const u8 = null,
@@ -132,4 +136,18 @@ pub const CompilerOptions = struct {
     singleThreaded: ?bool = null,
     quiet: ?bool = null,
     checkers: ?*i32 = null,
+
+    pub fn getPathsBasePath(self: *const CompilerOptions, currentDirectory: []const u8) []const u8 {
+        if (self.pathsBasePath) |p| return p;
+        if (self.baseUrl) |b| return b;
+        if (self.configFilePath) |cfp| {
+            const slash = std.mem.lastIndexOf(u8, cfp, "/") orelse return currentDirectory;
+            return cfp[0..slash];
+        }
+        return currentDirectory;
+    }
+
+    pub fn getAllowJS(self: *const CompilerOptions) bool {
+        return self.allowJs orelse false;
+    }
 };

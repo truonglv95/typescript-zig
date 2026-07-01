@@ -4,8 +4,8 @@ pub const Version = struct {
     major: u32 = 0,
     minor: u32 = 0,
     patch: u32 = 0,
-    prerelease: [][]const u8 = &[_][]const u8{},
-    build: [][]const u8 = &[_][]const u8{},
+    prerelease: []const []const u8 = &[_][]const u8{},
+    build: []const []const u8 = &[_][]const u8{},
 
     pub const zero = Version{
         .prerelease = &[_][]const u8{"0"},
@@ -68,7 +68,7 @@ pub const Version = struct {
     }
 };
 
-pub fn comparePreReleaseIdentifiers(left: [][]const u8, right: [][]const u8) std.math.Order {
+pub fn comparePreReleaseIdentifiers(left: []const []const u8, right: []const []const u8) std.math.Order {
     if (left.len == 0) {
         if (right.len == 0) return .eq;
         return .gt;
@@ -183,13 +183,13 @@ pub fn tryParseVersion(allocator: std.mem.Allocator, text: []const u8) !Version 
         const prereleaseStr = text[start..i];
         if (prereleaseStr.len == 0) return ParseError.InvalidVersion;
         var it = std.mem.splitScalar(u8, prereleaseStr, '.');
-        var list = std.ArrayList([]const u8).init(allocator);
-        errdefer list.deinit();
+        var list = std.ArrayList([]const u8).empty;
+        errdefer list.deinit(allocator);
         while (it.next()) |part| {
             if (!isValidPrereleasePart(part)) return ParseError.InvalidVersion;
-            try list.append(part);
+            try list.append(allocator, part);
         }
-        result.prerelease = try list.toOwnedSlice();
+        result.prerelease = try list.toOwnedSlice(allocator);
     }
 
     if (i < text.len and text[i] == '+') {
@@ -198,13 +198,13 @@ pub fn tryParseVersion(allocator: std.mem.Allocator, text: []const u8) !Version 
         const buildStr = text[start..];
         if (buildStr.len == 0) return ParseError.InvalidVersion;
         var it = std.mem.splitScalar(u8, buildStr, '.');
-        var list = std.ArrayList([]const u8).init(allocator);
-        errdefer list.deinit();
+        var list = std.ArrayList([]const u8).empty;
+        errdefer list.deinit(allocator);
         while (it.next()) |part| {
             if (!isValidBuildPart(part)) return ParseError.InvalidVersion;
-            try list.append(part);
+            try list.append(allocator, part);
         }
-        result.build = try list.toOwnedSlice();
+        result.build = try list.toOwnedSlice(allocator);
         i = text.len;
     }
 

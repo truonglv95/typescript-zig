@@ -9,16 +9,32 @@ pub fn isApplicableVersionedTypesKey(key: []const u8) bool {
     return std.mem.startsWith(u8, key, "types@");
 }
 
+fn moveToNextDirectorySeparatorIfAvailable(path: []const u8, prevSeparatorIndex: usize, isFolder: bool) usize {
+    const offset = prevSeparatorIndex + 1;
+    if (offset >= path.len) {
+        return if (isFolder) path.len else prevSeparatorIndex;
+    }
+    const nextSeparatorIndex = std.mem.indexOfScalar(u8, path[offset..], '/');
+    if (nextSeparatorIndex == null) {
+        if (isFolder) {
+            return path.len;
+        }
+        return prevSeparatorIndex;
+    }
+    return nextSeparatorIndex.? + offset;
+}
+
 pub fn parseNodeModuleFromPath(resolved: []const u8, isFolder: bool) []const u8 {
-    _ = isFolder;
-    const path = tspath.normalizePath(resolved);
-    const idx = std.mem.lastIndexOf(u8, path, "/node_modules/");
+    const idx = std.mem.lastIndexOf(u8, resolved, "/node_modules/");
     if (idx == null) {
         return "";
     }
     const indexAfterNodeModules = idx.? + "/node_modules/".len;
-    // mock implementation
-    return path[0..indexAfterNodeModules];
+    var indexAfterPackageName = moveToNextDirectorySeparatorIfAvailable(resolved, indexAfterNodeModules, isFolder);
+    if (indexAfterNodeModules < resolved.len and resolved[indexAfterNodeModules] == '@') {
+        indexAfterPackageName = moveToNextDirectorySeparatorIfAvailable(resolved, indexAfterPackageName, isFolder);
+    }
+    return resolved[0..indexAfterPackageName];
 }
 
 pub fn parsePackageName(moduleName: []const u8) struct { []const u8, []const u8 } {

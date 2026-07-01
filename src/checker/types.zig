@@ -110,6 +110,12 @@ pub const TypeData = union(enum) {
         elementType: TypeIndex,
     },
 
+    /// Tuple type: [A, B, ...]
+    Tuple: struct {
+        typesStart: u32,
+        typesLen: u32,
+    },
+
     /// Union type: A | B | C
     Union: struct {
         /// Index into an external types list (stored in Checker.unionTypes)

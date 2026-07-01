@@ -154,8 +154,11 @@ pub fn parseJSDocTypeExpression(p: *Parser, mayOmitBraces: bool) anyerror!NodeIn
     }
     const saveContextFlags = p.contextFlags;
     p.setContextFlags(@import("../ast/ast_utils.zig").NodeFlags.JSDoc, true);
+    const saveInJSDocType = p.inJSDocType;
+    p.inJSDocType = true;
     const t = try parseJSDocType(p);
     p.contextFlags = saveContextFlags;
+    p.inJSDocType = saveInJSDocType;
     if (hasBrace) {
         _ = p.parseExpected(kind.Kind.CloseBraceToken);
     }
@@ -789,7 +792,8 @@ pub fn parseBracketNameInPropertyAndParamTag(p: *Parser, target: propertyLikePar
 }
 
 fn isObjectOrObjectArrayTypeReference(tree: *ast.Ast, typeNode: NodeIndex) bool {
-    const nodeData = tree.getNode(typeNode);
+    const unwrapped = if (tree.getNode(typeNode) == .JSDocTypeExpression) tree.getNode(typeNode).JSDocTypeExpression.Type else typeNode;
+    const nodeData = tree.getNode(unwrapped);
     switch (nodeData) {
         .ObjectKeyword => return true,
         .ArrayType => |arr| return isObjectOrObjectArrayTypeReference(tree, arr.ElementType),
@@ -829,7 +833,15 @@ pub fn parseParameterOrPropertyTag(p: *Parser, start: usize, tagName: NodeIndex,
         isNameFirst = true;
     }
 
-    const result = try p.ast.pushNode(.{ .JSDocParameterTag = .{
+    const result = if (target == .Property) try p.ast.pushNode(.{ .JSDocPropertyTag = .{
+        .Flags = 0,
+        .TagName = tagName,
+        .Comment = comment,
+        .name = name,
+        .IsBracketed = if (isBracketed) 1 else 0,
+        .TypeExpression = typeExpression,
+        .IsNameFirst = if (isNameFirst) 1 else 0,
+    } }) else try p.ast.pushNode(.{ .JSDocParameterTag = .{
         .Flags = 0,
         .TagName = tagName,
         .Comment = comment,
@@ -1151,6 +1163,7 @@ pub fn parseTypedefTag(p: *Parser, start: usize, tagName: NodeIndex, indent: isi
 
     var end: isize = -1;
     var hasChildren = false;
+    var jsdocTypeLiteral: ?NodeIndex = null;
     if (typeExpression == null or isObjectOrObjectArrayTypeReference(&p.ast, typeExpression.?)) {
         var jsdocPropertyTags = std.ArrayList(NodeIndex).empty;
         defer jsdocPropertyTags.deinit(p.allocator);
@@ -1180,13 +1193,14 @@ pub fn parseTypedefTag(p: *Parser, start: usize, tagName: NodeIndex, indent: isi
         if (hasChildren) {
             const isArrayType = typeExpression != null and p.ast.getNode(typeExpression.?) == .ArrayType;
             const tagsList = try p.ast.pushNodeList(jsdocPropertyTags.items);
-            const jsdocTypeLiteral = try p.ast.pushNode(.{ .JSDocTypeLiteral = .{
+            const literalNode = try p.ast.pushNode(.{ .JSDocTypeLiteral = .{
                 .Flags = 0,
                 .Symbol = 0,
                 .JSDocPropertyTags = tagsList,
                 .IsArrayType = if (isArrayType) 1 else 0,
             } });
-            _ = finishNode(p, jsdocTypeLiteral, start);
+            _ = finishNode(p, literalNode, start);
+            jsdocTypeLiteral = literalNode;
             end = @as(isize, @intCast(p.scanner.getTokenEnd()));
         }
     }
@@ -1211,7 +1225,7 @@ pub fn parseTypedefTag(p: *Parser, start: usize, tagName: NodeIndex, indent: isi
         .Flags = 0,
         .TagName = tagName,
         .Comment = comment,
-        .TypeExpression = typeExpression,
+        .TypeExpression = jsdocTypeLiteral orelse typeExpression,
         .name = fullName orelse 0,
     } });
     return finishNodeWithEnd(p, typedefTag, start, @as(usize, @intCast(end)));
@@ -1625,4 +1639,242 @@ pub fn withJSDoc(p: *Parser, node: NodeIndex, info: @import("parser.zig").JSDocS
         return jsdoc_slice;
     }
     return null;
+}
+
+pub fn reparseJSDocDeclarations(p: *Parser, original_statements: []const NodeIndex, eof_token: NodeIndex) anyerror![]const NodeIndex {
+    var list = std.ArrayList(NodeIndex).empty;
+    errdefer list.deinit(p.allocator);
+
+    const Collector = struct {
+        const Self = @This();
+        parser: *Parser,
+        stats: *std.ArrayList(NodeIndex),
+
+        pub fn visitNode(c: *Self, node: NodeIndex) anyerror!void {
+            if (node == 0) return;
+            try c.processNodeJSDocs(node);
+            try @import("../ast/for_each_child.zig").forEachChild(&c.parser.ast, node, c);
+        }
+
+        pub fn visitList(c: *Self, list_idx: u32) anyerror!void {
+            if (list_idx != 0) {
+                const elements = c.parser.ast.getNodeList(list_idx);
+                for (elements) |child| {
+                    try c.visitNode(child);
+                }
+            }
+        }
+
+        fn processNodeJSDocs(c: *Self, node: NodeIndex) anyerror!void {
+            const jsdocs = c.parser.ast.jsdocCache.get(node) orelse return;
+            for (jsdocs) |doc_index| {
+                const tags = c.parser.ast.getNode(doc_index).JSDoc.Tags orelse continue;
+                for (c.parser.ast.getNodeList(tags)) |tag_index| {
+                    const tag_node = c.parser.ast.getNode(tag_index);
+                    switch (tag_node) {
+                        .JSDocTypedefTag => |tag| {
+                            const name = tag.name orelse continue;
+                            const expression = tag.TypeExpression orelse continue;
+
+                            const alias = try c.parser.ast.pushNode(.{ .JSTypeAliasDeclaration = .{
+                                .Symbol = 0,
+                                .Flags = 0,
+                                .modifiers = null,
+                                .modifierFlags = 0,
+                                .name = name,
+                                .TypeParameters = null,
+                                .Type = expression,
+                            } });
+                            try c.stats.append(c.parser.allocator, alias);
+                        },
+                        .JSDocCallbackTag => |tag| {
+                            const name = tag.name orelse continue;
+                            if (tag.TypeExpression == 0) continue;
+                            const expression = tag.TypeExpression;
+                            if (c.parser.ast.getNode(expression) != .JSDocSignature) continue;
+                            const sig = c.parser.ast.getNode(expression).JSDocSignature;
+
+                            var params = std.ArrayList(NodeIndex).empty;
+                            defer params.deinit(c.parser.allocator);
+                            if (sig.Parameters != 0) {
+                                for (c.parser.ast.getNodeList(sig.Parameters)) |param_tag_idx| {
+                                    const param_node = c.parser.ast.getNode(param_tag_idx);
+                                    switch (param_node) {
+                                        .JSDocParameterTag => |p_tag| {
+                                            var type_node = if (p_tag.TypeExpression) |expr| expr else try c.parser.ast.pushNode(.{ .Unknown = {} });
+                                            var rest_token: ?NodeIndex = null;
+                                            var question_token: ?NodeIndex = if (p_tag.IsBracketed != 0) try c.parser.ast.pushNode(.{ .QuestionToken = {} }) else null;
+                                            if (c.parser.ast.getNode(type_node) == .JSDocVariadicType) {
+                                                rest_token = try c.parser.ast.pushNode(.{ .DotDotDotToken = {} });
+                                                type_node = c.parser.ast.getNode(type_node).JSDocVariadicType.Type;
+                                            }
+                                            if (c.parser.ast.getNode(type_node) == .JSDocOptionalType) {
+                                                question_token = try c.parser.ast.pushNode(.{ .QuestionToken = {} });
+                                                type_node = c.parser.ast.getNode(type_node).JSDocOptionalType.Type;
+                                            }
+                                            const name_node = p_tag.name;
+                                            const param = try c.parser.ast.pushNode(.{ .Parameter = .{
+                                                .Flags = 0,
+                                                .Symbol = 0,
+                                                .modifiers = null,
+                                                .modifierFlags = 0,
+                                                .DotDotDotToken = rest_token,
+                                                .name = name_node,
+                                                .QuestionToken = question_token,
+                                                .Type = type_node,
+                                                .Initializer = null,
+                                            } });
+                                            try params.append(c.parser.allocator, param);
+                                        },
+                                        else => {},
+                                    }
+                                }
+                            }
+                            const params_list = try c.parser.ast.pushNodeList(params.items);
+
+                            var return_type: NodeIndex = 0;
+                            if (sig.Type != null) {
+                                const ret_node = c.parser.ast.getNode(sig.Type.?);
+                                switch (ret_node) {
+                                    .JSDocReturnTag => |ret_tag| {
+                                        if (ret_tag.TypeExpression) |expr| {
+                                            return_type = expr;
+                                        }
+                                    },
+                                    else => {},
+                                }
+                            }
+                            if (return_type == 0) {
+                                return_type = try c.parser.ast.pushNode(.{ .VoidKeyword = {} });
+                            }
+
+                            const function_type = try c.parser.ast.pushNode(.{ .FunctionType = .{
+                                .Symbol = 0,
+                                .Flags = 0,
+                                .modifiers = null,
+                                .modifierFlags = 0,
+                                .TypeParameters = null,
+                                .Parameters = params_list,
+                                .Type = return_type,
+                                .FullSignature = null,
+                            } });
+
+                            const alias = try c.parser.ast.pushNode(.{ .JSTypeAliasDeclaration = .{
+                                .Symbol = 0,
+                                .Flags = 0,
+                                .modifiers = null,
+                                .modifierFlags = 0,
+                                .name = name,
+                                .TypeParameters = null,
+                                .Type = function_type,
+                            } });
+                            try c.stats.append(c.parser.allocator, alias);
+                        },
+                        .JSDocImportTag => |tag| {
+                            const import_clause = tag.ImportClause orelse continue;
+                            const clause_node = c.parser.ast.getNode(import_clause).ImportClause;
+                            const type_keyword = try c.parser.ast.pushNode(.{ .TypeKeyword = {} });
+                            const new_import_clause = try c.parser.ast.pushNode(.{ .ImportClause = .{
+                                .Flags = clause_node.Flags,
+                                .Symbol = clause_node.Symbol,
+                                .PhaseModifier = type_keyword,
+                                .name = clause_node.name,
+                                .NamedBindings = clause_node.NamedBindings,
+                            } });
+                            const import_decl = try c.parser.ast.pushNode(.{ .JSImportDeclaration = .{
+                                .Flags = 0,
+                                .modifiers = null,
+                                .modifierFlags = 0,
+                                .Symbol = 0,
+                                .ImportClause = new_import_clause,
+                                .ModuleSpecifier = tag.ModuleSpecifier,
+                                .Attributes = tag.Attributes,
+                            } });
+                            try c.stats.append(c.parser.allocator, import_decl);
+                        },
+                        .JSDocTypeTag => |tag| {
+                            const type_expr = tag.TypeExpression;
+                            if (type_expr != 0) {
+                                const actual_type = c.parser.ast.getNode(type_expr).JSDocTypeExpression.Type;
+                                const parent_node = c.parser.ast.getNode(node);
+                                if (actual_type != 0) {
+                                    switch (parent_node) {
+                                        .VariableStatement => |n| {
+                                            const list_node = c.parser.ast.getNode(n.DeclarationList);
+                                            switch (list_node) {
+                                                .VariableDeclarationList => |v_list| {
+                                                    for (c.parser.ast.getNodeList(v_list.Declarations)) |decl| {
+                                                        var decl_node = c.parser.ast.getNode(decl).VariableDeclaration;
+                                                        if (decl_node.Type == null or decl_node.Type.? == 0) {
+                                                            decl_node.Type = actual_type;
+                                                            c.parser.ast.setNode(decl, .{ .VariableDeclaration = decl_node });
+                                                            break;
+                                                        }
+                                                    }
+                                                },
+                                                else => {},
+                                            }
+                                        },
+                                        .VariableDeclaration => |n| {
+                                            if (n.Type == null or n.Type.? == 0) {
+                                                var mut = n;
+                                                mut.Type = actual_type;
+                                                c.parser.ast.setNode(node, .{ .VariableDeclaration = mut });
+                                            }
+                                        },
+                                        .PropertyDeclaration => |n| {
+                                            if (n.Type == null or n.Type.? == 0) {
+                                                var mut = n;
+                                                mut.Type = actual_type;
+                                                c.parser.ast.setNode(node, .{ .PropertyDeclaration = mut });
+                                            }
+                                        },
+                                        .PropertyAssignment => |n| {
+                                            if (n.Type == 0) {
+                                                var mut = n;
+                                                mut.Type = actual_type;
+                                                c.parser.ast.setNode(node, .{ .PropertyAssignment = mut });
+                                            }
+                                        },
+                                        .Parameter => |n| {
+                                            if (n.Type == null or n.Type.? == 0) {
+                                                var mut = n;
+                                                mut.Type = actual_type;
+                                                c.parser.ast.setNode(node, .{ .Parameter = mut });
+                                            }
+                                        },
+                                        else => {},
+                                    }
+                                }
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            }
+        }
+    };
+
+    for (original_statements) |statement| {
+        var stmt_decls = std.ArrayList(NodeIndex).empty;
+        defer stmt_decls.deinit(p.allocator);
+        var collector = Collector{
+            .parser = p,
+            .stats = &stmt_decls,
+        };
+        try collector.visitNode(statement);
+        try list.appendSlice(p.allocator, stmt_decls.items);
+        try list.append(p.allocator, statement);
+    }
+
+    var eof_decls = std.ArrayList(NodeIndex).empty;
+    defer eof_decls.deinit(p.allocator);
+    var eof_collector = Collector{
+        .parser = p,
+        .stats = &eof_decls,
+    };
+    try eof_collector.visitNode(eof_token);
+    try list.appendSlice(p.allocator, eof_decls.items);
+
+    return try list.toOwnedSlice(p.allocator);
 }

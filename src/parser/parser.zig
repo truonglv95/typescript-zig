@@ -68,6 +68,7 @@ pub const Parser = struct {
     jsdocInfos: std.ArrayListUnmanaged(JSDocInfo) = .empty,
     jsdocCommentRangesSpace: std.ArrayListUnmanaged(scanner_pkg.CommentRange) = .empty,
     hasDeprecatedTag: bool = false,
+    inJSDocType: bool = false,
 
     pub fn setContextFlags(self: *Parser, val: u32, on: bool) void {
         if (on) {
@@ -674,10 +675,18 @@ pub const Parser = struct {
         const endOfFileToken = try self.ast.pushNode(.{ .EndOfFile = void{} });
         _ = try jsdoc.withJSDoc(self, endOfFileToken, eof_jsdoc_info);
 
+        var final_statements = statements;
+        if (self.isJavaScript()) {
+            const original_list = self.ast.getNodeList(statements);
+            const interleaved = try jsdoc.reparseJSDocDeclarations(self, original_list, endOfFileToken);
+            final_statements = try self.ast.pushNodeList(interleaved);
+            self.allocator.free(interleaved);
+        }
+
         const sourceFileIndex = try self.ast.pushNode(.{ .SourceFile = .{
             .Symbol = 0,
-            .Flags = 0,
-            .Statements = statements,
+            .Flags = if (self.isJavaScript()) @import("../ast/ast_utils.zig").NodeFlags.JavaScriptFile else 0,
+            .Statements = final_statements,
             .EndOfFileToken = endOfFileToken,
             .ExternalModuleIndicator = null,
             .CommonJSModuleIndicator = null,
@@ -3030,8 +3039,15 @@ pub const Parser = struct {
             return try jsdoc.parseJSDocNonNullableType(self);
         }
 
-        self.nextToken();
-        return self.ast.pushNode(.{ .Unknown = void{} });
+        switch (self.token) {
+            kind.Kind.BarToken, kind.Kind.AmpersandToken, kind.Kind.CloseBraceToken, kind.Kind.CloseBracketToken, kind.Kind.CloseParenToken, kind.Kind.CommaToken, kind.Kind.SemicolonToken, kind.Kind.ColonToken, kind.Kind.EqualsToken, kind.Kind.GreaterThanToken, kind.Kind.EndOfFile => {
+                return self.ast.pushNode(.{ .Unknown = void{} });
+            },
+            else => {
+                self.nextToken();
+                return self.ast.pushNode(.{ .Unknown = void{} });
+            },
+        }
     }
 
     pub fn parseTemplateLiteralType(self: *Parser) anyerror!ast_gen.NodeIndex {
@@ -3759,6 +3775,25 @@ pub const Parser = struct {
                         .ElementType = typeNode,
                     } });
                 }
+            } else if (self.inJSDocType and self.token == kind.Kind.ExclamationToken) {
+                self.nextToken();
+                typeNode = try self.ast.pushNode(.{ .JSDocNonNullableType = .{
+                    .Flags = 0,
+                    .Type = typeNode,
+                } });
+            } else if (self.inJSDocType and self.token == kind.Kind.QuestionToken) {
+                // If next token is start of a type we have a conditional type - don't consume
+                if (self.lookAhead(struct {
+                    fn check(p: *Parser) bool {
+                        p.nextToken();
+                        return p.isStartOfType();
+                    }
+                }.check)) break;
+                self.nextToken();
+                typeNode = try self.ast.pushNode(.{ .JSDocNullableType = .{
+                    .Flags = 0,
+                    .Type = typeNode,
+                } });
             } else {
                 break;
             }

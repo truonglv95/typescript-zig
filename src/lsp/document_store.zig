@@ -95,6 +95,38 @@ pub fn offsetAt(text: []const u8, position: Position) !usize {
     return offset;
 }
 
+pub fn positionAt(text: []const u8, requested_offset: usize) Position {
+    const target = @min(requested_offset, text.len);
+    var line: usize = 0;
+    var character: usize = 0;
+    var offset: usize = 0;
+    while (offset < target) {
+        if (text[offset] == '\n') {
+            line += 1;
+            character = 0;
+            offset += 1;
+            continue;
+        }
+        if (text[offset] == '\r') {
+            offset += 1;
+            if (offset < target and text[offset] == '\n') offset += 1;
+            line += 1;
+            character = 0;
+            continue;
+        }
+        const sequence_len = std.unicode.utf8ByteSequenceLength(text[offset]) catch 1;
+        if (offset + sequence_len > target) break;
+        const codepoint = std.unicode.utf8Decode(text[offset .. offset + sequence_len]) catch {
+            offset += 1;
+            character += 1;
+            continue;
+        };
+        character += if (codepoint > 0xffff) 2 else 1;
+        offset += sequence_len;
+    }
+    return .{ .line = line, .character = character };
+}
+
 test "document store applies UTF-16 incremental edits and rejects stale versions" {
     var store = DocumentStore.init(std.testing.allocator);
     defer store.deinit();
@@ -108,4 +140,8 @@ test "document store applies UTF-16 incremental edits and rejects stale versions
 test "offsetAt counts astral characters as two UTF-16 code units" {
     try std.testing.expectEqual(@as(usize, 5), try offsetAt("a😀b", .{ .line = 0, .character = 3 }));
     try std.testing.expectError(error.PositionInsideSurrogatePair, offsetAt("a😀b", .{ .line = 0, .character = 2 }));
+}
+
+test "positionAt reports UTF-16 positions" {
+    try std.testing.expectEqual(Position{ .line = 1, .character = 3 }, positionAt("x\na😀b", 7));
 }

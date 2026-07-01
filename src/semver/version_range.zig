@@ -33,7 +33,6 @@ pub const VersionRange = struct {
     pub fn format(self: VersionRange, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        var start_len: usize = 0; // We can't directly check writer.Len(), so we'll just track if anything was written
         var written = false;
 
         for (self.alternatives, 0..) |alternative, i| {
@@ -93,7 +92,7 @@ fn parsePartial(allocator: std.mem.Allocator, text: []const u8) !PartialVersion 
 
     var i: usize = 0;
     var start = i;
-    
+
     // Parse major
     while (i < text.len and text[i] != '.' and text[i] != '-' and text[i] != '+') : (i += 1) {}
     const major_str = text[start..i];
@@ -153,19 +152,19 @@ fn parsePartial(allocator: std.mem.Allocator, text: []const u8) !PartialVersion 
         }
     }
 
-    var prerelease = std.ArrayList([]const u8).init(allocator);
+    var prerelease = std.ArrayList([]const u8).empty;
     if (prerelease_str.len > 0) {
         var it = std.mem.splitScalar(u8, prerelease_str, '.');
         while (it.next()) |part| {
-            try prerelease.append(part);
+            try prerelease.append(allocator, part);
         }
     }
 
-    var build = std.ArrayList([]const u8).init(allocator);
+    var build = std.ArrayList([]const u8).empty;
     if (build_str.len > 0) {
         var it = std.mem.splitScalar(u8, build_str, '.');
         while (it.next()) |part| {
-            try build.append(part);
+            try build.append(allocator, part);
         }
     }
 
@@ -174,8 +173,8 @@ fn parsePartial(allocator: std.mem.Allocator, text: []const u8) !PartialVersion 
             .major = major_num,
             .minor = minor_num,
             .patch = patch_num,
-            .prerelease = try prerelease.toOwnedSlice(),
-            .build = try build.toOwnedSlice(),
+            .prerelease = try prerelease.toOwnedSlice(allocator),
+            .build = try build.toOwnedSlice(allocator),
         },
         .major_str = major_str,
         .minor_str = minor_str,
@@ -185,38 +184,33 @@ fn parsePartial(allocator: std.mem.Allocator, text: []const u8) !PartialVersion 
 
 fn parseComparator(allocator: std.mem.Allocator, op: []const u8, text: []const u8) ![]VersionComparator {
     var operator: ComparatorOperator = .equal;
-    if (std.mem.eql(u8, op, "<")) operator = .less_than
-    else if (std.mem.eql(u8, op, "<=")) operator = .less_than_equal
-    else if (std.mem.eql(u8, op, "=")) operator = .equal
-    else if (std.mem.eql(u8, op, ">=")) operator = .greater_than_equal
-    else if (std.mem.eql(u8, op, ">")) operator = .greater_than
-    else if (op.len > 0 and op[0] != '~' and op[0] != '^') return error.InvalidOperator;
+    if (std.mem.eql(u8, op, "<")) operator = .less_than else if (std.mem.eql(u8, op, "<=")) operator = .less_than_equal else if (std.mem.eql(u8, op, "=")) operator = .equal else if (std.mem.eql(u8, op, ">=")) operator = .greater_than_equal else if (std.mem.eql(u8, op, ">")) operator = .greater_than else if (op.len > 0 and op[0] != '~' and op[0] != '^') return error.InvalidOperator;
 
     const result = try parsePartial(allocator, text);
 
-    var comparators_result = std.ArrayList(VersionComparator).init(allocator);
-    errdefer comparators_result.deinit();
+    var comparators_result = std.ArrayList(VersionComparator).empty;
+    errdefer comparators_result.deinit(allocator);
 
     if (!isWildcard(result.major_str)) {
         if (std.mem.eql(u8, op, "~")) {
-            try comparators_result.append(.{ .operator = .greater_than_equal, .operand = result.version });
-            var secondVersion = if (isWildcard(result.minor_str)) result.version.incrementMajor() else result.version.incrementMinor();
-            try comparators_result.append(.{ .operator = .less_than, .operand = secondVersion });
+            try comparators_result.append(allocator, .{ .operator = .greater_than_equal, .operand = result.version });
+            const secondVersion = if (isWildcard(result.minor_str)) result.version.incrementMajor() else result.version.incrementMinor();
+            try comparators_result.append(allocator, .{ .operator = .less_than, .operand = secondVersion });
         } else if (std.mem.eql(u8, op, "^")) {
-            try comparators_result.append(.{ .operator = .greater_than_equal, .operand = result.version });
-            var secondVersion = if (result.version.major > 0 or isWildcard(result.minor_str))
+            try comparators_result.append(allocator, .{ .operator = .greater_than_equal, .operand = result.version });
+            const secondVersion = if (result.version.major > 0 or isWildcard(result.minor_str))
                 result.version.incrementMajor()
             else if (result.version.minor > 0 or isWildcard(result.patch_str))
                 result.version.incrementMinor()
             else
                 result.version.incrementPatch();
-            try comparators_result.append(.{ .operator = .less_than, .operand = secondVersion });
+            try comparators_result.append(allocator, .{ .operator = .less_than, .operand = secondVersion });
         } else if (std.mem.eql(u8, op, "<") or std.mem.eql(u8, op, ">=")) {
             var version = result.version;
             if (isWildcard(result.minor_str) or isWildcard(result.patch_str)) {
                 version.prerelease = Version.zero.prerelease;
             }
-            try comparators_result.append(.{ .operator = operator, .operand = version });
+            try comparators_result.append(allocator, .{ .operator = operator, .operand = version });
         } else if (std.mem.eql(u8, op, "<=") or std.mem.eql(u8, op, ">")) {
             var version = result.version;
             var op_to_use = operator;
@@ -229,7 +223,7 @@ fn parseComparator(allocator: std.mem.Allocator, op: []const u8, text: []const u
                 version = version.incrementMinor();
                 version.prerelease = Version.zero.prerelease;
             }
-            try comparators_result.append(.{ .operator = op_to_use, .operand = version });
+            try comparators_result.append(allocator, .{ .operator = op_to_use, .operand = version });
         } else if (std.mem.eql(u8, op, "=") or op.len == 0) {
             operator = .equal;
             if (isWildcard(result.minor_str) or isWildcard(result.patch_str)) {
@@ -237,32 +231,32 @@ fn parseComparator(allocator: std.mem.Allocator, op: []const u8, text: []const u
                 firstVersion.prerelease = Version.zero.prerelease;
                 var secondVersion = if (isWildcard(result.minor_str)) result.version.incrementMajor() else result.version.incrementMinor();
                 secondVersion.prerelease = Version.zero.prerelease;
-                try comparators_result.append(.{ .operator = .greater_than_equal, .operand = firstVersion });
-                try comparators_result.append(.{ .operator = .less_than, .operand = secondVersion });
+                try comparators_result.append(allocator, .{ .operator = .greater_than_equal, .operand = firstVersion });
+                try comparators_result.append(allocator, .{ .operator = .less_than, .operand = secondVersion });
             } else {
-                try comparators_result.append(.{ .operator = operator, .operand = result.version });
+                try comparators_result.append(allocator, .{ .operator = operator, .operand = result.version });
             }
         } else {
             return error.InvalidOperator;
         }
     } else {
         if (std.mem.eql(u8, op, "<") or std.mem.eql(u8, op, ">")) {
-            try comparators_result.append(.{ .operator = .less_than, .operand = Version.zero });
+            try comparators_result.append(allocator, .{ .operator = .less_than, .operand = Version.zero });
         }
     }
 
-    return try comparators_result.toOwnedSlice();
+    return try comparators_result.toOwnedSlice(allocator);
 }
 
 fn parseHyphen(allocator: std.mem.Allocator, left: []const u8, right: []const u8) ![]VersionComparator {
     const left_res = try parsePartial(allocator, left);
     const right_res = try parsePartial(allocator, right);
 
-    var comparators = std.ArrayList(VersionComparator).init(allocator);
-    errdefer comparators.deinit();
+    var comparators = std.ArrayList(VersionComparator).empty;
+    errdefer comparators.deinit(allocator);
 
     if (!isWildcard(left_res.major_str)) {
-        try comparators.append(.{ .operator = .greater_than_equal, .operand = left_res.version });
+        try comparators.append(allocator, .{ .operator = .greater_than_equal, .operand = left_res.version });
     }
 
     if (!isWildcard(right_res.major_str)) {
@@ -279,23 +273,23 @@ fn parseHyphen(allocator: std.mem.Allocator, left: []const u8, right: []const u8
             operator = .less_than_equal;
         }
 
-        try comparators.append(.{ .operator = operator, .operand = operand });
+        try comparators.append(allocator, .{ .operator = operator, .operand = operand });
     }
 
-    return try comparators.toOwnedSlice();
+    return try comparators.toOwnedSlice(allocator);
 }
 
 pub fn tryParseVersionRange(allocator: std.mem.Allocator, text: []const u8) !VersionRange {
-    var alternatives = std.ArrayList([]VersionComparator).init(allocator);
-    errdefer alternatives.deinit();
+    var alternatives = std.ArrayList([]VersionComparator).empty;
+    errdefer alternatives.deinit(allocator);
 
     var or_it = std.mem.splitSequence(u8, std.mem.trim(u8, text, " \t\r\n"), "||");
     while (or_it.next()) |r_untrimmed| {
         const r = std.mem.trim(u8, r_untrimmed, " \t\r\n");
         if (r.len == 0) continue;
 
-        var comparators = std.ArrayList(VersionComparator).init(allocator);
-        errdefer comparators.deinit();
+        var comparators = std.ArrayList(VersionComparator).empty;
+        errdefer comparators.deinit(allocator);
 
         // Check for hyphen match. A bit tricky without regex.
         // Look for " - " in `r`.
@@ -304,7 +298,7 @@ pub fn tryParseVersionRange(allocator: std.mem.Allocator, text: []const u8) !Ver
             const left = std.mem.trim(u8, r[0..hyphen_idx.?], " \t\r\n");
             const right = std.mem.trim(u8, r[hyphen_idx.? + 3 ..], " \t\r\n");
             const parsed = try parseHyphen(allocator, left, right);
-            try comparators.appendSlice(parsed);
+            try comparators.appendSlice(allocator, parsed);
         } else {
             var space_it = std.mem.tokenizeAny(u8, r, " \t\r\n");
             while (space_it.next()) |simple| {
@@ -322,7 +316,7 @@ pub fn tryParseVersionRange(allocator: std.mem.Allocator, text: []const u8) !Ver
                     op = simple[0..1];
                     operand = simple[1..];
                 }
-                
+
                 // operand might be empty if there's a space after operator, e.g. ">= 1.0.0"
                 if (operand.len == 0) {
                     if (space_it.next()) |next_operand| {
@@ -333,11 +327,11 @@ pub fn tryParseVersionRange(allocator: std.mem.Allocator, text: []const u8) !Ver
                 }
 
                 const parsed = try parseComparator(allocator, op, operand);
-                try comparators.appendSlice(parsed);
+                try comparators.appendSlice(allocator, parsed);
             }
         }
-        try alternatives.append(try comparators.toOwnedSlice());
+        try alternatives.append(allocator, try comparators.toOwnedSlice(allocator));
     }
 
-    return VersionRange{ .alternatives = try alternatives.toOwnedSlice() };
+    return VersionRange{ .alternatives = try alternatives.toOwnedSlice(allocator) };
 }
