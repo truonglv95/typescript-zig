@@ -16,13 +16,13 @@ const async_transform = @import("estransforms/async.zig");
 
 pub fn getESTransformer(allocator: std.mem.Allocator, opts: *transformers.TransformOptions) !?*transformers.Transformer {
     const options = opts.compilerOptions;
-    var active = std.ArrayList(*transformers.Transformer).init(allocator);
-    defer active.deinit();
+    var active = std.ArrayList(*transformers.Transformer).empty;
+    defer active.deinit(allocator);
 
-    const target = options.getEmitScriptTarget();
+    const target = options.target orelse .None;
 
-    const experimentalDecorators = options.experimentalDecorators.isTrue();
-    const useDefineForClassFields = options.getUseDefineForClassFields();
+    const experimentalDecorators = options.experimentalDecorators orelse false;
+    const useDefineForClassFields = options.useDefineForClassFields orelse false;
 
     const esDecoratorActive = !experimentalDecorators and !(target == .ESNext and useDefineForClassFields);
     const classFieldsActive = @intFromEnum(target) < @intFromEnum(core.ScriptTarget.ES2022) or !useDefineForClassFields;
@@ -32,22 +32,22 @@ pub fn getESTransformer(allocator: std.mem.Allocator, opts: *transformers.Transf
     const asyncActive = @intFromEnum(target) < @intFromEnum(core.ScriptTarget.ES2017);
 
     if (usingActive) {
-        try active.append(try using.UsingDeclarationTransformer.newUsingDeclarationTransformer(allocator, opts));
+        try active.append(allocator, try using.UsingDeclarationTransformer.newUsingDeclarationTransformer(allocator, opts));
     }
     if (esDecoratorActive) {
-        try active.append(try esdecorator.ESDecoratorTransformer.new(allocator, opts));
+        try active.append(allocator, try esdecorator.ESDecoratorTransformer.new(allocator, opts));
     }
     if (classFieldsActive) {
-        try active.append(try classfields.ClassFieldsTransformer.new(allocator, opts));
+        try active.append(allocator, try classfields.ClassFieldsTransformer.new(allocator, opts));
     }
     if (objectRestActive) {
-        try active.append(try objectrestspread.ObjectRestTransformer.new(allocator, opts));
+        try active.append(allocator, try objectrestspread.ObjectRestTransformer.new(allocator, opts));
     }
     if (asyncActive) {
-        try active.append(try async_transform.AsyncTransformer.new(allocator, opts));
+        try active.append(allocator, try async_transform.AsyncTransformer.new(allocator, opts));
     }
     if (taggedTemplateActive) {
-        try active.append(try taggedtemplate.TaggedTemplateTransformer.new(allocator, opts));
+        try active.append(allocator, try taggedtemplate.TaggedTemplateTransformer.new(allocator, opts));
     }
 
     if (active.items.len == 0) return null;

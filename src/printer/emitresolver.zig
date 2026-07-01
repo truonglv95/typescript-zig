@@ -41,6 +41,18 @@ pub const EmitResolver = struct {
         _ = b;
         return 0;
     }
+
+    pub fn markLinkedReferencesRecursively(self: *EmitResolver, sourceFile: ast.NodeIndex) !void {
+        _ = self;
+        _ = sourceFile;
+        // Stub
+    }
+
+    pub fn asReferenceResolver(self: *EmitResolver) @import("../binder/referenceresolver.zig").ReferenceResolver {
+        _ = self;
+        // Stub implementation, will need actual tree in the future.
+        return @import("../binder/referenceresolver.zig").ReferenceResolver.init(undefined, .{});
+    }
 };
 
 pub const SymbolAccessibility = enum(u32) {

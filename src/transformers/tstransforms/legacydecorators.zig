@@ -21,8 +21,8 @@ pub const LegacyDecoratorsTransformer = struct {
     enclosingClasses: std.ArrayList(ast.NodeIndex),
     allocator: std.mem.Allocator,
 
-    pub fn new(allocator: std.mem.Allocator, opt: *transformers.TransformOptions) *transformers.Transformer {
-        var tx = allocator.create(LegacyDecoratorsTransformer) catch unreachable;
+    pub fn new(allocator: std.mem.Allocator, opt: *transformers.TransformOptions) !*transformers.Transformer {
+        var tx = try allocator.create(LegacyDecoratorsTransformer);
         tx.* = .{
             .base = undefined,
             .languageVersion = opt.compilerOptions.target orelse .Latest,

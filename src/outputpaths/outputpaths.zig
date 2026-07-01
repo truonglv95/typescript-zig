@@ -56,28 +56,29 @@ pub fn getOutputPathsFor(
     host: OutputPathsHost,
     forceDtsEmit: bool,
 ) !*OutputPaths {
-    const fileName = try ast_utils.getFileName(host.astState, sourceFile);
+    _ = sourceFile;
+    const fileName = host.astState.fileName;
     const ownOutputFilePath = try getOwnEmitOutputFilePath(allocator, fileName, options, host, try getOutputExtension(allocator, fileName, options.jsx orelse .None));
-    const isJsonFile = ast_utils.isJsonSourceFile(host.astState, sourceFile);
-    
+    const isJsonFile = std.mem.endsWith(u8, fileName, ".json");
+
     // If json file emits to the same location skip writing it, if emitDeclarationOnly skip writing it
     const isJsonEmittedToSameLocation = isJsonFile and tspath.comparePaths(fileName, ownOutputFilePath, .{
         .currentDirectory = host.getCurrentDirectory(),
         .useCaseSensitiveFileNames = host.useCaseSensitiveFileNames(),
     }) == 0;
-    
+
     var paths = try allocator.create(OutputPaths);
     paths.* = .{};
-    
+
     if ((options.emitDeclarationOnly orelse false) != true and !isJsonEmittedToSameLocation) {
         paths.jsFilePath = ownOutputFilePath;
         if (!isJsonFile) {
             paths.sourceMapFilePath = try getSourceMapFilePath(allocator, paths.jsFilePath, options);
         }
     }
-    
+
     const getEmitDeclarations = (options.declaration orelse false) or (options.composite orelse false);
-    
+
     if (forceDtsEmit or (getEmitDeclarations and !isJsonFile)) {
         paths.declarationFilePath = try getDeclarationEmitOutputFilePath(allocator, fileName, options, host);
         const getAreDeclarationMapsEnabled = options.declarationMap orelse false;
@@ -121,6 +122,21 @@ pub fn getOutputJSFileName(allocator: std.mem.Allocator, inputFileName: []const 
     return "";
 }
 
+fn removeFileExtension(path: []const u8) []const u8 {
+    const dotPos = std.mem.lastIndexOf(u8, path, ".");
+    if (dotPos) |p| {
+        return path[0..p];
+    }
+    return path;
+}
+
+fn fileExtensionIsOneOf(fileName: []const u8, extensions: []const []const u8) bool {
+    for (extensions) |ext| {
+        if (std.mem.endsWith(u8, fileName, ext)) return true;
+    }
+    return false;
+}
+
 pub fn getOutputJSFileNameWorker(allocator: std.mem.Allocator, inputFileName: []const u8, options: *const core.CompilerOptions, host: OutputPathsHost) ![]const u8 {
     const outputPath = try getOutputPathWithoutChangingExtension(allocator, inputFileName, options.outDir orelse "", host);
     const ext = try getOutputExtension(allocator, inputFileName, options.jsx orelse .None);
@@ -139,13 +155,13 @@ pub fn getOutputDeclarationFileNameWorker(allocator: std.mem.Allocator, inputFil
 
 pub fn getOutputExtension(allocator: std.mem.Allocator, fileName: []const u8, jsx: core.JsxEmit) ![]const u8 {
     _ = allocator;
-    if (tspath.fileExtensionIs(fileName, tspath.ExtensionJson)) {
+    if (std.mem.endsWith(u8, fileName, tspath.ExtensionJson)) {
         return tspath.ExtensionJson;
-    } else if (jsx == core.JsxEmit.Preserve and tspath.fileExtensionIsOneOf(fileName, &[_][]const u8{ tspath.ExtensionJsx, tspath.ExtensionTsx })) {
+    } else if (jsx == core.JsxEmit.Preserve and fileExtensionIsOneOf(fileName, &[_][]const u8{ tspath.ExtensionJsx, tspath.ExtensionTsx })) {
         return tspath.ExtensionJsx;
-    } else if (tspath.fileExtensionIsOneOf(fileName, &[_][]const u8{ tspath.ExtensionMts, tspath.ExtensionMjs })) {
+    } else if (fileExtensionIsOneOf(fileName, &[_][]const u8{ tspath.ExtensionMts, tspath.ExtensionMjs })) {
         return tspath.ExtensionMjs;
-    } else if (tspath.fileExtensionIsOneOf(fileName, &[_][]const u8{ tspath.ExtensionCts, tspath.ExtensionCjs })) {
+    } else if (fileExtensionIsOneOf(fileName, &[_][]const u8{ tspath.ExtensionCts, tspath.ExtensionCjs })) {
         return tspath.ExtensionCjs;
     } else {
         return tspath.ExtensionJs;
@@ -154,10 +170,10 @@ pub fn getOutputExtension(allocator: std.mem.Allocator, fileName: []const u8, js
 
 pub fn getDeclarationEmitOutputFilePath(allocator: std.mem.Allocator, file: []const u8, options: *const core.CompilerOptions, host: OutputPathsHost) ![]const u8 {
     var outputDir: ?[]const u8 = null;
-    if ((options.declarationDir orelse "").len > 0) {
-        outputDir = options.declarationDir;
-    } else if ((options.outDir orelse "").len > 0) {
-        outputDir = options.outDir;
+    if (options.declarationDir) |dir| {
+        if (dir.len > 0) outputDir = dir;
+    } else if (options.outDir) |dir| {
+        if (dir.len > 0) outputDir = dir;
     }
 
     var path: []const u8 = undefined;
@@ -171,16 +187,14 @@ pub fn getDeclarationEmitOutputFilePath(allocator: std.mem.Allocator, file: []co
 }
 
 pub fn getSourceFilePathInNewDir(allocator: std.mem.Allocator, fileName: []const u8, newDirPath: []const u8, currentDirectory: []const u8, commonSourceDirectory: []const u8, useCaseSensitiveFileNames: bool) ![]const u8 {
+    _ = useCaseSensitiveFileNames;
     var sourceFilePath = try tspath.getNormalizedAbsolutePath(allocator, fileName, currentDirectory);
     const commonSrcDir = try tspath.ensureTrailingDirectorySeparator(allocator, commonSourceDirectory);
-    const isSourceFileInCommonSourceDirectory = tspath.containsPath(commonSrcDir, sourceFilePath, .{
-        .useCaseSensitiveFileNames = useCaseSensitiveFileNames,
-        .currentDirectory = currentDirectory,
-    });
+    const isSourceFileInCommonSourceDirectory = std.mem.startsWith(u8, sourceFilePath, commonSrcDir);
     if (isSourceFileInCommonSourceDirectory) {
         sourceFilePath = sourceFilePath[commonSrcDir.len..];
     }
-    return try tspath.combinePaths(allocator, newDirPath, sourceFilePath);
+    return try tspath.combinePaths(allocator, newDirPath, &.{sourceFilePath});
 }
 
 pub fn getOutputPathWithoutChangingExtension(allocator: std.mem.Allocator, inputFileName: []const u8, outputDirectory: []const u8, host: OutputPathsHost) ![]const u8 {
@@ -202,17 +216,18 @@ pub fn getSourceFilePathInNewDirWorker(allocator: std.mem.Allocator, fileName: [
     if (isSourceFileInCommonSourceDirectory) {
         sourceFilePath = sourceFilePath[commonSourceDirectory.len..];
     }
-    return try tspath.combinePaths(allocator, newDirPath, sourceFilePath);
+    return try tspath.combinePaths(allocator, newDirPath, &.{sourceFilePath});
 }
 
 pub fn getOwnEmitOutputFilePath(allocator: std.mem.Allocator, fileName: []const u8, options: *const core.CompilerOptions, host: OutputPathsHost, extension: []const u8) ![]const u8 {
     var emitOutputFilePathWithoutExtension: []const u8 = undefined;
-    if ((options.outDir orelse "").len > 0) {
+    const out_dir = options.outDir orelse "";
+    if (out_dir.len > 0) {
         const currentDirectory = host.getCurrentDirectory();
         const srcPathInNewDir = try getSourceFilePathInNewDir(
             allocator,
             fileName,
-            options.outDir orelse "",
+            out_dir,
             currentDirectory,
             host.commonSourceDirectory(),
             host.useCaseSensitiveFileNames(),
@@ -234,7 +249,7 @@ pub fn getSourceMapFilePath(allocator: std.mem.Allocator, jsFilePath: []const u8
 pub fn getBuildInfoFileName(allocator: std.mem.Allocator, options: *const core.CompilerOptions, opts: tspath.ComparePathsOptions) ![]const u8 {
     const isIncremental = options.incremental orelse false;
     const isBuild = options.build orelse false;
-    
+
     if (!isIncremental and !isBuild) {
         return "";
     }

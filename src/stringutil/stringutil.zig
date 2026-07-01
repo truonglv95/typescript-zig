@@ -145,17 +145,17 @@ fn shouldEscapeForEncodeURI(b: u8) bool {
 }
 
 pub fn encodeURI(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
-    var builder = std.ArrayList(u8).init(allocator);
+    var builder = std.ArrayListUnmanaged(u8).empty;
     for (s) |b| {
         if (!shouldEscapeForEncodeURI(b)) {
-            try builder.append(b);
+            try builder.append(allocator, b);
             continue;
         }
-        try builder.append('%');
-        try builder.append(upperhex[b >> 4]);
-        try builder.append(upperhex[b & 0x0f]);
+        try builder.append(allocator, '%');
+        try builder.append(allocator, upperhex[b >> 4]);
+        try builder.append(allocator, upperhex[b & 0x0f]);
     }
-    return builder.toOwnedSlice();
+    return builder.toOwnedSlice(allocator);
 }
 
 fn getByteOrderMarkLength(text: []const u8) usize {
@@ -224,15 +224,15 @@ pub fn lowerFirstChar(allocator: std.mem.Allocator, str: []const u8) ![]const u8
     const len = std.unicode.utf8ByteSequenceLength(str[0]) catch 1;
     if (len > str.len) return str;
     const char = std.unicode.utf8Decode(str[0..len]) catch return str;
-    
+
     var lower_char = char;
     if (char >= 'A' and char <= 'Z') {
         lower_char = char + 32;
     }
-    
+
     var buf: [4]u8 = undefined;
     const encoded_len = std.unicode.utf8Encode(lower_char, &buf) catch return str;
-    
+
     var result = try allocator.alloc(u8, encoded_len + str.len - len);
     @memcpy(result[0..encoded_len], buf[0..encoded_len]);
     @memcpy(result[encoded_len..], str[len..]);
