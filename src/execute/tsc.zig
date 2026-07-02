@@ -145,6 +145,7 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
     }
 
     var project_config: ?tsconfig.ParsedTsConfig = null;
+    var config_has_errors = false;
     defer if (project_config) |*config| config.deinit(allocator);
     var project_dir: ?[]const u8 = null;
 
@@ -155,7 +156,7 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
         project_config = tsconfig.parseTsConfigFile(allocator, io, config_path) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
         if (project_config.?.errors.items.len != 0) {
             for (project_config.?.errors.items) |message| std.debug.print("error TS5083: {s}\n", .{message});
-            return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+            config_has_errors = true;
         }
         mergeOptions(&project_config.?.options, &parsed.options);
         resolveProjectPaths(allocator, io, &project_config.?.options, project_dir.?) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
@@ -212,7 +213,7 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
         for (graph.units.items) |unit| std.debug.print("{s}\n", .{unit.path});
     }
 
-    var has_errors = false;
+    var has_errors = config_has_errors;
     if (graph.diagnostics.items.len != 0) {
         for (graph.diagnostics.items) |diagnostic| {
             std.debug.print("{s}: error TS{d}: {s}\n", .{ graph.getUnit(diagnostic.file).path, diagnostic.code, diagnostic.message });

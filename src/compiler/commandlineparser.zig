@@ -71,8 +71,16 @@ pub fn parseCommandLine(allocator: std.mem.Allocator, args: [][]const u8) !Parse
                 found = true;
                 switch (decl.kind) {
                     .Boolean => {
+                        var bool_value = true;
+                        if (i + 1 < args.len) {
+                            const explicit = std.mem.trimEnd(u8, args[i + 1], ";");
+                            if (std.ascii.eqlIgnoreCase(explicit, "true") or std.ascii.eqlIgnoreCase(explicit, "false")) {
+                                bool_value = std.ascii.eqlIgnoreCase(explicit, "true");
+                                i += 1;
+                            }
+                        }
                         if (@hasField(core.CompilerOptions, decl.name)) {
-                            @field(result.options, decl.name) = true;
+                            @field(result.options, decl.name) = bool_value;
                         }
                     },
                     .String => {

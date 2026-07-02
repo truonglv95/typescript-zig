@@ -14,6 +14,9 @@ const core = @import("../core/core.zig");
 const semver = @import("../semver/version.zig");
 const semver_range = @import("../semver/version_range.zig");
 const text_writer = @import("../printer/textwriter.zig");
+const emitcontext = @import("../printer/emitcontext.zig");
+const transformers = @import("../transformers/transformer.zig");
+const declarations = @import("../transformers/declarations.zig");
 
 pub const FileId = u32;
 
@@ -100,6 +103,7 @@ pub const SourceUnit = struct {
     is_root: bool = false,
     is_default_library: bool = false,
     package_id: ?PackageIdentity = null,
+    uses_require_conditions: bool = true,
 
     pub fn tree(self: *SourceUnit) *ast.Ast {
         return &self.parser_instance.ast;
@@ -119,6 +123,11 @@ pub const Program = struct {
     resolution_cache: std.StringHashMap(CachedResolution),
     diagnostics: std.ArrayList(ProgramDiagnostic) = .empty,
     public_types: std.StringHashMap(SemanticType),
+    emit_resolver: emithost.EmitResolver = .{},
+    source_files_cache: std.ArrayList(ast.NodeIndex) = .empty,
+    common_source_directory: []u8 = &.{},
+    current_emit_file: ?FileId = null,
+    declaration_diagnostic_start: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, opts: ProgramOptions) Program {
         return .{
@@ -165,6 +174,8 @@ pub const Program = struct {
         self.diagnostics.deinit(self.allocator);
         freeMapKeys(self.allocator, &self.public_types);
         self.public_types.deinit();
+        self.source_files_cache.deinit(self.allocator);
+        if (self.common_source_directory.len != 0) self.allocator.free(self.common_source_directory);
     }
 
     // --- EmitHost Implementation ---
@@ -175,11 +186,14 @@ pub const Program = struct {
     }
 
     fn eh_sourceFiles(ptr: *anyopaque) []const ast_gen.NodeIndex {
-        _ = ptr;
-        // This should return the node index of each source file.
-        // Wait, Program stores units (*SourceUnit), not NodeIndex directly.
-        // I will implement a dynamic list and return it or store it.
-        unreachable;
+        const self: *Program = @ptrCast(@alignCast(ptr));
+        if (self.source_files_cache.items.len != self.units.items.len) {
+            self.source_files_cache.clearRetainingCapacity();
+            for (self.units.items) |unit| {
+                self.source_files_cache.append(self.allocator, unit.source_file) catch unreachable;
+            }
+        }
+        return self.source_files_cache.items;
     }
 
     fn eh_useCaseSensitiveFileNames(ptr: *anyopaque) bool {
@@ -195,8 +209,8 @@ pub const Program = struct {
     }
 
     fn eh_commonSourceDirectory(ptr: *anyopaque) []const u8 {
-        _ = ptr;
-        return ""; // TODO
+        const self: *Program = @ptrCast(@alignCast(ptr));
+        return self.common_source_directory;
     }
 
     fn eh_isEmitBlocked(ptr: *anyopaque, file: []const u8) bool {
@@ -206,21 +220,29 @@ pub const Program = struct {
     }
 
     fn eh_writeFile(ptr: *anyopaque, fileName: []const u8, text: []const u8) anyerror!void {
-        _ = ptr;
-        _ = fileName;
-        _ = text;
-        // TODO: actually write file
+        const self: *Program = @ptrCast(@alignCast(ptr));
+        const dir_path = std.fs.path.dirname(fileName) orelse ".";
+
+        var threaded = std.Io.Threaded.init(self.allocator, .{});
+        defer threaded.deinit();
+        const io = threaded.io();
+
+        try std.Io.Dir.cwd().createDirPath(io, dir_path);
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = fileName, .data = text });
     }
 
     fn eh_getEmitModuleFormatOfFile(ptr: *anyopaque, file: ast_gen.NodeIndex) emithost.ModuleKind {
-        _ = ptr;
+        const self: *Program = @ptrCast(@alignCast(ptr));
         _ = file;
-        return 0; // TODO
+        const configured = self.opts.options.module orelse .CommonJS;
+        if (configured != .Node16 and configured != .NodeNext) return @intFromEnum(configured);
+        const id = self.current_emit_file orelse return @intFromEnum(core.ModuleKind.CommonJS);
+        return @intFromEnum(if (self.units.items[id].uses_require_conditions) core.ModuleKind.CommonJS else core.ModuleKind.ESNext);
     }
 
     fn eh_getEmitResolver(ptr: *anyopaque) *emithost.EmitResolver {
-        _ = ptr;
-        unreachable;
+        const self: *Program = @ptrCast(@alignCast(ptr));
+        return &self.emit_resolver;
     }
 
     fn eh_getProjectReferenceFromSource(ptr: *anyopaque, path: emithost.Path) ?*emithost.SourceOutputAndProjectReference {
@@ -254,6 +276,19 @@ pub const Program = struct {
             .ptr = self,
             .vtable = &emit_host_vtable,
         };
+    }
+
+    fn createDeclarationTransformer(allocator: std.mem.Allocator, context: *emitcontext.EmitContext, context_ptr: *anyopaque) !*transformers.Transformer {
+        const self: *Program = @ptrCast(@alignCast(context_ptr));
+        self.declaration_diagnostic_start = self.diagnostics.items.len;
+        const file = self.current_emit_file orelse return declarations.DeclarationTransformer.new(allocator, context, null, null, null);
+        const bound = self.units.items[file].binder_instance orelse return declarations.DeclarationTransformer.new(allocator, context, self, file, null);
+        return declarations.DeclarationTransformer.new(allocator, context, self, file, bound);
+    }
+
+    fn declarationEmitBlocked(context_ptr: *anyopaque) bool {
+        const self: *Program = @ptrCast(@alignCast(context_ptr));
+        return self.diagnostics.items.len > self.declaration_diagnostic_start;
     }
 
     // Program emit coordination logic
@@ -292,13 +327,14 @@ pub const Program = struct {
             .vtable = &OutputPathsHostVTable,
         };
 
-        for (self.units.items) |unit| {
+        for (self.units.items, 0..) |unit, unit_index| {
             if (unit.is_default_library) continue;
             if (std.mem.endsWith(u8, unit.path, ".d.ts")) continue;
             // Depending on emit_only, we might skip some files
             // if (unit.ast == null) continue;
 
             op_host.astState = unit.tree();
+            self.current_emit_file = @intCast(unit_index);
             const paths = try outputpaths.getOutputPathsFor(emit_alloc, unit.source_file, &options, op_host, emit_only == .EmitOnlyForcedDts);
 
             var writer = text_writer.TextWriter.init(emit_alloc, "\n", 0);
@@ -321,6 +357,9 @@ pub const Program = struct {
                 },
                 .writeFile = null, // TODO
                 .tr = null,
+                .declarationTransformerContext = self,
+                .declarationTransformerFactory = createDeclarationTransformer,
+                .declarationEmitBlocked = declarationEmitBlocked,
             };
 
             try e.emit();
@@ -335,6 +374,7 @@ pub const Program = struct {
         result.Diagnostics = try all_diagnostics.toOwnedSlice(emit_alloc);
         result.EmittedFiles = try all_emitted_files.toOwnedSlice(emit_alloc);
         result.SourceMaps = try all_source_maps.toOwnedSlice(emit_alloc);
+        self.current_emit_file = null;
 
         return result;
     }
@@ -343,6 +383,35 @@ pub const Program = struct {
         for (self.opts.rootNames) |root| _ = try self.loadFile(io, root, true);
         try self.loadDefaultLibraries(io);
         try self.loadConfiguredTypes(io);
+        try self.computeCommonSourceDirectory();
+    }
+
+    fn computeCommonSourceDirectory(self: *Program) !void {
+        if (self.common_source_directory.len != 0) {
+            self.allocator.free(self.common_source_directory);
+            self.common_source_directory = &.{};
+        }
+        if (self.opts.options.rootDir) |root_dir| {
+            if (root_dir.len != 0) {
+                self.common_source_directory = try self.allocator.dupe(u8, root_dir);
+                return;
+            }
+        }
+
+        var common: ?[]const u8 = null;
+        for (self.units.items) |unit| {
+            if (!unit.is_root or unit.is_default_library) continue;
+            const directory = std.fs.path.dirname(unit.path) orelse unit.path;
+            if (common == null) {
+                common = directory;
+                continue;
+            }
+            while (!isPathInside(directory, common.?)) {
+                common = std.fs.path.dirname(common.?) orelse common.?;
+                if (common.?.len == 1 and common.?[0] == std.fs.path.sep) break;
+            }
+        }
+        self.common_source_directory = try self.allocator.dupe(u8, common orelse self.opts.projectName);
     }
 
     fn loadDefaultLibraries(self: *Program, io: std.Io) !void {
@@ -527,6 +596,7 @@ pub const Program = struct {
             .source_file = source_file,
             .is_root = is_root,
             .package_id = try self.packageIdentityForFile(io, normalized),
+            .uses_require_conditions = try self.usesRequireConditionsForFile(io, normalized),
         };
         const id: FileId = @intCast(self.units.items.len);
         try self.units.append(self.allocator, unit);
@@ -589,6 +659,32 @@ pub const Program = struct {
                 self.allocator.free(path);
             }
             try unit.dependencies.append(self.allocator, .{ .specifier = owned_specifier, .resolved = resolved });
+            if (resolved == null) try self.appendDiagnostic(file_id, 2307, try std.fmt.allocPrint(self.allocator, "Cannot find module '{s}' or its corresponding type declarations.", .{specifier}));
+        }
+        var require_offset: usize = 0;
+        while (std.mem.indexOfPos(u8, unit.content, require_offset, "require(")) |call_start| {
+            var quote_pos = call_start + "require(".len;
+            while (quote_pos < unit.content.len and std.ascii.isWhitespace(unit.content[quote_pos])) : (quote_pos += 1) {}
+            if (quote_pos >= unit.content.len or (unit.content[quote_pos] != '"' and unit.content[quote_pos] != '\'')) {
+                require_offset = quote_pos;
+                continue;
+            }
+            const quote = unit.content[quote_pos];
+            const end = std.mem.indexOfScalarPos(u8, unit.content, quote_pos + 1, quote) orelse break;
+            const specifier = unit.content[quote_pos + 1 .. end];
+            require_offset = end + 1;
+            var already_present = false;
+            for (unit.dependencies.items) |dependency| if (std.mem.eql(u8, dependency.specifier, specifier)) {
+                already_present = true;
+                break;
+            };
+            if (already_present) continue;
+            var resolved: ?FileId = null;
+            if (try self.resolveModuleCached(io, unit.path, specifier)) |path| {
+                resolved = try self.loadFile(io, path, false);
+                self.allocator.free(path);
+            }
+            try unit.dependencies.append(self.allocator, .{ .specifier = try self.allocator.dupe(u8, specifier), .resolved = resolved });
             if (resolved == null) try self.appendDiagnostic(file_id, 2307, try std.fmt.allocPrint(self.allocator, "Cannot find module '{s}' or its corresponding type declarations.", .{specifier}));
         }
         for (tree.referencedFiles.items) |reference| {
@@ -722,6 +818,16 @@ pub const Program = struct {
                 }
                 if (try self.resolvePathCandidate(io, package_root)) |resolved| return resolved;
             }
+            if (subpath.len == 0) {
+                const encoded_name = if (package_name.len > 0 and package_name[0] == '@') blk: {
+                    const slash = std.mem.indexOfScalar(u8, package_name, '/') orelse break :blk package_name[1..];
+                    break :blk try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ package_name[1..slash], package_name[slash + 1 ..] });
+                } else try self.allocator.dupe(u8, package_name);
+                defer self.allocator.free(encoded_name);
+                const types_root = try std.fs.path.join(self.allocator, &.{ directory, "node_modules", "@types", encoded_name });
+                defer self.allocator.free(types_root);
+                if (try self.resolveTypePackage(io, types_root)) |resolved| return resolved;
+            }
             const parent = std.fs.path.dirname(directory) orelse break;
             if (std.mem.eql(u8, parent, directory)) break;
             directory = parent;
@@ -782,26 +888,6 @@ pub const Program = struct {
     }
 
     fn resolvePackageSelfName(self: *Program, io: std.Io, containing_file: []const u8, package_name: []const u8, subpath: []const u8) !?[]const u8 {
-        const hasOutDir = self.opts.options.outDir != null or self.opts.options.declarationDir != null;
-        std.debug.print("DEBUG resolveSelfName: pkg={s}, hasOutDir={}, outDir={?s}, declDir={?s}, rootDir={?s}, cfg={?s}\n", .{ package_name, hasOutDir, self.opts.options.outDir, self.opts.options.declarationDir, self.opts.options.rootDir, self.opts.options.configFilePath });
-        if (hasOutDir and std.mem.indexOf(u8, containing_file, "/node_modules/") == null) {
-            var contains = false;
-            if (self.opts.options.configFilePath) |configFilePath| {
-                const configDir = std.fs.path.dirname(configFilePath) orelse "";
-                const pkgDir = std.fs.path.dirname(containing_file) orelse "";
-                contains = std.mem.startsWith(u8, pkgDir, configDir);
-                if (contains and pkgDir.len > configDir.len and pkgDir[configDir.len] != '/' and configDir[configDir.len - 1] != '/') {
-                    contains = false;
-                }
-            }
-            if (self.opts.options.configFilePath == null or contains) {
-                if (self.opts.options.rootDir == null and self.opts.options.configFilePath == null) {
-                    std.debug.print("DEBUG resolveSelfName: returning null because of ambiguity\n", .{});
-                    // Ambiguous project root for self-referencing package with outDir (TS2209)
-                    return null;
-                }
-            }
-        }
         var directory = std.fs.path.dirname(containing_file) orelse ".";
         while (true) {
             const package_json = try std.fs.path.join(self.allocator, &.{ directory, "package.json" });
@@ -933,8 +1019,14 @@ pub const Program = struct {
             .string => |text| {
                 const replaced = if (std.mem.indexOfScalar(u8, text, '*')) |star| try std.fmt.allocPrint(self.allocator, "{s}{s}{s}", .{ text[0..star], capture, text[star + 1 ..] }) else try self.allocator.dupe(u8, text);
                 defer self.allocator.free(replaced);
-                const requested = try std.fs.path.join(self.allocator, &.{ package_root, replaced });
+                var requested = try std.fs.path.join(self.allocator, &.{ package_root, replaced });
                 defer self.allocator.free(requested);
+
+                if (try self.tryLoadInputFileForPath(io, requested)) |mapped_requested| {
+                    self.allocator.free(requested);
+                    requested = mapped_requested;
+                }
+
                 if (std.mem.endsWith(u8, requested, ".js") or std.mem.endsWith(u8, requested, ".jsx") or std.mem.endsWith(u8, requested, ".mjs") or std.mem.endsWith(u8, requested, ".cjs")) {
                     const extension = std.fs.path.extension(requested);
                     const stem = requested[0 .. requested.len - extension.len];
@@ -973,6 +1065,46 @@ pub const Program = struct {
                 }
             },
             else => {},
+        }
+        return null;
+    }
+
+    fn tryLoadInputFileForPath(self: *Program, io: std.Io, requested: []const u8) !?[]u8 {
+        const hasOutDir = self.opts.options.outDir != null or self.opts.options.declarationDir != null;
+        if (!hasOutDir or std.mem.indexOf(u8, requested, "/node_modules/") != null) return null;
+
+        var rootDir: ?[]const u8 = self.opts.options.rootDir;
+        if (rootDir == null and self.opts.options.configFilePath != null) {
+            rootDir = std.fs.path.dirname(self.opts.options.configFilePath.?);
+        }
+        if (rootDir == null) return null;
+
+        var outDirs = std.ArrayList([]const u8).empty;
+        defer outDirs.deinit(self.allocator);
+        if (self.opts.options.outDir) |outDir| {
+            try outDirs.append(self.allocator, try canonicalPath(self.allocator, io, outDir));
+        }
+        if (self.opts.options.declarationDir) |declDir| {
+            try outDirs.append(self.allocator, try canonicalPath(self.allocator, io, declDir));
+        }
+        defer {
+            for (outDirs.items) |dir| self.allocator.free(dir);
+        }
+
+        const canonical_requested = try canonicalPath(self.allocator, io, requested);
+        defer self.allocator.free(canonical_requested);
+
+        for (outDirs.items) |outDir| {
+            if (isPathInside(canonical_requested, outDir)) {
+                var pathFragment = canonical_requested[outDir.len..];
+                if (pathFragment.len > 0 and (pathFragment[0] == '/' or pathFragment[0] == '\\')) {
+                    pathFragment = pathFragment[1..];
+                }
+                const root_dir_canonical = try canonicalPath(self.allocator, io, rootDir.?);
+                defer self.allocator.free(root_dir_canonical);
+
+                return try std.fs.path.join(self.allocator, &.{ root_dir_canonical, pathFragment });
+            }
         }
         return null;
     }
@@ -1182,14 +1314,11 @@ pub const Program = struct {
             defer instance.deinit();
             try instance.checkStatement(unit.source_file);
             for (bound.diagnosticsList.items) |diagnostic| {
-                // The minimal cross-file pass below emits a concrete TS2322
-                // message; avoid also exposing the checker's unformatted
-                // placeholder form for the same assignment.
-                if (diagnostic.message.code == 2322) continue;
+                const formatted_message = try formatDiagnosticMessage(self.allocator, diagnostic.message.text, diagnostic.args);
                 try self.diagnostics.append(self.allocator, .{
                     .file = @intCast(file_index),
                     .code = diagnostic.message.code,
-                    .message = try self.allocator.dupe(u8, diagnostic.message.text),
+                    .message = formatted_message,
                 });
             }
         }
@@ -1240,27 +1369,6 @@ pub const Program = struct {
                 changed = true;
             }
             if (!changed) break;
-        }
-        for (self.units.items, 0..) |unit, file_index| if (!unit.is_default_library) try self.checkTopLevelAssignments(@intCast(file_index), unit);
-    }
-
-    fn checkTopLevelAssignments(self: *Program, file: FileId, unit: *SourceUnit) !void {
-        const tree = unit.tree();
-        const source = tree.getNode(unit.source_file).SourceFile;
-        for (tree.getNodeList(source.Statements)) |statement| {
-            if (tree.getNode(statement) != .VariableStatement) continue;
-            const list = tree.getNode(tree.getNode(statement).VariableStatement.DeclarationList).VariableDeclarationList;
-            for (tree.getNodeList(list.Declarations)) |declaration_index| {
-                const declaration = tree.getNode(declaration_index).VariableDeclaration;
-                if ((declaration.Type orelse 0) == 0 or (declaration.Initializer orelse 0) == 0) continue;
-                const expected = semanticTypeOfTypeNode(tree, declaration.Type.?);
-                const actual = inferExpressionType(tree, declaration.Initializer.?);
-                if (!isAssignable(actual, expected)) try self.diagnostics.append(self.allocator, .{
-                    .file = file,
-                    .code = 2322,
-                    .message = try std.fmt.allocPrint(self.allocator, "Type '{s}' is not assignable to type '{s}'.", .{ @tagName(actual), @tagName(expected) }),
-                });
-            }
         }
     }
 
@@ -1503,6 +1611,40 @@ fn updatePublicSignature(tree: *ast.Ast, declaration: ast.NodeIndex, hash: *std.
         .InterfaceDeclaration, .TypeAliasDeclaration => hash.update(ast_utils.getText(tree, declaration)),
         else => {},
     }
+}
+
+fn formatDiagnosticMessage(allocator: std.mem.Allocator, message: []const u8, args: []const []const u8) ![]u8 {
+    if (args.len == 0) return allocator.dupe(u8, message);
+    var result = std.ArrayListUnmanaged(u8).empty;
+    errdefer result.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < message.len) {
+        if (message[i] == '{') {
+            const start = i;
+            i += 1;
+            var num: usize = 0;
+            var is_num = false;
+            while (i < message.len and message[i] >= '0' and message[i] <= '9') {
+                num = num * 10 + (message[i] - '0');
+                is_num = true;
+                i += 1;
+            }
+            if (is_num and i < message.len and message[i] == '}') {
+                if (num < args.len) {
+                    try result.appendSlice(allocator, args[num]);
+                } else {
+                    try result.appendSlice(allocator, message[start .. i + 1]);
+                }
+                i += 1;
+                continue;
+            }
+            i = start;
+        }
+        try result.append(allocator, message[i]);
+        i += 1;
+    }
+    return result.toOwnedSlice(allocator);
 }
 
 test "program loads and binds a multi-file graph" {

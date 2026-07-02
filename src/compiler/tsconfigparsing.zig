@@ -360,6 +360,14 @@ fn sanitizeJsonc(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
             if (next < without_comments.items.len and (without_comments.items[next] == '}' or without_comments.items[next] == ']')) continue;
         }
         try result.append(allocator, char);
+        // The TypeScript config parser recovers from a missing comma between
+        // object properties and still builds the project. Preserve that useful
+        // recovery for JSONC instead of rejecting the whole compilation.
+        if (char == '}' or char == ']') {
+            var next = index + 1;
+            while (next < without_comments.items.len and std.ascii.isWhitespace(without_comments.items[next])) : (next += 1) {}
+            if (next < without_comments.items.len and without_comments.items[next] == '"') try result.append(allocator, ',');
+        }
     }
     without_comments.deinit(allocator);
     return result.toOwnedSlice(allocator);

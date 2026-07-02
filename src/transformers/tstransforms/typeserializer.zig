@@ -106,8 +106,6 @@ pub const MetadataSerializer = struct {
             valueDeclaration = node;
         }
 
-        std.debug.print("serializeParameterTypesOfNodeInternal valueDeclaration: {d} tag: {any}\n", .{ valueDeclaration, self.ec.tree.getNodeKind(valueDeclaration) });
-
         if (valueDeclaration == 0) {
             return self.f.newArrayLiteralExpression(self.f.newNodeList(&[_]ast.NodeIndex{}), false);
         }
@@ -117,7 +115,6 @@ pub const MetadataSerializer = struct {
 
         const parameters = getParametersOfDecoratedDeclaration(self.ec.tree, valueDeclaration, container);
         const paramList = self.ec.tree.getNodeList(parameters);
-        std.debug.print("serializeParameterTypesOfNodeInternal paramList len: {d}\n", .{paramList.len});
 
         for (paramList, 0..) |parameter, i| {
             if (i == 0 and ast_utils.isIdentifier(self.ec.tree, ast_utils.getNameOfNode(self.ec.tree, parameter))) {
@@ -156,7 +153,6 @@ pub const MetadataSerializer = struct {
 
         const skippedNode = ast_utils.skipTypeParentheses(self.ec.tree, node);
         const nodeData = self.ec.tree.getNode(skippedNode);
-        std.debug.print("serializeTypeNode skippedNode: {d} tag: {s}\n", .{ skippedNode, @tagName(nodeData) });
 
         switch (nodeData) {
             .VoidKeyword, .UndefinedKeyword, .NeverKeyword => {

@@ -25,6 +25,7 @@ pub const RuntimeSyntaxTransformer = struct {
     parentNode: ast_gen.NodeIndex = 0,
     currentNode: ast_gen.NodeIndex = 0,
     currentSourceFile: ast_gen.NodeIndex = 0,
+    namespaceExportNames: std.StringHashMapUnmanaged(void) = .empty,
     currentScope: ast_gen.NodeIndex = 0, // SourceFile | Block | ModuleBlock | CaseBlock
     currentScopeFirstDeclarationsOfName: ?*std.StringHashMap(ast_gen.NodeIndex) = null,
     currentEnum: ast_gen.NodeIndex = 0,
@@ -622,6 +623,12 @@ pub const RuntimeSyntaxTransformer = struct {
 
         self.currentNamespace = node;
         self.currentScopeFirstDeclarationsOfName = null;
+        const savedNamespaceExportNames = self.namespaceExportNames;
+        self.namespaceExportNames = .empty;
+        defer {
+            self.namespaceExportNames.deinit(self.transformer.emitContext.allocator);
+            self.namespaceExportNames = savedNamespaceExportNames;
+        }
 
         var statements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         self.transformer.emitContext.startVariableEnvironment() catch unreachable;
@@ -630,6 +637,32 @@ pub const RuntimeSyntaxTransformer = struct {
         var blockLocation: ast.TextRange = undefined;
 
         const nodeData = self.transformer.visitor.tree.getNode(node).ModuleDeclaration;
+        const namespace_name = ast_utils.getText(self.transformer.visitor.tree, nodeData.name);
+        if (self.currentSourceFile != 0) {
+            const source = self.transformer.visitor.tree.getNode(self.currentSourceFile).SourceFile;
+            for (self.transformer.visitor.tree.getNodeList(source.Statements)) |candidate| {
+                if (self.transformer.visitor.tree.getNode(candidate) != .ModuleDeclaration) continue;
+                const candidate_data = self.transformer.visitor.tree.getNode(candidate).ModuleDeclaration;
+                if (std.mem.eql(u8, ast_utils.getText(self.transformer.visitor.tree, candidate_data.name), namespace_name)) self.recordNamespaceExports(candidate);
+            }
+        } else self.recordNamespaceExports(node);
+
+        if ((nodeData.Body orelse 0) != 0 and self.transformer.visitor.tree.getNode(nodeData.Body.?) == .ModuleBlock) {
+            const body = self.transformer.visitor.tree.getNode(nodeData.Body.?).ModuleBlock;
+            for (self.transformer.visitor.tree.getNodeList(body.Statements)) |statement| {
+                if ((ast_utils.getModifierFlags(self.transformer.visitor.tree, statement) & ast_utils.ModifierFlags.Export) == 0) continue;
+                if (self.transformer.visitor.tree.getNode(statement) == .VariableStatement) {
+                    const list = self.transformer.visitor.tree.getNode(self.transformer.visitor.tree.getNode(statement).VariableStatement.DeclarationList).VariableDeclarationList;
+                    for (self.transformer.visitor.tree.getNodeList(list.Declarations)) |declaration| {
+                        const name = ast_utils.getName(self.transformer.visitor.tree, declaration);
+                        if (name != 0 and self.transformer.visitor.tree.getNode(name) == .Identifier) self.namespaceExportNames.put(self.transformer.emitContext.allocator, ast_utils.getText(self.transformer.visitor.tree, name), {}) catch unreachable;
+                    }
+                } else {
+                    const name = ast_utils.getName(self.transformer.visitor.tree, statement);
+                    if (name != 0 and self.transformer.visitor.tree.getNode(name) == .Identifier) self.namespaceExportNames.put(self.transformer.emitContext.allocator, ast_utils.getText(self.transformer.visitor.tree, name), {}) catch unreachable;
+                }
+            }
+        }
         var visitedNode = node;
         if ((nodeData.Body orelse 0) != 0) {
             if (self.transformer.visitor.tree.getNode((nodeData.Body orelse 0)) == .ModuleBlock) {
@@ -664,6 +697,26 @@ pub const RuntimeSyntaxTransformer = struct {
             self.transformer.emitContext.addEmitFlags(block, printer.EmitFlags.NoComments) catch unreachable;
         }
         return block;
+    }
+
+    fn recordNamespaceExports(self: *RuntimeSyntaxTransformer, module: ast_gen.NodeIndex) void {
+        const module_data = self.transformer.visitor.tree.getNode(module).ModuleDeclaration;
+        const body_index = module_data.Body orelse return;
+        if (self.transformer.visitor.tree.getNode(body_index) != .ModuleBlock) return;
+        const body = self.transformer.visitor.tree.getNode(body_index).ModuleBlock;
+        for (self.transformer.visitor.tree.getNodeList(body.Statements)) |statement| {
+            if ((ast_utils.getModifierFlags(self.transformer.visitor.tree, statement) & ast_utils.ModifierFlags.Export) == 0) continue;
+            if (self.transformer.visitor.tree.getNode(statement) == .VariableStatement) {
+                const list = self.transformer.visitor.tree.getNode(self.transformer.visitor.tree.getNode(statement).VariableStatement.DeclarationList).VariableDeclarationList;
+                for (self.transformer.visitor.tree.getNodeList(list.Declarations)) |declaration| {
+                    const name = ast_utils.getName(self.transformer.visitor.tree, declaration);
+                    if (name != 0 and self.transformer.visitor.tree.getNode(name) == .Identifier) self.namespaceExportNames.put(self.transformer.emitContext.allocator, ast_utils.getText(self.transformer.visitor.tree, name), {}) catch unreachable;
+                }
+            } else {
+                const name = ast_utils.getName(self.transformer.visitor.tree, statement);
+                if (name != 0 and self.transformer.visitor.tree.getNode(name) == .Identifier) self.namespaceExportNames.put(self.transformer.emitContext.allocator, ast_utils.getText(self.transformer.visitor.tree, name), {}) catch unreachable;
+            }
+        }
     }
 
     fn visitImportEqualsDeclaration(self: *RuntimeSyntaxTransformer, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -709,7 +762,7 @@ pub const RuntimeSyntaxTransformer = struct {
                         expressions.append(std.heap.page_allocator, expression) catch unreachable;
                     }
                 } else {
-                    const expression = ast_utils.convertVariableDeclarationToAssignmentExpression(self.transformer.emitContext, declaration);
+                    const expression = self.createNamespaceExportExpression(v.name, self.transformer.visitor.visitNode(v.Initializer.?), null);
                     if (expression != 0) {
                         expressions.append(std.heap.page_allocator, expression) catch unreachable;
                     }
@@ -1034,6 +1087,10 @@ pub const RuntimeSyntaxTransformer = struct {
 
     fn visitExpressionIdentifier(self: *RuntimeSyntaxTransformer, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
         if ((self.currentEnum != 0 or self.currentNamespace != 0) and !ast_utils.isGeneratedIdentifier(self.transformer.emitContext, node) and !ast_utils.isLocalName(self.transformer.emitContext, node)) {
+            if (self.currentNamespace != 0 and self.namespaceExportNames.contains(ast_utils.getText(self.transformer.visitor.tree, node))) {
+                const memberName = ast_utils.cloneNode(self.transformer.visitor.tree, self.transformer.factory, node);
+                return self.transformer.factory.getNamespaceMemberName(self.getNamespaceContainerName(self.currentNamespace), memberName, .{ .allowSourceMaps = true });
+            }
             const location = ast_utils.mostOriginal(self.transformer.visitor.tree, node);
 
             if (self.resolver) |resolver| {

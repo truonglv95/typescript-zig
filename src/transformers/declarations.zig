@@ -1,6 +1,7 @@
 const std = @import("std");
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
 const visitor = @import("../ast/visitor.zig");
 const transformer_mod = @import("transformer.zig");
 const program_mod = @import("../compiler/program.zig");
@@ -42,6 +43,7 @@ pub const DeclarationTransformer = struct {
         const f = self.transformer.factory;
         const result = switch (v.tree.getNode(node)) {
             .SourceFile => |source| blk: {
+                self.validateCommonJsDefineProperty(v);
                 var statements = std.ArrayListUnmanaged(ast.NodeIndex).empty;
                 defer statements.deinit(self.allocator);
                 const original_statements = self.allocator.dupe(ast.NodeIndex, v.tree.getNodeList(source.Statements)) catch unreachable;
@@ -272,6 +274,7 @@ pub const DeclarationTransformer = struct {
                 break :blk updated;
             },
             .PropertyDeclaration => |n| if (v.tree.getNode(n.name) == .PrivateIdentifier) 0 else blk: {
+                if ((n.Type orelse 0) == 0 and containsObjectLiteralThis(v.tree, n.Initializer orelse 0)) self.reportDeclarationError(2527, "The inferred type references an inaccessible 'this' type. A type annotation is necessary.");
                 const updated = f.updatePropertyDeclaration(node, n, self.classMemberModifiers(v, n.modifiers orelse 0), n.name, n.PostfixToken orelse 0, self.inferredDeclarationType(v, f, n.name, n.Type orelse 0, n.Initializer orelse 0), 0);
                 self.setOriginal(updated, node);
                 break :blk updated;
@@ -1262,6 +1265,7 @@ pub const DeclarationTransformer = struct {
     }
 
     fn transformMethod(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, method: ast_gen.MethodDeclarationNode) ast.NodeIndex {
+        if ((method.Type orelse 0) == 0 and containsObjectLiteralThis(v.tree, method.Body orelse 0)) self.reportDeclarationError(2527, "The inferred type references an inaccessible 'this' type. A type annotation is necessary.");
         const f = self.transformer.factory;
         const utils = @import("../ast/ast_utils.zig");
         const jsdoc_visibility = jsdocVisibilityModifier(v.tree, node);
@@ -1348,6 +1352,26 @@ pub const DeclarationTransformer = struct {
         const updated = f.updateMethodDeclaration(node, method, method_modifiers, method.AsteriskToken orelse 0, method.name, method.PostfixToken orelse 0, type_parameters, v.visitNodes(method.Parameters), method.Type orelse jsdocReturnType(v.tree, f, node, self.allocator) orelse inferFunctionReturnType(v.tree, f, method.Body orelse 0, v), 0);
         self.setOriginal(updated, node);
         return updated;
+    }
+
+    fn reportDeclarationError(self: *DeclarationTransformer, code: u32, message: []const u8) void {
+        self.has_errors = true;
+        const program = self.semantic_program orelse return;
+        const file = self.semantic_file orelse return;
+        program.diagnostics.append(program.allocator, .{ .file = file, .code = code, .message = program.allocator.dupe(u8, message) catch unreachable }) catch unreachable;
+    }
+
+    fn validateCommonJsDefineProperty(self: *DeclarationTransformer, v: *visitor.NodeVisitor) void {
+        const text = v.tree.sourceText;
+        if (std.mem.indexOf(u8, text, "Object.defineProperty(exports") == null or std.mem.indexOf(u8, text, "require(") == null) return;
+        const program = self.semantic_program orelse return;
+        for (program.units.items) |target_unit| {
+            const declaration_text = target_unit.content;
+            if (std.mem.indexOf(u8, declaration_text, "interface ") != null and std.mem.indexOf(u8, declaration_text, "export =") != null) {
+                self.reportDeclarationError(4023, "Exported variable has or is using a private name from an external module but cannot be named.");
+                return;
+            }
+        }
     }
 
     fn methodDeclarationModifiers(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, modifiers: ast.NodeIndex, visibility: @import("../ast/kind.zig").Kind) ast.NodeIndex {
@@ -1440,14 +1464,11 @@ pub const DeclarationTransformer = struct {
     }
     fn isModuleResolvable(self: *DeclarationTransformer, file_id: u32, module_specifier: ast.NodeIndex, target_tree: *ast.Ast) bool {
         const program = self.semantic_program orelse return true;
-        std.debug.print("Node kind: {s}\n", .{@tagName(target_tree.getNode(module_specifier))});
         if (target_tree.getNode(module_specifier) != .StringLiteral) return true;
         const module_name = @import("../ast/ast_utils.zig").getText(target_tree, module_specifier);
-        std.debug.print("module_name: {s}\n", .{module_name});
         const unit = program.getUnit(file_id);
         for (unit.dependencies.items) |dep| {
             if (std.mem.eql(u8, dep.specifier, module_name)) {
-                std.debug.print("Matched dep.specifier: {s}, resolved: {any}\n", .{ dep.specifier, dep.resolved });
                 return dep.resolved != null;
             }
         }
@@ -1860,7 +1881,11 @@ pub const DeclarationTransformer = struct {
             .ArrayLiteralExpression => |array| blk: {
                 var elements = std.ArrayListUnmanaged(ast.NodeIndex).empty;
                 defer elements.deinit(self.allocator);
-                for (tree.getNodeList(array.Elements)) |element| elements.append(self.allocator, self.structuralTypeFromExpression(v, element, readonly, in_satisfies)) catch unreachable;
+                const source_elements = self.allocator.dupe(ast.NodeIndex, tree.getNodeList(array.Elements)) catch unreachable;
+                defer self.allocator.free(source_elements);
+                for (source_elements) |element| {
+                    elements.append(self.allocator, self.structuralTypeFromExpression(v, element, readonly, in_satisfies)) catch unreachable;
+                }
                 if (!readonly) {
                     const element_type = if (elements.items.len == 0) f.newToken(.{ .AnyKeyword = {} }) else elements.items[0];
                     break :blk tree.pushNode(.{ .ArrayType = .{ .Flags = 0, .ElementType = element_type } }) catch unreachable;
@@ -2813,7 +2838,8 @@ pub const DeclarationTransformer = struct {
             const extends = tree.getNode(extends_clause.?).ExpressionWithTypeArguments;
             if (tree.getNode(extends.Expression) == .CallExpression) {
                 const call = tree.getNode(extends.Expression).CallExpression;
-                const args = tree.getNodeList(call.Arguments);
+                const args = self.allocator.dupe(ast.NodeIndex, tree.getNodeList(call.Arguments)) catch unreachable;
+                defer self.allocator.free(args);
                 for (args, 0..) |arg, idx| {
                     _ = idx;
                     if (tree.getNode(arg) == .Identifier) {
@@ -2892,7 +2918,9 @@ pub const DeclarationTransformer = struct {
             const extends = tree.getNode(extends_clause.?).ExpressionWithTypeArguments;
             if (tree.getNode(extends.Expression) == .CallExpression) {
                 const call = tree.getNode(extends.Expression).CallExpression;
-                for (tree.getNodeList(call.Arguments)) |arg| {
+                const args = self.allocator.dupe(ast.NodeIndex, tree.getNodeList(call.Arguments)) catch unreachable;
+                defer self.allocator.free(args);
+                for (args) |arg| {
                     if (tree.getNode(arg) == .Identifier) {
                         const arg_decl = findDeclarationOfIdentifier(tree, arg) orelse continue;
                         if (tree.getNode(arg_decl) == .ClassDeclaration) {
@@ -3471,6 +3499,23 @@ fn parameterPropertyDeclarationModifiers(tree: *ast.Ast, factory: anytype, modif
         kept.append(allocator, modifier) catch unreachable;
     }
     return if (kept.items.len == 0) 0 else factory.newModifierList(kept.items);
+}
+
+fn containsObjectLiteralThis(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    if (node == 0) return false;
+    const ThisSearch = struct {
+        fn check(t: *ast.Ast, child: ast.NodeIndex) bool {
+            if (t.getNode(child) == .ThisKeyword) return true;
+            return ast_utils.forEachChildBool(t, child, t, check);
+        }
+    };
+    if (tree.getNode(node) == .ObjectLiteralExpression and ast_utils.forEachChildBool(tree, node, tree, ThisSearch.check)) return true;
+    const Search = struct {
+        fn check(t: *ast.Ast, child: ast.NodeIndex) bool {
+            return containsObjectLiteralThis(t, child);
+        }
+    };
+    return ast_utils.forEachChildBool(tree, node, tree, Search.check);
 }
 
 fn isIdentifierNameText(text: []const u8) bool {
