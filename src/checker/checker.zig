@@ -23,6 +23,15 @@ pub const jsx = @import("jsx.zig");
 const printer_pkg = @import("../printer/printer.zig");
 const textwriter_pkg = @import("../printer/textwriter.zig");
 const emitcontext_pkg = @import("../printer/emitcontext.zig");
+pub const mapper_pkg = @import("mapper.zig");
+pub const tracer_pkg = @import("tracer.zig");
+pub const jsdoc_pkg = @import("jsdoc.zig");
+pub const exports_pkg = @import("exports.zig");
+pub const symboltracker_pkg = @import("symboltracker.zig");
+pub const printer_mod = @import("printer.zig");
+pub const services_pkg = @import("services.zig");
+pub const nodecopy_pkg = @import("nodecopy.zig");
+pub const type_resolution_pkg = @import("type_resolution.zig");
 
 pub const EnumRelationKey = packed struct(u64) {
     sourceId: ast_gen.SymbolIndex,
@@ -137,6 +146,11 @@ pub const Checker = struct {
     nonPrimitiveTypeIndex: ?u32 = null,
     errorTypeIndex: ?u32 = null,
     circularConstraintTypeIndex: ?u32 = null,
+    emptyTypeLiteralTypeIndex: ?u32 = null,
+    emptyGenericTypeIndex: ?u32 = null,
+    emptyObjectTypeIndex: ?u32 = null,
+
+    unknownSymbol: ast_gen.SymbolIndex = 0,
 
     identityRelation: relater.Relation = .{},
     assignableRelation: relater.Relation = .{},
@@ -154,6 +168,9 @@ pub const Checker = struct {
     freeRelater: ?*relater.Relater = null,
     typeToStringNodebuilder: ?*nodebuilder.NodeBuilder = null,
     ownedDiagnosticArgs: std.ArrayListUnmanaged([]const []const u8) = .empty,
+
+    typeNodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.TypeNodeLinks) = .empty,
+    symbolNodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.SymbolNodeLinks) = .empty,
 
     // Inference state pool
     inferenceStates: std.ArrayListUnmanaged(inference.InferenceState) = .empty,

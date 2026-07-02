@@ -301,6 +301,15 @@ pub const SignatureFlags = struct {
     pub const CallChainFlags = IsInnerCallChain | IsOuterCallChain;
 };
 
+pub const SymbolNodeLinks = struct {
+    resolvedSymbol: ast_gen.SymbolIndex = 0,
+};
+
+pub const TypeNodeLinks = struct {
+    resolvedType: TypeIndex = 0,
+    outerTypeParameters: ?[]const TypeIndex = null,
+};
+
 pub const Signature = struct {
     flags: u32 = 0,
     minArgumentCount: i32 = 0,
