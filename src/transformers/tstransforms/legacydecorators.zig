@@ -41,7 +41,6 @@ pub const LegacyDecoratorsTransformer = struct {
         _ = v;
 
         const k = ast_utils.getKind(tx.emitContext.tree, node);
-        std.debug.print("legacydecorators visit self: {*} node: {d}, kind: {any}, enclosingClasses: {d}\n", .{ self, node, k, self.enclosingClasses.items.len });
 
         switch (k) {
             .Identifier => return self.visitIdentifier(tx, node),
@@ -87,11 +86,14 @@ pub const LegacyDecoratorsTransformer = struct {
             if (self.classAliases.get(d)) |alias| {
                 const ref = self.referenceResolver.getReferencedValueDeclaration(tx.emitContext.mostOriginal(node));
                 const orig_d = tx.emitContext.mostOriginal(d);
-                std.debug.print("visitIdentifier: {s}, ref: {d}, orig_d: {d}, alias: {d}\n", .{ name, ref orelse 0, orig_d, alias });
                 if (ref) |r| {
                     if (r == orig_d) {
                         return alias;
                     }
+                } else {
+                    const class_name = ast_utils.name(tx.emitContext.tree, d);
+                    const parent = tx.emitContext.tree.getNodeParent(node);
+                    if (class_name != 0 and std.mem.eql(u8, name, ast_utils.getText(tx.emitContext.tree, class_name)) and ast_utils.isIdentifierReference(tx.emitContext.tree, node, parent)) return alias;
                 }
             }
         }
@@ -308,7 +310,6 @@ pub const LegacyDecoratorsTransformer = struct {
     }
 
     fn pushEnclosingClass(self: *LegacyDecoratorsTransformer, cls: ast.NodeIndex) void {
-        std.debug.print("pushEnclosingClass self: {*} cls: {d}\n", .{ self, cls });
         self.enclosingClasses.append(self.allocator, cls) catch unreachable;
     }
 
@@ -477,18 +478,15 @@ pub const LegacyDecoratorsTransformer = struct {
             for (ast_utils.getNodes(tx.emitContext.tree, membersNode)) |member| {
                 if (!ast_utils.hasStaticModifier(tx.emitContext.tree, member) and ast_utils.getKind(tx.emitContext.tree, member) != .ClassStaticBlockDeclaration) continue;
                 if (ast_utils.forEachChildBool(tx.emitContext.tree, member, &ctx, Context.check)) {
-                    std.debug.print("hasInternalStaticReference returning true for member {d}\n", .{member});
                     return true;
                 }
             }
         }
-        std.debug.print("hasInternalStaticReference returning false\n", .{});
         return false;
     }
 
     fn getClassAliasIfNeeded(self: *LegacyDecoratorsTransformer, tx: *transformers.Transformer, node: ast.NodeIndex) ast.NodeIndex {
         const has_ref = self.hasInternalStaticReference(tx, node);
-        std.debug.print("getClassAliasIfNeeded has_ref: {any}\n", .{has_ref});
         if (!has_ref) {
             return 0;
         }
@@ -818,7 +816,6 @@ pub const LegacyDecoratorsTransformer = struct {
         for (decorators) |d| {
             const expr = ast_utils.expression(tx.emitContext.tree, d);
             const visited = tx.visitor.visitNode(expr);
-            std.debug.print("transformDecorators d: {d}, expr: {d} tag: {any}, visited: {d} tag: {any}\n", .{ d, expr, tx.emitContext.tree.getNodeKind(expr), visited, tx.emitContext.tree.getNodeKind(visited) });
             results.append(self.allocator, visited) catch unreachable;
         }
         return results.items;

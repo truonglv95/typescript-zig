@@ -33,7 +33,7 @@ pub const NodeBuilder = struct {
             maxTruncationLength = v.maxTruncationLength;
         }
         b.ctxStack.append(b.impl.c.allocator, &b.impl.ctx) catch unreachable;
-        
+
         b.impl.ctx = .{
             // host
             // tracker
@@ -63,7 +63,7 @@ pub const NodeBuilder = struct {
             // b.impl.ctx = null;
         } else {
             const popped = b.ctxStack.pop();
-            b.impl.ctx = popped.*;
+            b.impl.ctx = popped.?.*;
         }
     }
 

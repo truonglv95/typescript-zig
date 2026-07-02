@@ -13,8 +13,9 @@ pub const Flags = packed struct(u32) {
     InInitialEntityName: bool = false,
     AllowNodeModulesRelativePaths: bool = false,
     UseInstantiationExpressions: bool = false,
+    IgnoreErrors: bool = false,
     // Add other flags as necessary
-    _padding: u25 = 0,
+    _padding: u24 = 0,
 };
 
 pub const InternalFlags = packed struct(u32) {
@@ -22,14 +23,14 @@ pub const InternalFlags = packed struct(u32) {
     _padding: u31 = 0,
 };
 
-pub const CompositeSymbolIdentity = packed struct(u64) {
+pub const CompositeSymbolIdentity = packed struct(u65) {
     isConstructorNode: bool,
     symbolId: ast_gen.SymbolIndex,
     nodeId: ast_gen.NodeIndex,
 };
 
 pub const TrackedSymbolArgs = struct {
-    symbol: types.SymbolIndex,
+    symbol: ast_gen.SymbolIndex,
     enclosingDeclaration: ast_gen.NodeIndex,
     meaning: u32,
 };
@@ -76,15 +77,15 @@ pub const NodeBuilderContext = struct {
     symbolDepth: std.AutoHashMapUnmanaged(CompositeSymbolIdentity, usize) = .empty,
     trackedSymbols: std.ArrayListUnmanaged(TrackedSymbolArgs) = .empty,
     // mapper: ?*TypeMapper = null,
-    reverseMappedStack: std.ArrayListUnmanaged(types.SymbolIndex) = .empty,
-    enclosingSymbolTypes: std.AutoHashMapUnmanaged(types.SymbolIndex, types.TypeIndex) = .empty,
+    reverseMappedStack: std.ArrayListUnmanaged(ast_gen.SymbolIndex) = .empty,
+    enclosingSymbolTypes: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.TypeIndex) = .empty,
     suppressReportInferenceFallback: bool = false,
-    remappedSymbolReferences: std.AutoHashMapUnmanaged(types.SymbolIndex, types.SymbolIndex) = .empty,
+    remappedSymbolReferences: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, ast_gen.SymbolIndex) = .empty,
 
     typeParameterNames: std.AutoHashMapUnmanaged(types.TypeIndex, ast_gen.NodeIndex) = .empty,
     typeParameterNamesByText: std.StringHashMapUnmanaged(void) = .empty,
     typeParameterNamesByTextNextNameCount: std.StringHashMapUnmanaged(usize) = .empty,
-    typeParameterSymbolList: std.AutoHashMapUnmanaged(types.SymbolIndex, void) = .empty,
+    typeParameterSymbolList: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, void) = .empty,
 };
 
 pub const NodeBuilderImpl = struct {
@@ -92,8 +93,8 @@ pub const NodeBuilderImpl = struct {
     ctx: NodeBuilderContext,
 
     links: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, NodeBuilderLinks) = .empty,
-    symbolLinks: std.AutoHashMapUnmanaged(types.SymbolIndex, NodeBuilderSymbolLinks) = .empty,
-    idToSymbol: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.SymbolIndex) = .empty,
+    symbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, NodeBuilderSymbolLinks) = .empty,
+    idToSymbol: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ast_gen.SymbolIndex) = .empty,
 
     pub fn init(c: *Checker) NodeBuilderImpl {
         return .{
@@ -181,12 +182,14 @@ pub const NodeBuilderImpl = struct {
         const typeFlags = b.c.getTypeFlags(t);
         if (typeFlags & types.TypeFlags.EnumLike != 0 or
             objectFlags & types.ObjectFlags.Reference != 0 or
-            objectFlags & types.ObjectFlags.ClassOrInterface != 0) {
+            objectFlags & types.ObjectFlags.ClassOrInterface != 0)
+        {
             return true;
         }
         const symbol = b.c.getSymbol(t);
         if (objectFlags & types.ObjectFlags.Anonymous != 0 and symbol != 0 and
-            b.c.getSymbolFlags(symbol) & (types.SymbolFlags.Class | types.SymbolFlags.Enum | types.SymbolFlags.ValueModule | types.SymbolFlags.Function | types.SymbolFlags.Method) != 0) {
+            b.c.getSymbolFlags(symbol) & (types.SymbolFlags.Class | types.SymbolFlags.Enum | types.SymbolFlags.ValueModule | types.SymbolFlags.Function | types.SymbolFlags.Method) != 0)
+        {
             return true;
         }
         return false;
@@ -258,7 +261,7 @@ pub const NodeBuilderImpl = struct {
         _ = b.typeToTypeNode(b.c.getIndexInfoKeyType(info));
 
         // indexingParameter := b.f.NewParameterDeclaration(nil, nil, b.newIdentifier(name, nil /*symbol*/), nil, indexerTypeNode, nil)
-        
+
         var typeNode = typeNodeArg;
         if (typeNode == 0) {
             const valueType = b.c.getIndexInfoValueType(info);
@@ -269,35 +272,37 @@ pub const NodeBuilderImpl = struct {
                 typeNode = b.typeToTypeNode(valueType);
             }
         }
-        
+
         if (b.c.getIndexInfoValueType(info) == 0 and b.ctx.flags.AllowEmptyIndexInfoType == false) {
             b.ctx.encounteredError = true;
         }
-        
+
         b.ctx.approximateLength += name.len + 4;
-        
+
         if (b.c.getIndexInfoIsReadonly(info)) {
             b.ctx.approximateLength += 9;
             // modifiers = b.f.NewModifierList([]*ast.Node{b.f.NewModifier(ast.KindReadonlyKeyword)})
         }
-        
+
         return 0; // b.f.NewIndexSignatureDeclaration(modifiers, b.f.NewNodeList([]*ast.Node{indexingParameter}), typeNode)
     }
 
     pub fn serializeReturnTypeForSignature(b: *NodeBuilderImpl, signatureDeclaration: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = b; _ = signatureDeclaration;
+        _ = b;
+        _ = signatureDeclaration;
         return 0;
     }
 
     pub fn serializeTypeParametersForSignature(b: *NodeBuilderImpl, signatureDeclaration: ast_gen.NodeIndex) []const ast_gen.NodeIndex {
-        _ = b; _ = signatureDeclaration;
+        _ = b;
+        _ = signatureDeclaration;
         return &[_]ast_gen.NodeIndex{};
     }
 
-    pub fn serializeTypeForDeclaration(b: *NodeBuilderImpl, declarationArg: ast_gen.NodeIndex, symbolArg: types.SymbolIndex) ast_gen.NodeIndex {
+    pub fn serializeTypeForDeclaration(b: *NodeBuilderImpl, declarationArg: ast_gen.NodeIndex, symbolArg: ast_gen.SymbolIndex) ast_gen.NodeIndex {
         var declaration = declarationArg;
         var symbol = symbolArg;
-        
+
         if (declaration == 0) {
             if (symbol != 0) {
                 declaration = b.c.getValueDeclarationOfSymbol(symbol);
@@ -309,7 +314,7 @@ pub const NodeBuilderImpl = struct {
         if (symbol == 0) {
             symbol = b.c.getSymbolOfDeclaration(declaration);
         }
-        
+
         var t: types.TypeIndex = 0;
         if (b.ctx.enclosingSymbolTypes.get(symbol)) |st| {
             t = st;
@@ -324,14 +329,14 @@ pub const NodeBuilderImpl = struct {
                 t = b.c.errorTypeIndex orelse 0;
             }
         }
-        
+
         const flagsState = b.saveRestoreFlags();
         defer b.restoreFlags(flagsState);
-        
+
         if (b.c.getTypeFlags(t) & types.TypeFlags.UniqueESSymbol != 0 and b.c.getSymbolOfType(t) == symbol) {
             b.ctx.flags.AllowUniqueESSymbolType = true;
         }
-        
+
         const result: ast_gen.NodeIndex = b.typeToTypeNode(t);
         if (result == 0) {
             return 0; // fallback to AnyKeyword
@@ -346,57 +351,73 @@ pub const NodeBuilderImpl = struct {
     }
 
     pub fn signatureToSignatureDeclaration(b: *NodeBuilderImpl, signature: types.SignatureIndex, kind: ast_gen.SyntaxKind) ast_gen.NodeIndex {
-        _ = b; _ = signature; _ = kind;
+        _ = b;
+        _ = signature;
+        _ = kind;
         return 0;
     }
 
-    pub fn expandSymbolForHover(b: *NodeBuilderImpl, symbol: types.SymbolIndex, meaning: types.SymbolFlags) []const ast_gen.NodeIndex {
-        _ = b; _ = symbol; _ = meaning;
+    pub fn expandSymbolForHover(b: *NodeBuilderImpl, symbol: ast_gen.SymbolIndex, meaning: types.SymbolFlags) []const ast_gen.NodeIndex {
+        _ = b;
+        _ = symbol;
+        _ = meaning;
         return &[_]ast_gen.NodeIndex{};
     }
 
-    pub fn symbolToEntityName(b: *NodeBuilderImpl, symbol: types.SymbolIndex, meaning: types.SymbolFlags) ast_gen.NodeIndex {
-        _ = b; _ = symbol; _ = meaning;
+    pub fn symbolToEntityName(b: *NodeBuilderImpl, symbol: ast_gen.SymbolIndex, meaning: types.SymbolFlags) ast_gen.NodeIndex {
+        _ = b;
+        _ = symbol;
+        _ = meaning;
         return 0;
     }
 
-    pub fn symbolToExpression(b: *NodeBuilderImpl, symbol: types.SymbolIndex, meaning: types.SymbolFlags) ast_gen.NodeIndex {
-        _ = b; _ = symbol; _ = meaning;
+    pub fn symbolToExpression(b: *NodeBuilderImpl, symbol: ast_gen.SymbolIndex, meaning: types.SymbolFlags) ast_gen.NodeIndex {
+        _ = b;
+        _ = symbol;
+        _ = meaning;
         return 0;
     }
 
-    pub fn symbolToNode(b: *NodeBuilderImpl, symbol: types.SymbolIndex, meaning: types.SymbolFlags) ast_gen.NodeIndex {
-        _ = b; _ = symbol; _ = meaning;
+    pub fn symbolToNode(b: *NodeBuilderImpl, symbol: ast_gen.SymbolIndex, meaning: types.SymbolFlags) ast_gen.NodeIndex {
+        _ = b;
+        _ = symbol;
+        _ = meaning;
         return 0;
     }
 
-    pub fn symbolToParameterDeclaration(b: *NodeBuilderImpl, symbol: types.SymbolIndex) ast_gen.NodeIndex {
-        _ = b; _ = symbol;
+    pub fn symbolToParameterDeclaration(b: *NodeBuilderImpl, symbol: ast_gen.SymbolIndex) ast_gen.NodeIndex {
+        _ = b;
+        _ = symbol;
         return 0;
     }
 
-    pub fn symbolToTypeParameterDeclarations(b: *NodeBuilderImpl, symbol: types.SymbolIndex) []const ast_gen.NodeIndex {
-        _ = b; _ = symbol;
+    pub fn symbolToTypeParameterDeclarations(b: *NodeBuilderImpl, symbol: ast_gen.SymbolIndex) []const ast_gen.NodeIndex {
+        _ = b;
+        _ = symbol;
         return &[_]ast_gen.NodeIndex{};
     }
 
     pub fn typeParameterToDeclaration(b: *NodeBuilderImpl, parameter: types.TypeIndex) ast_gen.NodeIndex {
-        _ = b; _ = parameter;
+        _ = b;
+        _ = parameter;
         return 0;
     }
 
     pub fn typePredicateToTypePredicateNode(b: *NodeBuilderImpl, predicate: types.TypePredicateIndex) ast_gen.NodeIndex {
-        _ = b; _ = predicate;
+        _ = b;
+        _ = predicate;
         return 0;
     }
 
     pub fn typeToTypeNode(b: *NodeBuilderImpl, typ: types.TypeIndex) ast_gen.NodeIndex {
-        _ = b; _ = typ;
+        _ = b;
+        _ = typ;
         return 0;
     }
 
     pub fn tryJSTypeNodeToTypeNode(b: *NodeBuilderImpl, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = b; _ = node;
+        _ = b;
+        _ = node;
         return 0;
     }
 };

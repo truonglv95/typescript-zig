@@ -202,12 +202,13 @@ pub const CommandLineParser = struct {
                     },
                     .Boolean => {
                         const optValue = args[i];
-                        if (std.mem.eql(u8, optValue, "false")) {
+                        const normalized = std.mem.trimEnd(u8, optValue, ";");
+                        if (std.mem.eql(u8, normalized, "false")) {
                             try self.options.put(opt.name, .{ .Boolean = false });
                         } else {
                             try self.options.put(opt.name, .{ .Boolean = true });
                         }
-                        if (std.mem.eql(u8, optValue, "false") or std.mem.eql(u8, optValue, "true")) {
+                        if (std.mem.eql(u8, normalized, "false") or std.mem.eql(u8, normalized, "true")) {
                             i += 1;
                         }
                     },
@@ -297,7 +298,7 @@ pub fn ParseCommandLine(
     // For now stub
     _ = commandLine;
     _ = host;
-    
+
     const result = try allocator.create(ParsedCommandLine);
     result.* = .{
         .ParsedConfig = .{ .WatchOptions = undefined },
@@ -315,7 +316,7 @@ pub fn ParseBuildCommandLine(
 ) !*ParsedBuildCommandLine {
     _ = commandLine;
     _ = host;
-    
+
     const result = try allocator.create(ParsedBuildCommandLine);
     result.* = .{
         .BuildOptions = undefined,
@@ -346,11 +347,11 @@ pub fn ParseListTypeOption(
     if (val.len == 0) {
         return &[_]OptionValue{};
     }
-    
+
     var list = std.ArrayList(OptionValue).init(allocator);
     var iter = std.mem.splitScalar(u8, val, ',');
     const elementsOpt = opt.Elements();
-    
+
     while (iter.next()) |v| {
         if (elementsOpt) |el| {
             if (el.kind == .String) {
@@ -363,7 +364,7 @@ pub fn ParseListTypeOption(
             }
         }
     }
-    
+
     return try list.toOwnedSlice();
 }
 
@@ -372,10 +373,10 @@ pub fn convertJsonOptionOfEnumType(
     value: []const u8,
 ) !OptionValue {
     if (value.len == 0) return .Null;
-    
+
     const typeMap = opt.EnumMap();
     if (typeMap == null) return .Null;
-    
+
     // For now we don't have lower casing, we'll assume it matches
     const val = typeMap.?.get(value);
     if (val) |v| {
@@ -383,4 +384,3 @@ pub fn convertJsonOptionOfEnumType(
     }
     return .Null;
 }
-

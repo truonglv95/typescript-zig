@@ -48,10 +48,10 @@ pub const EmitResolver = struct {
         // Stub
     }
 
-    pub fn asReferenceResolver(self: *EmitResolver) @import("../binder/referenceresolver.zig").ReferenceResolver {
+    pub fn asReferenceResolver(self: *EmitResolver, tree: *ast.Ast) @import("../binder/referenceresolver.zig").ReferenceResolver {
         _ = self;
         // Stub implementation, will need actual tree in the future.
-        return @import("../binder/referenceresolver.zig").ReferenceResolver.init(undefined, .{});
+        return @import("../binder/referenceresolver.zig").ReferenceResolver.init(tree, .{});
     }
 };
 

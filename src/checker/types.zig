@@ -4,6 +4,12 @@ const ast = @import("../ast/ast.zig");
 
 pub const TypeIndex = u32;
 
+pub const Ternary = enum(i8) {
+    False = 0,
+    True = 1,
+    Maybe = 2,
+};
+
 /// TypeFlags - bitmask flags 1:1 với Go checker/types.go
 pub const TypeFlags = struct {
     pub const None: u32 = 0;
@@ -44,7 +50,10 @@ pub const TypeFlags = struct {
     pub const NumberLike: u32 = Number | NumberLiteral | Enum;
     pub const StringLike: u32 = String | StringLiteral | TemplateLiteral | StringMapping;
     pub const BooleanLike: u32 = Boolean | BooleanLiteral;
+    pub const BigIntLike: u32 = BigInt | BigIntLiteral;
+    pub const ESSymbolLike: u32 = ESSymbol | UniqueESSymbol;
     pub const EnumLike: u32 = Enum | EnumLiteral;
+    pub const Singleton: u32 = Any | Unknown | String | Number | Boolean | BigInt | ESSymbol | Void | Undefined | Null | Never | NonPrimitive;
     pub const UnionOrIntersection: u32 = Union | Intersection;
     pub const StructuredType: u32 = Object | Union | Intersection;
     pub const TypeVariable: u32 = TypeParameter | IndexedAccess;
@@ -61,6 +70,7 @@ pub const TypeFlags = struct {
     pub const IncludesConstrainedTypeVariable: u32 = ESSymbol;
     pub const IncludesMissingType: u32 = TemplateLiteral;
     pub const NotUnionOrUnit: u32 = ~(Union | Unit);
+    pub const Freshable: u32 = Enum | Literal;
 };
 
 /// ObjectFlags - bitmask cho Object types (1:1 với Go)
@@ -87,6 +97,10 @@ pub const ObjectFlags = struct {
     pub const NonInferrableType: u32 = 1 << 19;
     pub const CouldContainTypeVariablesComputed: u32 = 1 << 20;
     pub const CouldContainTypeVariables: u32 = 1 << 21;
+    pub const IsGenericTypeComputed: u32 = 1 << 22;
+    pub const IsGenericObjectType: u32 = 1 << 23;
+    pub const IsGenericIndexType: u32 = 1 << 24;
+    pub const IsGenericType: u32 = IsGenericObjectType | IsGenericIndexType;
 
     // Composite
     pub const ClassOrInterface: u32 = Class | Interface;
@@ -111,10 +125,7 @@ pub const TypeData = union(enum) {
     },
 
     /// Tuple type: [A, B, ...]
-    Tuple: struct {
-        typesStart: u32,
-        typesLen: u32,
-    },
+    Tuple: TupleType,
 
     /// Union type: A | B | C
     Union: struct {
@@ -127,6 +138,62 @@ pub const TypeData = union(enum) {
     Intersection: struct {
         typesStart: u32,
         typesLen: u32,
+    },
+
+    /// Conditional type: T extends U ? X : Y
+    Conditional: struct {
+        root: ast_gen.NodeIndex,
+        checkType: TypeIndex,
+        extendsType: TypeIndex,
+        resolvedTrueType: ?TypeIndex = null,
+        resolvedFalseType: ?TypeIndex = null,
+        resolvedDefaultConstraint: ?TypeIndex = null,
+        resolvedConstraintOfDistributive: ?TypeIndex = null,
+        constraint: TypeIndex = 0,
+        mapper: u32 = 0,
+        combinedMapper: u32 = 0,
+    },
+
+    TypeParameter: struct {
+        isTypeParameterConstraintResolved: bool = false,
+        resolvedBaseConstraint: ?TypeIndex = null,
+        constraintType: TypeIndex = 0, // 0 = undefined, to save optional overhead or we can use ?TypeIndex
+        target: ?TypeIndex = null,
+        mapper: u32 = 0, // TypeMapperIndex
+        isThisType: bool = false,
+        resolvedDefaultType: ?TypeIndex = null,
+    },
+
+    Substitution: struct {
+        baseType: TypeIndex,
+        constraint: TypeIndex,
+    },
+
+    TemplateLiteral: struct {
+        texts: [][]const u8,
+        typesStart: u32,
+        typesLen: u32,
+    },
+
+    StringMapping: struct {
+        target: TypeIndex,
+    },
+
+    IndexedAccess: struct {
+        objectType: TypeIndex,
+        indexType: TypeIndex,
+        accessFlags: u32,
+        constraint: TypeIndex = 0,
+    },
+
+    Mapped: struct {
+        declaration: ast_gen.NodeIndex,
+        typeParameter: TypeIndex,
+        constraintType: ?TypeIndex = null,
+        nameType: ?TypeIndex = null,
+        templateType: TypeIndex,
+        modifiersType: ?TypeIndex = null,
+        mapper: u32 = 0,
     },
 
     /// String literal type: "hello"
@@ -150,11 +217,126 @@ pub const TypeData = union(enum) {
     },
 };
 
-pub const ObjectTypeData = struct {
-    Symbol: ?ast_gen.SymbolIndex = null,
-    /// Index vào bảng properties (future use)
+pub const TypeAlias = struct {
+    symbol: ast_gen.SymbolIndex,
+    typeArgumentsStart: u32,
+    typeArgumentsLen: u32,
+};
+
+pub const TupleType = struct {
+    typesStart: u32,
+    typesLen: u32,
+    readonly: bool = false,
+    combinedFlags: u32 = 0,
+    minLength: u32 = 0,
+    fixedLength: u32 = 0,
+    hasRestElement: bool = false,
+};
+
+pub const ConditionalRoot = struct {
+    node: ast_gen.NodeIndex, // ConditionalTypeNode
+    checkType: TypeIndex,
+    extendsType: TypeIndex,
+    isDistributive: bool,
+    inferTypeParametersStart: u32 = 0,
+    inferTypeParametersLen: u32 = 0,
+    outerTypeParametersStart: u32 = 0,
+    outerTypeParametersLen: u32 = 0,
+    alias: ?TypeAlias = null,
+    // instantiations: ...
+};
+
+/// MappedTypeModifiers - bitmask 1:1 với Go MappedTypeModifiers
+pub const MappedTypeModifiers = struct {
+    value: u32 = 0,
+
+    pub const IncludeReadonly: u32 = 1 << 0;
+    pub const ExcludeReadonly: u32 = 1 << 1;
+    pub const IncludeOptional: u32 = 1 << 2;
+    pub const ExcludeOptional: u32 = 1 << 3;
+
+    pub fn has(self: MappedTypeModifiers, flag: u32) bool {
+        return self.value & flag != 0;
+    }
+};
+
+pub const ElementFlags = struct {
+    pub const None: u32 = 0;
+    pub const Required: u32 = 1 << 0;
+    pub const Optional: u32 = 1 << 1;
+    pub const Rest: u32 = 1 << 2;
+    pub const Variadic: u32 = 1 << 3;
+
+    pub const Fixed: u32 = Required | Optional;
+    pub const Variable: u32 = Rest | Variadic;
+    pub const NonRequired: u32 = Optional | Rest | Variadic;
+    pub const NonRest: u32 = Required | Optional | Variadic;
+};
+
+pub const IndexInfo = struct {
+    keyType: TypeIndex,
+    valueType: TypeIndex,
+    isReadonly: bool,
+    declaration: ?ast_gen.NodeIndex = null,
+};
+
+pub const SignatureKind = enum {
+    Call,
+    Construct,
+};
+
+pub const SignatureFlags = struct {
+    pub const None: u32 = 0;
+    pub const HasRestParameter: u32 = 1 << 0;
+    pub const HasLiteralTypes: u32 = 1 << 1;
+    pub const Construct: u32 = 1 << 2;
+    pub const Abstract: u32 = 1 << 3;
+    pub const IsInnerCallChain: u32 = 1 << 4;
+    pub const IsOuterCallChain: u32 = 1 << 5;
+    pub const IsUntypedSignatureInJSFile: u32 = 1 << 6;
+    pub const IsNonInferrable: u32 = 1 << 7;
+    pub const IsSignatureCandidateForOverloadFailure: u32 = 1 << 8;
+
+    pub const PropagatingFlags = HasRestParameter | HasLiteralTypes | Construct | Abstract | IsUntypedSignatureInJSFile | IsSignatureCandidateForOverloadFailure;
+    pub const CallChainFlags = IsInnerCallChain | IsOuterCallChain;
+};
+
+pub const Signature = struct {
+    flags: u32 = 0,
+    minArgumentCount: i32 = 0,
+    resolvedMinArgumentCount: i32 = -1,
+    declaration: ast_gen.NodeIndex = 0,
+    typeParametersStart: u32 = 0,
+    typeParametersLen: u32 = 0,
+    parametersStart: u32 = 0,
+    parametersLen: u32 = 0,
+    thisParameter: ?ast_gen.SymbolIndex = null,
+    resolvedReturnType: ?TypeIndex = null,
+    target: ?SignatureIndex = null,
+    isolatedSignatureType: ?TypeIndex = null,
+};
+
+pub const StructuredTypeMembers = struct {
     propertiesStart: u32 = 0,
     propertiesLen: u32 = 0,
+    callSignaturesStart: u32 = 0,
+    callSignaturesLen: u32 = 0,
+    constructSignaturesStart: u32 = 0,
+    constructSignaturesLen: u32 = 0,
+    indexInfosStart: u32 = 0,
+    indexInfosLen: u32 = 0,
+};
+
+pub const Range = struct {
+    start: u32 = 0,
+    len: u32 = 0,
+};
+
+pub const ObjectTypeData = struct {
+    Symbol: ?ast_gen.SymbolIndex = null,
+    target: ?TypeIndex = null,
+    typeArgumentsStart: u32 = 0,
+    typeArgumentsLen: u32 = 0,
 };
 
 pub const FunctionTypeData = struct {
@@ -171,7 +353,7 @@ pub const Type = struct {
     objectFlags: u32,
     id: u32 = 0,
     symbol: ?ast_gen.SymbolIndex = null,
-    alias: ?ast_gen.SymbolIndex = null,
+    alias: ?TypeAlias = null,
     data: TypeData,
 };
 
@@ -322,3 +504,63 @@ pub const ExpandingFlags = struct {
 };
 
 pub const SignatureIndex = u32;
+pub const TypeFormatFlags = struct {
+    pub const None: u32 = 0;
+    pub const NoTruncation: u32 = 1 << 0;
+    pub const WriteArrayAsGenericType: u32 = 1 << 1;
+    pub const GenerateNamesForShadowedTypeParams: u32 = 1 << 2;
+    pub const UseStructuralFallback: u32 = 1 << 3;
+    pub const WriteTypeArgumentsOfSignature: u32 = 1 << 5;
+    pub const UseFullyQualifiedType: u32 = 1 << 6;
+    pub const SuppressAnyReturnType: u32 = 1 << 8;
+    pub const MultilineObjectLiterals: u32 = 1 << 10;
+    pub const WriteClassExpressionAsTypeLiteral: u32 = 1 << 11;
+    pub const UseTypeOfFunction: u32 = 1 << 12;
+    pub const OmitParameterModifiers: u32 = 1 << 13;
+    pub const UseAliasDefinedOutsideCurrentScope: u32 = 1 << 14;
+    pub const UseSingleQuotesForStringLiteralType: u32 = 1 << 28;
+    pub const NoTypeReduction: u32 = 1 << 29;
+    pub const UseInstantiationExpressions: u32 = 1 << 30;
+    pub const OmitThisParameter: u32 = 1 << 25;
+    pub const WriteCallStyleSignature: u32 = 1 << 27;
+    pub const AllowUniqueESSymbolType: u32 = 1 << 20;
+    pub const AddUndefined: u32 = 1 << 17;
+    pub const WriteArrowStyleSignature: u32 = 1 << 18;
+    pub const InArrayType: u32 = 1 << 19;
+    pub const InElementType: u32 = 1 << 21;
+    pub const InFirstTypeArgument: u32 = 1 << 22;
+    pub const InTypeAlias: u32 = 1 << 23;
+
+    pub const NodeBuilderFlagsMask: u32 = NoTruncation | WriteArrayAsGenericType | GenerateNamesForShadowedTypeParams | UseStructuralFallback | WriteTypeArgumentsOfSignature | UseFullyQualifiedType | SuppressAnyReturnType | MultilineObjectLiterals | WriteClassExpressionAsTypeLiteral | UseTypeOfFunction | OmitParameterModifiers | UseAliasDefinedOutsideCurrentScope | AllowUniqueESSymbolType | InTypeAlias | UseInstantiationExpressions | UseSingleQuotesForStringLiteralType | NoTypeReduction | OmitThisParameter;
+};
+
+pub const SymbolFormatFlags = struct {
+    pub const None: u32 = 0;
+    pub const WriteTypeParametersOrArguments: u32 = 1 << 0;
+    pub const UseOnlyExternalAliasing: u32 = 1 << 1;
+    pub const AllowAnyNodeKind: u32 = 1 << 2;
+    pub const UseAliasDefinedOutsideCurrentScope: u32 = 1 << 3;
+    pub const WriteComputedProps: u32 = 1 << 4;
+    pub const DoNotIncludeSymbolChain: u32 = 1 << 5;
+};
+
+pub const IndexFlags = struct {
+    pub const None: u32 = 0;
+    pub const StringsOnly: u32 = 1 << 0;
+    pub const NoIndexSignatures: u32 = 1 << 1;
+    pub const NoReducibleCheck: u32 = 1 << 2;
+};
+
+pub const AccessFlags = struct {
+    pub const None: u32 = 0;
+    pub const IncludeUndefined: u32 = 1 << 0;
+    pub const NoIndexSignatures: u32 = 1 << 1;
+    pub const Writing: u32 = 1 << 2;
+    pub const CacheSymbol: u32 = 1 << 3;
+    pub const AllowMissing: u32 = 1 << 4;
+    pub const ExpressionPosition: u32 = 1 << 5;
+    pub const ReportDeprecated: u32 = 1 << 6;
+    pub const SuppressNoImplicitAnyError: u32 = 1 << 7;
+    pub const Contextual: u32 = 1 << 8;
+    pub const Persistent: u32 = IncludeUndefined;
+};

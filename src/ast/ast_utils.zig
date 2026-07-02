@@ -1444,10 +1444,25 @@ pub fn getLiteralOfLiteralTypeNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = b;
     return 0;
 }
-pub fn getParametersOfNode(a: anytype, b: anytype) []const ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return &[_]ast.NodeIndex{};
+pub fn getParametersOfNode(tree: *ast.Ast, nodeIndex: ast.NodeIndex) []const ast.NodeIndex {
+    if (nodeIndex == 0) return &[_]ast.NodeIndex{};
+    const node = tree.nodes.get(nodeIndex);
+    switch (node) {
+        .FunctionDeclaration => |n| return tree.getNodeList(n.Parameters),
+        .MethodDeclaration => |n| return tree.getNodeList(n.Parameters),
+        .Constructor => |n| return tree.getNodeList(n.Parameters),
+        .GetAccessor => |n| return tree.getNodeList(n.Parameters),
+        .SetAccessor => |n| return tree.getNodeList(n.Parameters),
+        .FunctionExpression => |n| return tree.getNodeList(n.Parameters),
+        .ArrowFunction => |n| return tree.getNodeList(n.Parameters),
+        .CallSignature => |n| return tree.getNodeList(n.Parameters),
+        .ConstructSignature => |n| return tree.getNodeList(n.Parameters),
+        .MethodSignature => |n| return tree.getNodeList(n.Parameters),
+        .IndexSignature => |n| return tree.getNodeList(n.Parameters),
+        .FunctionType => |n| return tree.getNodeList(n.Parameters),
+        .ConstructorType => |n| return tree.getNodeList(n.Parameters),
+        else => return &[_]ast.NodeIndex{},
+    }
 }
 
 pub fn getTypesOfNode(a: anytype, b: anytype) ast.NodeIndex {
@@ -1455,10 +1470,31 @@ pub fn getTypesOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = b;
     return 0;
 }
+
 pub fn getOperandOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
     _ = b;
     return 0;
+}
+
+pub fn getTypeParametersOfNode(tree: *ast.Ast, nodeIndex: ast.NodeIndex) []const ast.NodeIndex {
+    if (nodeIndex == 0) return &[_]ast.NodeIndex{};
+    const node = tree.nodes.get(nodeIndex);
+    switch (node) {
+        .FunctionDeclaration => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .MethodDeclaration => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .FunctionExpression => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .ArrowFunction => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .CallSignature => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .ConstructSignature => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .MethodSignature => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .FunctionType => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .ConstructorType => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .ClassDeclaration => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .InterfaceDeclaration => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        .TypeAliasDeclaration => |n| return if (n.TypeParameters) |idx| tree.getNodeList(idx) else &[_]ast.NodeIndex{},
+        else => return &[_]ast.NodeIndex{},
+    }
 }
 pub fn getTypeNameOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;

@@ -17,7 +17,7 @@ pub const RawSourceMap = struct {
     sources: [][]const u8,
     names: [][]const u8,
     mappings: []const u8,
-    sourcesContent: []?[]const u8,
+    sourcesContent: ?[]?[]const u8,
 };
 
 pub const Generator = struct {
@@ -54,9 +54,9 @@ pub const Generator = struct {
         const gen = allocator.create(Generator) catch unreachable;
         gen.* = Generator{
             .allocator = allocator,
-            .file = file,
-            .sourceRoot = sourceRoot,
-            .sourcesDirectoryPath = sourcesDirectoryPath,
+            .file = allocator.dupe(u8, file) catch unreachable,
+            .sourceRoot = allocator.dupe(u8, sourceRoot) catch unreachable,
+            .sourcesDirectoryPath = allocator.dupe(u8, sourcesDirectoryPath) catch unreachable,
             .pathOptions = options,
             .rawSources = .empty,
             .sources = .empty,
@@ -70,7 +70,11 @@ pub const Generator = struct {
     }
 
     pub fn deinit(self: *Generator) void {
+        self.allocator.free(self.file);
+        self.allocator.free(self.sourceRoot);
+        self.allocator.free(self.sourcesDirectoryPath);
         self.rawSources.deinit(self.allocator);
+        for (self.sources.items) |source| self.allocator.free(source);
         self.sources.deinit(self.allocator);
         self.sourceToSourceIndexMap.deinit();
         self.sourcesContent.deinit(self.allocator);
@@ -85,12 +89,21 @@ pub const Generator = struct {
     }
 
     pub fn addSource(self: *Generator, fileName: []const u8) SourceIndex {
-        const source = tspath.getRelativePathToDirectoryOrUrl(
+        var source = tspath.getRelativePathToDirectoryOrUrl(
+            self.allocator,
             self.sourcesDirectoryPath,
             fileName,
             true, // isAbsolutePathAnUrl
             self.pathOptions,
-        );
+        ) catch unreachable;
+        if (source.len == 0 and std.fs.path.isAbsolute(self.sourcesDirectoryPath) and std.fs.path.isAbsolute(fileName)) {
+            self.allocator.free(source);
+            const effective_file_name = if (std.mem.startsWith(u8, fileName, "/private/var/") and std.mem.startsWith(u8, self.sourcesDirectoryPath, "/var/")) fileName[8..] else fileName;
+            source = std.fs.path.relativePosix(self.allocator, ".", self.sourcesDirectoryPath, effective_file_name) catch self.allocator.dupe(u8, tspath.getBaseFileName(fileName)) catch unreachable;
+        } else if (source.len == 0) {
+            self.allocator.free(source);
+            source = self.allocator.dupe(u8, tspath.getBaseFileName(fileName)) catch unreachable;
+        }
 
         if (self.sourceToSourceIndexMap.get(source)) |sourceIndex| {
             return sourceIndex;
@@ -294,6 +307,26 @@ pub const Generator = struct {
         self.addMapping(generatedLine, generatedCharacter, sourceIndex, sourceLine, sourceCharacter, nameIndex);
     }
 
+    pub fn resetMappings(self: *Generator) void {
+        self.mappings.clearRetainingCapacity();
+        self.lastGeneratedLine = 0;
+        self.lastGeneratedCharacter = 0;
+        self.lastSourceIndex = 0;
+        self.lastSourceLine = 0;
+        self.lastSourceCharacter = 0;
+        self.lastNameIndex = 0;
+        self.hasLast = false;
+        self.pendingGeneratedLine = 0;
+        self.pendingGeneratedCharacter = 0;
+        self.pendingSourceIndex = 0;
+        self.pendingSourceLine = 0;
+        self.pendingSourceCharacter = 0;
+        self.pendingNameIndex = 0;
+        self.hasPending = false;
+        self.hasPendingSource = false;
+        self.hasPendingName = false;
+    }
+
     pub fn toRawSourceMap(self: *Generator) *RawSourceMap {
         self.commitPendingMapping();
         const map = self.allocator.create(RawSourceMap) catch unreachable;
@@ -304,20 +337,19 @@ pub const Generator = struct {
             .sources = self.sources.items,
             .names = self.names.items,
             .mappings = self.mappings.items,
-            .sourcesContent = self.sourcesContent.items,
+            .sourcesContent = if (self.sourcesContent.items.len == 0) null else self.sourcesContent.items,
         };
         return map;
     }
 
     pub fn base64DataURL(self: *Generator, allocator: std.mem.Allocator) ![]const u8 {
         const rawMap = self.toRawSourceMap();
-        var out = std.ArrayListUnmanaged(u8).empty;
-        defer out.deinit(allocator);
-        try out.print(allocator, "{}", .{std.json.fmt(rawMap.*, .{})});
+        const out = try std.json.Stringify.valueAlloc(allocator, rawMap.*, .{ .emit_null_optional_fields = false });
         self.allocator.destroy(rawMap);
+        defer allocator.free(out);
 
         const encoder = std.base64.standard.Encoder;
-        const encodedLen = encoder.calcSize(out.items.len);
+        const encodedLen = encoder.calcSize(out.len);
 
         var base64Url = try std.ArrayListUnmanaged(u8).initCapacity(allocator, 29 + encodedLen);
         defer base64Url.deinit(allocator);
@@ -325,18 +357,16 @@ pub const Generator = struct {
 
         const start = base64Url.items.len;
         base64Url.items.len += encodedLen;
-        _ = encoder.encode(base64Url.items[start..], out.items);
+        _ = encoder.encode(base64Url.items[start..], out);
 
         return base64Url.toOwnedSlice(allocator);
     }
 
     pub fn toString(self: *Generator, allocator: std.mem.Allocator) ![]const u8 {
         const rawMap = self.toRawSourceMap();
-        var out = std.ArrayListUnmanaged(u8).empty;
-        defer out.deinit(allocator);
-        try out.print(allocator, "{}", .{std.json.fmt(rawMap.*, .{})});
+        const out = try std.json.Stringify.valueAlloc(allocator, rawMap.*, .{ .emit_null_optional_fields = false });
         self.allocator.destroy(rawMap);
-        return out.toOwnedSlice(allocator);
+        return out;
     }
 };
 

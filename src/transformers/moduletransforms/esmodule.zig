@@ -45,7 +45,11 @@ pub const ESModuleTransformer = struct {
         const tree = visitor.tree;
         const n = tree.getNode(node).SourceFile;
 
-        const force_module = (self.compilerOptions.moduleDetection orelse .Auto) == .Force;
+        const file_name = tree.fileName;
+        const forced_by_extension = std.mem.endsWith(u8, file_name, ".mts") or
+            std.mem.endsWith(u8, file_name, ".mjs") or
+            std.mem.endsWith(u8, file_name, ".d.mts");
+        const force_module = (self.compilerOptions.moduleDetection orelse .Auto) == .Force or forced_by_extension;
         if (ast_utils.isDeclarationFile(tree, node) or
             (!ast_utils.isExternalModule(tree, node) and !(self.compilerOptions.isolatedModules orelse false)))
         {

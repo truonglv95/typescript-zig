@@ -193,6 +193,10 @@ pub fn getSourceFilePathInNewDir(allocator: std.mem.Allocator, fileName: []const
     const isSourceFileInCommonSourceDirectory = std.mem.startsWith(u8, sourceFilePath, commonSrcDir);
     if (isSourceFileInCommonSourceDirectory) {
         sourceFilePath = sourceFilePath[commonSrcDir.len..];
+    } else {
+        // Never allow an absolute input outside rootDir to escape outDir. tsgo
+        // still emits such files (alongside TS6059), using a safe relative name.
+        sourceFilePath = tspath.getBaseFileName(sourceFilePath);
     }
     return try tspath.combinePaths(allocator, newDirPath, &.{sourceFilePath});
 }
@@ -209,14 +213,7 @@ pub fn getOutputPathWithoutChangingExtension(allocator: std.mem.Allocator, input
 }
 
 pub fn getSourceFilePathInNewDirWorker(allocator: std.mem.Allocator, fileName: []const u8, newDirPath: []const u8, currentDirectory: []const u8, commonSourceDirectory: []const u8, useCaseSensitiveFileNames: bool) ![]const u8 {
-    var sourceFilePath = try tspath.getNormalizedAbsolutePath(allocator, fileName, currentDirectory);
-    const commonDir = try tspath.getCanonicalFileName(allocator, commonSourceDirectory, useCaseSensitiveFileNames);
-    const canonFile = try tspath.getCanonicalFileName(allocator, sourceFilePath, useCaseSensitiveFileNames);
-    const isSourceFileInCommonSourceDirectory = std.mem.startsWith(u8, canonFile, commonDir);
-    if (isSourceFileInCommonSourceDirectory) {
-        sourceFilePath = sourceFilePath[commonSourceDirectory.len..];
-    }
-    return try tspath.combinePaths(allocator, newDirPath, &.{sourceFilePath});
+    return getSourceFilePathInNewDir(allocator, fileName, newDirPath, currentDirectory, commonSourceDirectory, useCaseSensitiveFileNames);
 }
 
 pub fn getOwnEmitOutputFilePath(allocator: std.mem.Allocator, fileName: []const u8, options: *const core.CompilerOptions, host: OutputPathsHost, extension: []const u8) ![]const u8 {

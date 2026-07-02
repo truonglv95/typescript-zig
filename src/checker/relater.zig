@@ -74,7 +74,7 @@ pub const ErrorOutputContainer = struct {
     skipLogging: bool = false,
 };
 
-pub const ErrorReporter = ?*const fn(message: *const diagnostics_gen.Message, args: [][]const u8) void;
+pub const ErrorReporter = ?*const fn (message: *const diagnostics_gen.Message, args: []const []const u8) void;
 
 pub const RecursionId = struct {
     value: u64,
@@ -121,11 +121,9 @@ pub const ErrorChain = struct {
     next: ?*ErrorChain = null,
 };
 
-
-
 pub const ErrorState = struct {
     errorChain: ?*ErrorChain = null,
-    relatedInfo: ?[]*ast.Diagnostic = null,
+    relatedInfo: ?[]diagnostics.Diagnostic = null,
 };
 
 pub const Relater = struct {
@@ -133,7 +131,7 @@ pub const Relater = struct {
     relation: *Relation,
     errorNode: ?ast.NodeIndex = null,
     errorChain: ?*ErrorChain = null,
-    relatedInfo: std.ArrayListUnmanaged(*ast.Diagnostic) = .empty,
+    relatedInfo: std.ArrayListUnmanaged(diagnostics.Diagnostic) = .empty,
     maybeKeys: std.ArrayListUnmanaged(CacheHashKey) = .empty,
     maybeKeysSet: std.AutoHashMapUnmanaged(CacheHashKey, void) = .empty,
     sourceStack: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
@@ -212,7 +210,6 @@ pub const Relater = struct {
         return r.someTypeRelatedToType(source, target, false, .Source);
     }
 
-
     pub fn typeRelatedToEachType(r: *Relater, source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool, intersectionState: IntersectionState) types.Ternary {
         const c = r.c;
         var result = types.Ternary.True;
@@ -246,7 +243,7 @@ pub const Relater = struct {
         const c = r.c;
         var result = types.Ternary.True;
         const sourceTypes = c.getTypesOfUnionOrIntersectionType(source);
-        
+
         var strippedTarget = target;
         if (c.getTypeFlags(source) & types.TypeFlags.Union != 0 and c.getTypeFlags(target) & types.TypeFlags.Union != 0 and c.getTypeFlags(sourceTypes[0]) & types.TypeFlags.Undefined == 0 and c.getTypeFlags(c.getTypesOfUnionOrIntersectionType(target)[0]) & types.TypeFlags.Undefined != 0) {
             strippedTarget = c.extractTypesOfKind(target, ~@as(u32, @intFromEnum(types.TypeFlags.Undefined)));
@@ -276,13 +273,13 @@ pub const Relater = struct {
 
     const CombinationContext = struct {
         combination: []const types.TypeIndex,
-        
+
         pub fn getTypeOfSourceProperty(ctx: *const CombinationContext, sym: types.SymbolIndex) types.TypeIndex {
             _ = ctx;
             _ = sym;
             // In Go: func(*ast.Symbol) *Type { return combination[i] }
             // Wait, we need the index `i`!
-            unreachable; 
+            unreachable;
         }
     };
 
@@ -554,7 +551,8 @@ pub const Relater = struct {
     }
 
     pub fn propertyRelatedTo(r: *Relater, source: types.TypeIndex, target: types.TypeIndex, sourceProp: types.SymbolIndex, targetProp: types.SymbolIndex, context: anytype, comptime getTypeOfSourceProperty: fn (ctx: @TypeOf(context), sym: types.SymbolIndex) types.TypeIndex, reportErrors: bool, intersectionState: IntersectionState, skipOptional: bool) types.Ternary {
-        _ = source; _ = target;
+        _ = source;
+        _ = target;
         const c = r.c;
         if (r.relation == &c.identityRelation) {
             return r.isPropertySymbolTypeRelated(sourceProp, targetProp, context, getTypeOfSourceProperty, reportErrors, intersectionState);
@@ -595,12 +593,21 @@ pub const Relater = struct {
     }
 
     pub fn isPropertySymbolTypeRelated(r: *Relater, sourceProp: types.SymbolIndex, targetProp: types.SymbolIndex, context: anytype, comptime getTypeOfSourceProperty: fn (ctx: @TypeOf(context), sym: types.SymbolIndex) types.TypeIndex, reportErrors: bool, intersectionState: IntersectionState) types.Ternary {
-        _ = r; _ = sourceProp; _ = targetProp; _ = getTypeOfSourceProperty; _ = reportErrors; _ = intersectionState;
+        _ = r;
+        _ = sourceProp;
+        _ = targetProp;
+        _ = getTypeOfSourceProperty;
+        _ = reportErrors;
+        _ = intersectionState;
         return .False; // Stub
     }
 
     pub fn reportUnmatchedProperty(r: *Relater, source: types.TypeIndex, target: types.TypeIndex, unmatchedProperty: types.SymbolIndex, requireOptionalProperties: bool) void {
-        _ = r; _ = source; _ = target; _ = unmatchedProperty; _ = requireOptionalProperties;
+        _ = r;
+        _ = source;
+        _ = target;
+        _ = unmatchedProperty;
+        _ = requireOptionalProperties;
         // Stub
     }
 
@@ -638,7 +645,8 @@ pub const Relater = struct {
         const sourceObjectFlags = c.getObjectFlags(source);
         const targetObjectFlags = c.getObjectFlags(target);
         if ((sourceObjectFlags & types.ObjectFlags.Instantiated != 0 and targetObjectFlags & types.ObjectFlags.Instantiated != 0 and c.getSymbol(source) == c.getSymbol(target)) or
-            (sourceObjectFlags & types.ObjectFlags.Reference != 0 and targetObjectFlags & types.ObjectFlags.Reference != 0 and c.getTargetType(source) == c.getTargetType(target))) {
+            (sourceObjectFlags & types.ObjectFlags.Reference != 0 and targetObjectFlags & types.ObjectFlags.Reference != 0 and c.getTargetType(source) == c.getTargetType(target)))
+        {
             for (targetSignatures, 0..) |t, i| {
                 const s = sourceSignatures[i];
                 const related = r.signatureRelatedTo(s, t, true, reportErrors, intersectionState);
@@ -680,7 +688,7 @@ pub const Relater = struct {
         }
         const sourceAccessibility = c.getModifierFlags(sourceSignature.declaration) & types.ModifierFlags.NonPublicAccessibilityModifier;
         const targetAccessibility = c.getModifierFlags(targetSignature.declaration) & types.ModifierFlags.NonPublicAccessibilityModifier;
-        
+
         if (targetAccessibility == types.ModifierFlags.Private) {
             return true;
         }
@@ -697,7 +705,8 @@ pub const Relater = struct {
     }
 
     pub fn reportErrorStub(r: *Relater, msg: types.DiagnosticMessage) void {
-        _ = r; _ = msg;
+        _ = r;
+        _ = msg;
         // Stub
     }
 
@@ -720,7 +729,7 @@ pub const Relater = struct {
         // isRelatedToWorker := func(source *Type, target *Type, reportErrors bool) Ternary {
         //  return r.isRelatedToEx(source, target, RecursionFlagsBoth, reportErrors, nil /*headMessage*/, intersectionState)
         // }
-        
+
         // Ctx struct
         const Ctx = struct {
             r: *Relater,
@@ -735,7 +744,8 @@ pub const Relater = struct {
     }
 
     pub fn getUndefinedStrippedTargetIfNeeded(r: *Relater, source: types.TypeIndex, target: types.TypeIndex) types.TypeIndex {
-        _ = r; _ = source;
+        _ = r;
+        _ = source;
         return target; // Stub
     }
 
@@ -749,7 +759,8 @@ pub const Relater = struct {
             const source_flags = c.getTypeFlags(source);
             if (r.relation != &c.comparableRelation and c.getObjectFlags(target) & types.ObjectFlags.PrimitiveUnion != 0 and source_flags & types.TypeFlags.EnumLiteral == 0 and
                 (source_flags & (types.TypeFlags.StringLiteral | types.TypeFlags.BooleanLiteral | types.TypeFlags.BigIntLiteral) != 0 or
-                (r.relation == &c.subtypeRelation or r.relation == &c.strictSubtypeRelation) and source_flags & types.TypeFlags.NumberLiteral != 0)) {
+                    (r.relation == &c.subtypeRelation or r.relation == &c.strictSubtypeRelation) and source_flags & types.TypeFlags.NumberLiteral != 0))
+            {
                 var alternateForm: ?types.TypeIndex = null;
                 if (source == c.getRegularTypeOfLiteralType(source)) {
                     alternateForm = c.getFreshTypeOfLiteralType(source);
@@ -794,17 +805,27 @@ pub const Relater = struct {
     }
 
     pub fn eachTypeRelatedToSomeType(r: *Relater, source: types.TypeIndex, target: types.TypeIndex) types.Ternary {
-        _ = r; _ = source; _ = target;
+        _ = r;
+        _ = source;
+        _ = target;
         return .False; // Stub
     }
 
     pub fn recursiveTypeRelatedTo(r: *Relater, source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool, intersectionState: IntersectionState, recursionFlags: RecursionFlags) types.Ternary {
-        _ = r; _ = source; _ = target; _ = reportErrors; _ = intersectionState; _ = recursionFlags;
+        _ = r;
+        _ = source;
+        _ = target;
+        _ = reportErrors;
+        _ = intersectionState;
+        _ = recursionFlags;
         return .False; // Stub
     }
 
     pub fn resetMaybeStack(r: *Relater, maybeStart: usize, propagatingVarianceFlags: RelationComparisonResult, markAllAsSucceeded: bool) void {
-        _ = r; _ = maybeStart; _ = propagatingVarianceFlags; _ = markAllAsSucceeded;
+        _ = r;
+        _ = maybeStart;
+        _ = propagatingVarianceFlags;
+        _ = markAllAsSucceeded;
     }
 
     pub fn getErrorState(r: *Relater) ErrorState {
@@ -813,7 +834,8 @@ pub const Relater = struct {
     }
 
     pub fn restoreErrorState(r: *Relater, e: ErrorState) void {
-        _ = r; _ = e;
+        _ = r;
+        _ = e;
     }
 
     pub fn structuredTypeRelatedTo(r: *Relater, source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool, intersectionState: IntersectionState) types.Ternary {
@@ -983,7 +1005,8 @@ pub const Relater = struct {
             }
             if (!(source_flags & types.TypeFlags.Instantiable != 0 or
                 source_flags & types.TypeFlags.Object != 0 and target_flags & types.TypeFlags.Union != 0 or
-                source_flags & types.TypeFlags.Intersection != 0 and target_flags & (types.TypeFlags.Object | types.TypeFlags.Union | types.TypeFlags.Instantiable) != 0)) {
+                source_flags & types.TypeFlags.Intersection != 0 and target_flags & (types.TypeFlags.Object | types.TypeFlags.Union | types.TypeFlags.Instantiable) != 0))
+            {
                 if (source_flags & types.TypeFlags.Mapped != 0) {
                     const mappedType = c.getTargetType(source);
                     const nameType = c.getNameTypeFromMappedType(mappedType);
@@ -1018,7 +1041,8 @@ pub const Relater = struct {
                 }
                 if (c.isTypeIdenticalTo(sourceExtends, c.getExtendsTypeFromConditionalType(target)) and
                     (r.isRelatedTo(c.getCheckTypeFromConditionalType(source), c.getCheckTypeFromConditionalType(target), RecursionFlags_Both, false) != 0 or
-                    r.isRelatedTo(c.getCheckTypeFromConditionalType(target), c.getCheckTypeFromConditionalType(source), RecursionFlags_Both, false) != 0)) {
+                        r.isRelatedTo(c.getCheckTypeFromConditionalType(target), c.getCheckTypeFromConditionalType(source), RecursionFlags_Both, false) != 0))
+                {
                     result = r.isRelatedTo(c.instantiateType(c.getTrueTypeFromConditionalType(source), mapper orelse 0), c.getTrueTypeFromConditionalType(target), RecursionFlags_Both, reportErrors);
                     if (result != .False) {
                         result = types.Ternary.andValues(result, r.isRelatedTo(c.getFalseTypeFromConditionalType(source), c.getFalseTypeFromConditionalType(target), RecursionFlags_Both, reportErrors));
@@ -1093,7 +1117,7 @@ pub const Relater = struct {
             } else if (c.isGenericMappedType(source)) {
                 return .False;
             }
-            
+
             if (c.getObjectFlags(mappedSource) & types.ObjectFlags.Reference != 0 and c.getObjectFlags(target) & types.ObjectFlags.Reference != 0 and c.getTargetType(mappedSource) == c.getTargetType(target) and !c.isTupleType(mappedSource) and !c.isMarkerType(mappedSource) and !c.isMarkerType(target)) {
                 if (c.isEmptyArrayLiteralType(mappedSource)) {
                     return .True;
@@ -1224,18 +1248,24 @@ pub const Relater = struct {
         return .False;
     }
 
-
     pub fn tryElaborateArrayLikeErrors(r: *Relater, source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool) bool {
-        _ = r; _ = source; _ = target; _ = reportErrors;
+        _ = r;
+        _ = source;
+        _ = target;
+        _ = reportErrors;
         return false; // Stub
     }
 
     pub fn tryElaborateErrorsForPrimitivesAndObjects(r: *Relater, source: types.TypeIndex, target: types.TypeIndex) void {
-        _ = r; _ = source; _ = target;
+        _ = r;
+        _ = source;
+        _ = target;
     }
 
     pub fn propertiesIdenticalTo(r: *Relater, source: types.TypeIndex, target: types.TypeIndex) types.Ternary {
-        _ = r; _ = source; _ = target;
+        _ = r;
+        _ = source;
+        _ = target;
         return .False; // Stub
     }
 
@@ -1323,12 +1353,12 @@ pub const Relater = struct {
         const c = r.c;
         var result = types.Ternary.True;
         const keyType = c.getIndexInfoKeyType(targetInfo);
-        
+
         const props = if (c.getTypeFlags(source) & types.TypeFlags.Intersection != 0)
             c.getPropertiesOfUnionOrIntersectionType(source)
         else
             c.getPropertiesOfObjectType(source);
-        
+
         for (props) |prop| {
             if (c.isIgnoredJsxProperty(source, prop)) {
                 continue;
@@ -1398,15 +1428,25 @@ pub const Relater = struct {
     }
 
     pub fn reportErrorResults(r: *Relater, originalSource: types.TypeIndex, originalTarget: types.TypeIndex, source: types.TypeIndex, target: types.TypeIndex, headMessage: ?*const diagnostics_gen.Message) void {
-        _ = r; _ = originalSource; _ = originalTarget; _ = source; _ = target; _ = headMessage;
+        _ = r;
+        _ = originalSource;
+        _ = originalTarget;
+        _ = source;
+        _ = target;
+        _ = headMessage;
     }
 
     pub fn reportRelationError(r: *Relater, message: ?*const diagnostics_gen.Message, source: types.TypeIndex, target: types.TypeIndex) void {
-        _ = r; _ = message; _ = source; _ = target;
+        _ = r;
+        _ = message;
+        _ = source;
+        _ = target;
     }
 
     pub fn reportError(r: *Relater, message: ?*const diagnostics_gen.Message, args: []const []const u8) void {
-        _ = r; _ = message; _ = args;
+        _ = r;
+        _ = message;
+        _ = args;
     }
 
     pub fn traceUnionsOrIntersectionsTooLarge(r: *Relater, source: types.TypeIndex, target: types.TypeIndex) void {
@@ -1427,7 +1467,8 @@ pub const Relater = struct {
         }
     }
     pub fn chainArgsMatch(r: *Relater, args: []const []const u8) bool {
-        _ = r; _ = args;
+        _ = r;
+        _ = args;
         return false; // Stub
     }
 
@@ -1440,7 +1481,13 @@ pub const Relater = struct {
         headMessage: ?*const diagnostics_gen.Message,
         intersectionState: IntersectionState,
     ) types.Ternary {
-        _ = self; _ = originalSource; _ = originalTarget; _ = recursionFlags; _ = reportErrors; _ = headMessage; _ = intersectionState;
+        _ = self;
+        _ = originalSource;
+        _ = originalTarget;
+        _ = recursionFlags;
+        _ = reportErrors;
+        _ = headMessage;
+        _ = intersectionState;
         return .False; // Stub
     }
 };
@@ -1471,7 +1518,7 @@ pub fn checkTypeAssignableTo(c: *Checker, source: types.TypeIndex, target: types
     return checkTypeRelatedToEx(c, source, target, &c.assignableRelation, errorNode, headMessage, null);
 }
 
-pub fn checkTypeAssignableToEx(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, errorNode: ?ast.NodeIndex, headMessage: ?*const diagnostics_gen.Message, diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic)) bool {
+pub fn checkTypeAssignableToEx(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, errorNode: ?ast.NodeIndex, headMessage: ?*const diagnostics_gen.Message, diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic)) bool {
     return checkTypeRelatedToEx(c, source, target, &c.assignableRelation, errorNode, headMessage, diagnosticOutput);
 }
 
@@ -1490,15 +1537,15 @@ pub fn checkTypeRelatedToEx(
     relation: *Relation,
     errorNode: ?ast.NodeIndex,
     headMessage: ?*const diagnostics_gen.Message,
-    diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic),
+    diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic),
 ) bool {
     const r = getRelater(c);
     r.relation = relation;
     r.errorNode = errorNode;
     r.relationCount = @intCast((16000000 - relation.size()) / 8);
-    
+
     const result = r.isRelatedToEx(source, target, RecursionFlags_Both, errorNode != null, headMessage, IntersectionState_None);
-    
+
     if (r.overflow) {
         // Record this relation as having failed such that we don't attempt the overflowing operation again.
         // id, _ := getRelationKey(...)
@@ -1508,11 +1555,10 @@ pub fn checkTypeRelatedToEx(
     } else if (r.errorChain != null) {
         // ...
     }
-    
-    
+
     putRelater(c, r);
     _ = diagnosticOutput;
-    
+
     return result != .False;
 }
 
@@ -1523,7 +1569,7 @@ pub fn checkTypeAssignableToAndOptionallyElaborate(
     errorNode: ?ast.NodeIndex,
     expr: ?ast.NodeIndex,
     headMessage: ?*const diagnostics_gen.Message,
-    diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic),
+    diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic),
 ) bool {
     return checkTypeRelatedToAndOptionallyElaborate(c, source, target, &c.assignableRelation, errorNode, expr, headMessage, diagnosticOutput);
 }
@@ -1536,7 +1582,7 @@ pub fn checkTypeRelatedToAndOptionallyElaborate(
     errorNode: ?ast.NodeIndex,
     expr: ?ast.NodeIndex,
     headMessage: ?*const diagnostics_gen.Message,
-    diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic),
+    diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic),
 ) bool {
     if (isTypeRelatedTo(c, source, target, relation)) {
         return true;
@@ -1554,34 +1600,67 @@ pub fn elaborateError(
     target: types.TypeIndex,
     relation: *Relation,
     headMessage: ?*const diagnostics_gen.Message,
-    diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic),
+    diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic),
 ) bool {
-    _ = c; _ = node; _ = source; _ = target; _ = relation; _ = headMessage; _ = diagnosticOutput;
+    _ = c;
+    _ = node;
+    _ = source;
+    _ = target;
+    _ = relation;
+    _ = headMessage;
+    _ = diagnosticOutput;
     return false; // Stub
 }
 
 pub fn isOrHasGenericConditional(c: *Checker, t: types.TypeIndex) bool {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return false; // Stub
 }
 
-pub fn elaborateDidYouMeanToCallOrConstruct(c: *Checker, node: ast.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, kind: types.SignatureKind, headMessage: ?*const diagnostics_gen.Message, diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic)) bool {
-    _ = c; _ = node; _ = source; _ = target; _ = relation; _ = kind; _ = headMessage; _ = diagnosticOutput;
+pub fn elaborateDidYouMeanToCallOrConstruct(c: *Checker, node: ast.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, kind: types.SignatureKind, headMessage: ?*const diagnostics_gen.Message, diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic)) bool {
+    _ = c;
+    _ = node;
+    _ = source;
+    _ = target;
+    _ = relation;
+    _ = kind;
+    _ = headMessage;
+    _ = diagnosticOutput;
     return false; // Stub
 }
 
-pub fn elaborateObjectLiteral(c: *Checker, node: ast.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic)) bool {
-    _ = c; _ = node; _ = source; _ = target; _ = relation; _ = diagnosticOutput;
+pub fn elaborateObjectLiteral(c: *Checker, node: ast.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic)) bool {
+    _ = c;
+    _ = node;
+    _ = source;
+    _ = target;
+    _ = relation;
+    _ = diagnosticOutput;
     return false; // Stub
 }
 
-pub fn elaborateArrayLiteral(c: *Checker, node: ast.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic)) bool {
-    _ = c; _ = node; _ = source; _ = target; _ = relation; _ = diagnosticOutput;
+pub fn elaborateArrayLiteral(c: *Checker, node: ast.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic)) bool {
+    _ = c;
+    _ = node;
+    _ = source;
+    _ = target;
+    _ = relation;
+    _ = diagnosticOutput;
     return false; // Stub
 }
 
-pub fn elaborateElement(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, prop: ast.NodeIndex, next: ?ast.NodeIndex, nameType: types.TypeIndex, errorMessage: ?*const diagnostics_gen.Message, diagnosticFactory: ?*const fn(prop: ast.NodeIndex) *ast.Diagnostic, diagnosticOutput: ?*std.ArrayListUnmanaged(*ast.Diagnostic)) bool {
-    _ = c; _ = source; _ = target; _ = relation; _ = prop; _ = next; _ = nameType; _ = errorMessage; _ = diagnosticFactory; _ = diagnosticOutput;
+pub fn elaborateElement(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, prop: ast.NodeIndex, next: ?ast.NodeIndex, nameType: types.TypeIndex, errorMessage: ?*const diagnostics_gen.Message, diagnosticFactory: ?*const fn (prop: ast.NodeIndex) diagnostics.Diagnostic, diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic)) bool {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = relation;
+    _ = prop;
+    _ = next;
+    _ = nameType;
+    _ = errorMessage;
+    _ = diagnosticFactory;
+    _ = diagnosticOutput;
     return false; // Stub
 }
 
@@ -1604,7 +1683,7 @@ pub fn isWeakType(c: *Checker, t: types.TypeIndex) bool {
 
 pub fn hasCommonProperties(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, isComparingJsxAttributes: bool) bool {
     for (c.getPropertiesOfType(source)) |prop| {
-        const propName = c.binder.ast.symbols.items[prop].Name;
+        const propName = c.binder.symbols.items[prop].Name;
         if (isKnownProperty(c, target, propName, isComparingJsxAttributes)) {
             return true;
         }
@@ -1636,7 +1715,8 @@ pub fn isHyphenatedJsxName(name: []const u8) bool {
 pub fn isExcessPropertyCheckTarget(c: *Checker, t: types.TypeIndex) bool {
     const typeObj = &c.typesList.items[t];
     if ((typeObj.flags & types.TypeFlags.Object != 0 and typeObj.objectFlags & types.ObjectFlags.ObjectLiteralPatternWithComputedProperties == 0) or
-        (typeObj.flags & types.TypeFlags.NonPrimitive != 0)) {
+        (typeObj.flags & types.TypeFlags.NonPrimitive != 0))
+    {
         return true;
     }
     if (typeObj.flags & types.TypeFlags.Substitution != 0 and isExcessPropertyCheckTarget(c, typeObj.data.Substitution.baseType)) {
@@ -1658,7 +1738,10 @@ pub fn isTypeIdenticalTo(c: *Checker, source: types.TypeIndex, target: types.Typ
 }
 
 pub fn isDeeplyNestedType(c: *Checker, t: types.TypeIndex, stack: *std.ArrayListUnmanaged(types.TypeIndex), maxDepth: usize) bool {
-    _ = c; _ = t; _ = stack; _ = maxDepth;
+    _ = c;
+    _ = t;
+    _ = stack;
+    _ = maxDepth;
     return false; // Stub
 }
 
@@ -1668,42 +1751,59 @@ pub fn getMappedTargetWithSymbol(c: *Checker, t: types.TypeIndex) types.TypeInde
 }
 
 pub fn hasMatchingRecursionIdentity(c: *Checker, t: types.TypeIndex, identity: RecursionId) bool {
-    _ = c; _ = t; _ = identity;
+    _ = c;
+    _ = t;
+    _ = identity;
     return false; // Stub
 }
 
 pub fn getRecursionIdentity(c: *Checker, t: types.TypeIndex) RecursionId {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return asRecursionId(0); // Stub
 }
 
-pub fn getBestMatchingType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, isRelatedToFn: *const fn(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) ?types.TypeIndex {
-    _ = c; _ = source; _ = target; _ = isRelatedToFn;
+pub fn getBestMatchingType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, isRelatedToFn: *const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) ?types.TypeIndex {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = isRelatedToFn;
     return null; // Stub
 }
 
 pub fn findMatchingTypeReferenceOrTypeAliasReference(c: *Checker, source: types.TypeIndex, unionTarget: types.TypeIndex) ?types.TypeIndex {
-    _ = c; _ = source; _ = unionTarget;
+    _ = c;
+    _ = source;
+    _ = unionTarget;
     return null; // Stub
 }
 
 pub fn findBestTypeForInvokable(c: *Checker, source: types.TypeIndex, unionTarget: types.TypeIndex, kind: types.SignatureKind) ?types.TypeIndex {
-    _ = c; _ = source; _ = unionTarget; _ = kind;
+    _ = c;
+    _ = source;
+    _ = unionTarget;
+    _ = kind;
     return null; // Stub
 }
 
 pub fn findMostOverlappyType(c: *Checker, source: types.TypeIndex, unionTarget: types.TypeIndex) ?types.TypeIndex {
-    _ = c; _ = source; _ = unionTarget;
+    _ = c;
+    _ = source;
+    _ = unionTarget;
     return null; // Stub
 }
 
 pub fn findBestTypeForObjectLiteral(c: *Checker, source: types.TypeIndex, unionTarget: types.TypeIndex) ?types.TypeIndex {
-    _ = c; _ = source; _ = unionTarget;
+    _ = c;
+    _ = source;
+    _ = unionTarget;
     return null; // Stub
 }
 
 pub fn shouldReportUnmatchedPropertyError(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-    _ = c; _ = source; _ = target;
+    _ = c;
+    _ = source;
+    _ = target;
     return true; // Stub
 }
 
@@ -1718,66 +1818,89 @@ pub fn getUnmatchedProperties(c: *Checker, allocator: std.mem.Allocator, source:
 }
 
 pub fn getUnmatchedPropertiesWorker(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, requireOptionalProperties: bool, matchDiscriminantProperties: bool, propsOut: ?*std.ArrayList(ast.SymbolIndex)) ?ast.SymbolIndex {
-    _ = c; _ = source; _ = target; _ = requireOptionalProperties; _ = matchDiscriminantProperties; _ = propsOut;
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = requireOptionalProperties;
+    _ = matchDiscriminantProperties;
+    _ = propsOut;
     return null; // Stub
 }
 
 pub fn excludeProperties(c: *Checker, allocator: std.mem.Allocator, properties: []ast.SymbolIndex, excludedProperties: std.StringHashMapUnmanaged(void)) ![]ast.SymbolIndex {
-    _ = c; _ = allocator; _ = excludedProperties;
+    _ = c;
+    _ = allocator;
+    _ = excludedProperties;
     return properties; // Stub
 }
 
 pub const TypeDiscriminator = struct {
     c: *Checker,
     props: []ast.SymbolIndex,
-    isRelatedToFn: *const fn(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary,
+    isRelatedToFn: *const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary,
 
     pub fn len(self: *const TypeDiscriminator) usize {
         return self.props.len;
     }
 
     pub fn name(self: *const TypeDiscriminator, index: usize) []const u8 {
-        return self.c.binder.ast.symbols.items[self.props[index]].Name;
+        return self.c.binder.symbols.items[self.props[index]].Name;
     }
 
     pub fn matches(self: *const TypeDiscriminator, index: usize, t: types.TypeIndex) bool {
-        _ = self; _ = index; _ = t;
+        _ = self;
+        _ = index;
+        _ = t;
         return false; // Stub
     }
 };
 
-pub fn findMatchingDiscriminantType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, isRelatedToFn: *const fn(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) ?types.TypeIndex {
-    _ = c; _ = source; _ = target; _ = isRelatedToFn;
+pub fn findMatchingDiscriminantType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, isRelatedToFn: *const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) ?types.TypeIndex {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = isRelatedToFn;
     return null; // Stub
 }
 
 pub fn findDiscriminantProperties(c: *Checker, allocator: std.mem.Allocator, sourceProperties: []ast.SymbolIndex, target: types.TypeIndex) ![]ast.SymbolIndex {
-    _ = c; _ = allocator; _ = sourceProperties; _ = target;
+    _ = c;
+    _ = allocator;
+    _ = sourceProperties;
+    _ = target;
     return &[_]ast.SymbolIndex{}; // Stub
 }
 
 pub fn isDiscriminantProperty(c: *Checker, t: types.TypeIndex, name: []const u8) bool {
-    _ = c; _ = t; _ = name;
+    _ = c;
+    _ = t;
+    _ = name;
     return false; // Stub
 }
 
 pub fn getMatchingUnionConstituentForType(c: *Checker, unionType: types.TypeIndex, t: types.TypeIndex) ?types.TypeIndex {
-    _ = c; _ = unionType; _ = t;
+    _ = c;
+    _ = unionType;
+    _ = t;
     return null; // Stub
 }
 
 pub fn getKeyPropertyName(c: *Checker, t: types.TypeIndex) []const u8 {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return ""; // Stub
 }
 
 pub fn getConstituentTypeForKeyType(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) ?types.TypeIndex {
-    _ = c; _ = t; _ = keyType;
+    _ = c;
+    _ = t;
+    _ = keyType;
     return null; // Stub
 }
 
 pub fn computeKeyPropertyNameAndMap(c: *Checker, t: types.TypeIndex) void {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     // Stub
 }
 
@@ -1787,12 +1910,14 @@ pub fn isObjectOrInstantiableNonPrimitive(c: *Checker, t: types.TypeIndex) bool 
 }
 
 pub fn getKeyPropertyCandidateName(c: *Checker, typeList: []types.TypeIndex) []const u8 {
-    _ = c; _ = typeList;
+    _ = c;
+    _ = typeList;
     return ""; // Stub
 }
 
 pub fn discriminateTypeByDiscriminableItems(c: *Checker, target: types.TypeIndex, discriminator: *TypeDiscriminator) types.TypeIndex {
-    _ = c; _ = discriminator;
+    _ = c;
+    _ = discriminator;
     return target; // Stub
 }
 
@@ -1806,12 +1931,15 @@ pub fn isNonPrimitiveType(c: *Checker, t: types.TypeIndex) bool {
 }
 
 pub fn getTypeNamesForErrorDisplay(c: *Checker, left: types.TypeIndex, right: types.TypeIndex) struct { []const u8, []const u8 } {
-    _ = c; _ = left; _ = right;
+    _ = c;
+    _ = left;
+    _ = right;
     return .{ "left", "right" }; // Stub
 }
 
 pub fn getTypeNameForErrorDisplay(c: *Checker, t: types.TypeIndex) []const u8 {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return "t"; // Stub
 }
 
@@ -1823,67 +1951,91 @@ pub fn compareTypesIdentical(c: *Checker, source: types.TypeIndex, target: types
 }
 
 pub fn symbolValueDeclarationIsContextSensitive(c: *Checker, symbolIdx: ?ast.SymbolIndex) bool {
-    _ = c; _ = symbolIdx;
+    _ = c;
+    _ = symbolIdx;
     return false; // Stub
 }
 
 pub fn typeCouldHaveTopLevelSingletonTypes(c: *Checker, t: types.TypeIndex) bool {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return false; // Stub
 }
 
 pub fn getVariances(c: *Checker, t: types.TypeIndex) []VarianceFlags {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return &[_]VarianceFlags{}; // Stub
 }
 
 pub fn getAliasVariances(c: *Checker, symbolIdx: ast.SymbolIndex) []VarianceFlags {
-    _ = c; _ = symbolIdx;
+    _ = c;
+    _ = symbolIdx;
     return &[_]VarianceFlags{}; // Stub
 }
 
 pub fn getVariancesWorker(c: *Checker, symbolIdx: ast.SymbolIndex, typeParameters: []types.TypeIndex) []VarianceFlags {
-    _ = c; _ = symbolIdx; _ = typeParameters;
+    _ = c;
+    _ = symbolIdx;
+    _ = typeParameters;
     return &[_]VarianceFlags{}; // Stub
 }
 
 pub fn createMarkerType(c: *Checker, symbolIdx: ast.SymbolIndex, source: types.TypeIndex, target: types.TypeIndex) types.TypeIndex {
-    _ = c; _ = symbolIdx; _ = target;
+    _ = c;
+    _ = symbolIdx;
+    _ = target;
     return source; // Stub
 }
 
 pub fn isMarkerType(c: *Checker, t: types.TypeIndex) bool {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return false; // Stub
 }
 
 pub fn getTypeParameterModifiers(c: *Checker, tp: types.TypeIndex) ast.ModifierFlags {
-    _ = c; _ = tp;
+    _ = c;
+    _ = tp;
     return 0; // Stub
 }
 
 pub fn hasCovariantVoidArgument(c: *Checker, typeArguments: []types.TypeIndex, variances: []VarianceFlags) bool {
-    _ = c; _ = typeArguments; _ = variances;
+    _ = c;
+    _ = typeArguments;
+    _ = variances;
     return false; // Stub
 }
 
 pub fn isSignatureAssignableTo(c: *Checker, source: types.SignatureIndex, target: types.SignatureIndex, ignoreReturnTypes: bool) bool {
-    _ = c; _ = source; _ = target; _ = ignoreReturnTypes;
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = ignoreReturnTypes;
     return false; // Stub
 }
 
-pub fn compareSignaturesRelated(c: *Checker, source: types.SignatureIndex, target: types.SignatureIndex, checkMode: SignatureCheckMode, reportErrors: bool, errorReporter: ErrorReporter, compareTypes: ?*const fn(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary, reportUnreliableMarkers: ?types.TypeMapperIndex) types.Ternary {
-    _ = c; _ = source; _ = target; _ = checkMode; _ = reportErrors; _ = errorReporter; _ = compareTypes; _ = reportUnreliableMarkers;
+pub fn compareSignaturesRelated(c: *Checker, source: types.SignatureIndex, target: types.SignatureIndex, checkMode: SignatureCheckMode, reportErrors: bool, errorReporter: ErrorReporter, compareTypes: ?*const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary, reportUnreliableMarkers: ?types.TypeMapperIndex) types.Ternary {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = checkMode;
+    _ = reportErrors;
+    _ = errorReporter;
+    _ = compareTypes;
+    _ = reportUnreliableMarkers;
     return .False; // Stub
 }
 
 pub fn isTopSignature(c: *Checker, s: types.SignatureIndex) bool {
-    _ = c; _ = s;
+    _ = c;
+    _ = s;
     return false; // Stub
 }
 
 pub fn getParameterCount(c: *Checker, signature: types.SignatureIndex) usize {
-    _ = c; _ = signature;
+    _ = c;
+    _ = signature;
     return 0; // Stub
 }
 
@@ -1892,57 +2044,75 @@ pub fn getMinArgumentCount(c: *Checker, signature: types.SignatureIndex) usize {
 }
 
 pub fn getMinArgumentCountEx(c: *Checker, signature: types.SignatureIndex, flags: MinArgumentCountFlags) usize {
-    _ = c; _ = signature; _ = flags;
+    _ = c;
+    _ = signature;
+    _ = flags;
     return 0; // Stub
 }
 
 pub fn hasEffectiveRestParameter(c: *Checker, signature: types.SignatureIndex) bool {
-    _ = c; _ = signature;
+    _ = c;
+    _ = signature;
     return false; // Stub
 }
 
 pub fn getTypeAtPosition(c: *Checker, signature: types.SignatureIndex, pos: usize) types.TypeIndex {
-    _ = signature; _ = pos;
+    _ = signature;
+    _ = pos;
     return c.anyType; // Stub
 }
 
 pub fn tryGetTypeAtPosition(c: *Checker, signature: types.SignatureIndex, pos: usize) ?types.TypeIndex {
-    _ = c; _ = signature; _ = pos;
+    _ = c;
+    _ = signature;
+    _ = pos;
     return null; // Stub
 }
 
 pub fn getRestOrAnyTypeAtPosition(c: *Checker, source: types.SignatureIndex, pos: usize) ?types.TypeIndex {
-    _ = c; _ = source; _ = pos;
+    _ = c;
+    _ = source;
+    _ = pos;
     return null; // Stub
 }
 
 pub fn getRestTypeAtPosition(c: *Checker, source: types.SignatureIndex, pos: usize, readonly: bool) ?types.TypeIndex {
-    _ = c; _ = source; _ = pos; _ = readonly;
+    _ = c;
+    _ = source;
+    _ = pos;
+    _ = readonly;
     return null; // Stub
 }
 
 pub fn getNameableDeclarationAtPosition(c: *Checker, signature: types.SignatureIndex, pos: usize) ?ast.NodeIndex {
-    _ = c; _ = signature; _ = pos;
+    _ = c;
+    _ = signature;
+    _ = pos;
     return null; // Stub
 }
 
 pub fn isValidDeclarationForTupleLabel(c: *Checker, d: ast.NodeIndex) bool {
-    _ = c; _ = d;
+    _ = c;
+    _ = d;
     return false; // Stub
 }
 
 pub fn getNonArrayRestType(c: *Checker, signature: types.SignatureIndex) ?types.TypeIndex {
-    _ = c; _ = signature;
+    _ = c;
+    _ = signature;
     return null; // Stub
 }
 
 pub fn getEffectiveRestType(c: *Checker, signature: types.SignatureIndex) ?types.TypeIndex {
-    _ = c; _ = signature;
+    _ = c;
+    _ = signature;
     return null; // Stub
 }
 
 pub fn sliceTupleType(c: *Checker, t: types.TypeIndex, index: usize, endSkipCount: isize) types.TypeIndex {
-    _ = c; _ = index; _ = endSkipCount;
+    _ = c;
+    _ = index;
+    _ = endSkipCount;
     return t; // Stub
 }
 
@@ -1952,112 +2122,165 @@ pub fn getKnownKeysOfTupleType(c: *Checker, t: types.TypeIndex) types.TypeIndex 
 }
 
 pub fn getThisTypeOfSignature(c: *Checker, signature: types.SignatureIndex) ?types.TypeIndex {
-    _ = c; _ = signature;
+    _ = c;
+    _ = signature;
     return null; // Stub
 }
 
 pub fn isInstantiatedGenericParameter(c: *Checker, signature: types.SignatureIndex, pos: usize) bool {
-    _ = c; _ = signature; _ = pos;
+    _ = c;
+    _ = signature;
+    _ = pos;
     return false; // Stub
 }
 
 pub fn getParameterNameAtPosition(c: *Checker, signature: types.SignatureIndex, pos: usize) []const u8 {
-    _ = c; _ = signature; _ = pos;
+    _ = c;
+    _ = signature;
+    _ = pos;
     return ""; // Stub
 }
 
 pub fn getTupleElementLabel(c: *Checker, elementInfo: types.TupleElementInfo, restSymbol: ?ast.SymbolIndex, index: usize) []const u8 {
-    _ = c; _ = elementInfo; _ = restSymbol; _ = index;
+    _ = c;
+    _ = elementInfo;
+    _ = restSymbol;
+    _ = index;
     return ""; // Stub
 }
 
 pub fn getTupleElementLabelFromBindingElement(c: *Checker, node: ast.NodeIndex, index: usize, elementFlags: types.ElementFlags) []const u8 {
-    _ = c; _ = node; _ = index; _ = elementFlags;
+    _ = c;
+    _ = node;
+    _ = index;
+    _ = elementFlags;
     return ""; // Stub
 }
 
 pub fn getTypePredicateOfSignature(c: *Checker, sig: types.SignatureIndex) ?types.TypePredicateIndex {
-    _ = c; _ = sig;
+    _ = c;
+    _ = sig;
     return null; // Stub
 }
 
 pub fn getUnionOrIntersectionTypePredicate(c: *Checker, signatures: []types.SignatureIndex, isUnion: bool) ?types.TypePredicateIndex {
-    _ = c; _ = signatures; _ = isUnion;
+    _ = c;
+    _ = signatures;
+    _ = isUnion;
     return null; // Stub
 }
 
 pub fn typePredicateKindsMatch(c: *Checker, a: types.TypePredicateIndex, b: types.TypePredicateIndex) bool {
-    _ = c; _ = a; _ = b;
+    _ = c;
+    _ = a;
+    _ = b;
     return false; // Stub
 }
 
 pub fn createTypePredicateFromTypePredicateNode(c: *Checker, node: ast.NodeIndex, signature: types.SignatureIndex) types.TypePredicateIndex {
-    _ = c; _ = node; _ = signature;
+    _ = c;
+    _ = node;
+    _ = signature;
     return 0; // Stub
 }
 
 pub fn instantiateTypePredicate(c: *Checker, predicate: types.TypePredicateIndex, mapper: ?types.TypeMapperIndex) types.TypePredicateIndex {
-    _ = c; _ = mapper;
+    _ = c;
+    _ = mapper;
     return predicate; // Stub
 }
 
 pub fn isResolvingReturnTypeOfSignature(c: *Checker, signature: types.SignatureIndex) bool {
-    _ = c; _ = signature;
+    _ = c;
+    _ = signature;
     return false; // Stub
 }
 
 pub fn findMatchingSignatures(c: *Checker, signatureLists: [][]types.SignatureIndex, signature: types.SignatureIndex, listIndex: usize) []types.SignatureIndex {
-    _ = c; _ = signatureLists; _ = signature; _ = listIndex;
+    _ = c;
+    _ = signatureLists;
+    _ = signature;
+    _ = listIndex;
     return &[_]types.SignatureIndex{}; // Stub
 }
 
 pub fn findMatchingSignature(c: *Checker, signatureList: []types.SignatureIndex, signature: types.SignatureIndex, partialMatch: bool, ignoreThisTypes: bool, ignoreReturnTypes: bool) ?types.SignatureIndex {
-    _ = c; _ = signatureList; _ = signature; _ = partialMatch; _ = ignoreThisTypes; _ = ignoreReturnTypes;
+    _ = c;
+    _ = signatureList;
+    _ = signature;
+    _ = partialMatch;
+    _ = ignoreThisTypes;
+    _ = ignoreReturnTypes;
     return null; // Stub
 }
 
-pub fn compareSignaturesIdentical(c: *Checker, source: types.SignatureIndex, target: types.SignatureIndex, partialMatch: bool, ignoreThisTypes: bool, ignoreReturnTypes: bool, compareTypes: ?*const fn(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
-    _ = c; _ = source; _ = target; _ = partialMatch; _ = ignoreThisTypes; _ = ignoreReturnTypes; _ = compareTypes;
+pub fn compareSignaturesIdentical(c: *Checker, source: types.SignatureIndex, target: types.SignatureIndex, partialMatch: bool, ignoreThisTypes: bool, ignoreReturnTypes: bool, compareTypes: ?*const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = partialMatch;
+    _ = ignoreThisTypes;
+    _ = ignoreReturnTypes;
+    _ = compareTypes;
     return .False; // Stub
 }
 
 pub fn isMatchingSignature(c: *Checker, source: types.SignatureIndex, target: types.SignatureIndex, partialMatch: bool) bool {
-    _ = c; _ = source; _ = target; _ = partialMatch;
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = partialMatch;
     return false; // Stub
 }
 
 pub fn compareTypeParametersIdentical(c: *Checker, sourceParams: []types.TypeIndex, targetParams: []types.TypeIndex) bool {
-    _ = c; _ = sourceParams; _ = targetParams;
+    _ = c;
+    _ = sourceParams;
+    _ = targetParams;
     return false; // Stub
 }
 
-pub fn compareTypePredicatesIdentical(c: *Checker, source: ?types.TypePredicateIndex, target: ?types.TypePredicateIndex, compareTypes: ?*const fn(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
-    _ = c; _ = source; _ = target; _ = compareTypes;
+pub fn compareTypePredicatesIdentical(c: *Checker, source: ?types.TypePredicateIndex, target: ?types.TypePredicateIndex, compareTypes: ?*const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = compareTypes;
     return .False; // Stub
 }
 
 pub fn getEffectiveConstraintOfIntersection(c: *Checker, typeList: []types.TypeIndex, targetIsUnion: bool) types.TypeIndex {
-    _ = typeList; _ = targetIsUnion;
+    _ = typeList;
+    _ = targetIsUnion;
     return c.anyType; // Stub
 }
 
 pub fn templateLiteralTypesDefinitelyUnrelated(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-    _ = c; _ = source; _ = target;
+    _ = c;
+    _ = source;
+    _ = target;
     return false; // Stub
 }
 
-pub fn isTypeMatchedByTemplateLiteralType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, compareTypes: ?*const fn(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) bool {
-    _ = c; _ = source; _ = target; _ = compareTypes;
+pub fn isTypeMatchedByTemplateLiteralType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, compareTypes: ?*const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) bool {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = compareTypes;
     return false; // Stub
 }
 
 pub fn inferTypesFromTemplateLiteralType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) ?[]types.TypeIndex {
-    _ = c; _ = source; _ = target;
+    _ = c;
+    _ = source;
+    _ = target;
     return null; // Stub
 }
 
 pub fn inferFromLiteralPartsToTemplateLiteral(c: *Checker, sourceTexts: [][]const u8, sourceTypes: []types.TypeIndex, target: types.TypeIndex) ?[]types.TypeIndex {
-    _ = c; _ = sourceTexts; _ = sourceTypes; _ = target;
+    _ = c;
+    _ = sourceTexts;
+    _ = sourceTypes;
+    _ = target;
     return null; // Stub
 }
 
@@ -2066,13 +2289,18 @@ pub fn getStringLikeTypeForType(c: *Checker, t: types.TypeIndex) types.TypeIndex
     return t; // Stub
 }
 
-pub fn isValidTypeForTemplateLiteralPlaceholder(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, compareTypes: ?*const fn(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) bool {
-    _ = c; _ = source; _ = target; _ = compareTypes;
+pub fn isValidTypeForTemplateLiteralPlaceholder(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, compareTypes: ?*const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) bool {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = compareTypes;
     return false; // Stub
 }
 
 pub fn isMemberOfStringMapping(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-    _ = c; _ = source; _ = target;
+    _ = c;
+    _ = source;
+    _ = target;
     return false; // Stub
 }
 
@@ -2082,32 +2310,42 @@ pub fn applyTargetStringMappingToSource(c: *Checker, source: types.TypeIndex, ta
 }
 
 pub fn getTypeOfPropertyInTypes(c: *Checker, typeList: []types.TypeIndex, name: []const u8) types.TypeIndex {
-    _ = typeList; _ = name;
+    _ = typeList;
+    _ = name;
     return c.anyType; // Stub
 }
 
 pub fn getTypeOfPropertyInType(c: *Checker, t: types.TypeIndex, name: []const u8) types.TypeIndex {
-    _ = t; _ = name;
+    _ = t;
+    _ = name;
     return c.undefinedType; // Stub
 }
 
 pub fn shouldCheckAsExcessProperty(c: *Checker, prop: ast.SymbolIndex, container: ast.SymbolIndex) bool {
-    _ = c; _ = prop; _ = container;
+    _ = c;
+    _ = prop;
+    _ = container;
     return false; // Stub
 }
 
 pub fn isIgnoredJsxProperty(c: *Checker, source: types.TypeIndex, sourceProp: ast.SymbolIndex) bool {
-    _ = c; _ = source; _ = sourceProp;
+    _ = c;
+    _ = source;
+    _ = sourceProp;
     return false; // Stub
 }
 
 pub fn isTypeSubsetOf(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-    _ = c; _ = source; _ = target;
+    _ = c;
+    _ = source;
+    _ = target;
     return false; // Stub
 }
 
 pub fn isTypeSubsetOfUnion(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-    _ = c; _ = source; _ = target;
+    _ = c;
+    _ = source;
+    _ = target;
     return false; // Stub
 }
 
@@ -2154,37 +2392,30 @@ pub fn areTypesComparable(c: *Checker, type1: types.TypeIndex, type2: types.Type
 }
 
 pub fn isFreshLiteralType(c: *Checker, t_index: types.TypeIndex) bool {
-    const t = &c.typesList.items[t_index];
-    if (t.flags & types.TypeFlags.Literal != 0) {
-        if (t.data == .Literal) {
-            if (t.data.Literal.freshType) |fresh| {
-                return fresh == t_index;
-            }
-        }
-    }
-    return false;
+    _ = c;
+    _ = t_index;
+    return false; // Type doesn't have fresh/regular directly in Zig TypeData yet
 }
 
 pub fn getRegularTypeOfLiteralType(c: *Checker, t_index: types.TypeIndex) types.TypeIndex {
-    const t = &c.typesList.items[t_index];
-    if (t.data == .Literal) {
-        if (t.data.Literal.regularType) |regular| {
-            return regular;
-        }
-    }
-    return t_index;
+    _ = c;
+    return t_index; // Stub for now
 }
 
 // Stub for now
 pub fn getRelationKey(source: types.TypeIndex, target: types.TypeIndex, intersectionState: IntersectionState, isIdentity: bool, ignoreConstraints: bool) CacheHashKey {
-    _ = source; _ = target; _ = intersectionState; _ = isIdentity; _ = ignoreConstraints;
+    _ = source;
+    _ = target;
+    _ = intersectionState;
+    _ = isIdentity;
+    _ = ignoreConstraints;
     return 0;
 }
 
 pub fn isTypeRelatedTo(c: *Checker, sourceIn: types.TypeIndex, targetIn: types.TypeIndex, relation: *Relation) bool {
     var source = sourceIn;
     var target = targetIn;
-    
+
     if (isFreshLiteralType(c, source)) {
         source = getRegularTypeOfLiteralType(c, source);
     }
@@ -2194,7 +2425,7 @@ pub fn isTypeRelatedTo(c: *Checker, sourceIn: types.TypeIndex, targetIn: types.T
     if (source == target) {
         return true;
     }
-    
+
     const source_flags = c.typesList.items[source].flags;
     const target_flags = c.typesList.items[target].flags;
 
@@ -2230,52 +2461,52 @@ pub fn isTypeRelatedTo(c: *Checker, sourceIn: types.TypeIndex, targetIn: types.T
 }
 
 pub fn isEnumTypeRelatedTo(c: *Checker, source: ast_gen.SymbolIndex, target: ast_gen.SymbolIndex, errorReporter: ErrorReporter) bool {
-    const source_sym = &c.binder.ast.symbols.items[source];
-    const target_sym = &c.binder.ast.symbols.items[target];
-    
+    const source_sym = &c.binder.symbols.items[source];
+    const target_sym = &c.binder.symbols.items[target];
+
     const sourceSymbol = if (source_sym.Flags & symbol.SymbolFlags.EnumMember != 0) c.getParentOfSymbol(source) else source;
     const targetSymbol = if (target_sym.Flags & symbol.SymbolFlags.EnumMember != 0) c.getParentOfSymbol(target) else target;
-    
+
     if (sourceSymbol == targetSymbol) {
         return true;
     }
-    
-    const sourceSymbol_sym = &c.binder.ast.symbols.items[sourceSymbol];
-    const targetSymbol_sym = &c.binder.ast.symbols.items[targetSymbol];
-    
+
+    const sourceSymbol_sym = &c.binder.symbols.items[sourceSymbol];
+    const targetSymbol_sym = &c.binder.symbols.items[targetSymbol];
+
     if (!std.mem.eql(u8, sourceSymbol_sym.Name, targetSymbol_sym.Name) or sourceSymbol_sym.Flags & symbol.SymbolFlags.RegularEnum == 0 or targetSymbol_sym.Flags & symbol.SymbolFlags.RegularEnum == 0) {
         return false;
     }
-    
+
     const key = checker_mod.EnumRelationKey{ .sourceId = sourceSymbol, .targetId = targetSymbol };
     if (c.enumRelation.get(key)) |entry| {
         if (entry != RelationComparisonResult_None and !(entry & RelationComparisonResult_Failed != 0 and errorReporter != null)) {
             return entry & RelationComparisonResult_Succeeded != 0;
         }
     }
-    
+
     const targetEnumType = c.getTypeOfSymbol(targetSymbol) catch unreachable;
     for (c.getPropertiesOfType(c.getTypeOfSymbol(sourceSymbol) catch unreachable)) |sourceProperty| {
-        const sourceProperty_sym = &c.binder.ast.symbols.items[sourceProperty];
+        const sourceProperty_sym = &c.binder.symbols.items[sourceProperty];
         if (sourceProperty_sym.Flags & symbol.SymbolFlags.EnumMember != 0) {
             const targetProperty = c.getPropertyOfType(targetEnumType, sourceProperty_sym.Name);
-            if (targetProperty == null or c.binder.ast.symbols.items[targetProperty.?].Flags & symbol.SymbolFlags.EnumMember == 0) {
+            if (targetProperty == null or c.binder.symbols.items[targetProperty.?].Flags & symbol.SymbolFlags.EnumMember == 0) {
                 if (errorReporter) |reporter| {
-                    reporter(diagnostics.diagnostics_generated.Property_0_is_missing_in_type_1, &[_][]const u8{ c.symbolToString(sourceProperty), c.TypeToStringEx(c.getDeclaredTypeOfSymbol(targetSymbol), null, 0, null) });
+                    reporter(&diagnostics_gen.Property_0_is_missing_in_type_1, &[_][]const u8{ c.symbolToString(sourceProperty), c.TypeToStringEx(c.getDeclaredTypeOfSymbol(targetSymbol), 0, 0, null) });
                 }
                 c.enumRelation.put(c.allocator, key, RelationComparisonResult_Failed) catch unreachable;
                 return false;
             }
-            
+
             // Value comparison logic stubbed due to complex enum values in Go. Let's just compare them using the stubbed methods.
-            const sourceValue = c.getEnumMemberValue(c.getDeclarationOfKind(sourceProperty, ast_gen.SyntaxKind.EnumMember));
-            const targetValue = c.getEnumMemberValue(c.getDeclarationOfKind(targetProperty.?, ast_gen.SyntaxKind.EnumMember));
-            
+            const sourceValue = c.getEnumMemberValue(c.getDeclarationOfKind(sourceProperty, @import("../ast/kind.zig").Kind.EnumMember));
+            const targetValue = c.getEnumMemberValue(c.getDeclarationOfKind(targetProperty.?, @import("../ast/kind.zig").Kind.EnumMember));
+
             if (sourceValue != targetValue) {
                 // If they differ, they might be known values that differ.
                 if (sourceValue != 0 and targetValue != 0) {
                     if (errorReporter) |reporter| {
-                        reporter(diagnostics.diagnostics_generated.Each_declaration_of_0_1_differs_in_its_value_where_2_was_expected_but_3_was_given, &[_][]const u8{ c.symbolToString(targetSymbol), c.symbolToString(targetProperty.?), c.valueToString(targetValue), c.valueToString(sourceValue) });
+                        reporter(&diagnostics_gen.Each_declaration_of_0_1_differs_in_its_value_where_2_was_expected_but_3_was_given, &[_][]const u8{ c.symbolToString(targetSymbol), c.symbolToString(targetProperty.?), c.valueToString(targetValue), c.valueToString(sourceValue) });
                     }
                     c.enumRelation.put(c.allocator, key, RelationComparisonResult_Failed) catch unreachable;
                     return false;
@@ -2284,25 +2515,27 @@ pub fn isEnumTypeRelatedTo(c: *Checker, source: ast_gen.SymbolIndex, target: ast
                 // In zig, we can't do the string vs numeric check on ast.NodeIndex as easily, we'll assume failure for now
                 if (errorReporter) |reporter| {
                     const knownStringValue = if (sourceValue != 0) sourceValue else targetValue;
-                    reporter(diagnostics.diagnostics_generated.One_value_of_0_1_is_the_string_2_and_the_other_is_assumed_to_be_an_unknown_numeric_value, &[_][]const u8{ c.symbolToString(targetSymbol), c.symbolToString(targetProperty.?), c.valueToString(knownStringValue) });
+                    reporter(&diagnostics_gen.One_value_of_0_1_is_the_string_2_and_the_other_is_assumed_to_be_an_unknown_numeric_value, &[_][]const u8{ c.symbolToString(targetSymbol), c.symbolToString(targetProperty.?), c.valueToString(knownStringValue) });
                 }
                 c.enumRelation.put(c.allocator, key, RelationComparisonResult_Failed) catch unreachable;
                 return false;
             }
         }
     }
-    
+
     c.enumRelation.put(c.allocator, key, RelationComparisonResult_Succeeded) catch unreachable;
     return true;
 }
 
 pub fn isUnknownLikeUnionType(c: *Checker, target: types.TypeIndex) bool {
-    _ = c; _ = target;
+    _ = c;
+    _ = target;
     return false; // Stub
 }
 
 pub fn IsEmptyAnonymousObjectType(c: *Checker, source: types.TypeIndex) bool {
-    _ = c; _ = source;
+    _ = c;
+    _ = source;
     return false; // Stub
 }
 
@@ -2311,7 +2544,7 @@ pub fn isSimpleTypeRelatedTo(c: *Checker, source: types.TypeIndex, target: types
     const target_t = &c.typesList.items[target];
     const s = source_t.flags;
     const t = target_t.flags;
-    
+
     if (t & types.TypeFlags.Any != 0 or s & types.TypeFlags.Never != 0 or source == c.anyTypeIndex) { // wildcardType mapping to anyTypeIndex for now
         return true;
     }
@@ -2324,13 +2557,13 @@ pub fn isSimpleTypeRelatedTo(c: *Checker, source: types.TypeIndex, target: types
     if (s & types.TypeFlags.StringLike != 0 and t & types.TypeFlags.String != 0) {
         return true;
     }
-    if (s & types.TypeFlags.StringLiteral != 0 and s & types.TypeFlags.EnumLiteral != 0 and t & types.TypeFlags.StringLiteral != 0 and t & types.TypeFlags.EnumLiteral == 0 and source_t.data == .Literal and target_t.data == .Literal and std.mem.eql(u8, source_t.data.Literal.value.String, target_t.data.Literal.value.String)) {
+    if (s & types.TypeFlags.StringLiteral != 0 and s & types.TypeFlags.EnumLiteral != 0 and t & types.TypeFlags.StringLiteral != 0 and t & types.TypeFlags.EnumLiteral == 0 and source_t.data == .StringLiteral and target_t.data == .StringLiteral and std.mem.eql(u8, source_t.data.StringLiteral.text, target_t.data.StringLiteral.text)) {
         return true;
     }
     if (s & types.TypeFlags.NumberLike != 0 and t & types.TypeFlags.Number != 0) {
         return true;
     }
-    if (s & types.TypeFlags.NumberLiteral != 0 and s & types.TypeFlags.EnumLiteral != 0 and t & types.TypeFlags.NumberLiteral != 0 and t & types.TypeFlags.EnumLiteral == 0 and source_t.data == .Literal and target_t.data == .Literal and source_t.data.Literal.value.Number == target_t.data.Literal.value.Number) {
+    if (s & types.TypeFlags.NumberLiteral != 0 and s & types.TypeFlags.EnumLiteral != 0 and t & types.TypeFlags.NumberLiteral != 0 and t & types.TypeFlags.EnumLiteral == 0 and source_t.data == .NumberLiteral and target_t.data == .NumberLiteral and source_t.data.NumberLiteral.value == target_t.data.NumberLiteral.value) {
         return true;
     }
     if (s & types.TypeFlags.BigIntLike != 0 and t & types.TypeFlags.BigInt != 0) {
@@ -2342,14 +2575,17 @@ pub fn isSimpleTypeRelatedTo(c: *Checker, source: types.TypeIndex, target: types
     if (s & types.TypeFlags.ESSymbolLike != 0 and t & types.TypeFlags.ESSymbol != 0) {
         return true;
     }
-    if (s & types.TypeFlags.Enum != 0 and t & types.TypeFlags.Enum != 0 and source_t.symbol != null and target_t.symbol != null and std.mem.eql(u8, c.binder.ast.symbols.items[source_t.symbol.?].Name, c.binder.ast.symbols.items[target_t.symbol.?].Name) and isEnumTypeRelatedTo(c, source_t.symbol.?, target_t.symbol.?, errorReporter)) {
+    if (s & types.TypeFlags.Enum != 0 and t & types.TypeFlags.Enum != 0 and source_t.symbol != null and target_t.symbol != null and std.mem.eql(u8, c.binder.symbols.items[source_t.symbol.?].Name, c.binder.symbols.items[target_t.symbol.?].Name) and isEnumTypeRelatedTo(c, source_t.symbol.?, target_t.symbol.?, errorReporter)) {
         return true;
     }
     if (s & types.TypeFlags.EnumLiteral != 0 and t & types.TypeFlags.EnumLiteral != 0) {
         if (s & types.TypeFlags.Union != 0 and t & types.TypeFlags.Union != 0 and source_t.symbol != null and target_t.symbol != null and isEnumTypeRelatedTo(c, source_t.symbol.?, target_t.symbol.?, errorReporter)) {
             return true;
         }
-        if (s & types.TypeFlags.Literal != 0 and t & types.TypeFlags.Literal != 0 and source_t.data == .Literal and target_t.data == .Literal and std.meta.eql(source_t.data.Literal.value, target_t.data.Literal.value) and source_t.symbol != null and target_t.symbol != null and isEnumTypeRelatedTo(c, source_t.symbol.?, target_t.symbol.?, errorReporter)) {
+        if (s & types.TypeFlags.StringLiteral != 0 and t & types.TypeFlags.StringLiteral != 0 and source_t.data == .StringLiteral and target_t.data == .StringLiteral and std.mem.eql(u8, source_t.data.StringLiteral.text, target_t.data.StringLiteral.text) and source_t.symbol != null and target_t.symbol != null and isEnumTypeRelatedTo(c, source_t.symbol.?, target_t.symbol.?, errorReporter)) {
+            return true;
+        }
+        if (s & types.TypeFlags.NumberLiteral != 0 and t & types.TypeFlags.NumberLiteral != 0 and source_t.data == .NumberLiteral and target_t.data == .NumberLiteral and source_t.data.NumberLiteral.value == target_t.data.NumberLiteral.value and source_t.symbol != null and target_t.symbol != null and isEnumTypeRelatedTo(c, source_t.symbol.?, target_t.symbol.?, errorReporter)) {
             return true;
         }
     }
@@ -2369,7 +2605,7 @@ pub fn isSimpleTypeRelatedTo(c: *Checker, source: types.TypeIndex, target: types
         if (s & types.TypeFlags.Number != 0 and (t & types.TypeFlags.Enum != 0 or t & types.TypeFlags.NumberLiteral != 0 and t & types.TypeFlags.EnumLiteral != 0)) {
             return true;
         }
-        if (s & types.TypeFlags.NumberLiteral != 0 and s & types.TypeFlags.EnumLiteral == 0 and (t & types.TypeFlags.Enum != 0 or t & types.TypeFlags.NumberLiteral != 0 and t & types.TypeFlags.EnumLiteral != 0 and source_t.data == .Literal and target_t.data == .Literal and source_t.data.Literal.value.Number == target_t.data.Literal.value.Number)) {
+        if (s & types.TypeFlags.NumberLiteral != 0 and s & types.TypeFlags.EnumLiteral == 0 and (t & types.TypeFlags.Enum != 0 or t & types.TypeFlags.NumberLiteral != 0 and t & types.TypeFlags.EnumLiteral != 0 and source_t.data == .NumberLiteral and target_t.data == .NumberLiteral and source_t.data.NumberLiteral.value == target_t.data.NumberLiteral.value)) {
             return true;
         }
         if (isUnknownLikeUnionType(c, target)) {
