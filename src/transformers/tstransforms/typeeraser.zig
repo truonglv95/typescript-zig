@@ -433,7 +433,7 @@ pub const TypeEraserTransformer = struct {
             },
 
             .ImportClause => |n| {
-                if (n.PhaseModifier != null and n.PhaseModifier.? == @intFromEnum(kind.Kind.TypeKeyword)) {
+                if (n.PhaseModifier != null and visitor.tree.getNodeKind(n.PhaseModifier.?) == .TypeKeyword) {
                     return 0;
                 }
                 const name = n.name orelse 0;

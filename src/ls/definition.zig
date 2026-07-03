@@ -27,15 +27,48 @@ pub fn provideDefinitionWorker(
     const caps = lsproto.getClientCapabilities(); // stub
     const clientSupportsLink = caps.textDocument.definition.linkSupport;
 
-    const programAndFile = ls.getProgramAndFile(documentURI);
+    const programAndFile = ls.tryGetProgramAndFile(documentURI);
     const program = programAndFile.program;
     const file = programAndFile.file;
 
     const pos = ls.converters.lineAndCharacterToPosition(file, position);
-    const node = ast_utils.getTouchingPropertyName(&program.ast, file, pos);
-    
-    // stub
-    _ = clientSupportsLink; _ = node;
-    
+
+    const astnav = @import("../astnav/tokens.zig");
+    const node = astnav.getTouchingPropertyName(file, &program.ast, pos);
+
+    if (program.ast.getNodeKind(node) == .SourceFile) {
+        return lsproto.DefinitionResponse{ .LocationOrLocationsOrDefinitionLinksOrNull = .{ .locations = null } };
+    }
+
+    _ = clientSupportsLink; // stub handling link output for now
+
+    var chk = program.getTypeCheckerForFile(file);
+    const symbolIndex = chk.getSymbolAtLocation(node);
+
+    if (symbolIndex != 0) {
+        const symbol = chk.binder.symbols.items[symbolIndex];
+
+        var locations = std.ArrayList(lsproto.Location).init(ls.allocator);
+        const findallreferences = @import("findallreferences.zig");
+        const lsconv = @import("lsconv/converters.zig");
+
+        for (symbol.Declarations.items) |declNode| {
+            const declFile = ast_utils.getSourceFileOfNode(&program.ast, declNode);
+            const declFileNode = program.ast.getNode(declFile).SourceFile;
+
+            const range = findallreferences.getLspRangeOfNode(ls, declNode, declFile, 0);
+
+            const uri = try lsconv.fileNameToDocumentURI(ls.allocator, declFileNode.fileName);
+            try locations.append(lsproto.Location{
+                .uri = uri,
+                .range = range,
+            });
+        }
+
+        if (locations.items.len > 0) {
+            return lsproto.DefinitionResponse{ .LocationOrLocationsOrDefinitionLinksOrNull = .{ .locations = try locations.toOwnedSlice() } };
+        }
+    }
+
     return lsproto.DefinitionResponse{ .LocationOrLocationsOrDefinitionLinksOrNull = .{ .locations = null } };
 }

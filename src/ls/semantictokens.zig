@@ -11,7 +11,15 @@ pub fn provideDocumentSemanticTokens(
     allocator: std.mem.Allocator,
     params: *lsproto.SemanticTokensParams,
 ) !?lsproto.SemanticTokens {
-    _ = ls; _ = allocator; _ = params;
+    const programAndFile = ls.getProgramAndFile(params.textDocument.uri);
+    const file = programAndFile.file;
+
+    const tree = ls.getAst(file);
+    const sourceFileNode = tree.getNode(ls.getSourceFileNode(file)).SourceFile;
+
+    // TODO: implement semantic tokens visitor
+    _ = sourceFileNode;
+    _ = allocator;
 
     // stub implementation
     return null;

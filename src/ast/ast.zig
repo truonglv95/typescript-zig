@@ -240,10 +240,11 @@ pub const Ast = struct {
 
     /// Lấy một Node tại index cụ thể.
     pub fn getNode(self: *Ast, index: NodeIndex) ast_gen.NodeData {
-        if (index >= self.nodes.len) {
-            return .{ .Unknown = {} };
-        }
         return self.nodes.get(index);
+    }
+
+    pub fn getKind(self: *Ast, index: NodeIndex) kind.Kind {
+        return std.meta.activeTag(self.getNode(index));
     }
 
     pub fn setNode(self: *Ast, index: NodeIndex, data: ast_gen.NodeData) void {
@@ -346,4 +347,9 @@ pub const ModifierFlagsExport: u32 = 0;
 
 pub const ModifierFlagsDefault: u32 = 0;
 
-pub const NodeFlagsLet = 1;
+pub const NodeFlagsNone: u32 = 0;
+pub const NodeFlagsLet: u32 = 1 << 0;
+pub const NodeFlagsConst: u32 = 1 << 1;
+pub const NodeFlagsUsing: u32 = 1 << 2;
+pub const NodeFlagsAwaitUsing: u32 = 1 << 3;
+pub const NodeFlagsBlockScoped: u32 = NodeFlagsLet | NodeFlagsConst | NodeFlagsUsing | NodeFlagsAwaitUsing;

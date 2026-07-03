@@ -58,7 +58,7 @@ pub fn symbolAndEntriesToRename(
     for (data.symbolsAndEntries) |s| {
         for (s.references) |_| {
             // stub URI mapping
-            const uri = ""; 
+            const uri = "";
             var listResult = try changes.getOrPut(uri);
             if (!listResult.found_existing) {
                 listResult.value_ptr.* = std.ArrayList(lsproto.TextEdit).init(allocator);
@@ -88,11 +88,13 @@ pub fn getRenameInfoForNode(
     sourceFile: ast.NodeIndex,
     program: *compiler.Program,
 ) !?RenameInfo {
-    _ = ls; _ = allocator; _ = newName;
+    _ = ls;
+    _ = allocator;
+    _ = newName;
 
     const chk = program.getTypeCheckerForFile(sourceFile);
-    const symbol = chk.getSymbolAtLocation(node);
-    if (symbol == null) {
+    const symbolIndex = chk.getSymbolAtLocation(node);
+    if (symbolIndex == 0) {
         if (ast_utils.isStringLiteralLike(&program.ast, node)) {
             // Contextual string literal types check stub
             return RenameInfo{
@@ -116,12 +118,18 @@ pub fn getRenameInfoForNode(
         return null;
     }
 
-    if (symbol.?.declarations.len == 0) return null;
+    const symbol = chk.binder.symbols.items[symbolIndex];
+    if (symbol.Declarations.items.len == 0) return null;
+
+    const displayName = if (symbol.escapedName < chk.binder.identifiers.items.len)
+        chk.binder.identifiers.items[symbol.escapedName]
+    else
+        "";
 
     return RenameInfo{
         .canRename = true,
         .localizedErrorMessage = null,
-        .displayName = symbol.?.name,
+        .displayName = displayName,
         .triggerSpan = lsproto.Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
         .fileToRename = null,
         .newFileName = null,

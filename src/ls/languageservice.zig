@@ -1,6 +1,7 @@
 const std = @import("std");
 const ast = @import("../ast/ast.zig");
 const compiler = @import("../compiler/program.zig");
+const checker = @import("../checker/checker.zig");
 const autoimport = @import("../project/autoimport.zig");
 const lsconv = @import("lsconv.zig");
 const lsutil = @import("lsutil/lsutil.zig");
@@ -34,7 +35,8 @@ pub const LanguageService = struct {
     activeConfig: lsutil.UserPreferences,
     program: *compiler.Program,
     converters: *lsconv.Converters,
-    documentPositionMappers: std.StringHashMapUnmanaged(*sourcemap.DocumentPositionMapper),
+    documentPositionMappers: std.StringHashMapUnmanaged(*sourcemap.source_mapper.DocumentPositionMapper),
+    checker_cache: std.AutoHashMap(compiler.FileId, *checker.Checker),
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -44,19 +46,26 @@ pub const LanguageService = struct {
         activeFile: []const u8,
     ) !*LanguageService {
         const self = try allocator.create(LanguageService);
-        self.* = .{
+        self.* = LanguageService{
             .allocator = allocator,
             .projectPath = projectPath,
             .host = host,
+            .activeConfig = host.getPreferences(activeFile),
             .program = program,
             .converters = host.converters(),
-            .activeConfig = host.getPreferences(activeFile),
             .documentPositionMappers = .{},
+            .checker_cache = std.AutoHashMap(compiler.FileId, *checker.Checker).init(allocator),
         };
         return self;
     }
 
     pub fn deinit(self: *LanguageService) void {
+        var it = self.checker_cache.valueIterator();
+        while (it.next()) |chk_ptr| {
+            chk_ptr.*.deinit();
+            self.allocator.destroy(chk_ptr.*);
+        }
+        self.checker_cache.deinit();
         self.documentPositionMappers.deinit(self.allocator);
         self.allocator.destroy(self);
     }
@@ -79,22 +88,22 @@ pub const LanguageService = struct {
 
     pub const ProgramAndFile = struct {
         program: *compiler.Program,
-        file: ast.NodeIndex,
+        file: compiler.FileId,
     };
 
-    pub fn tryGetProgramAndFile(self: *LanguageService, fileName: []const u8) ProgramAndFile {
+    pub fn tryGetProgramAndFile(self: *LanguageService, fileName: []const u8) ?ProgramAndFile {
         const program = self.getProgram();
-        const file = program.getSourceFile(fileName);
+        const file = program.getFileId(fileName) orelse return null;
         return .{ .program = program, .file = file };
     }
 
     pub fn getProgramAndFile(self: *LanguageService, documentURI: lsproto.DocumentUri) ProgramAndFile {
         const fileName = documentURI.fileName();
         const res = self.tryGetProgramAndFile(fileName);
-        if (res.file == ast.null_node) {
+        if (res == null) {
             std.debug.panic("file not found: {s}", .{fileName});
         }
-        return res;
+        return res.?;
     }
 
     pub fn getDocumentPositionMapper(self: *LanguageService, fileName: []const u8) *sourcemap.DocumentPositionMapper {
@@ -104,6 +113,35 @@ pub const LanguageService = struct {
         const d = sourcemap.getDocumentPositionMapper(self, fileName);
         self.documentPositionMappers.put(self.allocator, fileName, d) catch @panic("OOM");
         return d;
+    }
+
+    pub fn getAst(self: *LanguageService, file: compiler.FileId) *ast.Ast {
+        return self.program.getUnit(file).tree();
+    }
+
+    pub fn getSourceFileNode(self: *LanguageService, file: compiler.FileId) ast.NodeIndex {
+        return self.program.getUnit(file).source_file;
+    }
+
+    pub fn getScript(self: *LanguageService, file: compiler.FileId) lsconv.Script {
+        const unit = self.program.getUnit(file);
+        return .{
+            .file_name = unit.path,
+            .content = unit.content,
+        };
+    }
+
+    pub fn getTypeCheckerForFile(self: *LanguageService, file: compiler.FileId) *checker.Checker {
+        if (self.checker_cache.get(file)) |chk| {
+            return chk;
+        }
+        const unit = self.program.getUnit(file);
+        const bound = self.program.getBinder(file) orelse @panic("no binder for file");
+        const chk = self.allocator.create(checker.Checker) catch @panic("OOM");
+        chk.* = checker.Checker.init(self.allocator, bound);
+        chk.checkStatement(unit.source_file) catch unreachable;
+        self.checker_cache.put(file, chk) catch @panic("OOM");
+        return chk;
     }
 
     pub fn readFile(self: *LanguageService, fileName: []const u8) ?[]const u8 {
@@ -235,8 +273,9 @@ pub const LanguageService = struct {
         allocator: std.mem.Allocator,
         documentURI: lsproto.DocumentUri,
         position: lsproto.Position,
+        context: ?lsproto.SignatureHelpContext,
     ) !?lsproto.SignatureHelp {
-        return signaturehelp.provideSignatureHelp(self, allocator, documentURI, position);
+        return signaturehelp.provideSignatureHelp(self, allocator, documentURI, position, context);
     }
 
     pub fn provideFoldingRanges(

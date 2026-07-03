@@ -2661,7 +2661,7 @@ pub const Binder = struct {
 
     pub fn bindPrefixUnaryExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
         const expr = self.ast.getNode(nodeIndex).PrefixUnaryExpression;
-        const op = self.ast.getNode(expr.Operator);
+        const op = @as(kind.Kind, @enumFromInt(expr.Operator));
         if (op == .PlusPlusToken or op == .MinusMinusToken) {
             try self.bindAssignmentTargetFlow(expr.Operand);
         } else {
@@ -2671,6 +2671,7 @@ pub const Binder = struct {
 
     pub fn bindPostfixUnaryExpressionFlow(self: *Binder, nodeIndex: ast_gen.NodeIndex) !void {
         const expr = self.ast.getNode(nodeIndex).PostfixUnaryExpression;
+        // The Operator is a Kind, not a NodeIndex.
         try self.bindAssignmentTargetFlow(expr.Operand);
     }
 

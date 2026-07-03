@@ -1105,11 +1105,11 @@ pub const ESDecoratorTransformer = struct {
         var operandNode: ast_gen.NodeIndex = 0;
         if (tree.getNodeKind(node) == .PrefixUnaryExpression) {
             const prefix = tree.getNode(node).PrefixUnaryExpression;
-            operator = tree.getNodeKind(prefix.Operator);
+            operator = @as(kind.Kind, @enumFromInt(prefix.Operator));
             operandNode = prefix.Operand;
         } else {
             const postfix = tree.getNode(node).PostfixUnaryExpression;
-            operator = tree.getNodeKind(postfix.Operator);
+            operator = @as(kind.Kind, @enumFromInt(postfix.Operator));
             operandNode = postfix.Operand;
         }
 
