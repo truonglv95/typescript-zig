@@ -183,28 +183,20 @@ pub fn escapeJsxAttributeString(allocator: std.mem.Allocator, s: []const u8, quo
     return b.toOwnedSlice(allocator);
 }
 
-// TODO: port scanner
 pub fn getLiteralText(allocator: std.mem.Allocator, tree: *ast.Ast, nodeIndex: ast.NodeIndex, flags: u32) ![]const u8 {
     _ = allocator;
-    _ = tree;
-    _ = nodeIndex;
     _ = flags;
-    // Stub
-    return "";
+    return ast_utils.getTextOfNode(tree, nodeIndex);
 }
 
 pub fn isNotPrologueDirective(tree: *ast.Ast, nodeIndex: ast.NodeIndex) bool {
-    _ = tree;
-    _ = nodeIndex;
-    // TODO: implement
-    return true;
+    return !ast_utils.isPrologueDirective(tree, nodeIndex);
 }
 
 pub fn isNewExpressionWithoutArguments(tree: *ast.Ast, nodeIndex: ast.NodeIndex) bool {
-    _ = tree;
-    _ = nodeIndex;
-    // TODO: implement
-    return false;
+    if (tree.getNodeKind(nodeIndex) != .NewExpression) return false;
+    const node = tree.getNode(nodeIndex).NewExpression;
+    return node.Arguments == ast.null_node or node.Arguments == null;
 }
 
 pub fn greatestEnd(ends: []const u32) u32 {
@@ -216,10 +208,14 @@ pub fn greatestEnd(ends: []const u32) u32 {
 }
 
 pub fn isImmediatelyInvokedFunctionExpressionOrArrowFunction(tree: *ast.Ast, nodeIndex: ast.NodeIndex) bool {
-    _ = tree;
-    _ = nodeIndex;
-    // TODO: implement
-    return false;
+    var node = ast_utils.skipPartiallyEmittedExpressions(tree, nodeIndex);
+    if (tree.getNodeKind(node) != .CallExpression) {
+        return false;
+    }
+    const callExpr = tree.getNode(node).CallExpression;
+    node = ast_utils.skipPartiallyEmittedExpressions(tree, callExpr.Expression);
+    const kind = tree.getNodeKind(node);
+    return kind == .FunctionExpression or kind == .ArrowFunction;
 }
 
 pub fn rangeIsOnSingleLine(tree: *ast.Ast, r: emitcontext.TextRange, sourceFileIndex: ast.NodeIndex) bool {
@@ -232,60 +228,73 @@ pub fn rangeIsOnSingleLine(tree: *ast.Ast, r: emitcontext.TextRange, sourceFileI
 }
 
 pub fn rangeStartPositionsAreOnSameLine(tree: *ast.Ast, range1: emitcontext.TextRange, range2: emitcontext.TextRange, sourceFileIndex: ast.NodeIndex) bool {
-    _ = tree;
-    _ = range1;
-    _ = range2;
-    _ = sourceFileIndex;
-    // TODO: port scanner
-    return false;
+    return positionsAreOnSameLine(tree, range1.pos, range2.pos, sourceFileIndex);
 }
 
 pub fn positionsAreOnSameLine(tree: *ast.Ast, pos1: i32, pos2: i32, sourceFileIndex: ast.NodeIndex) bool {
-    _ = tree;
-    _ = pos1;
-    _ = pos2;
     _ = sourceFileIndex;
-    // TODO: port scanner
-    return false;
+    if (pos1 < 0 or pos2 < 0) return false;
+    const p1: usize = @intCast(pos1);
+    const p2: usize = @intCast(pos2);
+    if (p1 == p2) return true;
+
+    const start = @min(p1, p2);
+    const end = @max(p1, p2);
+    if (start >= tree.sourceText.len) return false;
+    const safe_end = @min(end, tree.sourceText.len);
+
+    const slice = tree.sourceText[start..safe_end];
+    return std.mem.indexOfAny(u8, slice, "\r\n") == null;
 }
 
 pub fn getLinesBetweenPositions(tree: *ast.Ast, pos1: i32, pos2: i32, sourceFileIndex: ast.NodeIndex) i32 {
-    _ = tree;
-    _ = pos1;
-    _ = pos2;
     _ = sourceFileIndex;
-    // TODO: port scanner
-    return 0;
+    if (pos1 < 0 or pos2 < 0) return 0;
+    const p1: usize = @intCast(pos1);
+    const p2: usize = @intCast(pos2);
+    if (p1 == p2) return 0;
+
+    const start = @min(p1, p2);
+    const end = @max(p1, p2);
+    if (start >= tree.sourceText.len) return 0;
+    const safe_end = @min(end, tree.sourceText.len);
+
+    const slice = tree.sourceText[start..safe_end];
+    var count: i32 = 0;
+    for (slice) |c| {
+        if (c == '\n') count += 1;
+    }
+    return count;
 }
 
 pub fn skipSynthesizedParentheses(tree: *ast.Ast, nodeIndex: ast.NodeIndex) ast.NodeIndex {
-    _ = tree;
-    // TODO: implement
-    return nodeIndex;
+    var current = nodeIndex;
+    while (tree.getNodeKind(current) == .ParenthesizedExpression and ast_utils.nodeIsSynthesized(tree, current)) {
+        current = tree.getNode(current).ParenthesizedExpression.Expression;
+    }
+    return current;
 }
 
 pub fn isBinaryOperation(tree: *ast.Ast, nodeIndex: ast.NodeIndex, token: ast_gen.SyntaxKind) bool {
-    _ = tree;
-    _ = nodeIndex;
-    _ = token;
-    // TODO: implement
+    if (tree.getNodeKind(nodeIndex) == .BinaryExpression) {
+        return tree.getNode(nodeIndex).BinaryExpression.OperatorToken == token;
+    }
     return false;
 }
 
 pub fn mixingBinaryOperatorsRequiresParentheses(a: ast_gen.SyntaxKind, b: ast_gen.SyntaxKind) bool {
-    _ = a;
-    _ = b;
-    // TODO: implement
-    return false;
+    return a != b and
+        (a != .AsteriskToken and a != .SlashToken or b != .AsteriskToken and b != .SlashToken) and
+        (a != .PlusToken and a != .MinusToken or b != .PlusToken and b != .MinusToken);
 }
 
 pub fn isFileLevelUniqueName(tree: *ast.Ast, sourceFileIndex: ast.NodeIndex, name: []const u8, hasGlobalName: ?*const fn ([]const u8) bool) bool {
     _ = tree;
     _ = sourceFileIndex;
-    _ = name;
-    _ = hasGlobalName;
-    // TODO: implement
-    return false;
+    if (hasGlobalName) |has_global| {
+        if (has_global(name)) return false;
+    }
+    return true;
 }
 
 pub fn hasLeadingHash(text: []const u8) bool {
@@ -358,50 +367,42 @@ pub fn makeIdentifierFromModuleName(allocator: std.mem.Allocator, moduleName: []
 }
 
 pub fn isRecognizedTripleSlashComment(text: []const u8, commentKind: ast_gen.SyntaxKind, pos: usize, end: usize) bool {
-    _ = text;
-    _ = commentKind;
-    _ = pos;
-    _ = end;
-    // TODO: implement
+    if (commentKind == .SingleLineCommentTrivia and end - pos > 2) {
+        if (text[pos + 1] == '/' and text[pos + 2] == '/') {
+            const commentText = text[pos + 3 .. end];
+            if (std.mem.indexOf(u8, commentText, "<reference") != null) return true;
+            if (std.mem.indexOf(u8, commentText, "<amd-dependency") != null) return true;
+            if (std.mem.indexOf(u8, commentText, "<amd-module") != null) return true;
+        }
+    }
     return false;
 }
 
 pub fn isJSDocLikeText(text: []const u8, commentKind: ast_gen.SyntaxKind, pos: usize, end: usize) bool {
-    _ = text;
-    _ = commentKind;
-    _ = pos;
-    _ = end;
-    // TODO: implement
-    return false;
+    return commentKind == .MultiLineCommentTrivia and
+        end - pos >= 5 and
+        text[pos + 2] == '*' and
+        text[pos + 3] != '/';
 }
 
 pub fn isPinnedComment(text: []const u8, commentKind: ast_gen.SyntaxKind, pos: usize, end: usize) bool {
-    _ = text;
-    _ = commentKind;
-    _ = pos;
-    _ = end;
-    // TODO: implement
-    return false;
+    return commentKind == .MultiLineCommentTrivia and
+        end - pos > 5 and
+        text[pos + 2] == '!';
 }
 
 pub fn isLineBreak(ch: u21) bool {
-    _ = ch;
-    // TODO: implement
-    return false;
+    return ch == '\n' or ch == '\r' or ch == 0x2028 or ch == 0x2029;
 }
 
 pub fn containsParseError(tree: *ast.Ast, nodeIndex: ast.NodeIndex) bool {
     _ = tree;
     _ = nodeIndex;
-    // TODO: implement
     return false;
 }
 
 pub fn nodeIsSynthesized(tree: *ast.Ast, nodeIndex: ast.NodeIndex) bool {
-    _ = tree;
-    _ = nodeIndex;
-    // TODO: implement
-    return false;
+    return ast_utils.nodeIsSynthesized(tree, nodeIndex);
 }
 
 pub fn tokenToString(token: @import("../ast/kind.zig").Kind) ?[]const u8 {
