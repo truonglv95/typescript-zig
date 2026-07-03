@@ -11,7 +11,22 @@ pub fn getCodeActions(
     allocator: std.mem.Allocator,
     params: *lsproto.CodeActionParams,
 ) !?[]lsproto.CodeAction {
-    _ = ls; _ = allocator; _ = params;
+    const programAndFile = ls.getProgramAndFile(params.textDocument.uri);
+    const file = programAndFile.file;
+
+    const script = ls.getScript(file);
+    const position = ls.converters.lineAndCharacterToPosition(script, params.range.start);
+    const endPosition = ls.converters.lineAndCharacterToPosition(script, params.range.end);
+
+    // We get the AST
+    const tree = ls.getAst(file);
+
+    // TODO: loop over diagnostics and generate appropriate code actions
+
+    _ = allocator;
+    _ = position;
+    _ = endPosition;
+    _ = tree;
 
     // stub implementation
     return null;

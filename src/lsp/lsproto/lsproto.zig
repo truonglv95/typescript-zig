@@ -1,7 +1,10 @@
 const std = @import("std");
 
 pub const DocumentUri = struct {
-    pub fn fileName(self: *const @This()) []const u8 { _ = self; return ""; }
+    pub fn fileName(self: *const @This()) []const u8 {
+        _ = self;
+        return "";
+    }
 };
 pub const Position = struct { line: u32 = 0, character: u32 = 0 };
 pub const Range = struct { start: Position = .{}, end: Position = .{} };
@@ -15,30 +18,82 @@ pub const WorkspaceEdit = struct { changes: std.StringHashMap([]TextEdit) };
 pub const TextEdit = struct { range: Range, newText: []const u8 };
 pub const DocumentSymbol = struct { name: []const u8, detail: ?[]const u8, kind: enum { Variable }, tags: ?[]const u8, deprecated: ?bool, range: Range, selectionRange: Range, children: ?[]DocumentSymbol };
 pub const SymbolInformation = struct {};
-pub fn getClientCapabilities() struct { textDocument: struct { hover: struct { contentFormat: u32 = 0 }, documentSymbol: struct { hierarchicalDocumentSymbolSupport: bool = false } } } { return .{ .textDocument = .{ .hover = .{ .contentFormat = 0 }, .documentSymbol = .{ .hierarchicalDocumentSymbolSupport = false } } }; }
-pub fn preferredMarkupKind(format: u32) u32 { return format; }
+pub fn getClientCapabilities() struct { textDocument: struct { hover: struct { contentFormat: u32 = 0 }, documentSymbol: struct { hierarchicalDocumentSymbolSupport: bool = false } } } {
+    return .{ .textDocument = .{ .hover = .{ .contentFormat = 0 }, .documentSymbol = .{ .hierarchicalDocumentSymbolSupport = false } } };
+}
+pub fn preferredMarkupKind(format: u32) u32 {
+    return format;
+}
 
 pub const DocumentDiagnosticResponse = struct {};
 pub const DefinitionResponse = struct {};
 pub const CompletionContext = struct {};
 pub const CompletionResponse = struct {};
 pub const CodeActionParams = struct {};
-pub const CodeAction = struct {};
+pub const CodeAction = struct {
+    title: []const u8,
+    kind: ?[]const u8 = null,
+    edit: ?WorkspaceEdit = null,
+};
 pub const SemanticTokensParams = struct {};
 pub const SemanticTokens = struct {};
-pub const DocumentHighlight = struct {};
-pub const SignatureHelp = struct {};
-pub const FoldingRange = struct {};
-pub const InlayHintParams = struct {};
-pub const InlayHint = struct {};
-pub const CallHierarchyPrepareParams = struct {};
-pub const CallHierarchyItem = struct {};
+pub const DocumentHighlightKind = enum(u32) {
+    Text = 1,
+    Read = 2,
+    Write = 3,
+};
+pub const DocumentHighlight = struct {
+    range: Range,
+    kind: ?DocumentHighlightKind = null,
+};
+pub const SignatureHelp = struct {
+    signatures: []SignatureInformation,
+    activeSignature: ?u32 = null,
+    activeParameter: ?u32 = null,
+};
+pub const FoldingRange = struct {
+    startLine: u32,
+    startCharacter: ?u32 = null,
+    endLine: u32,
+    endCharacter: ?u32 = null,
+    kind: ?[]const u8 = null,
+};
+pub const SignatureInformation = struct {
+    label: []const u8,
+    documentation: ?[]const u8 = null,
+};
+pub const InlayHintParams = struct {
+    textDocument: struct { uri: DocumentUri },
+    range: Range,
+};
+pub const InlayHint = struct {
+    position: Position,
+    label: []const u8,
+    kind: ?u32 = null,
+};
+pub const CallHierarchyPrepareParams = struct {
+    textDocument: struct { uri: DocumentUri },
+    position: Position,
+};
+pub const CallHierarchyItem = struct {
+    name: []const u8,
+    kind: u32,
+    uri: DocumentUri,
+    range: Range,
+    selectionRange: Range,
+};
 pub const CallHierarchyIncomingCallsParams = struct {};
 pub const CallHierarchyIncomingCall = struct {};
 pub const CallHierarchyOutgoingCallsParams = struct {};
 pub const CallHierarchyOutgoingCall = struct {};
-pub const SelectionRangeParams = struct {};
-pub const SelectionRange = struct {};
+pub const SelectionRangeParams = struct {
+    textDocument: struct { uri: DocumentUri },
+    positions: []Position,
+};
+pub const SelectionRange = struct {
+    range: Range,
+    parent: ?*SelectionRange = null,
+};
 pub const FileSystemWatcher = struct {};
 pub const PublishDiagnosticsParams = struct {};
 pub const TelemetryEvent = struct {};

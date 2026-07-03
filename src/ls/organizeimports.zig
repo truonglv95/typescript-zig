@@ -11,7 +11,16 @@ pub fn organizeImports(
     allocator: std.mem.Allocator,
     params: *lsproto.CodeActionParams,
 ) !?[]lsproto.CodeAction {
-    _ = ls; _ = allocator; _ = params;
+    const programAndFile = ls.getProgramAndFile(params.textDocument.uri);
+    const file = programAndFile.file;
+
+    const tree = ls.getAst(file);
+    const sourceFileNode = tree.getNode(ls.getSourceFileNode(file)).SourceFile;
+
+    // TODO: implement organize imports logic (sorting, removing unused)
+    _ = sourceFileNode;
+    _ = allocator;
+
     // stub
     return null;
 }

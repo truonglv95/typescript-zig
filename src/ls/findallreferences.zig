@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("../ast/ast.zig");
+const ast_gen = @import("../ast/ast_generated.zig");
 const binder = @import("../binder/binder.zig");
 const checker = @import("../checker/checker.zig");
 const collections = @import("../collections/collections.zig");
@@ -45,7 +46,7 @@ pub const SymbolAndEntries = struct {
     definition: ?*Definition,
     references: []*ReferenceEntry,
 
-    pub fn init(allocator: std.mem.Allocator, kind: DefinitionKind, node: ast.NodeIndex, symbol: ?*ast.Symbol, references: []*ReferenceEntry) !*SymbolAndEntries {
+    pub fn init(allocator: std.mem.Allocator, kind: DefinitionKind, node: ast.NodeIndex, symbol: ast_gen.SymbolIndex, references: []*ReferenceEntry) !*SymbolAndEntries {
         const self = try allocator.create(SymbolAndEntries);
         const def = try allocator.create(Definition);
         def.* = .{
@@ -70,20 +71,16 @@ pub const SymbolAndEntries = struct {
             if (def.node != ast.null_node) {
                 return def.node;
             }
-            if (def.symbol) |sym| {
-                if (sym.declarations.len > 0) {
-                    return sym.declarations[0];
-                }
-            }
+            // we'd need to resolve symbol declarations here, handled by caller
         }
         return ast.null_node;
     }
 
-    pub fn definitionSymbol(self: *SymbolAndEntries) ?*ast.Symbol {
+    pub fn definitionSymbol(self: *SymbolAndEntries) ast_gen.SymbolIndex {
         if (self.definition) |def| {
             return def.symbol;
         }
-        return null;
+        return 0;
     }
 
     pub fn canUseDefinitionSymbol(self: *SymbolAndEntries) bool {
@@ -91,7 +88,7 @@ pub const SymbolAndEntries = struct {
         const def = self.definition.?;
 
         switch (def.kind) {
-            .symbol, .this => return def.symbol != null,
+            .symbol, .this => return def.symbol != 0,
             .tripleSlashReference => return false,
             else => return false,
         }
@@ -177,11 +174,11 @@ pub fn newNodeEntryWithKind(allocator: std.mem.Allocator, ls: *languageservice.L
 
 pub fn newNodeEntry(allocator: std.mem.Allocator, ls: *languageservice.LanguageService, node: ast.NodeIndex) !*ReferenceEntry {
     const e = try allocator.create(ReferenceEntry);
-    
+
     // We assume ast.name(node) exists or we fallback to node. This requires looking up the program's AST.
     // For now we just use node.
     const actual_node = node;
-    
+
     e.* = .{
         .kind = .node,
         .node = actual_node,
@@ -195,47 +192,46 @@ pub fn newNodeEntry(allocator: std.mem.Allocator, ls: *languageservice.LanguageS
 
 pub fn getContextNodeForNodeEntry(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
     const tree = &ls.program.ast;
-    
+
     // We assume ast_utils functions will be properly implemented.
-    // For now we use some dummy calls or comment them to avoid compile errors 
+    // For now we use some dummy calls or comment them to avoid compile errors
     // before ast_utils is fully complete, but we structure it correctly.
-    
+
     // if (ast_utils.isDeclaration(tree, node)) {
     //     return getContextNode(ls, node);
     // }
-    
+
     const parent = tree.parents.items[node];
     if (parent == 0) return ast.null_node;
 
     // ... stub logic mapping ...
     // The exact translation of the context tree walking requires full ast_utils.
-    return parent; 
-}
-
-pub fn getContextNode(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
-    if (node == 0) return ast.null_node;
-    const tree = &ls.program.ast;
-    const parent = tree.parents.items[node];
     return parent;
 }
 
-pub fn getLspRangeOfNode(ls: *languageservice.LanguageService, node: ast.NodeIndex, sourceFile_opt: ast.NodeIndex, endNode: ast.NodeIndex) lsproto.Range {
-    const sourceFile = sourceFile_opt;
-    if (sourceFile == 0) {
-        // sourceFile = ast_utils.getSourceFileOfNode(&ls.program.ast, node);
-    }
-    const textRange = getRangeOfNode(ls, node, sourceFile, endNode);
-    _ = textRange;
-    return undefined; // ls.createLspRangeFromBounds(textRange.pos, textRange.end, sourceFile);
+pub fn getContextNode(ls: *languageservice.LanguageService, fileId: compiler.FileId, node: ast.NodeIndex) ast.NodeIndex {
+    if (node == 0) return ast.null_node;
+    const tree = ls.getAst(fileId);
+    const parent = tree.getNodeParent(node);
+    return parent;
 }
 
-pub fn getRangeOfNode(ls: *languageservice.LanguageService, node: ast.NodeIndex, sourceFile_opt: ast.NodeIndex, endNode: ast.NodeIndex) core.TextRange {
-    _ = ls; _ = node; _ = sourceFile_opt; _ = endNode;
-    return core.TextRange{ .pos = 0, .end = 0 };
+pub fn getLspRangeOfNode(ls: *languageservice.LanguageService, fileId: compiler.FileId, node: ast.NodeIndex, endNode: ?ast.NodeIndex, dummy: u32) lsproto.Range {
+    _ = dummy;
+    const textRange = getRangeOfNode(ls, fileId, node, endNode);
+    return ls.converters.toLSPRange(ls.getScript(fileId), textRange);
+}
+
+pub fn getRangeOfNode(ls: *languageservice.LanguageService, fileId: compiler.FileId, node: ast.NodeIndex, endNode: ?ast.NodeIndex) core.TextRange {
+    _ = endNode;
+    const tree = ls.getAst(fileId);
+    return core.TextRange.init(@intCast(tree.getNodeStart(node)), @intCast(tree.getNodeEnd(node)));
 }
 
 pub fn isValidReferencePosition(ls: *languageservice.LanguageService, node: ast.NodeIndex, searchSymbolName: []const u8) bool {
-    _ = ls; _ = node; _ = searchSymbolName;
+    _ = ls;
+    _ = node;
+    _ = searchSymbolName;
     return false;
 }
 
@@ -244,7 +240,11 @@ pub fn isForRenameWithPrefixAndSuffixText(options: RefOptions) bool {
 }
 
 pub fn skipPastExportOrImportSpecifierOrUnion(tree: *ast.Ast, symbol: *ast.Symbol, node: ast.NodeIndex, chk: *checker.Checker, useLocalSymbolForExportSpecifier: bool) ?*ast.Symbol {
-    _ = tree; _ = symbol; _ = node; _ = chk; _ = useLocalSymbolForExportSpecifier;
+    _ = tree;
+    _ = symbol;
+    _ = node;
+    _ = chk;
+    _ = useLocalSymbolForExportSpecifier;
     return null;
 }
 
@@ -267,7 +267,7 @@ pub fn symbolAndEntriesToReferences(
         const locs = try convertSymbolAndEntriesToLocations(ls, allocator, s, params.context.includeDeclaration);
         try locations.appendSlice(locs);
     }
-    
+
     return lsproto.ReferencesResponse{
         .LocationsOrNull = .{ .locations = try locations.toOwnedSlice() },
     };
@@ -284,7 +284,7 @@ pub fn convertSymbolAndEntriesToLocations(
     if (!includeDeclarations and s.definition != null) {
         var filtered = std.ArrayList(*ReferenceEntry).init(allocator);
         errdefer filtered.deinit();
-        
+
         for (references) |entry| {
             if (!isDeclarationOfSymbol(ls.program, entry.node, s.definition.?.symbol)) {
                 try filtered.append(entry);
@@ -300,14 +300,14 @@ pub fn isDeclarationOfSymbol(program: *compiler.Program, node: ast.NodeIndex, ta
     if (node == ast.null_node or target == null) {
         return false;
     }
-    
+
     const tree = &program.ast;
     var source: ast.NodeIndex = ast.null_node;
-    
+
     // We assume these ast_utils functions exist or will be added
     // const decl = ast_utils.getDeclarationFromName(tree, node);
     const decl = ast.null_node; // stub
-    
+
     if (decl != ast.null_node) {
         source = decl;
     } else if (tree.getNodeKind(node) == .DefaultKeyword) {
@@ -320,7 +320,7 @@ pub fn isDeclarationOfSymbol(program: *compiler.Program, node: ast.NodeIndex, ta
         //     source = tree.parents.items[tree.parents.items[node]];
         // }
     }
-    
+
     if (source != ast.null_node) {
         for (target.?.declarations) |d| {
             if (d == source) return true;
@@ -361,20 +361,22 @@ pub fn provideSymbolsAndEntries(
     isRename: bool,
     implementations: bool,
 ) !?SymbolAndEntriesData {
-    const program = ls.program;
-    const sourceFile = program.getSourceFileFromUri(uri) orelse return null;
-    const position = ls.converters.lineAndCharacterToPosition(sourceFile, documentPosition);
+    const programAndFile = ls.getProgramAndFile(uri);
+    const fileId = programAndFile.file;
+    const script = ls.getScript(fileId);
+    const position = ls.converters.lineAndCharacterToPosition(script, documentPosition);
 
-    var node = ast_utils.getTouchingPropertyName(&program.ast, sourceFile, position);
+    const tree = ls.getAst(fileId);
+    var node = ast_utils.getTouchingPropertyName(tree.getNode(ls.getSourceFileNode(fileId)).SourceFile, tree, position);
     if (isRename) {
-        node = getAdjustedLocation(ls, node, true, sourceFile);
+        node = getAdjustedLocation(ls, node, true, ls.getSourceFileNode(fileId));
     }
 
-    if ((isRename and !nodeIsEligibleForRename(ls, node)) or (implementations and program.ast.getNodeKind(node) == .SourceFile)) {
+    if ((isRename and !nodeIsEligibleForRename(ls, node)) or (implementations and tree.getNodeKind(node) == .SourceFile)) {
         return SymbolAndEntriesData{ .originalNode = node, .symbolsAndEntries = &[_]*SymbolAndEntries{}, .position = position };
     }
 
-    const entries = getSymbolAndEntries(ls, allocator, position, node, program, isRename, implementations);
+    const entries = getSymbolAndEntries(ls, allocator, position, node, ls.program, isRename, implementations);
     if (!implementations) {
         return SymbolAndEntriesData{ .originalNode = node, .symbolsAndEntries = entries, .position = position };
     }
@@ -399,7 +401,9 @@ pub fn provideSymbolsAndEntries(
         const entry = queue.orderedRemove(0);
         if (entry.node != ast.null_node and !seenNodes.contains(entry.node)) {
             seenNodes.put(entry.node, {}) catch unreachable;
-            addToQueue(&queue, &implementationEntries, getSymbolAndEntries(ls, allocator, program.ast.positions.items[entry.node].pos, entry.node, program, isRename, implementations));
+        } else if (entry.isNodeEntry()) {
+            const nodeStart = ls.getAst(fileId).getNodeStart(entry.node);
+            addToQueue(&queue, &implementationEntries, getSymbolAndEntries(ls, allocator, nodeStart, entry.node, ls.program, isRename, implementations));
         }
     }
 
@@ -429,7 +433,8 @@ pub fn getSymbolAndEntries(
 }
 
 pub fn nodeIsEligibleForRename(ls: *languageservice.LanguageService, node: ast.NodeIndex) bool {
-    _ = ls; _ = node;
+    _ = ls;
+    _ = node;
     return true; // stub
 }
 
@@ -463,7 +468,7 @@ pub fn getReferencedSymbolsForNode(
     }
 
     const chk = program.getTypeChecker();
-    
+
     if (program.ast.getNodeKind(node) == .SourceFile) {
         const resolvedRef = getReferenceAtPosition(ls, node, position, program);
         if (resolvedRef.file == ast.null_node) {
@@ -483,7 +488,7 @@ pub fn getReferencedSymbolsForNode(
     const symbol_node = if (program.ast.getNodeKind(node) == .Constructor and parent_name != 0) parent_name else node;
     const symbol = chk.getSymbolAtLocation(symbol_node);
 
-    if (symbol == null) {
+    if (symbol == 0) {
         if (!options.implementations and isStringLiteralLike(ls, node)) {
             if (isModuleSpecifierLike(ls, node)) {
                 // not implemented
@@ -510,12 +515,15 @@ pub fn getReferencedSymbolsForNode(
 // ---- Stubs for dependencies of getReferencedSymbolsForNode ----
 
 pub fn getAdjustedLocation(ls: *languageservice.LanguageService, node: ast.NodeIndex, isForRename: bool, sourceFile: ast.NodeIndex) ast.NodeIndex {
-    _ = ls; _ = isForRename; _ = sourceFile;
+    _ = ls;
+    _ = isForRename;
+    _ = sourceFile;
     return node;
 }
 
 pub fn getSourceFileOfNode(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
-    _ = ls; _ = node;
+    _ = ls;
+    _ = node;
     return ast.null_node;
 }
 
@@ -524,27 +532,36 @@ pub const ResolvedRef = struct {
 };
 
 pub fn getReferenceAtPosition(ls: *languageservice.LanguageService, node: ast.NodeIndex, position: u32, program: *compiler.Program) ResolvedRef {
-    _ = ls; _ = node; _ = position; _ = program;
+    _ = ls;
+    _ = node;
+    _ = position;
+    _ = program;
     return ResolvedRef{ .file = ast.null_node };
 }
 
 pub fn getReferencedSymbolsSpecial(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, sourceFiles: []const ast.NodeIndex) ?[]*SymbolAndEntries {
-    _ = ls; _ = allocator; _ = node; _ = sourceFiles;
+    _ = ls;
+    _ = allocator;
+    _ = node;
+    _ = sourceFiles;
     return null;
 }
 
 pub fn getName(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
-    _ = ls; _ = node;
+    _ = ls;
+    _ = node;
     return ast.null_node;
 }
 
 pub fn isStringLiteralLike(ls: *languageservice.LanguageService, node: ast.NodeIndex) bool {
-    _ = ls; _ = node;
+    _ = ls;
+    _ = node;
     return false;
 }
 
 pub fn isModuleSpecifierLike(ls: *languageservice.LanguageService, node: ast.NodeIndex) bool {
-    _ = ls; _ = node;
+    _ = ls;
+    _ = node;
     return false;
 }
 
@@ -554,7 +571,7 @@ pub fn getReferencesForStringLiteral(ls: *languageservice.LanguageService, alloc
 
     var references = std.ArrayList(*ReferenceEntry).init(allocator);
     errdefer references.deinit();
-    
+
     for (sourceFiles) |sf| {
         const possibleReferences = getPossibleSymbolReferenceNodes(ls, allocator, sf, nodeText);
         for (possibleReferences) |ref| {
@@ -594,12 +611,17 @@ pub fn getReferencesForStringLiteral(ls: *languageservice.LanguageService, alloc
 }
 
 pub fn getContextualTypeFromParentOrAncestorTypeNode(ls: *languageservice.LanguageService, node: ast.NodeIndex, chk: *checker.Checker) ?*types.Type {
-    _ = ls; _ = node; _ = chk;
+    _ = ls;
+    _ = node;
+    _ = chk;
     return null; // stub
 }
 
 pub fn getPossibleSymbolReferenceNodes(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, sourceFile: ast.NodeIndex, text: []const u8) []const ast.NodeIndex {
-    _ = ls; _ = allocator; _ = sourceFile; _ = text;
+    _ = ls;
+    _ = allocator;
+    _ = sourceFile;
+    _ = text;
     return &[_]ast.NodeIndex{}; // stub
 }
 
@@ -613,7 +635,9 @@ pub fn isStringLiteralPropertyReference(ls: *languageservice.LanguageService, no
 }
 
 pub fn rangeIsOnSingleLine(ls: *languageservice.LanguageService, node: ast.NodeIndex, sourceFile: ast.NodeIndex) bool {
-    _ = ls; _ = node; _ = sourceFile;
+    _ = ls;
+    _ = node;
+    _ = sourceFile;
     return true; // stub
 }
 
@@ -631,7 +655,12 @@ pub fn newNodeEntryWithKindNoLs(allocator: std.mem.Allocator, node: ast.NodeInde
 }
 
 pub fn getReferencedSymbolsForModule(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, program: *compiler.Program, symbol: *ast.Symbol, excludeImportTypeOfExportEquals: bool, sourceFiles: []const ast.NodeIndex) ![]*SymbolAndEntries {
-    _ = ls; _ = allocator; _ = program; _ = symbol; _ = excludeImportTypeOfExportEquals; _ = sourceFiles;
+    _ = ls;
+    _ = allocator;
+    _ = program;
+    _ = symbol;
+    _ = excludeImportTypeOfExportEquals;
+    _ = sourceFiles;
     return &[_]*SymbolAndEntries{};
 }
 
@@ -757,13 +786,25 @@ pub const State = struct {
     }
 
     pub fn getReferencesAtExportSpecifier(self: *State, name: ast.NodeIndex, symbol: *ast.Symbol, exportSpecifier: ast.NodeIndex, search: *RefSearch, addReferencesHere: bool, alwaysGetReferences: bool) void {
-        _ = self; _ = name; _ = symbol; _ = exportSpecifier; _ = search; _ = addReferencesHere; _ = alwaysGetReferences;
+        _ = self;
+        _ = name;
+        _ = symbol;
+        _ = exportSpecifier;
+        _ = search;
+        _ = addReferencesHere;
+        _ = alwaysGetReferences;
     }
     pub fn addReference(self: *State, node: ast.NodeIndex, symbol: *ast.Symbol, kind: EntryKind) void {
-        _ = self; _ = node; _ = symbol; _ = kind;
+        _ = self;
+        _ = node;
+        _ = symbol;
+        _ = kind;
     }
     pub fn searchForImportsOfExport(self: *State, node: ast.NodeIndex, symbol: *ast.Symbol, info: *ExportInfo) void {
-        _ = self; _ = node; _ = symbol; _ = info;
+        _ = self;
+        _ = node;
+        _ = symbol;
+        _ = info;
     }
     pub fn createSearch(self: *State, location: ast.NodeIndex, symbol: *ast.Symbol, comingFrom: ImpExpKind, text_arg: []const u8, searchSymbols: []const *ast.Symbol) *RefSearch {
         var text = text_arg;
@@ -797,7 +838,9 @@ pub const State = struct {
     }
 
     pub fn populateSearchSymbolSet(self: *State, symbol: *ast.Symbol, location: ast.NodeIndex, isForRename: bool, useAliasesForRename: bool, implementations: bool) []const *ast.Symbol {
-        _ = isForRename; _ = useAliasesForRename; _ = implementations;
+        _ = isForRename;
+        _ = useAliasesForRename;
+        _ = implementations;
 
         if (location == ast.null_node) {
             var res = self.allocator.alloc(*ast.Symbol, 1) catch return &[_]*ast.Symbol{};
@@ -805,7 +848,7 @@ pub const State = struct {
             return res;
         }
         var result = std.ArrayList(*ast.Symbol).init(self.allocator);
-        
+
         // Stubbed forEachRelatedSymbol.
         // It returns a single symbol, but also populates result as a side effect.
         // Here we just return `symbol` wrapped in a slice to avoid compilation errors and preserve DoD structure.
@@ -846,7 +889,7 @@ pub const State = struct {
             self.getReferencesAtLocation(sourceFile, pos, search, addReferencesHere);
         }
     }
-    
+
     pub fn markSearchedSymbols(self: *State, sourceFile: ast.NodeIndex, symbols: []const *ast.Symbol) bool {
         var seenSymbolsResult = self.sourceFileToSeenSymbols.getOrPut(sourceFile) catch return false;
         if (!seenSymbolsResult.found_existing) {
@@ -938,7 +981,7 @@ pub fn getSymbolScope(program: *compiler.Program, symbol: *ast.Symbol) ast.NodeI
         if (scope != ast.null_node and scope != container) {
             return ast.null_node;
         }
-        
+
         if (container == ast.null_node or (program.ast.getNodeKind(container) == .SourceFile and !ast_utils.isExternalOrCommonJSModule(&program.ast, container))) {
             return ast.null_node;
         }
@@ -952,12 +995,14 @@ pub fn getSymbolScope(program: *compiler.Program, symbol: *ast.Symbol) ast.NodeI
 }
 
 pub fn getContainerNode(program: *compiler.Program, node: ast.NodeIndex) ast.NodeIndex {
-    _ = program; _ = node;
+    _ = program;
+    _ = node;
     return ast.null_node; // stub
 }
 
 pub fn isSourceFileWithGlobalExports(program: *compiler.Program, node: ast.NodeIndex) bool {
-    _ = program; _ = node;
+    _ = program;
+    _ = node;
     return false; // stub
 }
 
@@ -1013,7 +1058,7 @@ pub fn newState(allocator: std.mem.Allocator, program: *compiler.Program, source
 
 pub fn getReferencedSymbolsForSymbol(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, program: *compiler.Program, originalSymbol: *ast.Symbol, node: ast.NodeIndex, sourceFiles: []const ast.NodeIndex, chk: *checker.Checker, options: RefOptions) []*SymbolAndEntries {
     _ = ls;
-    
+
     // symbol = core.Coalesce(skipPastExportOrImportSpecifierOrUnion(originalSymbol, node, checker, !isForRenameWithPrefixAndSuffixText(options)), originalSymbol);
     const skippedSymbol = skipPastExportOrImportSpecifierOrUnion(&program.ast, originalSymbol, node, chk, !isForRenameWithPrefixAndSuffixText(options));
     const symbol = if (skippedSymbol != null) skippedSymbol.? else originalSymbol;
@@ -1022,7 +1067,7 @@ pub fn getReferencedSymbolsForSymbol(ls: *languageservice.LanguageService, alloc
     if (options.use != .rename) {
         // searchMeaning = getIntersectingMeaningFromDeclarations(node, symbol, ast_utils.SemanticMeaningAll);
     }
-    
+
     var state = newState(allocator, program, sourceFiles, node, chk, searchMeaning, options);
 
     const exportSpecifier: ast.NodeIndex = ast.null_node;
@@ -1047,7 +1092,10 @@ pub fn getReferencedSymbolsForSymbol(ls: *languageservice.LanguageService, alloc
 }
 
 pub fn mergeReferences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, program: *compiler.Program, r1: []*SymbolAndEntries, r2: []*SymbolAndEntries, r3: []*SymbolAndEntries) []*SymbolAndEntries {
-    _ = ls; _ = allocator; _ = program; _ = r2; _ = r3;
+    _ = ls;
+    _ = allocator;
+    _ = program;
+    _ = r2;
+    _ = r3;
     return r1;
 }
-

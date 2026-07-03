@@ -145,7 +145,7 @@ pub const LegacyDecoratorsTransformer = struct {
         const name = ast_utils.name(tx.emitContext.tree, member);
         if (ast_utils.isComputedPropertyName(name) and ast_utils.hasDecorators(tx.visitor.tree, member)) {
             const expression = tx.visitor.visitNode(ast_utils.expression(tx.emitContext.tree, name));
-            const innerExpression = ast_utils.skipPartiallyEmittedExpressions(expression);
+            const innerExpression = ast_utils.skipPartiallyEmittedExpressions(tx.visitor.tree, expression);
             if (!ast_utils.isSimpleInlineableExpression(innerExpression)) {
                 const generatedName = tx.factory.newGeneratedNameForNode(name);
                 tx.emitContext.addVariableDeclaration(generatedName);

@@ -102,6 +102,11 @@ pub const ObjectFlags = struct {
     pub const IsGenericIndexType: u32 = 1 << 24;
     pub const IsGenericType: u32 = IsGenericObjectType | IsGenericIndexType;
 
+    // Union/Intersection flags
+    pub const ContainsIntersections: u32 = 1 << 25;
+    pub const IsNeverIntersectionComputed: u32 = 1 << 25;
+    pub const IsNeverIntersection: u32 = 1 << 26;
+
     // Composite
     pub const ClassOrInterface: u32 = Class | Interface;
 };
@@ -217,6 +222,36 @@ pub const TypeData = union(enum) {
     },
 };
 
+pub const EvolutionTypeKey = struct {
+    t: TypeIndex,
+    symbol: ast_gen.SymbolIndex,
+    flow: ast_gen.NodeIndex, // Wait, flow is FlowNodeIndex or NodeIndex? The Go code uses Node, we'll use FlowNodeIndex
+};
+
+pub const MarkedAssignmentSymbolLinks = struct {
+    lastAssignmentPos: i32 = 0,
+    hasDefiniteAssignment: bool = false,
+};
+
+pub const NodeCheckFlags = struct {
+    pub const None: u32 = 0;
+    pub const TypeChecked: u32 = 1 << 0;
+    pub const ContextChecked: u32 = 1 << 6;
+    pub const EnumValuesComputed: u32 = 1 << 10;
+    pub const AssignmentsMarked: u32 = 1 << 17;
+    pub const ContainsClassWithPrivateIdentifiers: u32 = 1 << 20;
+    pub const ContainsSuperPropertyInStaticInitializer: u32 = 1 << 21;
+    pub const InCheckIdentifier: u32 = 1 << 22;
+    pub const InitializerIsUndefined: u32 = 1 << 24;
+    pub const InitializerIsUndefinedComputed: u32 = 1 << 25;
+};
+
+pub const NodeLinks = struct {
+    flags: u32 = 0,
+    // declarationRequiresScopeChange
+    // hasReportedStatementInAmbientContext
+};
+
 pub const TypeAlias = struct {
     symbol: ast_gen.SymbolIndex,
     typeArgumentsStart: u32,
@@ -303,6 +338,12 @@ pub const SignatureFlags = struct {
 
 pub const SymbolNodeLinks = struct {
     resolvedSymbol: ast_gen.SymbolIndex = 0,
+    exportSymbol: ast_gen.SymbolIndex = 0,
+};
+
+pub const AssignmentReducedKey = struct {
+    id1: TypeIndex,
+    id2: TypeIndex,
 };
 
 pub const TypeNodeLinks = struct {
@@ -346,6 +387,8 @@ pub const ObjectTypeData = struct {
     target: ?TypeIndex = null,
     typeArgumentsStart: u32 = 0,
     typeArgumentsLen: u32 = 0,
+    evolvingArrayElementType: ?TypeIndex = null,
+    finalArrayType: ?TypeIndex = null,
 };
 
 pub const FunctionTypeData = struct {
@@ -479,10 +522,86 @@ pub const ContainingSymbolLinks = struct {
 };
 
 pub const TypeFacts = struct {
-    pub const NEUndefinedOrNull = 1;
-    pub const EQUndefinedOrNull = 2;
-    pub const Truthy = 3;
-    pub const Falsy = 4;
+    pub const None: u32 = 0;
+    pub const TypeofEQString: u32 = 1 << 0;
+    pub const TypeofEQNumber: u32 = 1 << 1;
+    pub const TypeofEQBigInt: u32 = 1 << 2;
+    pub const TypeofEQBoolean: u32 = 1 << 3;
+    pub const TypeofEQSymbol: u32 = 1 << 4;
+    pub const TypeofEQObject: u32 = 1 << 5;
+    pub const TypeofEQFunction: u32 = 1 << 6;
+    pub const TypeofEQHostObject: u32 = 1 << 7;
+    pub const TypeofNEString: u32 = 1 << 8;
+    pub const TypeofNENumber: u32 = 1 << 9;
+    pub const TypeofNEBigInt: u32 = 1 << 10;
+    pub const TypeofNEBoolean: u32 = 1 << 11;
+    pub const TypeofNESymbol: u32 = 1 << 12;
+    pub const TypeofNEObject: u32 = 1 << 13;
+    pub const TypeofNEFunction: u32 = 1 << 14;
+    pub const TypeofNEHostObject: u32 = 1 << 15;
+    pub const EQUndefined: u32 = 1 << 16;
+    pub const EQNull: u32 = 1 << 17;
+    pub const EQUndefinedOrNull: u32 = 1 << 18;
+    pub const NEUndefined: u32 = 1 << 19;
+    pub const NENull: u32 = 1 << 20;
+    pub const NEUndefinedOrNull: u32 = 1 << 21;
+    pub const Truthy: u32 = 1 << 22;
+    pub const Falsy: u32 = 1 << 23;
+    pub const IsUndefined: u32 = 1 << 24;
+    pub const IsNull: u32 = 1 << 25;
+    pub const IsUndefinedOrNull: u32 = IsUndefined | IsNull;
+    pub const All: u32 = (1 << 27) - 1;
+    // The following members encode facts about particular kinds of types for use in the getTypeFacts function.
+    // The presence of a particular fact means that the given test is true for some (and possibly all) values
+    // of that kind of type.
+    pub const BaseStringStrictFacts: u32 = TypeofEQString | TypeofNENumber | TypeofNEBigInt | TypeofNEBoolean | TypeofNESymbol | TypeofNEObject | TypeofNEFunction | TypeofNEHostObject | NEUndefined | NENull | NEUndefinedOrNull;
+    pub const BaseStringFacts: u32 = BaseStringStrictFacts | EQUndefined | EQNull | EQUndefinedOrNull | Falsy;
+    pub const StringStrictFacts: u32 = BaseStringStrictFacts | Truthy | Falsy;
+    pub const StringFacts: u32 = BaseStringFacts | Truthy;
+    pub const EmptyStringStrictFacts: u32 = BaseStringStrictFacts | Falsy;
+    pub const EmptyStringFacts: u32 = BaseStringFacts;
+    pub const NonEmptyStringStrictFacts: u32 = BaseStringStrictFacts | Truthy;
+    pub const NonEmptyStringFacts: u32 = BaseStringFacts | Truthy;
+    pub const BaseNumberStrictFacts: u32 = TypeofEQNumber | TypeofNEString | TypeofNEBigInt | TypeofNEBoolean | TypeofNESymbol | TypeofNEObject | TypeofNEFunction | TypeofNEHostObject | NEUndefined | NENull | NEUndefinedOrNull;
+    pub const BaseNumberFacts: u32 = BaseNumberStrictFacts | EQUndefined | EQNull | EQUndefinedOrNull | Falsy;
+    pub const NumberStrictFacts: u32 = BaseNumberStrictFacts | Truthy | Falsy;
+    pub const NumberFacts: u32 = BaseNumberFacts | Truthy;
+    pub const ZeroNumberStrictFacts: u32 = BaseNumberStrictFacts | Falsy;
+    pub const ZeroNumberFacts: u32 = BaseNumberFacts;
+    pub const NonZeroNumberStrictFacts: u32 = BaseNumberStrictFacts | Truthy;
+    pub const NonZeroNumberFacts: u32 = BaseNumberFacts | Truthy;
+    pub const BaseBigIntStrictFacts: u32 = TypeofEQBigInt | TypeofNEString | TypeofNENumber | TypeofNEBoolean | TypeofNESymbol | TypeofNEObject | TypeofNEFunction | TypeofNEHostObject | NEUndefined | NENull | NEUndefinedOrNull;
+    pub const BaseBigIntFacts: u32 = BaseBigIntStrictFacts | EQUndefined | EQNull | EQUndefinedOrNull | Falsy;
+    pub const BigIntStrictFacts: u32 = BaseBigIntStrictFacts | Truthy | Falsy;
+    pub const BigIntFacts: u32 = BaseBigIntFacts | Truthy;
+    pub const ZeroBigIntStrictFacts: u32 = BaseBigIntStrictFacts | Falsy;
+    pub const ZeroBigIntFacts: u32 = BaseBigIntFacts;
+    pub const NonZeroBigIntStrictFacts: u32 = BaseBigIntStrictFacts | Truthy;
+    pub const NonZeroBigIntFacts: u32 = BaseBigIntFacts | Truthy;
+    pub const BaseBooleanStrictFacts: u32 = TypeofEQBoolean | TypeofNEString | TypeofNENumber | TypeofNEBigInt | TypeofNESymbol | TypeofNEObject | TypeofNEFunction | TypeofNEHostObject | NEUndefined | NENull | NEUndefinedOrNull;
+    pub const BaseBooleanFacts: u32 = BaseBooleanStrictFacts | EQUndefined | EQNull | EQUndefinedOrNull | Falsy;
+    pub const BooleanStrictFacts: u32 = BaseBooleanStrictFacts | Truthy | Falsy;
+    pub const BooleanFacts: u32 = BaseBooleanFacts | Truthy;
+    pub const FalseStrictFacts: u32 = BaseBooleanStrictFacts | Falsy;
+    pub const FalseFacts: u32 = BaseBooleanFacts;
+    pub const TrueStrictFacts: u32 = BaseBooleanStrictFacts | Truthy;
+    pub const TrueFacts: u32 = BaseBooleanFacts | Truthy;
+    pub const SymbolStrictFacts: u32 = TypeofEQSymbol | TypeofNEString | TypeofNENumber | TypeofNEBigInt | TypeofNEBoolean | TypeofNEObject | TypeofNEFunction | TypeofNEHostObject | NEUndefined | NENull | NEUndefinedOrNull | Truthy;
+    pub const SymbolFacts: u32 = SymbolStrictFacts | EQUndefined | EQNull | EQUndefinedOrNull | Falsy;
+    pub const ObjectStrictFacts: u32 = TypeofEQObject | TypeofEQHostObject | TypeofNEString | TypeofNENumber | TypeofNEBigInt | TypeofNEBoolean | TypeofNESymbol | TypeofNEFunction | NEUndefined | NENull | NEUndefinedOrNull | Truthy;
+    pub const ObjectFacts: u32 = ObjectStrictFacts | EQUndefined | EQNull | EQUndefinedOrNull | Falsy;
+    pub const FunctionStrictFacts: u32 = TypeofEQFunction | TypeofEQHostObject | TypeofNEString | TypeofNENumber | TypeofNEBigInt | TypeofNEBoolean | TypeofNESymbol | TypeofNEObject | NEUndefined | NENull | NEUndefinedOrNull | Truthy;
+    pub const FunctionFacts: u32 = FunctionStrictFacts | EQUndefined | EQNull | EQUndefinedOrNull | Falsy;
+    pub const VoidFacts: u32 = TypeofNEString | TypeofNENumber | TypeofNEBigInt | TypeofNEBoolean | TypeofNESymbol | TypeofNEObject | TypeofNEFunction | TypeofNEHostObject | EQUndefined | EQUndefinedOrNull | NENull | Falsy;
+    pub const UndefinedFacts: u32 = TypeofNEString | TypeofNENumber | TypeofNEBigInt | TypeofNEBoolean | TypeofNESymbol | TypeofNEObject | TypeofNEFunction | TypeofNEHostObject | EQUndefined | EQUndefinedOrNull | NENull | Falsy | IsUndefined;
+    pub const NullFacts: u32 = TypeofEQObject | TypeofNEString | TypeofNENumber | TypeofNEBigInt | TypeofNEBoolean | TypeofNESymbol | TypeofNEFunction | TypeofNEHostObject | EQNull | EQUndefinedOrNull | NEUndefined | Falsy | IsNull;
+    pub const EmptyObjectStrictFacts: u32 = All & ~(EQUndefined | EQNull | EQUndefinedOrNull | IsUndefinedOrNull);
+    pub const EmptyObjectFacts: u32 = All & ~IsUndefinedOrNull;
+    pub const UnknownFacts: u32 = All & ~IsUndefinedOrNull;
+    pub const AllTypeofNE: u32 = TypeofNEString | TypeofNENumber | TypeofNEBigInt | TypeofNEBoolean | TypeofNESymbol | TypeofNEObject | TypeofNEFunction | NEUndefined;
+    // Masks
+    pub const OrFactsMask: u32 = TypeofEQFunction | TypeofNEObject;
+    pub const AndFactsMask: u32 = All & ~OrFactsMask;
 };
 
 pub const NodeIndexPair = struct {
@@ -572,4 +691,57 @@ pub const AccessFlags = struct {
     pub const SuppressNoImplicitAnyError: u32 = 1 << 7;
     pub const Contextual: u32 = 1 << 8;
     pub const Persistent: u32 = IncludeUndefined;
+};
+
+pub const CheckFlags = struct {
+    pub const None: u32 = 0;
+    pub const Readonly: u32 = 1 << 3;
+    pub const Partial: u32 = 1 << 4;
+};
+
+pub const TypeMapperIndex = u32;
+
+pub const TypeMapperKind = enum(u8) {
+    Simple,
+    Array,
+    ArrayToSingle,
+    Deferred,
+    Function,
+    Merged,
+    Composite,
+    Inference,
+    Permissive,
+    Restrictive,
+};
+
+pub const TypeMapper = struct {
+    kind: TypeMapperKind,
+    mapsThisOnly: bool = false,
+    data: union {
+        Simple: struct {
+            source: TypeIndex,
+            target: TypeIndex,
+        },
+        Array: struct {
+            sources: []const TypeIndex,
+            targets: []const TypeIndex,
+        },
+        ArrayToSingle: struct {
+            sources: []const TypeIndex,
+            target: TypeIndex,
+        },
+        Merged: struct {
+            mapper1: TypeMapperIndex,
+            mapper2: TypeMapperIndex,
+        },
+        // We will add more as needed
+        Dummy: void,
+    },
+};
+
+pub const AliasSymbolLinks = struct {
+    immediateTarget: ?ast_gen.SymbolIndex = null,
+    aliasTarget: ?ast_gen.SymbolIndex = null,
+    referenced: bool = false,
+    typeOnlyDeclaration: ?ast_gen.NodeIndex = null,
 };

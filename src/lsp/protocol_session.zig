@@ -5,6 +5,13 @@ const binder_mod = @import("../binder/binder.zig");
 const checker_mod = @import("../checker/checker.zig");
 const core = @import("../core/core.zig");
 const ast_utils = @import("../ast/ast_utils.zig");
+const compiler = @import("../compiler/program.zig");
+const languageservice = @import("../ls/languageservice.zig");
+const lsconv = @import("../ls/lsconv.zig");
+const host_module = @import("../ls/host.zig");
+const lsutil = @import("../ls/lsutil/lsutil.zig");
+const sourcemap = @import("../sourcemap/sourcemap.zig");
+const autoimport = @import("../project/autoimport.zig");
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -80,16 +87,52 @@ pub const Session = struct {
             const document = try objectField(params_value.object, "textDocument");
             const uri = try stringField(document, "uri");
             const open_document = self.store.get(uri) orelse return try errorResponse(self.allocator, object.get("id"), -32602, "Document is not open");
-            var parser = parser_mod.Parser.init(self.allocator, open_document.text);
-            defer parser.deinit();
-            parser.setScriptKind(scriptKindForUri(uri));
-            const source_file = try parser.parseSourceFile();
-            var bound = try binder_mod.Binder.init(self.allocator, &parser.ast);
-            defer bound.deinit();
-            try bound.bindSourceFile(source_file);
-            var checker = checker_mod.Checker.init(self.allocator, &bound);
-            defer checker.deinit();
-            try checker.checkStatement(source_file);
+
+            var program = try compiler.createProgram(self.allocator, .{
+                .rootNames = &[_][]const u8{},
+                .options = .{},
+            });
+            defer {
+                program.deinit();
+                self.allocator.destroy(program);
+            }
+
+            const path = try self.allocator.dupe(u8, uri);
+            const content = try self.allocator.dupe(u8, open_document.text);
+            var parser_instance = try self.allocator.create(parser_mod.Parser);
+            parser_instance.* = parser_mod.Parser.init(self.allocator, content);
+            parser_instance.ast.fileName = path;
+            parser_instance.setScriptKind(scriptKindForUri(uri));
+            const source_file = try parser_instance.parseSourceFile();
+
+            const unit = try self.allocator.create(compiler.SourceUnit);
+            unit.* = .{
+                .path = path,
+                .content = content,
+                .content_hash = std.hash.Wyhash.hash(0, content),
+                .parser_instance = parser_instance,
+                .source_file = source_file,
+                .is_root = true,
+                .package_id = null,
+                .uses_require_conditions = false,
+                .dependencies = std.ArrayList(compiler.Dependency).empty,
+                .binder_instance = null,
+            };
+            const id: compiler.FileId = @intCast(program.units.items.len);
+            try program.units.append(self.allocator, unit);
+            try program.files_by_path.put(path, id);
+
+            try program.bind();
+
+            var dummy_host = DummyHost.init(self.allocator);
+            defer dummy_host.deinit();
+
+            var ls = try languageservice.LanguageService.init(self.allocator, "", program, dummy_host.host(), uri);
+            defer ls.deinit();
+
+            _ = ls.getTypeCheckerForFile(id); // trigger checker
+
+            const bound = unit.binder_instance.?;
 
             const DiagnosticItem = struct {
                 range: documents.Range,
@@ -100,8 +143,8 @@ pub const Session = struct {
             };
             var items: std.ArrayList(DiagnosticItem) = .empty;
             defer items.deinit(self.allocator);
-            for (parser.ast.diagnostics.items) |diagnostic| try appendDiagnosticItem(self.allocator, &items, &parser, open_document.text, diagnostic);
-            for (bound.diagnosticsList.items) |diagnostic| try appendDiagnosticItem(self.allocator, &items, &parser, open_document.text, diagnostic);
+            for (parser_instance.ast.diagnostics.items) |diagnostic| try appendDiagnosticItem(self.allocator, &items, parser_instance, open_document.text, diagnostic);
+            for (bound.diagnosticsList.items) |diagnostic| try appendDiagnosticItem(self.allocator, &items, parser_instance, open_document.text, diagnostic);
             const report = .{ .kind = "full", .items = items.items };
             const result = try std.json.Stringify.valueAlloc(self.allocator, report, .{});
             defer self.allocator.free(result);
@@ -110,6 +153,100 @@ pub const Session = struct {
             return try errorResponse(self.allocator, object.get("id"), -32601, "Method not found");
         }
         return null;
+    }
+};
+
+const DummyHost = struct {
+    allocator: std.mem.Allocator,
+    converters_instance: *lsconv.Converters,
+
+    pub fn init(allocator: std.mem.Allocator) DummyHost {
+        const conv = allocator.create(lsconv.Converters) catch unreachable;
+        conv.* = lsconv.Converters{};
+        return .{
+            .allocator = allocator,
+            .converters_instance = conv,
+        };
+    }
+
+    pub fn deinit(self: *DummyHost) void {
+        self.allocator.destroy(self.converters_instance);
+    }
+
+    pub fn host(self: *DummyHost) host_module.Host {
+        return .{
+            .ptr = self,
+            .vtable = &vtable,
+        };
+    }
+
+    const vtable = host_module.Host.VTable{
+        .useCaseSensitiveFileNames = useCaseSensitiveFileNames,
+        .readFile = readFile,
+        .converters = converters,
+        .getPreferences = getPreferences,
+        .getECMALineInfo = getECMALineInfo,
+        .autoImportRegistry = autoImportRegistry,
+        .readDirectory = readDirectory,
+        .getDirectories = getDirectories,
+        .directoryExists = directoryExists,
+        .fileExists = fileExists,
+    };
+
+    fn useCaseSensitiveFileNames(ptr: *anyopaque) bool {
+        _ = ptr;
+        return true;
+    }
+    fn readFile(ptr: *anyopaque, path: []const u8, allocator: std.mem.Allocator) ?[]const u8 {
+        _ = ptr;
+        _ = path;
+        _ = allocator;
+        return null;
+    }
+    fn converters(ptr: *anyopaque) *lsconv.Converters {
+        const self: *DummyHost = @ptrCast(@alignCast(ptr));
+        return self.converters_instance;
+    }
+    fn getPreferences(ptr: *anyopaque, activeFile: []const u8) lsutil.UserPreferences {
+        _ = ptr;
+        _ = activeFile;
+        return .{};
+    }
+    fn getECMALineInfo(ptr: *anyopaque, fileName: []const u8) *sourcemap.lineinfo.ECMALineInfo {
+        _ = ptr;
+        _ = fileName;
+        @panic("not implemented");
+    }
+    fn autoImportRegistry(ptr: *anyopaque) *anyopaque {
+        _ = ptr;
+        @panic("not implemented");
+    }
+    fn readDirectory(ptr: *anyopaque, currentDir: []const u8, path: []const u8, extensions: []const []const u8, excludes: []const []const u8, includes: []const []const u8, depth: usize, allocator: std.mem.Allocator) []const []const u8 {
+        _ = ptr;
+        _ = currentDir;
+        _ = path;
+        _ = extensions;
+        _ = excludes;
+        _ = includes;
+        _ = depth;
+        _ = allocator;
+        return &.{};
+    }
+    fn getDirectories(ptr: *anyopaque, path: []const u8, allocator: std.mem.Allocator) []const []const u8 {
+        _ = ptr;
+        _ = path;
+        _ = allocator;
+        return &.{};
+    }
+    fn directoryExists(ptr: *anyopaque, path: []const u8) bool {
+        _ = ptr;
+        _ = path;
+        return false;
+    }
+    fn fileExists(ptr: *anyopaque, path: []const u8) bool {
+        _ = ptr;
+        _ = path;
+        return false;
     }
 };
 

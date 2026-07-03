@@ -7,11 +7,10 @@ const ast_pkg = @import("ast.zig");
 pub fn isTypeOnly(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const node = tree.getNode(nodeIndex);
     switch (node) {
-        .ImportEqualsDeclaration => |n| return n.IsTypeOnly,
-        .ExportDeclaration => |n| return n.IsTypeOnly,
-        .ImportSpecifier => |n| return n.IsTypeOnly,
-        .ExportSpecifier => |n| return n.IsTypeOnly,
-        .ImportClause => |n| return n.IsTypeOnly,
+        .ImportEqualsDeclaration => |n| return n.IsTypeOnly != 0,
+        .ExportDeclaration => |n| return n.IsTypeOnly != 0,
+        .ImportSpecifier => |n| return n.IsTypeOnly != 0,
+        .ExportSpecifier => |n| return n.IsTypeOnly != 0,
         else => return false,
     }
 }
@@ -458,11 +457,17 @@ pub fn getCombinedNodeFlags(astTree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) u32
         flags |= astTree.getNodeFlags(root);
         root = astTree.getNodeParent(root);
 
-        if (root != 0 and std.meta.activeTag(astTree.getNode(root)) == .VariableStatement) {
+        if (root != 0 and astTree.getKind(root) == .VariableStatement) {
             flags |= astTree.getNodeFlags(root);
         }
     }
     return flags;
+}
+
+pub fn getCombinedModifierFlags(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
+    _ = tree;
+    _ = node;
+    return 0; // Stub
 }
 
 pub fn isStringOrNumericLiteralLike(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
@@ -549,7 +554,7 @@ pub fn isGlobalSourceFile(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
 
 pub fn isFunctionLike(tag: std.meta.Tag(@import("ast_generated.zig").NodeData)) bool {
     switch (tag) {
-        .FunctionDeclaration, .MethodDeclaration, .GetAccessor, .SetAccessor, .Constructor, .FunctionExpression, .ArrowFunction => return true,
+        .FunctionDeclaration, .MethodDeclaration, .GetAccessor, .SetAccessor, .Constructor, .FunctionExpression, .ArrowFunction, .MethodSignature, .CallSignature, .JSDocSignature, .ConstructSignature, .IndexSignature, .FunctionType, .ConstructorType => return true,
         else => return false,
     }
 }
@@ -750,7 +755,7 @@ fn getModuleInstanceStateForAliasTarget(tree: *ast.Ast, nodeIndex: ast_gen.NodeI
     return .Instantiated;
 }
 
-fn getPropertyNameOrName(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
+pub fn getPropertyNameOrName(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
     const node = tree.getNode(nodeIndex);
     switch (node) {
         .ObjectLiteralExpression => return 0,
@@ -1684,10 +1689,26 @@ pub fn isParameterDeclaration(a: anytype, b: anytype) bool {
     return false;
 }
 
-pub fn isPropertyAccessExpression(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
-    return false;
+pub fn isPropertyAccessExpression(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .PropertyAccessExpression;
+}
+
+pub fn isAccessExpression(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const node_kind = tree.getKind(node);
+    return node_kind == .PropertyAccessExpression or node_kind == .ElementAccessExpression;
+}
+
+pub fn nodeIsMissing(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return true;
+    const nodeKind = tree.getKind(node);
+    if (nodeKind == .MissingDeclaration) return true;
+    // OmittedExpression has pos == end, but let's just check kind for now if possible.
+    // In TS: node == nil || node.pos == node.end && node.pos >= 0 && node.kind != EndOfFile
+    // Since Zig is AST array, usually node==0 means missing.
+    // Let's implement basic for now.
+    const pos = tree.getNodePos(node);
+    const end = tree.getNodeEnd(node);
+    return pos == end and nodeKind != .EndOfFile;
 }
 
 pub fn isTryStatement(a: anytype, b: anytype) bool {
@@ -1984,9 +2005,78 @@ pub fn getCommonJSModuleIndicator(tree: *ast.Ast, node_index: ast.NodeIndex) ast
     if (node_index == 0 or tree.getNode(node_index) != .SourceFile) return 0;
     return tree.getNode(node_index).SourceFile.CommonJSModuleIndicator orelse 0;
 }
-pub fn isLeftHandSideExpression(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
+pub fn isLeftHandSideExpressionKind(k: kind.Kind) bool {
+    switch (k) {
+        .PropertyAccessExpression, .ElementAccessExpression, .NewExpression, .CallExpression, .JsxElement, .JsxSelfClosingElement, .JsxFragment, .TaggedTemplateExpression, .ArrayLiteralExpression, .ParenthesizedExpression, .ObjectLiteralExpression, .ClassExpression, .FunctionExpression, .Identifier, .PrivateIdentifier, .RegularExpressionLiteral, .NumericLiteral, .BigIntLiteral, .StringLiteral, .NoSubstitutionTemplateLiteral, .TemplateExpression, .FalseKeyword, .NullKeyword, .ThisKeyword, .TrueKeyword, .SuperKeyword, .NonNullExpression, .ExpressionWithTypeArguments, .MetaProperty, .ImportKeyword, .MissingDeclaration => return true,
+        else => return false,
+    }
+}
+
+pub fn isLeftHandSideExpression(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return isLeftHandSideExpressionKind(tree.getKind(skipPartiallyEmittedExpressions(tree, node)));
+}
+
+pub fn isAssignmentExpression(tree: *ast.Ast, node: ast_gen.NodeIndex, excludeCompoundAssignment: bool) bool {
+    if (tree.getKind(node) == .BinaryExpression) {
+        const bin = tree.getNode(node).BinaryExpression;
+        const opKind = tree.getKind(bin.OperatorToken);
+        if ((opKind == .EqualsToken or (!excludeCompoundAssignment and isAssignmentOperator(opKind))) and
+            isLeftHandSideExpression(tree, bin.Left))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn isExponentiationOperator(nodeKind: kind.Kind) bool {
+    return nodeKind == .AsteriskAsteriskToken;
+}
+
+pub fn isMultiplicativeOperator(nodeKind: kind.Kind) bool {
+    return nodeKind == .AsteriskToken or nodeKind == .SlashToken or nodeKind == .PercentToken;
+}
+
+pub fn isMultiplicativeOperatorOrHigher(nodeKind: kind.Kind) bool {
+    return isExponentiationOperator(nodeKind) or isMultiplicativeOperator(nodeKind);
+}
+
+pub fn isAdditiveOperator(nodeKind: kind.Kind) bool {
+    return nodeKind == .PlusToken or nodeKind == .MinusToken;
+}
+
+pub fn isAdditiveOperatorOrHigher(nodeKind: kind.Kind) bool {
+    return isAdditiveOperator(nodeKind) or isMultiplicativeOperatorOrHigher(nodeKind);
+}
+
+pub fn isShiftOperator(nodeKind: kind.Kind) bool {
+    return nodeKind == .LessThanLessThanToken or nodeKind == .GreaterThanGreaterThanToken or nodeKind == .GreaterThanGreaterThanGreaterThanToken;
+}
+
+pub fn isShiftOperatorOrHigher(nodeKind: kind.Kind) bool {
+    return isShiftOperator(nodeKind) or isAdditiveOperatorOrHigher(nodeKind);
+}
+
+pub fn isEqualityOperator(nodeKind: kind.Kind) bool {
+    return nodeKind == .EqualsEqualsToken or nodeKind == .EqualsEqualsEqualsToken or nodeKind == .ExclamationEqualsToken or nodeKind == .ExclamationEqualsEqualsToken;
+}
+
+pub fn isCompoundLikeAssignment(tree: *ast.Ast, assignment: ast_gen.NodeIndex) bool {
+    const right = skipParentheses(tree, tree.getNode(assignment).BinaryExpression.Right);
+    if (tree.getKind(right) == .BinaryExpression) {
+        const op = tree.getNode(right).BinaryExpression.OperatorToken;
+        return isShiftOperatorOrHigher(tree.getKind(op));
+    }
+    return false;
+}
+
+pub fn isInCompoundLikeAssignment(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const target = getAssignmentTarget(tree, node);
+    if (target != 0) {
+        if (isAssignmentExpression(tree, target, true)) {
+            return isCompoundLikeAssignment(tree, target);
+        }
+    }
     return false;
 }
 pub fn getDeclarationOfKind(a: anytype, b: anytype, c: anytype) ast.NodeIndex {
@@ -2117,9 +2207,23 @@ pub fn forEachChildBool(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex, context: a
     return false;
 }
 
-pub fn skipPartiallyEmittedExpressions(a: anytype) ast.NodeIndex {
-    _ = a;
-    return 0;
+pub fn isThisInTypeQuery(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    if (!isThisIdentifier(tree, nodeIndex)) return false;
+    var node = nodeIndex;
+    var parent = tree.getNodeParent(node);
+    while (parent != 0 and tree.getKind(parent) == .QualifiedName and tree.getNode(parent).QualifiedName.Left == node) {
+        node = parent;
+        parent = tree.getNodeParent(node);
+    }
+    return parent != 0 and tree.getKind(parent) == .TypeQuery;
+}
+
+pub fn skipPartiallyEmittedExpressions(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    var current = node;
+    while (tree.getKind(current) == .PartiallyEmittedExpression) {
+        current = tree.getNode(current).PartiallyEmittedExpression.Expression;
+    }
+    return current;
 }
 pub fn getModuleSpecifierOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
@@ -2144,10 +2248,58 @@ pub fn getNodeFlags(a: anytype, b: anytype) u32 {
     _ = b;
     return 0;
 }
-
-pub fn isAssignmentOperator(op: anytype) bool {
-    _ = op;
-    return false;
+pub fn getAssignmentTarget(tree: *ast.Ast, start_node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    var node = start_node;
+    while (true) {
+        const parent = tree.getNodeParent(node);
+        if (parent == 0) return 0;
+        const node_kind = tree.getKind(parent);
+        switch (node_kind) {
+            .BinaryExpression => {
+                const bin = tree.getNode(parent).BinaryExpression;
+                const opKind = tree.getKind(bin.OperatorToken);
+                if (isAssignmentOperator(opKind) and bin.Left == node) {
+                    return parent;
+                }
+                return 0;
+            },
+            .PrefixUnaryExpression => {
+                const un = tree.getNode(parent).PrefixUnaryExpression;
+                if (un.Operator == @intFromEnum(kind.Kind.PlusPlusToken) or un.Operator == @intFromEnum(kind.Kind.MinusMinusToken)) {
+                    return parent;
+                }
+                return 0;
+            },
+            .PostfixUnaryExpression => {
+                const un = tree.getNode(parent).PostfixUnaryExpression;
+                if (un.Operator == @intFromEnum(kind.Kind.PlusPlusToken) or un.Operator == @intFromEnum(kind.Kind.MinusMinusToken)) {
+                    return parent;
+                }
+                return 0;
+            },
+            .ForOfStatement => {
+                const forInOrOf = tree.getNode(parent).ForOfStatement;
+                if (forInOrOf.Initializer == node) {
+                    return parent;
+                }
+                return 0;
+            },
+            .ForInStatement => {
+                const forInOrOf = tree.getNode(parent).ForInStatement;
+                if (forInOrOf.Initializer == node) {
+                    return parent;
+                }
+                return 0;
+            },
+            .ParenthesizedExpression, .NonNullExpression, .TypeAssertionExpression, .AsExpression, .SatisfiesExpression => {
+                node = parent;
+            },
+            else => return 0,
+        }
+    }
+}
+pub fn isAssignmentOperator(op: kind.Kind) bool {
+    return @intFromEnum(op) >= @intFromEnum(kind.Kind.EqualsToken) and @intFromEnum(op) <= @intFromEnum(kind.Kind.CaretEqualsToken);
 }
 
 pub fn isDeclarationStatement(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
@@ -2201,18 +2353,18 @@ pub fn getFirstToken(nodeIndex: ast_gen.NodeIndex, tree: *ast.Ast) ast_gen.NodeI
     return getFirstToken(closure.firstChild, tree);
 }
 
-pub fn isLogicalOrCoalescingBinaryOperator(op: ast_gen.NodeData) bool {
+pub fn isLogicalOrCoalescingBinaryOperator(op: kind.Kind) bool {
     return op == .AmpersandAmpersandToken or op == .BarBarToken or op == .QuestionQuestionToken;
 }
 
-pub fn isLogicalOrCoalescingAssignmentOperator(op: ast_gen.NodeData) bool {
+pub fn isLogicalOrCoalescingAssignmentOperator(op: kind.Kind) bool {
     return op == .AmpersandAmpersandEqualsToken or op == .BarBarEqualsToken or op == .QuestionQuestionEqualsToken;
 }
 
 pub fn isLogicalExpression(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const node = tree.getNode(nodeIndex);
     if (node == .BinaryExpression) {
-        const op = tree.getNode(node.BinaryExpression.OperatorToken);
+        const op = tree.getKind(node.BinaryExpression.OperatorToken);
         return isLogicalOrCoalescingBinaryOperator(op);
     }
     return false;
@@ -2221,8 +2373,11 @@ pub fn isLogicalExpression(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) boo
 pub fn isLogicalOrCoalescingAssignmentExpression(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const node = tree.getNode(nodeIndex);
     if (node == .BinaryExpression) {
-        const op = tree.getNode(node.BinaryExpression.OperatorToken);
-        return isLogicalOrCoalescingAssignmentOperator(op);
+        const bin = node.BinaryExpression;
+        const op = tree.getKind(bin.OperatorToken);
+        if (isLogicalOrCoalescingAssignmentOperator(op)) {
+            return true;
+        }
     }
     return false;
 }
@@ -2272,7 +2427,7 @@ pub fn isAssignmentTarget(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool
     const parentNode = tree.getNode(parent);
     if (parentNode == .BinaryExpression) {
         const bin = parentNode.BinaryExpression;
-        if (bin.Left == nodeIndex and isAssignmentOperator(tree.getNode(bin.OperatorToken))) return true;
+        if (bin.Left == nodeIndex and isAssignmentOperator(tree.getKind(bin.OperatorToken))) return true;
     }
     return false;
 }
@@ -2296,6 +2451,11 @@ pub fn isEntityNameExpression(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) 
 pub fn isOutermostOptionalChain(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const parent = tree.getNodeParent(nodeIndex);
     return !isOptionalChain(tree, parent); // Need real implementation later
+}
+
+pub fn isExpressionOfOptionalChainRoot(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const parent = tree.getNodeParent(nodeIndex);
+    return isOptionalChainRoot(tree, parent) and getExpressionOfNode(tree, parent) == nodeIndex;
 }
 
 pub fn isOptionalChainRoot(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
@@ -2345,4 +2505,92 @@ pub fn fixupParentReferences(tree: *ast.Ast, root: ast.NodeIndex) anyerror!void 
         .parent = tree.getNodeParent(root),
     };
     try for_each.forEachChild(tree, root, &fixer);
+}
+
+pub const AccessKind = enum {
+    Read,
+    Write,
+    ReadWrite,
+};
+
+fn reverseAccessKind(ak: AccessKind) AccessKind {
+    switch (ak) {
+        .Read => return .Write,
+        .Write => return .Read,
+        .ReadWrite => return .ReadWrite,
+    }
+}
+
+pub fn accessKind(tree: *ast.Ast, start_node: ast_gen.NodeIndex) AccessKind {
+    const parent = tree.getNodeParent(start_node);
+    if (parent == 0) return .Read;
+
+    const parentNode = tree.getNode(parent);
+    switch (tree.getKind(parent)) {
+        .ParenthesizedExpression => return accessKind(tree, parent),
+        .PrefixUnaryExpression => {
+            const op = parentNode.PrefixUnaryExpression.Operator;
+            if (op == @intFromEnum(kind.Kind.PlusPlusToken) or op == @intFromEnum(kind.Kind.MinusMinusToken)) {
+                return .ReadWrite;
+            }
+            return .Read;
+        },
+        .PostfixUnaryExpression => {
+            const op = parentNode.PostfixUnaryExpression.Operator;
+            if (op == @intFromEnum(kind.Kind.PlusPlusToken) or op == @intFromEnum(kind.Kind.MinusMinusToken)) {
+                return .ReadWrite;
+            }
+            return .Read;
+        },
+        .BinaryExpression => {
+            const bin = parentNode.BinaryExpression;
+            if (bin.Left == start_node) {
+                const op = tree.getKind(bin.OperatorToken);
+                if (isAssignmentOperator(op)) {
+                    if (op == .EqualsToken) {
+                        return .Write;
+                    }
+                    return .ReadWrite;
+                }
+            }
+            return .Read;
+        },
+        .PropertyAccessExpression => {
+            if (parentNode.PropertyAccessExpression.name != start_node) {
+                return .Read;
+            }
+            return accessKind(tree, parent);
+        },
+        .PropertyAssignment => {
+            const parentAccess = accessKind(tree, tree.getNodeParent(parent));
+            if (start_node == parentNode.PropertyAssignment.name) {
+                return reverseAccessKind(parentAccess);
+            }
+            return parentAccess;
+        },
+        .ShorthandPropertyAssignment => {
+            if (start_node == parentNode.ShorthandPropertyAssignment.ObjectAssignmentInitializer) {
+                return .Read;
+            }
+            return accessKind(tree, tree.getNodeParent(parent));
+        },
+        .ArrayLiteralExpression => return accessKind(tree, parent),
+        .ForOfStatement => {
+            if (start_node == parentNode.ForOfStatement.Initializer) return .Write;
+            return .Read;
+        },
+        .ForInStatement => {
+            if (start_node == parentNode.ForInStatement.Initializer) return .Write;
+            return .Read;
+        },
+        else => return .Read,
+    }
+}
+
+pub fn isWriteOnlyAccess(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return accessKind(tree, node) == .Write;
+}
+
+pub fn isWriteAccess(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return accessKind(tree, node) != .Read;
 }

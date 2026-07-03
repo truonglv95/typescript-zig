@@ -5,13 +5,13 @@ const symbol = @import("../ast/symbol.zig");
 const checker_mod = @import("checker.zig");
 const types = @import("types.zig");
 const diagnostics = @import("../diagnostics/diagnostics.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
 
 const Checker = checker_mod.Checker;
 const NodeIndex = ast_gen.NodeIndex;
 const SymbolIndex = ast_gen.SymbolIndex;
 const TypeIndex = types.TypeIndex;
 
-// TODO: Ported a subset of checker utilities. The original utilities.go is 1845 lines.
 // As instructed, we use indices instead of pointers.
 
 pub fn tokenIsIdentifierOrKeyword(token: ast_gen.SyntaxKind) bool {
@@ -60,8 +60,8 @@ pub const AssignmentKind = enum(u32) {
     Compound,
 };
 
-pub fn getAssignmentTargetKind(ast_data: *const ast.Ast, node: NodeIndex) AssignmentKind {
-    const target = ast.getAssignmentTarget(ast_data, node);
+pub fn getAssignmentTargetKind(ast_data: *ast.Ast, node: NodeIndex) AssignmentKind {
+    const target = ast_utils.getAssignmentTarget(ast_data, node);
     if (target == 0) return .None;
 
     const target_node = ast_data.getNode(target);
@@ -69,7 +69,7 @@ pub fn getAssignmentTargetKind(ast_data: *const ast.Ast, node: NodeIndex) Assign
         .BinaryExpression => |bin| {
             const op = ast_data.getNode(bin.OperatorToken);
             // This is a simplification. We'd check the token kind in a real scenario.
-            if (op == .EqualsToken or ast.isLogicalOrCoalescingAssignmentOperator(op)) {
+            if (op == .EqualsToken or ast_utils.isLogicalOrCoalescingAssignmentOperator(op)) {
                 return .Definite;
             }
             return .Compound;
@@ -115,8 +115,19 @@ pub fn isExclamationToken(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return node != 0 and ast_data.getNode(node) == .ExclamationToken;
 }
 
-pub fn isOptionalDeclaration(ast_data: *const ast.Ast, declaration: NodeIndex) bool {
-    return ast.hasQuestionToken(ast_data, declaration);
+pub fn isOptionalDeclaration(ast_data: *ast.Ast, declaration: NodeIndex) bool {
+    const node = ast_data.getNode(declaration);
+    switch (node) {
+        .Parameter => |n| return n.QuestionToken != null,
+        .ConditionalExpression => |n| return n.QuestionToken != 0,
+        .MappedType => |n| return n.QuestionToken != null,
+        .NamedTupleMember => |n| return n.QuestionToken != null,
+        .PropertyDeclaration => |n| return n.PostfixToken != null and ast_data.getNode(n.PostfixToken.?) == .QuestionToken,
+        .PropertySignature => |n| return n.PostfixToken != null and ast_data.getNode(n.PostfixToken.?) == .QuestionToken,
+        .MethodDeclaration => |n| return n.PostfixToken != null and ast_data.getNode(n.PostfixToken.?) == .QuestionToken,
+        .MethodSignature => |n| return n.PostfixToken != null and ast_data.getNode(n.PostfixToken.?) == .QuestionToken,
+        else => return false,
+    }
 }
 
 pub fn isTypeAssertion(ast_data: *const ast.Ast, node: NodeIndex) bool {
@@ -158,8 +169,6 @@ pub fn isNumericLiteralName(name: []const u8) bool {
     return std.mem.eql(u8, name, str);
 }
 
-
-
 pub fn hasType(ast_data: *const ast.Ast, node: NodeIndex) bool {
     _ = ast_data;
     _ = node;
@@ -183,8 +192,6 @@ pub fn isDeclarationReadonly(ast_data: *const ast.Ast, declaration: NodeIndex) b
         !ast.isParameterPropertyDeclaration(ast_data, declaration, ast_data.getParent(declaration));
 }
 
-
-
 pub fn getMembersOfDeclaration(ast_data: *const ast.Ast, node: NodeIndex) []const NodeIndex {
     const node_data = ast_data.getNode(node);
     switch (node_data) {
@@ -200,7 +207,7 @@ pub fn getMembersOfDeclaration(ast_data: *const ast.Ast, node: NodeIndex) []cons
 pub fn getSingleVariableOfVariableStatement(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
     const node_data = ast_data.getNode(node);
     if (node_data != .VariableStatement) return 0;
-    
+
     const decl_list = node_data.VariableStatement.DeclarationList;
     if (decl_list == 0) return 0;
 
@@ -228,13 +235,7 @@ pub fn isTypeReferenceIdentifier(ast_data: *const ast.Ast, node: NodeIndex) bool
 pub fn canHaveLocals(ast_data: *const ast.Ast, node: NodeIndex) bool {
     const kind = ast_data.getNode(node);
     switch (kind) {
-        .ArrowFunction, .Block, .CallSignature, .CaseBlock, .CatchClause,
-        .ClassStaticBlockDeclaration, .ConditionalType, .Constructor, .ConstructorType,
-        .ConstructSignature, .ForStatement, .ForInStatement, .ForOfStatement, .FunctionDeclaration,
-        .FunctionExpression, .FunctionType, .GetAccessor, .IndexSignature,
-        .JSDocSignature, .MappedType,
-        .MethodDeclaration, .MethodSignature, .ModuleDeclaration, .SetAccessor, .SourceFile,
-        .TypeAliasDeclaration, .JSTypeAliasDeclaration => return true,
+        .ArrowFunction, .Block, .CallSignature, .CaseBlock, .CatchClause, .ClassStaticBlockDeclaration, .ConditionalType, .Constructor, .ConstructorType, .ConstructSignature, .ForStatement, .ForInStatement, .ForOfStatement, .FunctionDeclaration, .FunctionExpression, .FunctionType, .GetAccessor, .IndexSignature, .JSDocSignature, .MappedType, .MethodDeclaration, .MethodSignature, .ModuleDeclaration, .SetAccessor, .SourceFile, .TypeAliasDeclaration, .JSTypeAliasDeclaration => return true,
         else => return false,
     }
 }
@@ -260,8 +261,7 @@ pub fn getAliasDeclarationFromName(ast_data: *const ast.Ast, node: NodeIndex) No
     if (parent == 0) return 0;
     const parent_data = ast_data.getNode(parent);
     switch (parent_data) {
-        .ImportClause, .ImportSpecifier, .NamespaceImport, .ExportSpecifier, .ExportAssignment,
-        .ImportEqualsDeclaration, .NamespaceExport => return parent,
+        .ImportClause, .ImportSpecifier, .NamespaceImport, .ExportSpecifier, .ExportAssignment, .ImportEqualsDeclaration, .NamespaceExport => return parent,
         .QualifiedName => return getAliasDeclarationFromName(ast_data, parent),
         else => return 0,
     }
@@ -505,7 +505,6 @@ pub fn isVariableDeclarationInVariableStatement(ast_data: *const ast.Ast, node: 
     return ast_data.getNode(parent) == .VariableDeclarationList and ast_data.getNode(parent2) == .VariableStatement;
 }
 
-
 pub fn isClassInstanceProperty(ast_data: *const ast.Ast, node: NodeIndex) bool {
     const parent = ast_data.getParent(node);
     if (parent != 0 and ast.isClassLike(ast_data, parent) and ast.isPropertyDeclaration(ast_data, node) and !ast.hasAccessorModifier(ast_data, node)) {
@@ -550,19 +549,20 @@ pub fn isInfinityOrNaNString(name: []const u8) bool {
 }
 
 pub fn isConstantVariable(c: *Checker, sym: *const symbol.Symbol) bool {
-    return (sym.flags & symbol.SymbolFlags.Variable) != 0 and (c.getDeclarationNodeFlagsFromSymbol(sym) & ast_gen.NodeFlags.Constant) != 0;
+    const nodeFlags = if (sym.ValueDeclaration) |decl| ast_utils.getCombinedNodeFlags(c.binder.ast, decl) else 0;
+    return (sym.Flags & symbol.SymbolFlags.Variable) != 0 and (nodeFlags & ast_utils.NodeFlags.Const) != 0;
 }
 
 pub fn isParameterOrMutableLocalVariable(c: *Checker, sym: *const symbol.Symbol) bool {
     if (sym.ValueDeclaration) |decl| {
-        const declaration = ast.getRootDeclaration(&c.binder.ast, decl);
+        const declaration = ast_utils.getRootDeclaration(c.binder.ast, decl);
         if (declaration != 0) {
             const decl_node = c.binder.ast.getNode(declaration);
             if (decl_node == .Parameter) return true;
             if (decl_node == .VariableDeclaration) {
-                const parent = c.binder.ast.getParent(declaration);
+                const parent = ast_utils.getParent(c.binder.ast, declaration);
                 if (parent != 0 and c.binder.ast.getNode(parent) == .CatchClause) return true;
-                if (c.isMutableLocalVariableDeclaration(declaration)) return true;
+                if (isMutableLocalVariableDeclaration(c, declaration)) return true;
             }
         }
     }
@@ -570,15 +570,15 @@ pub fn isParameterOrMutableLocalVariable(c: *Checker, sym: *const symbol.Symbol)
 }
 
 pub fn isMutableLocalVariableDeclaration(c: *Checker, declaration: NodeIndex) bool {
-    const parent = c.binder.ast.getParent(declaration);
+    const parent = ast_utils.getParent(c.binder.ast, declaration);
     if (parent == 0) return false;
-    if ((c.binder.ast.getNodeFlags(parent) & ast_gen.NodeFlags.Let) != 0) {
-        const combined = ast.getCombinedModifierFlags(&c.binder.ast, declaration);
-        if ((combined & ast_gen.ModifierFlags.Export) != 0) return false;
-        const parent2 = c.binder.ast.getParent(parent);
+    if ((c.binder.ast.getNodeFlags(parent) & ast_utils.NodeFlags.Let) != 0) {
+        const combined = ast_utils.getCombinedModifierFlags(c.binder.ast, declaration);
+        if ((combined & ast_utils.ModifierFlags.Export) != 0) return false;
+        const parent2 = ast_utils.getParent(c.binder.ast, parent);
         if (parent2 != 0 and c.binder.ast.getNode(parent2) == .VariableStatement) {
-            const parent3 = c.binder.ast.getParent(parent2);
-            if (parent3 != 0 and ast.isGlobalSourceFile(&c.binder.ast, parent3)) return false;
+            const parent3 = ast_utils.getParent(c.binder.ast, parent2);
+            if (parent3 != 0 and ast_utils.isGlobalSourceFile(c.binder.ast, parent3)) return false;
         }
         return true;
     }
@@ -607,7 +607,7 @@ pub fn isLiteralExpressionOfObject(ast_data: *const ast.Ast, node: NodeIndex) bo
 pub fn canHaveFlowNode(ast_data: *const ast.Ast, node: NodeIndex) bool {
     _ = ast_data;
     _ = node;
-    return true; 
+    return true;
 }
 
 pub fn isNonNullAccess(ast_data: *const ast.Ast, node: NodeIndex) bool {
@@ -619,7 +619,6 @@ pub fn isNonNullAccess(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return false;
 }
 
-
 pub fn callLikeExpressionMayHaveTypeArguments(ast_data: *const ast.Ast, node: NodeIndex) bool {
     const n_data = ast_data.getNode(node);
     switch (n_data) {
@@ -627,7 +626,6 @@ pub fn callLikeExpressionMayHaveTypeArguments(ast_data: *const ast.Ast, node: No
         else => return false,
     }
 }
-
 
 pub fn expressionResultIsUnused(ast_data: *const ast.Ast, node_in: NodeIndex) bool {
     var node = node_in;
@@ -665,7 +663,6 @@ pub fn getDeclarationsOfKind(ast_data: *const ast.Ast, decls: []const NodeIndex,
     }
     return result.toOwnedSlice();
 }
-
 
 pub fn getNonRestParameterCount(ast_data: *const ast.Ast, sig: *const types.Signature) usize {
     _ = ast_data;
@@ -723,7 +720,6 @@ pub fn getAnyImportSyntax(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
         else => return 0,
     }
 }
-
 
 pub fn introducesArgumentsExoticObject(ast_data: *const ast.Ast, node: NodeIndex) bool {
     switch (ast_data.getNode(node)) {

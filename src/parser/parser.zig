@@ -677,8 +677,10 @@ pub const Parser = struct {
 
         var final_statements = statements;
         if (self.isJavaScript()) {
-            const original_list = self.ast.getNodeList(statements);
-            const interleaved = try jsdoc.reparseJSDocDeclarations(self, original_list, endOfFileToken);
+            const original_list_slice = self.ast.getNodeList(statements);
+            const cloned_list = try self.allocator.dupe(ast_gen.NodeIndex, original_list_slice);
+            defer self.allocator.free(cloned_list);
+            const interleaved = try jsdoc.reparseJSDocDeclarations(self, cloned_list, endOfFileToken);
             final_statements = try self.ast.pushNodeList(interleaved);
             self.allocator.free(interleaved);
         }
@@ -1442,7 +1444,7 @@ pub const Parser = struct {
             const nextTok = tempScanner.scan();
             if (nextTok == kind.Kind.AsteriskToken or nextTok == kind.Kind.OpenBraceToken or ((nextTok == kind.Kind.Identifier or kind.isKeyword(nextTok)) and nextTok != kind.Kind.FromKeyword and nextTok != kind.Kind.EqualsToken and nextTok != kind.Kind.CommaToken)) {
                 isTypeOnly = 1;
-                phaseModifier = @intFromEnum(kind.Kind.TypeKeyword);
+                phaseModifier = try self.ast.pushNode(.{ .TypeKeyword = void{} });
                 self.nextToken(); // consume type keyword
             }
         }

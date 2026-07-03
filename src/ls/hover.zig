@@ -23,25 +23,25 @@ pub fn provideHover(
     allocator: std.mem.Allocator,
     params: *lsproto.HoverParams,
 ) !lsproto.HoverOrNull {
-    _ = allocator;
     const caps = lsproto.getClientCapabilities();
     const contentFormat = lsproto.preferredMarkupKind(caps.textDocument.hover.contentFormat);
 
-    const verbosityLevel: u32 = if (params.verbosityLevel) |level| level else 0;
-
     const programAndFile = ls.getProgramAndFile(params.textDocument.uri);
-    const program = programAndFile.program;
     const file = programAndFile.file;
 
-    const position = ls.converters.lineAndCharacterToPosition(file, params.position);
-    const node = ast_utils.getTouchingPropertyName(&program.ast, file, position);
+    const script = ls.getScript(file);
+    const position = ls.converters.lineAndCharacterToPosition(script, params.position);
 
-    if (program.ast.getNodeKind(node) == .SourceFile or (ast_utils.isPropertyAccessOrQualifiedName(&program.ast, node) and isInComment(ls, file, position, node) == null)) {
+    const astnav = @import("../astnav/tokens.zig");
+    const tree = ls.getAst(file);
+    const node = astnav.getTouchingPropertyName(tree.getNode(ls.getSourceFileNode(file)).SourceFile, tree, position);
+
+    if (tree.getNodeKind(node) == .SourceFile or (ast_utils.isPropertyAccessOrQualifiedName(tree, node) and isInComment(ls, file, position, node) == null)) {
         return lsproto.HoverOrNull{ .hover = null };
     }
 
-    const chk = program.getTypeCheckerForFile(file);
-    const rangeNode = getNodeForQuickInfo(ls, node);
+    var chk = ls.getTypeCheckerForFile(file);
+    const rangeNode = getNodeForQuickInfo(ls, file, node);
     const symbol = getSymbolAtLocationForQuickInfo(chk, node);
 
     var maxTruncLen = ls.userPreferences().maximumHoverLength;
@@ -49,23 +49,59 @@ pub fn provideHover(
         maxTruncLen = 500;
     }
 
-    // stub
-    _ = contentFormat; _ = rangeNode; _ = symbol; _ = verbosityLevel;
+    var quickInfo = std.ArrayList(u8).init(allocator);
+    defer quickInfo.deinit();
 
-    return lsproto.HoverOrNull{ .hover = null };
+    if (symbol != 0) {
+        const t = chk.getTypeOfSymbol(symbol) catch chk.errorType;
+        const typeStr = chk.typeToString(t, node, 0, null);
+        const name = ast_utils.getTextOfNode(tree, node);
+        try quickInfo.writer().print("```typescript\n{s}: {s}\n```", .{ name, typeStr });
+    } else {
+        const t = chk.checkExpression(node) catch chk.errorType;
+        const typeStr = chk.typeToString(t, node, 0, null);
+        try quickInfo.writer().print("```typescript\n{s}\n```", .{typeStr});
+    }
+
+    const hoverRange = @import("findallreferences.zig").getLspRangeOfNode(ls, file, rangeNode, null, 0);
+
+    const hover = try allocator.create(lsproto.Hover);
+    hover.* = lsproto.Hover{
+        .contents = lsproto.MarkupContentOrStringOrMarkedStringWithLanguageOrMarkedStrings{
+            .markupContent = lsproto.MarkupContent{
+                .kind = contentFormat,
+                .value = try quickInfo.toOwnedSlice(),
+            },
+        },
+        .range = &hoverRange,
+        .canIncreaseVerbosity = false,
+    };
+
+    return lsproto.HoverOrNull{ .hover = hover };
 }
 
-pub fn isInComment(ls: *languageservice.LanguageService, file: ast.NodeIndex, position: u32, node: ast.NodeIndex) ?void {
-    _ = ls; _ = file; _ = position; _ = node;
-    return null; // stub
-}
-
-pub fn getNodeForQuickInfo(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
+pub fn isInComment(ls: *languageservice.LanguageService, file: compiler.FileId, position: u32, node: ast.NodeIndex) ?void {
     _ = ls;
-    return node; // stub
+    _ = file;
+    _ = position;
+    _ = node;
+    return null; // stub
 }
 
-pub fn getSymbolAtLocationForQuickInfo(chk: *checker.Checker, node: ast.NodeIndex) ?*ast.Symbol {
-    _ = chk; _ = node;
-    return null; // stub
+pub fn getNodeForQuickInfo(ls: *languageservice.LanguageService, file: compiler.FileId, node: ast.NodeIndex) ast.NodeIndex {
+    const tree = ls.getAst(file);
+    const parent = tree.getNodeParent(node);
+    if (parent == 0) return node;
+
+    if (tree.getNodeKind(parent) == .NewExpression) {
+        const newExpr = tree.getNode(parent).NewExpression;
+        if (newExpr.Expression == node) return parent;
+    }
+    // TODO: support NamedTupleMember, ImportMeta, JsxNamespacedName expansions
+    return node;
+}
+
+pub fn getSymbolAtLocationForQuickInfo(chk: *checker.Checker, node: ast.NodeIndex) ast.SymbolIndex {
+    // TODO: object literal contextual property symbol resolutions
+    return chk.getSymbolAtLocation(node);
 }

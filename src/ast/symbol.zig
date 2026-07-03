@@ -96,6 +96,7 @@ pub const Symbol = struct {
     Exports: SymbolTable,
     Parent: ?ast_gen.SymbolIndex,
     ExportSymbol: ?ast_gen.SymbolIndex,
+    CheckFlags: u32 = 0,
 
     pub fn get(self: *const Symbol, name: []const u8) ?ast_gen.SymbolIndex {
         _ = self;
