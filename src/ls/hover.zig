@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("../ast/ast.zig");
+const ast_gen = @import("../ast/ast_generated.zig");
 const ast_utils = @import("../ast/ast_utils.zig");
 const checker = @import("../checker/checker.zig");
 const compiler = @import("../compiler/program.zig");
@@ -34,7 +35,7 @@ pub fn provideHover(
 
     const astnav = @import("../astnav/tokens.zig");
     const tree = ls.getAst(file);
-    const node = astnav.getTouchingPropertyName(tree.getNode(ls.getSourceFileNode(file)).SourceFile, tree, position);
+    const node = astnav.getTouchingPropertyName(ls.getSourceFileNode(file), tree, position);
 
     if (tree.getNodeKind(node) == .SourceFile or (ast_utils.isPropertyAccessOrQualifiedName(tree, node) and isInComment(ls, file, position, node) == null)) {
         return lsproto.HoverOrNull{ .hover = null };
@@ -49,35 +50,32 @@ pub fn provideHover(
         maxTruncLen = 500;
     }
 
-    var quickInfo = std.ArrayList(u8).init(allocator);
-    defer quickInfo.deinit();
-
-    if (symbol != 0) {
-        const t = chk.getTypeOfSymbol(symbol) catch chk.errorType;
-        const typeStr = chk.typeToString(t, node, 0, null);
-        const name = ast_utils.getTextOfNode(tree, node);
-        try quickInfo.writer().print("```typescript\n{s}: {s}\n```", .{ name, typeStr });
-    } else {
-        const t = chk.checkExpression(node) catch chk.errorType;
-        const typeStr = chk.typeToString(t, node, 0, null);
-        try quickInfo.writer().print("```typescript\n{s}\n```", .{typeStr});
-    }
-
     const hoverRange = @import("findallreferences.zig").getLspRangeOfNode(ls, file, rangeNode, null, 0);
 
-    const hover = try allocator.create(lsproto.Hover);
-    hover.* = lsproto.Hover{
-        .contents = lsproto.MarkupContentOrStringOrMarkedStringWithLanguageOrMarkedStrings{
-            .markupContent = lsproto.MarkupContent{
-                .kind = contentFormat,
-                .value = try quickInfo.toOwnedSlice(),
-            },
-        },
-        .range = &hoverRange,
-        .canIncreaseVerbosity = false,
-    };
-
-    return lsproto.HoverOrNull{ .hover = hover };
+    if (symbol != 0) {
+        const t = chk.getTypeOfSymbol(symbol) catch (chk.errorTypeIndex orelse 0);
+        const typeStr = chk.typeToString(t, node, 0, null);
+        const name = ast_utils.getTextOfNode(tree, node);
+        const quickInfoStr = try std.fmt.allocPrint(allocator, "```typescript\n{s}: {s}\n```", .{ name, typeStr });
+        const hover_res = try allocator.create(lsproto.Hover);
+        hover_res.* = .{
+            .contents = .{ .markupContent = .{ .kind = contentFormat, .value = quickInfoStr } },
+            .range = hoverRange,
+            .canIncreaseVerbosity = false,
+        };
+        return lsproto.HoverOrNull{ .hover = hover_res };
+    } else {
+        const t = chk.checkExpressionAdHoc(node) catch (chk.errorTypeIndex orelse 0);
+        const typeStr = chk.typeToString(t, node, 0, null);
+        const quickInfoStr = try std.fmt.allocPrint(allocator, "```typescript\n{s}\n```", .{typeStr});
+        const hover_res = try allocator.create(lsproto.Hover);
+        hover_res.* = .{
+            .contents = .{ .markupContent = .{ .kind = contentFormat, .value = quickInfoStr } },
+            .range = hoverRange,
+            .canIncreaseVerbosity = false,
+        };
+        return lsproto.HoverOrNull{ .hover = hover_res };
+    }
 }
 
 pub fn isInComment(ls: *languageservice.LanguageService, file: compiler.FileId, position: u32, node: ast.NodeIndex) ?void {
@@ -101,7 +99,7 @@ pub fn getNodeForQuickInfo(ls: *languageservice.LanguageService, file: compiler.
     return node;
 }
 
-pub fn getSymbolAtLocationForQuickInfo(chk: *checker.Checker, node: ast.NodeIndex) ast.SymbolIndex {
+pub fn getSymbolAtLocationForQuickInfo(chk: *checker.Checker, node: ast.NodeIndex) ast_gen.SymbolIndex {
     // TODO: object literal contextual property symbol resolutions
-    return chk.getSymbolAtLocation(node);
+    return checker.getSymbolAtLocation(chk, node);
 }

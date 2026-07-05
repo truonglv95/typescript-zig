@@ -9,6 +9,7 @@ const Checker = checker_mod.Checker;
 const SymbolIndex = checker_mod.SymbolIndex;
 const SignatureIndex = checker_mod.SignatureIndex;
 const IndexInfoIndex = u32;
+const diagnostics = @import("../diagnostics/diagnostics.zig");
 
 pub fn getStringType(c: *Checker) TypeIndex {
     return c.stringType;
@@ -85,7 +86,7 @@ pub fn getPropertyNameFromType(c: *Checker, t: TypeIndex) []const u8 {
     return c.getPropertyNameFromType(t);
 }
 
-pub fn getGlobalSymbol(c: *Checker, name: []const u8, meaning: u32, diagnostic: ?u32) SymbolIndex {
+pub fn getGlobalSymbol(c: *Checker, name: []const u8, meaning: u32, diagnostic: ?*const diagnostics.Message) SymbolIndex {
     return c.getGlobalSymbol(name, meaning, diagnostic);
 }
 
@@ -186,7 +187,7 @@ pub fn isTupleType(c: *Checker, t: TypeIndex) bool {
 }
 
 pub fn getReturnTypeOfSignature(c: *Checker, sig: SignatureIndex) TypeIndex {
-    return c.getReturnTypeOfSignature(sig);
+    return c.getReturnTypeOfSignature(&c.signatures.items[sig]);
 }
 
 pub fn hasEffectiveRestParameter(c: *Checker, signature: SignatureIndex) bool {
@@ -206,7 +207,7 @@ pub fn getExpandedParameters(c: *Checker, signature: SignatureIndex, skipUnionEx
 }
 
 pub fn getResolvedSignature(c: *Checker, node: NodeIndex) SignatureIndex {
-    return c.getResolvedSignature(node, 0, 0); // CheckModeNormal = 0
+    return c.getResolvedSignature(node, null, 0); // CheckModeNormal = 0
 }
 
 pub fn getTypeOfPropertyOfType(c: *Checker, t: TypeIndex, name: []const u8) TypeIndex {

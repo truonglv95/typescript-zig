@@ -1312,7 +1312,7 @@ pub const Program = struct {
             const bound = unit.binder_instance orelse continue;
             var instance = checker.Checker.init(self.allocator, bound);
             defer instance.deinit();
-            try instance.checkStatement(unit.source_file);
+            try instance.checkStatementAdHoc(unit.source_file);
             for (bound.diagnosticsList.items) |diagnostic| {
                 const formatted_message = try formatDiagnosticMessage(self.allocator, diagnostic.message.text, diagnostic.args);
                 try self.diagnostics.append(self.allocator, .{

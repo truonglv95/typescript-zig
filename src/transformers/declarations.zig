@@ -592,7 +592,8 @@ pub const DeclarationTransformer = struct {
         for (original_parameters, 0..) |parameter_index, index| {
             const parameter = v.tree.getNode(parameter_index).Parameter;
             const is_property = utils.isParameterPropertyDeclaration(v.tree, parameter_index, node);
-            var type_node = inferredType(v, f, parameter.Type orelse 0, parameter.Initializer orelse 0);
+            const jsdoc_type = inlineJSDocType(v.tree, f, parameter_index, self.allocator) orelse jsdocParameterType(v.tree, f, node, parameter.name, index, self.allocator);
+            var type_node = parameter.Type orelse jsdoc_type orelse inferredType(v, f, 0, parameter.Initializer orelse 0);
 
             // With exact optional property types, an optional parameter
             // property still accepts an explicit undefined at the constructor
@@ -1469,10 +1470,16 @@ pub const DeclarationTransformer = struct {
         const unit = program.getUnit(file_id);
         for (unit.dependencies.items) |dep| {
             if (std.mem.eql(u8, dep.specifier, module_name)) {
-                return dep.resolved != null;
+                if (dep.resolved) |res_id| {
+                    const target_unit = program.getUnit(res_id);
+                    if (!target_unit.is_default_library and target_unit.package_id == null and !std.mem.containsAtLeast(u8, target_unit.path, 1, "node_modules")) {
+                        return false;
+                    }
+                    return true;
+                }
+                return false;
             }
         }
-        std.debug.print("Did not match any dep.specifier for {s}\n", .{module_name});
         return false;
     }
 
@@ -1908,7 +1915,7 @@ pub const DeclarationTransformer = struct {
                     const span = tree.getNode(span_index).TemplateSpan;
                     var span_type = inferredType(v, f, 0, span.Expression);
                     if (tree.getNode(span.Expression) == .Identifier) {
-                        const resolved = findParameterTypeInAncestors(tree, span.Expression, @import("../ast/ast_utils.zig").getText(tree, span.Expression));
+                        const resolved = findParameterTypeInAncestors(tree, f, span.Expression, @import("../ast/ast_utils.zig").getText(tree, span.Expression));
                         if (resolved != 0) span_type = resolved;
                     }
                     spans.append(self.allocator, tree.pushNode(.{ .TemplateLiteralTypeSpan = .{ .Flags = 0, .Type = span_type, .Literal = span.Literal } }) catch unreachable) catch unreachable;
@@ -3310,6 +3317,21 @@ fn hasClassSelfReference(tree: *ast.Ast, class_expr_node: ast.NodeIndex, classNa
     return collector.found;
 }
 
+fn isCommonJSExport(tree: *ast.Ast, statement: ast.NodeIndex) bool {
+    if (tree.getNodeKind(statement) != .ExpressionStatement) return false;
+    const expr = tree.getNode(statement).ExpressionStatement.Expression;
+    if (tree.getNodeKind(expr) != .BinaryExpression) return false;
+    const left = tree.getNode(expr).BinaryExpression.Left;
+    if (tree.getNodeKind(left) == .PropertyAccessExpression) {
+        const prop_expr = tree.getNode(left).PropertyAccessExpression.Expression;
+        if (tree.getNodeKind(prop_expr) == .Identifier) {
+            const name = @import("../ast/ast_utils.zig").getText(tree, prop_expr);
+            return std.mem.eql(u8, name, "module") or std.mem.eql(u8, name, "exports");
+        }
+    }
+    return false;
+}
+
 fn variableStatementReferencedByExport(tree: *ast.Ast, statements_index: ast.NodeIndex, variable_statement: ast.NodeIndex, allocator: std.mem.Allocator) bool {
     const list = tree.getNode(tree.getNode(variable_statement).VariableStatement.DeclarationList).VariableDeclarationList;
     for (tree.getNodeList(list.Declarations)) |declaration_index| {
@@ -3327,7 +3349,8 @@ fn variableStatementReferencedByExport(tree: *ast.Ast, statements_index: ast.Nod
             for (tree.getNodeList(statements_index)) |statement| {
                 const is_exported = @import("../ast/ast_utils.zig").hasSyntacticModifier(tree, statement, @import("../ast/ast_utils.zig").ModifierFlags.Export);
                 const is_default = @import("../ast/ast_utils.zig").hasSyntacticModifier(tree, statement, @import("../ast/ast_utils.zig").ModifierFlags.Default);
-                if (is_exported or is_default or tree.getNodeKind(statement) == .ExportDeclaration or tree.getNodeKind(statement) == .ExportAssignment) {
+                const kind = tree.getNodeKind(statement);
+                if (is_exported or is_default or kind == .ExportDeclaration or kind == .ExportAssignment or isCommonJSExport(tree, statement)) {
                     _ = node_visitor.visitNode(statement);
                     if (collector.found) return true;
                 }
@@ -3561,6 +3584,11 @@ fn assignmentSymbolTypeNode(tree: *ast.Ast, factory: anytype, declarations: []co
             const expression = tree.getNode(right).NewExpression.Expression;
             if (tree.getNode(expression) == .Identifier) return tree.pushNode(.{ .TypeReference = .{ .Flags = 0, .TypeArguments = null, .TypeName = expression } }) catch unreachable;
         }
+        if (tree.getNode(right) == .Identifier) {
+            const name = @import("../ast/ast_utils.zig").getText(tree, right);
+            const param_type = findParameterTypeInAncestors(tree, factory, declarations[0], name);
+            if (param_type != 0) return param_type;
+        }
     }
     const Category = enum { number, string, boolean, bigint, object, function, undefined_, any };
     var categories: [8]bool = @splat(false);
@@ -3676,7 +3704,7 @@ fn declarationFunctionParameters(tree: *ast.Ast, factory: anytype, parameters_in
             }
         }
         if (type_node == 0 and parameter.Initializer != null and tree.getNode(parameter.Initializer.?) == .Identifier) {
-            type_node = findParameterTypeInAncestors(tree, tree.getNodeParent(parameter_index), @import("../ast/ast_utils.zig").getText(tree, parameter.Initializer.?));
+            type_node = findParameterTypeInAncestors(tree, factory, tree.getNodeParent(parameter_index), @import("../ast/ast_utils.zig").getText(tree, parameter.Initializer.?));
         }
         if (type_node == 0) type_node = inferredTypeInner(tree, factory, 0, parameter.Initializer orelse 0, null);
         var question = parameter.QuestionToken orelse 0;
@@ -3702,7 +3730,7 @@ fn declarationFunctionParameters(tree: *ast.Ast, factory: anytype, parameters_in
     return factory.newNodeList(updated.items);
 }
 
-fn findParameterTypeInAncestors(tree: *ast.Ast, start: ast.NodeIndex, name: []const u8) ast.NodeIndex {
+fn findParameterTypeInAncestors(tree: *ast.Ast, factory: anytype, start: ast.NodeIndex, name: []const u8) ast.NodeIndex {
     var current = start;
     while (current != 0) : (current = tree.getNodeParent(current)) {
         const parameters_index: ast.NodeIndex = switch (tree.getNode(current)) {
@@ -3710,15 +3738,22 @@ fn findParameterTypeInAncestors(tree: *ast.Ast, start: ast.NodeIndex, name: []co
             .FunctionExpression => |node| node.Parameters,
             .ArrowFunction => |node| node.Parameters,
             .MethodDeclaration => |node| node.Parameters,
+            .Constructor => |node| node.Parameters,
             else => 0,
         };
         if (parameters_index == 0) continue;
-        for (tree.getNodeList(parameters_index)) |parameter_index| {
+        for (tree.getNodeList(parameters_index), 0..) |parameter_index, index| {
             const parameter = tree.getNode(parameter_index).Parameter;
             if (tree.getNode(parameter.name) == .Identifier and std.mem.eql(u8, @import("../ast/ast_utils.zig").getText(tree, parameter.name), name)) {
-                if (parameter.Type) |type_node| return type_node;
+                if (parameter.Type) |type_node| {
+                    return type_node;
+                }
+                const jsdoc_type = inlineJSDocType(tree, factory, parameter_index, factory.allocator) orelse jsdocParameterType(tree, factory, current, parameter.name, index, factory.allocator);
+                if (jsdoc_type != null and jsdoc_type.? != 0) {
+                    return jsdoc_type.?;
+                }
                 if (parameter.Initializer) |initializer| if (tree.getNode(initializer) == .Identifier) {
-                    return findParameterTypeInAncestors(tree, tree.getNodeParent(current), @import("../ast/ast_utils.zig").getText(tree, initializer));
+                    return findParameterTypeInAncestors(tree, factory, tree.getNodeParent(current), @import("../ast/ast_utils.zig").getText(tree, initializer));
                 };
                 return 0;
             }
@@ -4211,9 +4246,8 @@ fn unwrapJSDocTypeInner(tree: *ast.Ast, factory: anytype, node: ast.NodeIndex, a
                 if (unwrapped_m != m) any_changed = true;
                 new_members.append(allocator, unwrapped_m) catch unreachable;
             }
-            if (!any_changed) return node;
             return tree.pushNode(.{ .TupleType = .{
-                .Flags = t.Flags,
+                .Flags = t.Flags | @import("../ast/ast_utils.zig").NodeFlags.Synthesized,
                 .Elements = factory.newNodeList(new_members.items),
             } }) catch unreachable;
         },

@@ -892,7 +892,13 @@ pub const Scanner = struct {
             if (ch == '\\') {
                 if (!jsxAttributeString) {
                     // slow path placeholder (TODO: decode escape sequence)
-                    self.state.pos += 2;
+                    self.state.pos += 1;
+                    if (self.state.pos < self.end) {
+                        self.state.pos += 1;
+                    } else {
+                        self.state.tokenFlags |= TokenFlags.Unterminated;
+                        break;
+                    }
                     continue;
                 }
             }

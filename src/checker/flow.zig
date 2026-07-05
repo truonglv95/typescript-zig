@@ -642,7 +642,7 @@ fn narrowTypeByInKeyword(c: *Checker, f: *FlowState, t: types.TypeIndex, nameTyp
         const recordSymbol = c.getGlobalRecordSymbol();
         if (recordSymbol != 0) {
             var args = [_]types.TypeIndex{ nameType, c.unknownTypeIndex orelse 0 };
-            const recordType = Checker.getTypeAliasInstantiation(c, recordSymbol, &args, 0);
+            const recordType = Checker.getTypeAliasInstantiation(c, recordSymbol, &args, null);
             return Checker.getIntersectionType(c, &[_]types.TypeIndex{ t, recordType });
         }
     }
@@ -1442,15 +1442,36 @@ fn narrowTypeBySwitchOnDiscriminant(c: *Checker, t: types.TypeIndex, data: anyty
     if ((c.typesList.items[discriminantType].flags & types.TypeFlags.Never) != 0) {
         caseType = c.getNeverType() catch 0;
     } else {
-        // Stub for filterType usage:
-        const filtered = Checker.filterType(c, t, relater.areTypesComparable, discriminantType);
+        const CaseTypeCtx = struct { discriminantType: types.TypeIndex };
+        const caseTypeFilter = struct {
+            fn filter(chk: *Checker, t_idx: types.TypeIndex, ctx: CaseTypeCtx) bool {
+                return relater.areTypesComparable(chk, ctx.discriminantType, t_idx);
+            }
+        }.filter;
+        const filtered = Checker.filterType(c, t, caseTypeFilter, CaseTypeCtx{ .discriminantType = discriminantType });
         caseType = replacePrimitivesWithLiterals(c, filtered, discriminantType);
     }
 
     if (!hasDefaultClause) return caseType;
 
-    // Stub for defaultType
-    const defaultType = t; // we need a complex closure to do the full logic, let's keep it simple for now
+    const DefaultTypeCtx = struct {
+        switchTypes: []const types.TypeIndex,
+    };
+    const defaultTypeFilter = struct {
+        fn filter(chk: *Checker, t_idx: types.TypeIndex, ctx: DefaultTypeCtx) bool {
+            if (!isUnitLikeType(chk, t_idx)) return true;
+            var u = chk.getUndefinedType() catch 0;
+            if ((chk.typesList.items[t_idx].flags & types.TypeFlags.Undefined) == 0) {
+                u = Checker.getRegularTypeOfLiteralType(chk, extractUnitType(chk, t_idx));
+            }
+            for (ctx.switchTypes) |st| {
+                if (isUnitType(chk, st) and relater.areTypesComparable(chk, st, u)) return false;
+            }
+            return true;
+        }
+    }.filter;
+
+    const defaultType = Checker.filterType(c, t, defaultTypeFilter, DefaultTypeCtx{ .switchTypes = switchTypes });
 
     if ((c.typesList.items[caseType].flags & types.TypeFlags.Never) != 0) {
         return defaultType;

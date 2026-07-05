@@ -12,6 +12,7 @@ const host_module = @import("../ls/host.zig");
 const lsutil = @import("../ls/lsutil/lsutil.zig");
 const sourcemap = @import("../sourcemap/sourcemap.zig");
 const autoimport = @import("../project/autoimport.zig");
+const lsproto = @import("lsproto/lsproto.zig");
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -86,53 +87,14 @@ pub const Session = struct {
         } else if (std.mem.eql(u8, method, "textDocument/diagnostic")) {
             const document = try objectField(params_value.object, "textDocument");
             const uri = try stringField(document, "uri");
-            const open_document = self.store.get(uri) orelse return try errorResponse(self.allocator, object.get("id"), -32602, "Document is not open");
 
-            var program = try compiler.createProgram(self.allocator, .{
-                .rootNames = &[_][]const u8{},
-                .options = .{},
-            });
-            defer {
-                program.deinit();
-                self.allocator.destroy(program);
-            }
+            var ls_ctx = try LsContext.init(self, uri);
+            defer ls_ctx.deinit();
 
-            const path = try self.allocator.dupe(u8, uri);
-            const content = try self.allocator.dupe(u8, open_document.text);
-            var parser_instance = try self.allocator.create(parser_mod.Parser);
-            parser_instance.* = parser_mod.Parser.init(self.allocator, content);
-            parser_instance.ast.fileName = path;
-            parser_instance.setScriptKind(scriptKindForUri(uri));
-            const source_file = try parser_instance.parseSourceFile();
-
-            const unit = try self.allocator.create(compiler.SourceUnit);
-            unit.* = .{
-                .path = path,
-                .content = content,
-                .content_hash = std.hash.Wyhash.hash(0, content),
-                .parser_instance = parser_instance,
-                .source_file = source_file,
-                .is_root = true,
-                .package_id = null,
-                .uses_require_conditions = false,
-                .dependencies = std.ArrayList(compiler.Dependency).empty,
-                .binder_instance = null,
-            };
-            const id: compiler.FileId = @intCast(program.units.items.len);
-            try program.units.append(self.allocator, unit);
-            try program.files_by_path.put(path, id);
-
-            try program.bind();
-
-            var dummy_host = DummyHost.init(self.allocator);
-            defer dummy_host.deinit();
-
-            var ls = try languageservice.LanguageService.init(self.allocator, "", program, dummy_host.host(), uri);
-            defer ls.deinit();
-
-            _ = ls.getTypeCheckerForFile(id); // trigger checker
-
+            const unit = ls_ctx.program.units.items[0];
             const bound = unit.binder_instance.?;
+            const parser_instance = unit.parser_instance;
+            const open_document = ls_ctx.open_document;
 
             const DiagnosticItem = struct {
                 range: documents.Range,
@@ -149,10 +111,130 @@ pub const Session = struct {
             const result = try std.json.Stringify.valueAlloc(self.allocator, report, .{});
             defer self.allocator.free(result);
             return try response(self.allocator, object.get("id"), result);
+        } else if (std.mem.eql(u8, method, "textDocument/hover")) {
+            const document = try objectField(params_value.object, "textDocument");
+            const uri = try stringField(document, "uri");
+            const pos = try position(params_value.object);
+
+            var ls_ctx = try LsContext.init(self, uri);
+            defer ls_ctx.deinit();
+
+            const doc_uri = lsproto.DocumentUri{}; // DocumentUri has no fields, use empty
+            _ = doc_uri; // unused
+
+            var hover_params = lsproto.HoverParams{ .textDocument = .{ .uri = .{}, .hover = .{ .contentFormat = 0 } }, .position = .{ .line = @intCast(pos.line), .character = @intCast(pos.character) } };
+            const hover_resp = try ls_ctx.ls.provideHover(self.allocator, &hover_params);
+            const result = try std.json.Stringify.valueAlloc(self.allocator, hover_resp, .{});
+            defer self.allocator.free(result);
+            return try response(self.allocator, object.get("id"), result);
+        } else if (std.mem.eql(u8, method, "textDocument/definition")) {
+            const document = try objectField(params_value.object, "textDocument");
+            const uri = try stringField(document, "uri");
+            const pos = try position(params_value.object);
+
+            var ls_ctx = try LsContext.init(self, uri);
+            defer ls_ctx.deinit();
+
+            const doc_uri = lsproto.DocumentUri{};
+            const def_resp = try ls_ctx.ls.provideDefinition(self.allocator, doc_uri, .{ .line = @intCast(pos.line), .character = @intCast(pos.character) });
+            const result = try std.json.Stringify.valueAlloc(self.allocator, def_resp, .{});
+            defer self.allocator.free(result);
+            return try response(self.allocator, object.get("id"), result);
+        } else if (std.mem.eql(u8, method, "textDocument/signatureHelp")) {
+            const document = try objectField(params_value.object, "textDocument");
+            const uri = try stringField(document, "uri");
+            const pos = try position(params_value.object);
+
+            var ls_ctx = try LsContext.init(self, uri);
+            defer ls_ctx.deinit();
+
+            const doc_uri = lsproto.DocumentUri{};
+            const sig_resp = try ls_ctx.ls.provideSignatureHelp(self.allocator, doc_uri, .{ .line = @intCast(pos.line), .character = @intCast(pos.character) }, null);
+            const result = try std.json.Stringify.valueAlloc(self.allocator, sig_resp, .{});
+            defer self.allocator.free(result);
+            return try response(self.allocator, object.get("id"), result);
+        } else if (std.mem.eql(u8, method, "textDocument/completion")) {
+            const document = try objectField(params_value.object, "textDocument");
+            const uri = try stringField(document, "uri");
+            const pos = try position(params_value.object);
+
+            var ls_ctx = try LsContext.init(self, uri);
+            defer ls_ctx.deinit();
+
+            const doc_uri = lsproto.DocumentUri{};
+            const comp_resp = try ls_ctx.ls.provideCompletion(self.allocator, doc_uri, .{ .line = @intCast(pos.line), .character = @intCast(pos.character) }, null);
+            const result = try std.json.Stringify.valueAlloc(self.allocator, comp_resp, .{});
+            defer self.allocator.free(result);
+            return try response(self.allocator, object.get("id"), result);
         } else if (object.get("id") != null) {
             return try errorResponse(self.allocator, object.get("id"), -32601, "Method not found");
         }
         return null;
+    }
+};
+
+const LsContext = struct {
+    allocator: std.mem.Allocator,
+    program: *compiler.Program,
+    dummy_host: DummyHost,
+    ls: *languageservice.LanguageService,
+    open_document: *const documents.Document,
+    path: []const u8,
+
+    pub fn init(session: *Session, uri: []const u8) !LsContext {
+        const open_document = session.store.get(uri) orelse return error.DocumentNotOpen;
+        var program = try compiler.createProgram(session.allocator, .{
+            .rootNames = &[_][]const u8{},
+            .options = .{},
+        });
+
+        const path = try session.allocator.dupe(u8, uri);
+        const content = try session.allocator.dupe(u8, open_document.text);
+        var parser_instance = try session.allocator.create(parser_mod.Parser);
+        parser_instance.* = parser_mod.Parser.init(session.allocator, content);
+        parser_instance.ast.fileName = path;
+        parser_instance.setScriptKind(scriptKindForUri(uri));
+        const source_file = try parser_instance.parseSourceFile();
+
+        const unit = try session.allocator.create(compiler.SourceUnit);
+        unit.* = .{
+            .path = path,
+            .content = content,
+            .content_hash = std.hash.Wyhash.hash(0, content),
+            .parser_instance = parser_instance,
+            .source_file = source_file,
+            .is_root = true,
+            .package_id = null,
+            .uses_require_conditions = false,
+            .dependencies = std.ArrayList(compiler.Dependency).empty,
+            .binder_instance = null,
+        };
+        const id: compiler.FileId = @intCast(program.units.items.len);
+        try program.units.append(session.allocator, unit);
+        try program.files_by_path.put(path, id);
+
+        try program.bind();
+
+        var dummy_host = DummyHost.init(session.allocator);
+
+        var ls = try languageservice.LanguageService.init(session.allocator, "", program, dummy_host.host(), uri);
+        _ = ls.getTypeCheckerForFile(id);
+
+        return .{
+            .allocator = session.allocator,
+            .program = program,
+            .dummy_host = dummy_host,
+            .ls = ls,
+            .open_document = open_document,
+            .path = path,
+        };
+    }
+
+    pub fn deinit(self: *LsContext) void {
+        self.ls.deinit();
+        self.dummy_host.deinit();
+        self.program.deinit();
+        self.allocator.destroy(self.program);
     }
 };
 

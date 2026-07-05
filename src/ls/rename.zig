@@ -56,15 +56,14 @@ pub fn symbolAndEntriesToRename(
     _ = chk;
 
     for (data.symbolsAndEntries) |s| {
-        for (s.references) |_| {
-            // stub URI mapping
-            const uri = "";
+        for (s.references) |ref| {
+            const uri = findallreferences.getFileNameOfEntry(ls, ref);
             var listResult = try changes.getOrPut(uri);
             if (!listResult.found_existing) {
                 listResult.value_ptr.* = std.ArrayList(lsproto.TextEdit).init(allocator);
             }
             try listResult.value_ptr.append(lsproto.TextEdit{
-                .range = lsproto.Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+                .range = findallreferences.getRangeOfEntry(ls, ref),
                 .newText = params.newName,
             });
         }
@@ -88,50 +87,114 @@ pub fn getRenameInfoForNode(
     sourceFile: ast.NodeIndex,
     program: *compiler.Program,
 ) !?RenameInfo {
-    _ = ls;
-    _ = allocator;
     _ = newName;
-
-    const chk = program.getTypeCheckerForFile(sourceFile);
+    var chk = program.getTypeCheckerForFile(sourceFile);
     const symbolIndex = chk.getSymbolAtLocation(node);
+
     if (symbolIndex == 0) {
         if (ast_utils.isStringLiteralLike(&program.ast, node)) {
             // Contextual string literal types check stub
-            return RenameInfo{
-                .canRename = true,
-                .localizedErrorMessage = null,
-                .displayName = "",
-                .triggerSpan = lsproto.Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
-                .fileToRename = null,
-                .newFileName = null,
-            };
-        } else if (program.ast.getNodeKind(node) == .Identifier) {
-            return RenameInfo{
-                .canRename = true,
-                .localizedErrorMessage = null,
-                .displayName = "",
-                .triggerSpan = lsproto.Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
-                .fileToRename = null,
-                .newFileName = null,
-            };
+            const text = ast_utils.getTextOfNode(&program.ast, node);
+            return getRenameInfoSuccess(ls, &program.ast, node, sourceFile, text);
+        } else if (ast_utils.isLabelName(&program.ast, node)) {
+            const name = ast_utils.getTextOfNode(&program.ast, node);
+            return getRenameInfoSuccess(ls, &program.ast, node, sourceFile, name);
         }
         return null;
     }
 
     const symbol = chk.binder.symbols.items[symbolIndex];
-    if (symbol.Declarations.items.len == 0) return null;
+    if (symbol.Declarations.items.len == 0) {
+        return null;
+    }
+
+    if (try renameBlockedReason(ls, sourceFile, node, symbolIndex, &chk, program)) |msg| {
+        _ = allocator;
+        return RenameInfo{
+            .canRename = false,
+            .localizedErrorMessage = msg,
+            .displayName = "",
+            .triggerSpan = lsproto.Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+            .fileToRename = null,
+            .newFileName = null,
+        };
+    }
+
+    // TODO: allow rename of import path logic
 
     const displayName = if (symbol.escapedName < chk.binder.identifiers.items.len)
         chk.binder.identifiers.items[symbol.escapedName]
     else
         "";
 
+    return getRenameInfoSuccess(ls, &program.ast, node, sourceFile, displayName);
+}
+
+fn getRenameInfoSuccess(
+    ls: *languageservice.LanguageService,
+    tree: *ast.Ast,
+    node: ast.NodeIndex,
+    sourceFile: ast.NodeIndex,
+    displayName: []const u8,
+) RenameInfo {
+    const range = ast_utils.getTextRangeOfNode(tree, node);
+    const startPos = ls.converters.positionToLineAndCharacter(sourceFile, range.start);
+    const endPos = ls.converters.positionToLineAndCharacter(sourceFile, range.end);
+
     return RenameInfo{
         .canRename = true,
         .localizedErrorMessage = null,
         .displayName = displayName,
-        .triggerSpan = lsproto.Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+        .triggerSpan = lsproto.Range{
+            .start = startPos,
+            .end = endPos,
+        },
         .fileToRename = null,
         .newFileName = null,
     };
+}
+
+fn renameBlockedReason(
+    ls: *languageservice.LanguageService,
+    sourceFile: ast.NodeIndex,
+    node: ast.NodeIndex,
+    symbolIndex: u32,
+    chk: *checker.Checker,
+    program: *compiler.Program,
+) !?[]const u8 {
+    _ = ls;
+    _ = sourceFile;
+    const symbol = chk.binder.symbols.items[symbolIndex];
+    for (symbol.Declarations.items) |declNode| {
+        if (isDefinedInLibraryFile(program, declNode)) {
+            return "You cannot rename elements that are defined in the standard TypeScript library.";
+        }
+    }
+
+    if (program.ast.getNodeKind(node) == .Identifier) {
+        const text = ast_utils.getTextOfNode(&program.ast, node);
+        if (std.mem.eql(u8, text, "default")) {
+            if (symbol.parent != 0) {
+                const parentSym = chk.binder.symbols.items[symbol.parent];
+                if ((parentSym.Flags & ast.SymbolFlags.Module) != 0) {
+                    return "You cannot rename this element.";
+                }
+            }
+        }
+    }
+
+    // TODO: wouldRenameInOtherNodeModules check
+
+    return null;
+}
+
+fn isDefinedInLibraryFile(program: *compiler.Program, declNode: ast.NodeIndex) bool {
+    const declSourceFile = ast_utils.getSourceFileOfNode(&program.ast, declNode);
+    if (declSourceFile != 0) {
+        const sfNode = program.ast.getNode(declSourceFile).SourceFile;
+        // Simple check for now
+        const isLib = std.mem.indexOf(u8, sfNode.fileName, "lib.") != null and std.mem.endsWith(u8, sfNode.fileName, ".d.ts");
+        return isLib;
+    }
+    return false;
 }

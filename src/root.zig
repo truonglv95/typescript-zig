@@ -48,6 +48,7 @@ test {
     _ = @import("parser/parser_test.zig");
     _ = @import("printer/printer_test.zig");
 
+    _ = @import("testrunner/compiler_runner_test.zig");
     // Test runner
     _ = @import("testrunner/testmain_test.zig");
     _ = @import("testrunner/compiler_runner_test.zig");
@@ -128,7 +129,7 @@ test "basic parser integration" {
     var c = checker.Checker.init(std.testing.allocator, &b);
     defer c.deinit();
 
-    try c.checkStatement(astIndex);
+    try c.checkStatementAdHoc(astIndex);
 }
 
 test "basic printer" {

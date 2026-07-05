@@ -728,13 +728,6 @@ pub fn introducesArgumentsExoticObject(ast_data: *const ast.Ast, node: NodeIndex
     }
 }
 
-pub fn skipAlias(c: *Checker, sym: *const symbol.Symbol) *const symbol.Symbol {
-    if ((sym.flags & symbol.SymbolFlags.Alias) != 0) {
-        return c.getAliasedSymbol(sym); // stub
-    }
-    return sym;
-}
-
 pub fn isExternalModuleSymbol(sym: *const symbol.Symbol) bool {
     return (sym.flags & symbol.SymbolFlags.Module) != 0 and sym.name.len > 0 and sym.name[0] == '"';
 }
@@ -771,4 +764,267 @@ pub fn getSetAccessorValueParameter(ast_data: *const ast.Ast, accessor: NodeInde
     _ = ast_data;
     _ = accessor;
     return 0; // stub
+}
+
+pub fn isInCompoundLikeAssignment(c: *const @import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
+    const target = ast_utils.getAssignmentTarget(c.binder.ast, node);
+    return target != 0 and ast_utils.isAssignmentExpression(c.binder.ast, target, true) and isCompoundLikeAssignment(c, target);
+}
+
+pub fn isCompoundLikeAssignment(c: *const @import("checker.zig").Checker, assignment: ast_gen.NodeIndex) bool {
+    const right = ast_utils.skipParentheses(c.binder.ast, c.binder.ast.getNode(assignment).BinaryExpression.Right);
+    return c.binder.ast.getKind(right) == .BinaryExpression and isShiftOperatorOrHigher(c.binder.ast.getNode(right).BinaryExpression.OperatorTokenKind);
+}
+
+pub fn isInTypeQuery(c: *const @import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
+    var current = node;
+    while (current != 0) {
+        const kind = c.binder.ast.getKind(current);
+        if (kind == .TypeQuery) return true;
+        if (kind == .Identifier or kind == .QualifiedName) {
+            current = c.binder.ast.getNodeParent(current);
+            continue;
+        }
+        return false;
+    }
+    return false;
+}
+
+pub fn isRightSideOfAccessExpression(c: *const @import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
+    const parent = c.binder.ast.getNodeParent(node);
+    if (parent == 0) return false;
+    const parentKind = c.binder.ast.getKind(parent);
+    if (parentKind == .PropertyAccessExpression) {
+        return c.binder.ast.getNode(parent).PropertyAccessExpression.Name == node;
+    }
+    if (parentKind == .ElementAccessExpression) {
+        return c.binder.ast.getNode(parent).ElementAccessExpression.ArgumentExpression == node;
+    }
+    return false;
+}
+
+pub fn isLateBoundName(name: []const u8) bool {
+    return name.len >= 2 and name[0] == '\xfe' and name[1] == '@';
+}
+
+pub fn isObjectOrArrayLiteralType(t: *const types.Type) bool {
+    return (t.objectFlags & (types.ObjectFlags.ObjectLiteral | types.ObjectFlags.ArrayLiteral)) != 0;
+}
+
+pub fn skipAlias(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+    if (sym == 0) return 0;
+    const symObj = c.binder.symbols.items[sym];
+    if ((symObj.flags & ast.SymbolFlags.Alias) != 0) {
+        return c.getAliasedSymbol(sym);
+    }
+    return sym;
+}
+
+pub fn isCallChain(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    return ast_utils.isCallExpression(ast_data, node) and (ast_data.getNode(node).CallExpression.flags & ast_gen.NodeFlags.OptionalChain) != 0;
+}
+
+pub fn isSuperCall(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    if (ast_utils.isCallExpression(ast_data, node)) {
+        const expr = ast_data.getNode(node).CallExpression.Expression;
+        if (expr != 0 and ast_data.getKind(expr) == .SuperKeyword) {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn getContainingObjectLiteral(ast_data: *const ast.Ast, f: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (f == 0) return 0;
+    const kind = ast_data.getKind(f);
+    const parent = ast_data.getNodeParent(f);
+    if (parent == 0) return 0;
+
+    if ((kind == .MethodDeclaration or kind == .GetAccessor or kind == .SetAccessor) and ast_data.getKind(parent) == .ObjectLiteralExpression) {
+        return parent;
+    } else if (kind == .FunctionExpression and ast_data.getKind(parent) == .PropertyAssignment) {
+        return ast_data.getNodeParent(parent);
+    }
+    return 0;
+}
+
+pub fn isImportTypeQualifierPart(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    var node = node_in;
+    var parent = ast_data.getNodeParent(node);
+    while (ast_utils.isQualifiedName(ast_data, parent)) {
+        node = parent;
+        parent = ast_data.getNodeParent(parent);
+    }
+    if (parent != 0 and ast_data.getKind(parent) == .ImportType) {
+        const import_type = ast_data.getNode(parent).ImportType;
+        if (import_type.Qualifier == node) {
+            return parent;
+        }
+    }
+    return 0;
+}
+
+pub fn isInNameOfExpressionWithTypeArguments(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) bool {
+    var node = node_in;
+    var parent = ast_data.getNodeParent(node);
+    while (parent != 0 and ast_data.getKind(parent) == .PropertyAccessExpression) {
+        node = parent;
+        parent = ast_data.getNodeParent(node);
+    }
+    return parent != 0 and ast_data.getKind(parent) == .ExpressionWithTypeArguments;
+}
+
+pub fn isThisTypeParameter(c: *const @import("checker.zig").Checker, typeIndex: types.TypeIndex) bool {
+    if (typeIndex == 0) return false;
+    const typeObj = c.types.items[typeIndex];
+    if ((typeObj.flags & types.TypeFlags.TypeParameter) != 0) {
+        return typeObj.data.TypeParameter.isThisType;
+    }
+    return false;
+}
+
+pub fn isKnownSymbol(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
+    if (sym == 0) return false;
+    const name = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, sym);
+    return isLateBoundName(name);
+}
+
+pub fn isPrivateIdentifierSymbol(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
+    if (sym == 0) return false;
+    const name = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, sym);
+    return std.mem.startsWith(u8, name, "__#");
+}
+
+pub fn hasExportAssignmentSymbol(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
+    if (sym == 0) return false;
+    const symObj = c.binder.symbols.items[sym];
+    for (symObj.Declarations.items) |decl| {
+        if (c.binder.ast.getKind(decl) == .ExportAssignment) {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn getContainingClass(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    var node = ast_data.getNodeParent(node_in);
+    while (node != 0) {
+        if (ast_utils.isClassLike(ast_data, node)) {
+            return node;
+        }
+        node = ast_data.getNodeParent(node);
+    }
+    return 0;
+}
+
+pub fn getContainingClassExcludingClassDecorators(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    var decorator: ast_gen.NodeIndex = 0;
+    var current = ast_data.getNodeParent(node);
+    while (current != 0) {
+        if (ast_utils.isClassLike(ast_data, current)) {
+            break;
+        }
+        if (ast_utils.isDecorator(ast_data, current)) {
+            decorator = current;
+            break;
+        }
+        current = ast_data.getNodeParent(current);
+    }
+
+    if (decorator != 0) {
+        const parent = ast_data.getNodeParent(decorator);
+        if (ast_utils.isClassLike(ast_data, parent)) {
+            return getContainingClass(ast_data, parent);
+        }
+        return getContainingClass(ast_data, decorator);
+    }
+    return getContainingClass(ast_data, node);
+}
+
+pub fn getSuperContainer(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex, stopOnFunctions: bool) ast_gen.NodeIndex {
+    var node = node_in;
+    while (true) {
+        node = ast_data.getNodeParent(node);
+        if (node == 0) return 0;
+        const kind = ast_data.getKind(node);
+        switch (kind) {
+            .ComputedPropertyName => {
+                node = ast_data.getNodeParent(node);
+            },
+            .FunctionDeclaration, .FunctionExpression, .ArrowFunction => {
+                if (!stopOnFunctions) {
+                    continue;
+                }
+                return node;
+            },
+            .PropertyDeclaration, .PropertySignature, .MethodDeclaration, .MethodSignature, .Constructor, .GetAccessor, .SetAccessor, .ClassStaticBlockDeclaration => {
+                return node;
+            },
+            .Decorator => {
+                const parent = ast_data.getNodeParent(node);
+                if (ast_utils.isParameterDeclaration(ast_data, parent)) {
+                    const grandparent = ast_data.getNodeParent(parent);
+                    if (ast_utils.isClassElement(ast_data, grandparent)) {
+                        node = grandparent;
+                    }
+                } else if (ast_utils.isClassElement(ast_data, parent)) {
+                    node = parent;
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+pub fn isInRightSideOfImportOrExportAssignment(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) bool {
+    var node = node_in;
+    var parent = ast_data.getNodeParent(node);
+    while (parent != 0 and ast_data.getKind(parent) == .QualifiedName) {
+        node = parent;
+        parent = ast_data.getNodeParent(node);
+    }
+    if (parent == 0) return false;
+    const kind = ast_data.getKind(parent);
+    if (kind == .ImportEqualsDeclaration and ast_data.getNode(parent).ImportEqualsDeclaration.ModuleReference == node) return true;
+    if (kind == .ExportAssignment and ast_data.getNode(parent).ExportAssignment.Expression == node) return true;
+    return false;
+}
+
+pub fn getBindingElementPropertyName(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (node == 0) return 0;
+    const kind = ast_data.getKind(node);
+    if (kind == .BindingElement) {
+        const be = ast_data.getNode(node).BindingElement;
+        if (be.PropertyName != 0) {
+            return be.PropertyName;
+        }
+        return be.Name;
+    }
+    return 0;
+}
+
+pub fn getExternalModuleRequireArgument(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (ast_utils.isVariableDeclarationInitializedToRequire(ast_data, node)) {
+        const init = ast_data.getNode(node).VariableDeclaration.Initializer.?;
+        if (init != 0 and ast_data.getKind(init) == .CallExpression) {
+            const call = ast_data.getNode(init).CallExpression;
+            if (call.Arguments != 0) {
+                const args = ast_data.getNodeList(call.Arguments);
+                if (args.len > 0) return args[0];
+            }
+        }
+    }
+    return 0;
+}
+
+pub fn getTypeNameSymbol(t: *const types.Type) ?ast_gen.SymbolIndex {
+    if (t.alias != null) {
+        return t.alias.?.symbol;
+    }
+    if ((t.flags & (types.TypeFlags.TypeParameter | types.TypeFlags.StringMapping)) != 0 or (t.objectFlags & (types.ObjectFlags.ClassOrInterface | types.ObjectFlags.Reference)) != 0) {
+        return t.symbol;
+    }
+    return null;
 }

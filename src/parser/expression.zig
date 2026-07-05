@@ -1,7 +1,9 @@
 const std = @import("std");
 const ast_gen = @import("../ast/ast_generated.zig");
 const ast_utils = @import("../ast/ast_utils.zig");
+const ast = @import("../ast/ast.zig");
 const jsx = @import("jsx.zig");
+const core = @import("../core/core.zig");
 
 pub fn isLeftHandSideExpression(p: *parser_pkg.Parser, expr: ast_gen.NodeIndex) bool {
     if (expr == 0) return false;
@@ -117,109 +119,12 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
     }
 
     if (p.token == kind.Kind.LessThanToken or p.token == kind.Kind.OpenParenToken or p.token == kind.Kind.AsyncKeyword) {
-        const mark = p.mark();
-        const isAsync = p.parseOptional(kind.Kind.AsyncKeyword);
-        var modifiers: ?ast_gen.NodeListIndex = null;
-        if (isAsync) {
-            const asyncMod = try p.ast.pushNode(.{ .AsyncKeyword = void{} });
-            modifiers = try p.ast.pushNodeList(&.{asyncMod});
+        if (tryParseParenthesizedArrowFunctionExpression(p, true)) |arrowExpression| {
+            return arrowExpression;
         }
 
-        if (isAsync and p.scanner.hasPrecedingLineBreak()) {
-            p.rewind(mark);
-        } else if (isAsync and p.token == kind.Kind.Identifier and !p.scanner.hasPrecedingLineBreak()) {
-            // Simple async arrow: `async ident => body`
-            // Look ahead to see if this is `ident =>`
-            const isSimpleAsync = p.lookAhead(struct {
-                fn run(p1: *parser_pkg.Parser) bool {
-                    // p1 is already past 'async', now at identifier
-                    p1.nextToken();
-                    return p1.token == kind.Kind.EqualsGreaterThanToken and !p1.scanner.hasPrecedingLineBreak();
-                }
-            }.run);
-            if (isSimpleAsync) {
-                const paramExpr = try p.parseIdentifier();
-
-                const param = try p.ast.pushNode(.{ .Parameter = .{
-                    .Symbol = 0,
-                    .Flags = 0,
-                    .modifiers = null,
-                    .modifierFlags = 0,
-                    .DotDotDotToken = null,
-                    .name = paramExpr,
-                    .QuestionToken = null,
-                    .Type = null,
-                    .Initializer = null,
-                } });
-                const params = try p.ast.pushNodeList(&.{param});
-
-                const equalsGreaterThanToken = try p.ast.pushNode(.{ .EqualsGreaterThanToken = void{} });
-                p.nextToken(); // consume =>
-                var body: ast_gen.NodeIndex = 0;
-                if (p.token == kind.Kind.OpenBraceToken) {
-                    body = try p.parseBlock();
-                } else {
-                    body = try parseAssignmentExpressionOrHigher(p);
-                }
-                return p.ast.pushNode(.{ .ArrowFunction = .{
-                    .Flags = 0,
-                    .Symbol = 0,
-                    .modifiers = modifiers,
-                    .modifierFlags = 256,
-                    .TypeParameters = null,
-                    .Parameters = params,
-                    .Type = null,
-                    .FullSignature = null,
-                    .AsteriskToken = null,
-                    .EqualsGreaterThanToken = equalsGreaterThanToken,
-                    .Body = body,
-                } });
-            } else {
-                p.rewind(mark);
-            }
-        } else {
-            var typeParameters: ?ast_gen.NodeListIndex = null;
-            if (p.token == kind.Kind.LessThanToken) {
-                typeParameters = p.parseTypeParameters() catch null;
-            }
-            var parameters: ?ast_gen.NodeListIndex = null;
-            const diagCountBeforeParams = p.parseDiagnosticsCount;
-            if (p.token == kind.Kind.OpenParenToken) {
-                parameters = p.parseParameters() catch null;
-            }
-            const paramParseHadErrors = p.parseDiagnosticsCount > diagCountBeforeParams;
-            var returnType: ?ast_gen.NodeIndex = null;
-            if (p.parseOptional(kind.Kind.ColonToken)) {
-                returnType = p.parseTypeOrTypePredicate() catch null;
-            }
-
-            if (!paramParseHadErrors and !p.scanner.hasPrecedingLineBreak() and p.token == kind.Kind.EqualsGreaterThanToken and parameters != null) {
-                // It IS a ParenthesizedArrowFunctionExpression!
-                p.nextToken(); // consume =>
-                const equalsGreaterThanToken = try p.ast.pushNode(.{ .EqualsGreaterThanToken = void{} });
-                var body: ast_gen.NodeIndex = 0;
-                if (p.token == kind.Kind.OpenBraceToken) {
-                    body = try p.parseBlock();
-                } else {
-                    body = try parseAssignmentExpressionOrHigher(p);
-                }
-
-                return p.ast.pushNode(.{ .ArrowFunction = .{
-                    .Flags = 0,
-                    .Symbol = 0,
-                    .modifiers = modifiers,
-                    .modifierFlags = if (isAsync) 256 else 0,
-                    .TypeParameters = typeParameters,
-                    .Parameters = parameters.?,
-                    .Type = returnType,
-                    .FullSignature = null,
-                    .AsteriskToken = null,
-                    .EqualsGreaterThanToken = equalsGreaterThanToken,
-                    .Body = body,
-                } });
-            } else {
-                p.rewind(mark);
-            }
+        if (tryParseAsyncSimpleArrowFunctionExpression(p, true)) |asyncArrow| {
+            return asyncArrow;
         }
     }
 
@@ -227,46 +132,7 @@ pub fn parseAssignmentExpressionOrHigher(p: *parser_pkg.Parser) anyerror!ast_gen
 
     if (p.token == kind.Kind.EqualsGreaterThanToken) {
         // Simple Arrow function (e.g. `x => x`)
-        p.nextToken();
-        var parameters: ast_gen.NodeListIndex = 0;
-        if (expr != 0) {
-            const param = try p.ast.pushNode(.{ .Parameter = .{
-                .Symbol = 0,
-                .Flags = 0,
-                .modifiers = null,
-                .modifierFlags = 0,
-                .DotDotDotToken = null,
-                .name = expr,
-                .QuestionToken = null,
-                .Type = null,
-                .Initializer = null,
-            } });
-            parameters = try p.ast.pushNodeList(&.{param});
-        }
-
-        const equalsGreaterThanToken = try p.ast.pushNode(.{ .EqualsGreaterThanToken = void{} });
-        var body: ast_gen.NodeIndex = 0;
-        if (p.token == kind.Kind.OpenBraceToken) {
-            body = try p.parseBlock();
-        } else {
-            body = try parseAssignmentExpressionOrHigher(p);
-        }
-
-        return p.ast.pushNode(.{
-            .ArrowFunction = .{
-                .Flags = 1 << 29, // Custom flag to indicate simple arrow head
-                .Symbol = 0,
-                .modifiers = null,
-                .modifierFlags = 0,
-                .TypeParameters = null,
-                .Parameters = parameters,
-                .Type = null,
-                .FullSignature = null,
-                .AsteriskToken = null,
-                .EqualsGreaterThanToken = equalsGreaterThanToken,
-                .Body = body,
-            },
-        });
+        return try parseSimpleArrowFunctionExpression(p, expr, true, null);
     }
 
     if (isLeftHandSideExpression(p, expr) and isAssignmentOperator(p.reScanGreaterThanToken())) {
@@ -1089,4 +955,285 @@ pub fn parseTemplateMiddleOrTail(p: *parser_pkg.Parser) anyerror!ast_gen.NodeInd
     }
     p.nextToken();
     return result;
+}
+
+pub fn isStartOfExpressionStatement(p: *parser_pkg.Parser) bool {
+    return p.token == kind.Kind.Identifier or p.token == kind.Kind.NumericLiteral or p.token == kind.Kind.StringLiteral or
+        p.token == kind.Kind.OpenParenToken or p.token == kind.Kind.OpenBracketToken or p.token == kind.Kind.FunctionKeyword or
+        p.token == kind.Kind.ClassKeyword or p.token == kind.Kind.AsyncKeyword;
+}
+
+pub fn isParenthesizedArrowFunctionExpression(p: *parser_pkg.Parser) core.Tristate {
+    if (p.token == kind.Kind.OpenParenToken or p.token == kind.Kind.LessThanToken or p.token == kind.Kind.AsyncKeyword) {
+        const state = p.mark();
+        const result = nextIsParenthesizedArrowFunctionExpression(p);
+        p.rewind(state);
+        return result;
+    }
+    if (p.token == kind.Kind.EqualsGreaterThanToken) {
+        return .True;
+    }
+    return .False;
+}
+
+pub fn nextIsParenthesizedArrowFunctionExpression(p: *parser_pkg.Parser) core.Tristate {
+    if (p.token == kind.Kind.AsyncKeyword) {
+        p.nextToken();
+        if (p.scanner.hasPrecedingLineBreak()) {
+            return .False;
+        }
+        if (p.token != kind.Kind.OpenParenToken and p.token != kind.Kind.LessThanToken) {
+            return .False;
+        }
+    }
+    const first = p.token;
+    p.nextToken();
+    const second = p.token;
+    if (first == kind.Kind.OpenParenToken) {
+        if (second == kind.Kind.CloseParenToken) {
+            p.nextToken();
+            const third = p.token;
+            switch (third) {
+                .EqualsGreaterThanToken, .ColonToken, .OpenBraceToken => return .True,
+                else => return .False,
+            }
+        }
+        if (second == kind.Kind.OpenBracketToken or second == kind.Kind.OpenBraceToken) {
+            return .Unknown;
+        }
+        if (second == kind.Kind.DotDotDotToken) {
+            return .True;
+        }
+        if (p.isModifierKind(second) and second != kind.Kind.AsyncKeyword and p.lookAhead(parser_pkg.Parser.nextTokenIsIdentifier)) {
+            p.nextToken();
+            if (p.token == kind.Kind.AsKeyword) {
+                return .False;
+            }
+            return .True;
+        }
+        if (!p.isIdentifier() and second != kind.Kind.ThisKeyword) {
+            return .False;
+        }
+        p.nextToken();
+        switch (p.token) {
+            .ColonToken => return .True,
+            .QuestionToken => {
+                p.nextToken();
+                if (p.token == kind.Kind.ColonToken or p.token == kind.Kind.CommaToken or p.token == kind.Kind.EqualsToken or p.token == kind.Kind.CloseParenToken) {
+                    return .True;
+                }
+                return .False;
+            },
+            .CommaToken, .EqualsToken, .CloseParenToken => return .Unknown,
+            else => return .False,
+        }
+    } else {
+        std.debug.assert(first == kind.Kind.LessThanToken);
+        if (!p.isIdentifier() and p.token != kind.Kind.ConstKeyword) {
+            return .False;
+        }
+        if (p.languageVariant == .JSX) {
+            const isArrowFunctionInJsx = p.lookAhead(struct {
+                fn run(p1: *parser_pkg.Parser) bool {
+                    _ = p1.parseOptional(kind.Kind.ConstKeyword);
+                    p1.nextToken();
+                    const third = p1.token;
+                    if (third == kind.Kind.ExtendsKeyword) {
+                        p1.nextToken();
+                        const fourth = p1.token;
+                        switch (fourth) {
+                            .EqualsToken, .GreaterThanToken, .SlashToken => return false,
+                            else => return true,
+                        }
+                    } else if (third == kind.Kind.CommaToken or third == kind.Kind.EqualsToken) {
+                        return true;
+                    }
+                    return false;
+                }
+            }.run);
+            if (isArrowFunctionInJsx) {
+                return .True;
+            }
+            return .False;
+        }
+        return .Unknown;
+    }
+}
+
+pub fn tryParseParenthesizedArrowFunctionExpression(p: *parser_pkg.Parser, allowReturnTypeInArrowFunction: bool) ?ast_gen.NodeIndex {
+    const tristate = isParenthesizedArrowFunctionExpression(p);
+    if (tristate == .False) {
+        return null;
+    }
+    if (tristate == .True) {
+        return parseParenthesizedArrowFunctionExpression(p, true, allowReturnTypeInArrowFunction);
+    }
+    const state = p.mark();
+    const result = parsePossibleParenthesizedArrowFunctionExpression(p, allowReturnTypeInArrowFunction);
+    if (result == null) {
+        p.rewind(state);
+    }
+    return result;
+}
+
+pub fn parseParenthesizedArrowFunctionExpression(p: *parser_pkg.Parser, allowAmbiguity: bool, allowReturnTypeInArrowFunction: bool) ?ast_gen.NodeIndex {
+    const modifiers = parseModifiersForArrowFunction(p) catch null;
+    const isAsync = modifiers != null;
+
+    const typeParameters = if (p.token == kind.Kind.LessThanToken) p.parseTypeParameters() catch null else null;
+    var parameters: ?ast_gen.NodeListIndex = null;
+
+    if (!p.parseExpected(kind.Kind.OpenParenToken)) {
+        if (!allowAmbiguity) return null;
+        parameters = p.ast.pushNodeList(&.{}) catch 0;
+    } else {
+        parameters = p.parseDelimitedList(.Parameters, parser_pkg.Parser.parseParameterWrapper);
+        if (!p.parseExpected(kind.Kind.CloseParenToken) and !allowAmbiguity) {
+            return null;
+        }
+    }
+
+    var returnType: ?ast_gen.NodeIndex = null;
+    var hasReturnColon = false;
+    if (p.parseOptional(kind.Kind.ColonToken)) {
+        hasReturnColon = true;
+        if (allowAmbiguity or allowReturnTypeInArrowFunction) {
+            returnType = p.parseTypeOrTypePredicate() catch null;
+        }
+    }
+
+    if (!allowAmbiguity and p.token != kind.Kind.EqualsGreaterThanToken and p.token != kind.Kind.OpenBraceToken) {
+        return null;
+    }
+
+    const lastToken = p.token;
+    const equalsGreaterThanToken = p.ast.pushNode(.{ .EqualsGreaterThanToken = void{} }) catch 0;
+    _ = p.parseExpected(kind.Kind.EqualsGreaterThanToken); // Should be =>
+
+    var body: ast_gen.NodeIndex = 0;
+    if (lastToken == kind.Kind.EqualsGreaterThanToken or lastToken == kind.Kind.OpenBraceToken) {
+        body = parseArrowFunctionExpressionBody(p, isAsync, allowReturnTypeInArrowFunction) catch 0;
+    } else {
+        body = p.parseIdentifier() catch 0;
+    }
+
+    if (!allowReturnTypeInArrowFunction and hasReturnColon) {
+        if (p.token != kind.Kind.ColonToken) {
+            return null;
+        }
+    }
+
+    var modifierFlags: u32 = 0;
+    if (isAsync) {
+        modifierFlags |= ast_utils.ModifierFlags.Async;
+    }
+
+    return p.ast.pushNode(.{ .ArrowFunction = .{
+        .Flags = 0,
+        .Symbol = 0,
+        .modifiers = modifiers,
+        .modifierFlags = modifierFlags,
+        .TypeParameters = typeParameters,
+        .Parameters = parameters orelse 0,
+        .Type = returnType,
+        .FullSignature = null,
+        .AsteriskToken = null,
+        .EqualsGreaterThanToken = equalsGreaterThanToken,
+        .Body = body,
+    } }) catch 0;
+}
+
+pub fn parsePossibleParenthesizedArrowFunctionExpression(p: *parser_pkg.Parser, allowReturnTypeInArrowFunction: bool) ?ast_gen.NodeIndex {
+    return parseParenthesizedArrowFunctionExpression(p, false, allowReturnTypeInArrowFunction);
+}
+
+pub fn tryParseAsyncSimpleArrowFunctionExpression(p: *parser_pkg.Parser, allowReturnTypeInArrowFunction: bool) ?ast_gen.NodeIndex {
+    if (p.token == kind.Kind.AsyncKeyword and p.lookAhead(nextIsUnParenthesizedAsyncArrowFunction)) {
+        const modifiers = parseModifiersForArrowFunction(p) catch null;
+        const expr = parseBinaryExpressionOrHigher(p, .Invalid) catch 0;
+        return parseSimpleArrowFunctionExpression(p, expr, allowReturnTypeInArrowFunction, modifiers) catch null;
+    }
+    return null;
+}
+
+pub fn nextIsUnParenthesizedAsyncArrowFunction(p: *parser_pkg.Parser) bool {
+    if (p.token == kind.Kind.AsyncKeyword) {
+        p.nextToken();
+        if (p.scanner.hasPrecedingLineBreak() or p.token == kind.Kind.EqualsGreaterThanToken) {
+            return false;
+        }
+        const expr = parseBinaryExpressionOrHigher(p, .Invalid) catch 0;
+        if (!p.scanner.hasPrecedingLineBreak() and p.ast.getKind(expr) == .Identifier and p.token == kind.Kind.EqualsGreaterThanToken) {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn parseSimpleArrowFunctionExpression(p: *parser_pkg.Parser, identifier: ast_gen.NodeIndex, allowReturnTypeInArrowFunction: bool, asyncModifier: ?ast_gen.NodeListIndex) !ast_gen.NodeIndex {
+    std.debug.assert(p.token == kind.Kind.EqualsGreaterThanToken);
+    const param = try p.ast.pushNode(.{ .Parameter = .{
+        .Symbol = 0,
+        .Flags = 0,
+        .modifiers = null,
+        .modifierFlags = 0,
+        .DotDotDotToken = null,
+        .name = identifier,
+        .QuestionToken = null,
+        .Type = null,
+        .Initializer = null,
+    } });
+    const parameters = try p.ast.pushNodeList(&.{param});
+    const equalsGreaterThanToken = try p.ast.pushNode(.{ .EqualsGreaterThanToken = void{} });
+    p.nextToken(); // consume =>
+    const body = try parseArrowFunctionExpressionBody(p, asyncModifier != null, allowReturnTypeInArrowFunction);
+
+    var modifierFlags: u32 = 0;
+    if (asyncModifier != null) {
+        modifierFlags |= ast_utils.ModifierFlags.Async;
+    }
+
+    return p.ast.pushNode(.{
+        .ArrowFunction = .{
+            .Flags = 1 << 29, // Custom flag to indicate simple arrow head
+            .Symbol = 0,
+            .modifiers = asyncModifier,
+            .modifierFlags = modifierFlags,
+            .TypeParameters = null,
+            .Parameters = parameters,
+            .Type = null,
+            .FullSignature = null,
+            .AsteriskToken = null,
+            .EqualsGreaterThanToken = equalsGreaterThanToken,
+            .Body = body,
+        },
+    });
+}
+
+pub fn parseModifiersForArrowFunction(p: *parser_pkg.Parser) !?ast_gen.NodeListIndex {
+    if (p.token == kind.Kind.AsyncKeyword) {
+        const modifier = try p.ast.pushNode(.{ .AsyncKeyword = void{} });
+        p.nextToken();
+        return try p.ast.pushNodeList(&.{modifier});
+    }
+    return null;
+}
+
+pub fn parseArrowFunctionExpressionBody(p: *parser_pkg.Parser, isAsync: bool, allowReturnTypeInArrowFunction: bool) !ast_gen.NodeIndex {
+    _ = allowReturnTypeInArrowFunction;
+    if (p.token == kind.Kind.OpenBraceToken) {
+        return p.parseBlock();
+    }
+    if (p.token != kind.Kind.SemicolonToken and p.token != kind.Kind.FunctionKeyword and p.token != kind.Kind.ClassKeyword and p.isStartOfStatement() and !isStartOfExpressionStatement(p)) {
+        return p.parseBlock();
+    }
+
+    const saveContextFlags = p.contextFlags;
+    p.setContextFlags(ast_utils.NodeFlags.AwaitContext, isAsync);
+    p.setContextFlags(ast_utils.NodeFlags.YieldContext, false);
+
+    const node = try parseAssignmentExpressionOrHigher(p);
+
+    p.contextFlags = saveContextFlags;
+    return node;
 }

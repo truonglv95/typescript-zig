@@ -3,6 +3,7 @@ const ast_gen = @import("../ast/ast_generated.zig");
 const symbol = @import("../ast/symbol.zig");
 const types = @import("types.zig");
 const checker = @import("checker.zig");
+const relater = @import("relater.zig");
 
 pub const InferenceKey = struct {
     s: types.TypeIndex,
@@ -73,7 +74,7 @@ pub fn inferFromTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: t
     if (!couldContainTypeVariables(c, target) or isNoInferType(c, target)) {
         return;
     }
-    
+
     if (source == wildcardType(c) or source == blockedStringType(c)) {
         const n = &c.inferenceStates.items[n_idx];
         const savePropagationType = n.propagationType;
@@ -82,7 +83,7 @@ pub fn inferFromTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: t
         c.inferenceStates.items[n_idx].propagationType = savePropagationType;
         return;
     }
-    
+
     // Further complex logic stubbed for now
 
 }
@@ -111,6 +112,23 @@ pub fn inferFromContravariantTypes(c: *checker.Checker, n_idx: InferenceStateInd
     n.contravariant = !n.contravariant;
     try inferFromTypes(c, n_idx, source, target);
     c.inferenceStates.items[n_idx].contravariant = !c.inferenceStates.items[n_idx].contravariant;
+}
+
+pub fn inferFromContravariantTypesWithPriority(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.TypeIndex, target: types.TypeIndex, newPriority: i32) !void {
+    const n = &c.inferenceStates.items[n_idx];
+    const savePriority = n.priority;
+    n.priority |= newPriority;
+    try inferFromContravariantTypes(c, n_idx, source, target);
+    c.inferenceStates.items[n_idx].priority = savePriority;
+}
+
+pub fn inferFromContravariantTypesIfStrictFunctionTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.TypeIndex, target: types.TypeIndex) !void {
+    const n = &c.inferenceStates.items[n_idx];
+    if (c.strictFunctionTypes or n.priority & types.InferencePriority.AlwaysStrict != 0) {
+        try inferFromContravariantTypes(c, n_idx, source, target);
+    } else {
+        try inferFromTypes(c, n_idx, source, target);
+    }
 }
 
 pub fn invokeOnce(
@@ -199,7 +217,7 @@ pub fn isDeeplyNestedType(c: *checker.Checker, t: types.TypeIndex, stack: []cons
 pub fn getInferredType(c: *checker.Checker, n_idx: types.InferenceContextIndex, index: usize) types.TypeIndex {
     const ctx_info = &c.inferenceContextInfos.items[n_idx];
     if (ctx_info.context == null) return 0; // Fallback
-    
+
     const ctx = &c.inferenceContexts.items[ctx_info.context.?];
     const inf_idx = ctx.inferences.items[index];
     var inference = &c.inferenceInfos.items[inf_idx];
@@ -223,9 +241,9 @@ pub fn getInferredType(c: *checker.Checker, n_idx: types.InferenceContextIndex, 
             }
 
             if (inferredCovariantType != null or inferredContravariantType != null) {
-                const preferCovariantType = inferredCovariantType != null and 
+                const preferCovariantType = inferredCovariantType != null and
                     (inferredContravariantType == null or preferCovariantTypeLogic(c, inf_idx, inferredCovariantType.?, inferredContravariantType));
-                
+
                 if (preferCovariantType) {
                     inferredType = inferredCovariantType;
                     fallbackType = inferredContravariantType;
@@ -250,17 +268,17 @@ pub fn getInferredType(c: *checker.Checker, n_idx: types.InferenceContextIndex, 
         const constraint = getConstraintOfTypeParameter(c, inference.typeParameter);
         if (constraint) |cst| {
             // Stub constraint logic
-            _ = cst; 
+            _ = cst;
         }
     }
-    
+
     return inference.inferredType.?;
 }
 
 pub fn getInferredTypes(c: *checker.Checker, n_idx: types.InferenceContextIndex) ![]types.TypeIndex {
     const ctx_info = &c.inferenceContextInfos.items[n_idx];
     if (ctx_info.context == null) return &[_]types.TypeIndex{};
-    
+
     const ctx = &c.inferenceContexts.items[ctx_info.context.?];
     var result = try c.allocator.alloc(types.TypeIndex, ctx.inferences.items.len);
     for (ctx.inferences.items, 0..) |_, i| {
@@ -305,53 +323,79 @@ pub fn blockedStringType(c: *checker.Checker) types.TypeIndex {
 // STUBS FOR INFERRED TYPE HELPERS
 // ---------------------------------------------------------
 
-pub fn errorType(c: *checker.Checker) types.TypeIndex { _ = c; return 0; }
-pub fn silentNeverType(c: *checker.Checker) types.TypeIndex { _ = c; return 0; }
-pub fn anyType(c: *checker.Checker) types.TypeIndex { _ = c; return 0; }
-pub fn unknownType(c: *checker.Checker) types.TypeIndex { _ = c; return 0; }
+pub fn errorType(c: *checker.Checker) types.TypeIndex {
+    _ = c;
+    return 0;
+}
+pub fn silentNeverType(c: *checker.Checker) types.TypeIndex {
+    _ = c;
+    return 0;
+}
+pub fn anyType(c: *checker.Checker) types.TypeIndex {
+    _ = c;
+    return 0;
+}
+pub fn unknownType(c: *checker.Checker) types.TypeIndex {
+    _ = c;
+    return 0;
+}
 
 pub fn getCovariantInference(c: *checker.Checker, inf_idx: types.InferenceInfoIndex, signature: types.SignatureIndex) ?types.TypeIndex {
-    _ = c; _ = inf_idx; _ = signature;
+    _ = c;
+    _ = inf_idx;
+    _ = signature;
     return null;
 }
 
 pub fn getContravariantInference(c: *checker.Checker, inf_idx: types.InferenceInfoIndex) ?types.TypeIndex {
-    _ = c; _ = inf_idx;
+    _ = c;
+    _ = inf_idx;
     return null;
 }
 
 pub fn preferCovariantTypeLogic(c: *checker.Checker, inf_idx: types.InferenceInfoIndex, cov: types.TypeIndex, contra: ?types.TypeIndex) bool {
-    _ = c; _ = inf_idx; _ = cov; _ = contra;
+    _ = c;
+    _ = inf_idx;
+    _ = cov;
+    _ = contra;
     return true;
 }
 
 pub fn getDefaultFromTypeParameter(c: *checker.Checker, t: types.TypeIndex) ?types.TypeIndex {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return null;
 }
 
 pub fn instantiateType(c: *checker.Checker, t: types.TypeIndex, mapper: ?types.TypeMapperIndex) types.TypeIndex {
-    _ = c; _ = mapper;
+    _ = c;
+    _ = mapper;
     return t;
 }
 
 pub fn mergeTypeMappers(c: *checker.Checker, a: ?types.TypeMapperIndex, b: ?types.TypeMapperIndex) ?types.TypeMapperIndex {
-    _ = c; _ = a; _ = b;
+    _ = c;
+    _ = a;
+    _ = b;
     return null;
 }
 
 pub fn newBackreferenceMapper(c: *checker.Checker, n_idx: types.InferenceContextIndex, index: usize) ?types.TypeMapperIndex {
-    _ = c; _ = n_idx; _ = index;
+    _ = c;
+    _ = n_idx;
+    _ = index;
     return null;
 }
 
 pub fn getTypeFromInference(c: *checker.Checker, inf_idx: types.InferenceInfoIndex) ?types.TypeIndex {
-    _ = c; _ = inf_idx;
+    _ = c;
+    _ = inf_idx;
     return null;
 }
 
 pub fn getConstraintOfTypeParameter(c: *checker.Checker, t: types.TypeIndex) ?types.TypeIndex {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return null;
 }
 
@@ -396,7 +440,7 @@ pub fn isTypeParameterAtTopLevel(c: *checker.Checker, t: types.TypeIndex, tp: ty
     if (t == tp) return true;
     const type_obj = c.typesList.items[t];
     if ((type_obj.flags & types.TypeFlags.UnionOrIntersection) != 0) {
-        const typeList = getTypes(c, t); 
+        const typeList = getTypes(c, t);
         for (typeList) |ty| {
             if (isTypeParameterAtTopLevel(c, ty, tp, depth)) return true;
         }
@@ -417,10 +461,340 @@ pub fn isTypeParameterAtTopLevelInReturnType(c: *checker.Checker, signature: typ
 
 pub fn getCommonSupertype(c: *checker.Checker, types_list: []const types.TypeIndex) types.TypeIndex {
     if (types_list.len == 1) return types_list[0];
-    
+
     // Stub
     _ = c;
     return types_list[0];
+}
+
+pub fn isTypeOrBaseIdenticalTo(c: *checker.Checker, s: types.TypeIndex, t: types.TypeIndex) bool {
+    if (t == c.missingType) {
+        return s == t;
+    }
+    const t_flags = c.getTypeFlags(t);
+    const s_flags = c.getTypeFlags(s);
+    return c.isTypeIdenticalTo(s, t) != .False or
+        (t_flags & types.TypeFlags.String != 0 and s_flags & types.TypeFlags.StringLiteral != 0) or
+        (t_flags & types.TypeFlags.Number != 0 and s_flags & types.TypeFlags.NumberLiteral != 0);
+}
+
+pub fn isTypeCloselyMatchedBy(c: *checker.Checker, s: types.TypeIndex, t: types.TypeIndex) bool {
+    const s_flags = c.getTypeFlags(s);
+    const t_flags = c.getTypeFlags(t);
+    const s_sym = c.getTypeSymbol(s);
+    const t_sym = c.getTypeSymbol(t);
+    const s_alias = c.getTypeAliasSymbol(s);
+    const t_alias = c.getTypeAliasSymbol(t);
+
+    return (s_flags & types.TypeFlags.Object != 0 and t_flags & types.TypeFlags.Object != 0 and s_sym != null and s_sym == t_sym) or
+        (s_alias != null and t_alias != null and c.getTypeAliasTypeArguments(s).len != 0 and s_alias == t_alias);
+}
+
+pub const MatchingTypesResult = struct {
+    sources: []const types.TypeIndex,
+    targets: []const types.TypeIndex,
+};
+
+pub fn inferFromMatchingTypes(
+    c: *checker.Checker,
+    n_idx: InferenceStateIndex,
+    sources: []const types.TypeIndex,
+    targets: []const types.TypeIndex,
+    matches: *const fn (c: *checker.Checker, s: types.TypeIndex, t: types.TypeIndex) bool,
+) !MatchingTypesResult {
+    var matchedSources = std.ArrayListUnmanaged(types.TypeIndex){};
+    var matchedTargets = std.ArrayListUnmanaged(types.TypeIndex){};
+
+    for (targets) |t| {
+        for (sources) |s| {
+            if (matches(c, s, t)) {
+                try inferFromTypes(c, n_idx, s, t);
+
+                var foundS = false;
+                for (matchedSources.items) |ms| {
+                    if (ms == s) {
+                        foundS = true;
+                        break;
+                    }
+                }
+                if (!foundS) matchedSources.append(c.arena.allocator(), s) catch unreachable;
+
+                var foundT = false;
+                for (matchedTargets.items) |mt| {
+                    if (mt == t) {
+                        foundT = true;
+                        break;
+                    }
+                }
+                if (!foundT) matchedTargets.append(c.arena.allocator(), t) catch unreachable;
+            }
+        }
+    }
+
+    var finalSources = sources;
+    if (matchedSources.items.len != 0) {
+        var newSources = std.ArrayListUnmanaged(types.TypeIndex){};
+        for (sources) |s| {
+            var found = false;
+            for (matchedSources.items) |ms| {
+                if (ms == s) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) newSources.append(c.arena.allocator(), s) catch unreachable;
+        }
+        finalSources = newSources.items;
+    }
+
+    var finalTargets = targets;
+    if (matchedTargets.items.len != 0) {
+        var newTargets = std.ArrayListUnmanaged(types.TypeIndex){};
+        for (targets) |t| {
+            var found = false;
+            for (matchedTargets.items) |mt| {
+                if (mt == t) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) newTargets.append(c.arena.allocator(), t) catch unreachable;
+        }
+        finalTargets = newTargets.items;
+    }
+
+    return MatchingTypesResult{ .sources = finalSources, .targets = finalTargets };
+}
+
+pub fn inferFromGenericMappedTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.TypeIndex, target: types.TypeIndex) !void {
+    try inferFromTypes(c, n_idx, c.getConstraintTypeFromMappedType(source), c.getConstraintTypeFromMappedType(target));
+    try inferFromTypes(c, n_idx, c.getTemplateTypeFromMappedType(source), c.getTemplateTypeFromMappedType(target));
+    const sourceNameType = c.getNameTypeFromMappedType(source);
+    const targetNameType = c.getNameTypeFromMappedType(target);
+    if (sourceNameType != null and targetNameType != null) {
+        try inferFromTypes(c, n_idx, sourceNameType.?, targetNameType.?);
+    }
+}
+
+pub fn inferTypeForHomomorphicMappedType(c: *checker.Checker, source: types.TypeIndex, target: types.TypeIndex, constraintType: types.TypeIndex) ?types.TypeIndex {
+    _ = c;
+    _ = source;
+    _ = target;
+    _ = constraintType;
+    return null;
+}
+
+pub fn inferToMappedType(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.TypeIndex, target: types.TypeIndex, constraintType: types.TypeIndex) !bool {
+    const n = &c.inferenceStates.items[n_idx];
+    const flags = c.getTypeFlags(constraintType);
+
+    if (flags & (types.TypeFlags.Union | types.TypeFlags.Intersection) != 0) {
+        var result = false;
+        for (c.getTypesOfType(constraintType)) |t| {
+            if (try inferToMappedType(c, n_idx, source, target, t)) {
+                result = true;
+            }
+        }
+        return result;
+    }
+
+    if (flags & types.TypeFlags.Index != 0) {
+        if (c.getInferenceInfoForType(n, c.getIndexTypeTarget(constraintType))) |inference| {
+            if (!inference.isFixed and !isFromInferenceBlockedSource(c, source)) {
+                if (inferTypeForHomomorphicMappedType(c, source, target, constraintType)) |inferredType| {
+                    const priority = if (c.getObjectFlags(source) & types.ObjectFlags.NonInferrableType != 0) types.InferencePriority.PartialHomomorphicMappedType else types.InferencePriority.HomomorphicMappedType;
+                    try inferWithPriority(c, n_idx, inferredType, inference.typeParameter, priority);
+                }
+            }
+        }
+        return true;
+    }
+
+    if (flags & types.TypeFlags.TypeParameter != 0) {
+        // false since patternForType isn't fully ported yet
+        const indexFlags = if (false) types.IndexFlags.NoIndexSignatures else types.IndexFlags.None;
+        try inferWithPriority(c, n_idx, c.getIndexTypeEx(source, indexFlags), constraintType, types.InferencePriority.MappedTypeConstraint);
+
+        if (c.getConstraintOfType(constraintType)) |extendedConstraint| {
+            if (try inferToMappedType(c, n_idx, source, target, extendedConstraint)) {
+                return true;
+            }
+        }
+
+        const propTypes = c.getPropertiesOfType(source);
+        const indexInfos = c.getIndexInfosOfType(source);
+        var combined = std.ArrayListUnmanaged(types.TypeIndex){};
+
+        for (propTypes) |prop| {
+            combined.append(c.arena.allocator(), c.getTypeOfSymbol(prop)) catch unreachable;
+        }
+        for (indexInfos) |info| {
+            // Note: need to handle enumNumberIndexInfo comparison if applicable
+            combined.append(c.arena.allocator(), info.valueType) catch unreachable;
+        }
+
+        try inferFromTypes(c, n_idx, c.getUnionType(combined.items), c.getTemplateTypeFromMappedType(target));
+        return true;
+    }
+
+    return false;
+}
+
+pub fn inferFromIndexTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.TypeIndex, target: types.TypeIndex) !void {
+    var priority = types.InferencePriority.None;
+    if (c.getObjectFlags(source) & c.getObjectFlags(target) & types.ObjectFlags.Mapped != 0) {
+        priority = types.InferencePriority.HomomorphicMappedType;
+    }
+    const indexInfos = c.getIndexInfosOfType(target);
+    if (c.isObjectTypeWithInferableIndex(source)) {
+        for (indexInfos) |targetInfo| {
+            var propTypes = std.ArrayListUnmanaged(types.TypeIndex){};
+            defer propTypes.deinit(c.arena.allocator());
+            for (c.getPropertiesOfType(source)) |prop| {
+                if (c.isApplicableIndexType(c.getLiteralTypeFromProperty(prop, types.TypeFlags.StringOrNumberLiteralOrUnique, false), targetInfo.keyType)) {
+                    var propType = c.getTypeOfSymbol(prop);
+                    if (c.getSymbolFlags(prop) & types.SymbolFlags.Optional != 0) {
+                        propType = c.removeMissingOrUndefinedType(propType);
+                    }
+                    try propTypes.append(c.arena.allocator(), propType);
+                }
+            }
+            for (c.getIndexInfosOfType(source)) |info| {
+                if (c.isApplicableIndexType(info.keyType, targetInfo.keyType)) {
+                    try propTypes.append(c.arena.allocator(), info.valueType);
+                }
+            }
+            if (propTypes.items.len != 0) {
+                try inferWithPriority(c, n_idx, c.getUnionType(propTypes.items), targetInfo.valueType, priority);
+            }
+        }
+    }
+    for (indexInfos) |targetInfo| {
+        if (c.getApplicableIndexInfo(source, targetInfo.keyType)) |sourceInfo| {
+            try inferWithPriority(c, n_idx, sourceInfo.valueType, targetInfo.valueType, priority);
+        }
+    }
+}
+
+pub fn inferFromProperties(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.TypeIndex, target: types.TypeIndex) !void {
+    const properties = c.getPropertiesOfObjectType(target);
+    for (properties) |targetProp| {
+        if (c.getPropertyOfType(source, c.symbols.items[targetProp].name)) |sourceProp| {
+            // Note: skipping c.isSkipDirectInferenceNode for now
+            const sourceOptional = c.getSymbolFlags(sourceProp) & types.SymbolFlags.Optional != 0;
+            const targetOptional = c.getSymbolFlags(targetProp) & types.SymbolFlags.Optional != 0;
+            const sourceType = c.removeMissingType(c.getTypeOfSymbol(sourceProp), sourceOptional);
+            const targetType = c.removeMissingType(c.getTypeOfSymbol(targetProp), targetOptional);
+            try inferFromTypes(c, n_idx, sourceType, targetType);
+        }
+    }
+}
+
+pub fn inferFromSignatures(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.TypeIndex, target: types.TypeIndex, kind: types.SignatureKind) !void {
+    const sourceSignatures = c.getSignaturesOfType(source, kind);
+    const targetSignatures = c.getSignaturesOfType(target, kind);
+    const sourceLen = sourceSignatures.len();
+    if (sourceLen > 0) {
+        const targetLen = targetSignatures.len();
+        for (0..targetLen) |i| {
+            var sourceIndex: usize = 0;
+            if (sourceLen + i > targetLen) {
+                sourceIndex = sourceLen + i - targetLen;
+            }
+            try inferFromSignature(c, n_idx, c.getBaseSignature(sourceSignatures.start + @as(u32, @intCast(sourceIndex))), c.getErasedSignature(targetSignatures.start + @as(u32, @intCast(i))));
+        }
+    }
+}
+
+pub fn inferFromSignature(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.SignatureIndex, target: types.SignatureIndex) !void {
+    const n = &c.inferenceStates.items[n_idx];
+    if (c.signatures.items[source].flags & types.SignatureFlags.IsNonInferrable == 0) {
+        const saveBivariant = n.bivariant;
+        var kind = ast_gen.SyntaxKind.Unknown;
+        if (c.signatures.items[target].declaration != ast_gen.NodeIndex.None) {
+            kind = c.nodes.items[c.signatures.items[target].declaration].kind();
+        }
+        n.bivariant = n.bivariant or kind == .MethodDeclaration or kind == .MethodSignature or kind == .Constructor;
+
+        try applyToParameterTypes(c, n_idx, source, target);
+        c.inferenceStates.items[n_idx].bivariant = saveBivariant;
+    }
+    try applyToReturnTypes(c, n_idx, source, target);
+}
+
+pub fn applyToParameterTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.SignatureIndex, target: types.SignatureIndex) !void {
+    const sourceCount = relater.getParameterCount(c, source);
+    const targetCount = relater.getParameterCount(c, target);
+    const sourceRestType = relater.getEffectiveRestType(c, source);
+    const targetRestType = relater.getEffectiveRestType(c, target);
+
+    var targetNonRestCount = targetCount;
+    if (targetRestType != null) {
+        targetNonRestCount -= 1;
+    }
+
+    var paramCount = targetNonRestCount;
+    if (sourceRestType == null) {
+        paramCount = @min(sourceCount, targetNonRestCount);
+    }
+
+    if (relater.getThisTypeOfSignature(c, source)) |sourceThisType| {
+        if (relater.getThisTypeOfSignature(c, target)) |targetThisType| {
+            try inferFromContravariantTypesIfStrictFunctionTypes(c, n_idx, sourceThisType, targetThisType);
+        }
+    }
+
+    for (0..paramCount) |i| {
+        try inferFromContravariantTypesIfStrictFunctionTypes(c, n_idx, relater.getTypeAtPosition(c, source, i), relater.getTypeAtPosition(c, target, i));
+    }
+
+    if (targetRestType) |tRestType| {
+        const readonly = c.isConstTypeVariable(tRestType, 0) and !c.isMutableArrayLikeType(tRestType);
+        if (relater.getRestTypeAtPosition(c, source, paramCount, readonly)) |sRestType| {
+            try inferFromContravariantTypesIfStrictFunctionTypes(c, n_idx, sRestType, tRestType);
+        }
+    }
+}
+
+pub fn applyToReturnTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.SignatureIndex, target: types.SignatureIndex) !void {
+    if (relater.getTypePredicateOfSignature(c, target)) |targetTypePredicate| {
+        if (relater.getTypePredicateOfSignature(c, source)) |sourceTypePredicate| {
+            if (relater.typePredicateKindsMatch(c, sourceTypePredicate, targetTypePredicate)) {
+                if (c.getTypePredicateType(sourceTypePredicate)) |sT| {
+                    if (c.getTypePredicateType(targetTypePredicate)) |tT| {
+                        try inferFromTypes(c, n_idx, sT, tT);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    const targetReturnType = c.getReturnTypeOfSignature(target);
+    if (couldContainTypeVariables(c, targetReturnType)) {
+        try inferFromTypes(c, n_idx, c.getReturnTypeOfSignature(source), targetReturnType);
+    }
+}
+
+pub fn getSingleTypeVariableFromIntersectionTypes(c: *checker.Checker, n: *InferenceState, ts: []const types.TypeIndex) ?types.TypeIndex {
+    var typeVariable: ?types.TypeIndex = null;
+    for (ts) |t| {
+        if (c.getTypeFlags(t) & types.TypeFlags.Intersection == 0) {
+            return null;
+        }
+        var v: ?types.TypeIndex = null;
+        for (c.getTypesOfType(t)) |t_i| {
+            if (c.getInferenceInfoForType(n, t_i) != null) {
+                v = t_i;
+                break;
+            }
+        }
+        if (v == null or (typeVariable != null and v != typeVariable)) {
+            return null;
+        }
+        typeVariable = v;
+    }
+    return typeVariable;
 }
 
 pub fn getSingleCommonSupertype(c: *checker.Checker, types_list: []const types.TypeIndex) types.TypeIndex {
@@ -479,12 +853,14 @@ pub fn literalTypesWithSameBaseType(c: *checker.Checker, types_list: []const typ
 }
 
 pub fn isFromInferenceBlockedSource(c: *checker.Checker, t: types.TypeIndex) bool {
-    _ = c; _ = t;
+    _ = c;
+    _ = t;
     return false;
 }
 
 pub fn isSkipDirectInferenceNode(c: *checker.Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
@@ -539,7 +915,8 @@ pub fn hasInferenceCandidatesOrDefault(c: *checker.Checker, inf_idx: types.Infer
 }
 
 pub fn hasTypeParameterDefault(c: *checker.Checker, tp: types.TypeIndex) bool {
-    _ = c; _ = tp;
+    _ = c;
+    _ = tp;
     return false; // stub
 }
 
@@ -566,14 +943,178 @@ pub fn mergeInferences(c: *checker.Checker, target: []types.InferenceInfoIndex, 
 // ADDITIONAL STUBS FOR INFERRED TYPE HELPERS
 // ---------------------------------------------------------
 
-pub fn isObjectOrArrayLiteralType(c: *checker.Checker, t: types.TypeIndex) bool { _ = c; _ = t; return false; }
-pub fn getUnionTypeEx(c: *checker.Checker, types_list: []const types.TypeIndex) types.TypeIndex { _ = c; return types_list[0]; }
-pub fn getDefaultConstraintOfConditionalType(c: *checker.Checker, t: types.TypeIndex) ?types.TypeIndex { _ = c; _ = t; return null; }
-pub fn maybeTypeOfKind(c: *checker.Checker, t: types.TypeIndex, flags: u32) bool { _ = c; _ = t; _ = flags; return false; }
-pub fn getTypes(c: *checker.Checker, t: types.TypeIndex) []const types.TypeIndex { _ = c; _ = t; return &[_]types.TypeIndex{}; }
-pub fn getTrueTypeFromConditionalType(c: *checker.Checker, t: types.TypeIndex) types.TypeIndex { _ = c; return t; }
-pub fn getFalseTypeFromConditionalType(c: *checker.Checker, t: types.TypeIndex) types.TypeIndex { _ = c; return t; }
-pub fn getTypePredicateOfSignature(c: *checker.Checker, signature: types.SignatureIndex) ?types.TypeIndex { _ = c; _ = signature; return null; }
-pub fn getReturnTypeOfSignature(c: *checker.Checker, signature: types.SignatureIndex) types.TypeIndex { _ = c; _ = signature; return 0; }
-pub fn isTypeSubtypeOf(c: *checker.Checker, s: types.TypeIndex, t: types.TypeIndex) bool { _ = c; _ = s; _ = t; return false; }
-pub fn getBaseTypeOfLiteralType(c: *checker.Checker, t: types.TypeIndex) types.TypeIndex { _ = c; return t; }
+pub fn isObjectOrArrayLiteralType(c: *checker.Checker, t: types.TypeIndex) bool {
+    _ = c;
+    _ = t;
+    return false;
+}
+pub fn getUnionTypeEx(c: *checker.Checker, types_list: []const types.TypeIndex) types.TypeIndex {
+    _ = c;
+    return types_list[0];
+}
+pub fn getDefaultConstraintOfConditionalType(c: *checker.Checker, t: types.TypeIndex) ?types.TypeIndex {
+    _ = c;
+    _ = t;
+    return null;
+}
+pub fn maybeTypeOfKind(c: *checker.Checker, t: types.TypeIndex, flags: u32) bool {
+    _ = c;
+    _ = t;
+    _ = flags;
+    return false;
+}
+pub fn getTypes(c: *checker.Checker, t: types.TypeIndex) []const types.TypeIndex {
+    _ = c;
+    _ = t;
+    return &[_]types.TypeIndex{};
+}
+pub fn getTrueTypeFromConditionalType(c: *checker.Checker, t: types.TypeIndex) types.TypeIndex {
+    _ = c;
+    return t;
+}
+pub fn getFalseTypeFromConditionalType(c: *checker.Checker, t: types.TypeIndex) types.TypeIndex {
+    _ = c;
+    return t;
+}
+pub fn getTypePredicateOfSignature(c: *checker.Checker, signature: types.SignatureIndex) ?types.TypeIndex {
+    _ = c;
+    _ = signature;
+    return null;
+}
+pub fn getReturnTypeOfSignature(c: *checker.Checker, signature: types.SignatureIndex) types.TypeIndex {
+    _ = c;
+    _ = signature;
+    return 0;
+}
+pub fn isTypeSubtypeOf(c: *checker.Checker, s: types.TypeIndex, t: types.TypeIndex) bool {
+    _ = c;
+    _ = s;
+    _ = t;
+    return false;
+}
+pub fn getBaseTypeOfLiteralType(c: *checker.Checker, t: types.TypeIndex) types.TypeIndex {
+    _ = c;
+    return t;
+}
+
+pub fn inferFromObjectTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: types.TypeIndex, target: types.TypeIndex) !void {
+    const n = &c.inferenceStates.items[n_idx];
+    if (c.getObjectFlags(source) & types.ObjectFlags.Reference != 0 and c.getObjectFlags(target) & types.ObjectFlags.Reference != 0 and (c.getTargetType(source) == c.getTargetType(target) or (c.isArrayType(source) and c.isArrayType(target)))) {
+        try c.inferFromTypeArguments(n_idx, c.getTypeArguments(source), c.getTypeArguments(target), c.getVariances(c.getTargetType(source)));
+        return;
+    }
+    if (c.isGenericMappedType(source) and c.isGenericMappedType(target)) {
+        try inferFromGenericMappedTypes(c, n_idx, source, target);
+    }
+    if (c.getObjectFlags(target) & types.ObjectFlags.Mapped != 0 and c.getMappedTypeDeclaration(target).nameType == null) {
+        const constraintType = c.getConstraintTypeFromMappedType(target);
+        if (try inferToMappedType(c, n_idx, source, target, constraintType)) {
+            return;
+        }
+    }
+    if (c.typesDefinitelyUnrelated(source, target)) {
+        return;
+    }
+    if (c.isArrayOrTupleType(source)) {
+        if (c.isTupleType(target)) {
+            const sourceArity = c.getTypeReferenceArity(source);
+            const targetArity = c.getTypeReferenceArity(target);
+            const elementTypes = c.getTypeArguments(target);
+            const elementInfos = c.getTargetTupleType(target).elementInfos;
+
+            if (c.isTupleType(source) and c.isTupleTypeStructureMatching(source, target)) {
+                for (0..targetArity) |i| {
+                    try inferFromTypes(c, n_idx, c.getTypeArguments(source)[i], elementTypes[i]);
+                }
+                return;
+            }
+
+            var startLength: usize = 0;
+            var endLength: usize = 0;
+            if (c.isTupleType(source)) {
+                const sTT = c.getTargetTupleType(source);
+                const tTT = c.getTargetTupleType(target);
+                startLength = @min(sTT.fixedLength, tTT.fixedLength);
+                if (tTT.combinedFlags & types.ElementFlags.Variable != 0) {
+                    endLength = @min(c.getEndElementCount(sTT, types.ElementFlags.Fixed), c.getEndElementCount(tTT, types.ElementFlags.Fixed));
+                }
+            }
+
+            for (0..startLength) |i| {
+                try inferFromTypes(c, n_idx, c.getTypeArguments(source)[i], elementTypes[i]);
+            }
+
+            if (!c.isTupleType(source) or (sourceArity >= startLength + endLength and sourceArity - startLength - endLength == 1 and c.getTargetTupleType(source).elementInfos[startLength].flags & types.ElementFlags.Rest != 0)) {
+                const restType = c.getTypeArguments(source)[startLength];
+                for (startLength..targetArity - endLength) |i| {
+                    var t = restType;
+                    if (elementInfos[i].flags & types.ElementFlags.Variadic != 0) {
+                        t = c.createArrayType(t);
+                    }
+                    try inferFromTypes(c, n_idx, t, elementTypes[i]);
+                }
+            } else {
+                const middleLength = targetArity - startLength - endLength;
+                if (middleLength == 2) {
+                    if (elementInfos[startLength].flags & elementInfos[startLength + 1].flags & types.ElementFlags.Variadic != 0) {
+                        const targetInfo = c.getInferenceInfoForType(n, elementTypes[startLength]);
+                        if (targetInfo != null and targetInfo.?.impliedArity >= 0) {
+                            try inferFromTypes(c, n_idx, c.sliceTupleType(source, startLength, @intCast(endLength + sourceArity - @as(usize, @intCast(targetInfo.?.impliedArity)))), elementTypes[startLength]);
+                            try inferFromTypes(c, n_idx, c.sliceTupleType(source, startLength + @as(usize, @intCast(targetInfo.?.impliedArity)), @intCast(endLength)), elementTypes[startLength + 1]);
+                        }
+                    } else if (elementInfos[startLength].flags & types.ElementFlags.Variadic != 0 and elementInfos[startLength + 1].flags & types.ElementFlags.Rest != 0) {
+                        if (c.getInferenceInfoForType(n, elementTypes[startLength])) |info| {
+                            const constraint = c.getBaseConstraintOfType(info.typeParameter);
+                            if (constraint != null and c.isTupleType(constraint.?) and c.getTargetTupleType(constraint.?).combinedFlags & types.ElementFlags.Variable == 0) {
+                                const impliedArity = c.getTargetTupleType(constraint.?).fixedLength;
+                                try inferFromTypes(c, n_idx, c.sliceTupleType(source, startLength, @intCast(sourceArity - (startLength + impliedArity))), elementTypes[startLength]);
+                                if (c.getElementTypeOfSliceOfTupleType(source, startLength + impliedArity, endLength, false, false)) |restType| {
+                                    try inferFromTypes(c, n_idx, restType, elementTypes[startLength + 1]);
+                                }
+                            }
+                        }
+                    } else if (elementInfos[startLength].flags & types.ElementFlags.Rest != 0 and elementInfos[startLength + 1].flags & types.ElementFlags.Variadic != 0) {
+                        if (c.getInferenceInfoForType(n, elementTypes[startLength + 1])) |info| {
+                            const constraint = c.getBaseConstraintOfType(info.typeParameter);
+                            if (constraint != null and c.isTupleType(constraint.?) and c.getTargetTupleType(constraint.?).combinedFlags & types.ElementFlags.Variable == 0) {
+                                const impliedArity = c.getTargetTupleType(constraint.?).fixedLength;
+                                const endIndex = sourceArity - c.getEndElementCount(c.getTargetTupleType(target), types.ElementFlags.Fixed);
+                                const startIndex = endIndex - impliedArity;
+                                if (startIndex >= startLength) {
+                                    const trailingSlice = c.createTupleTypeEx(c.getTypeArguments(source)[startIndex..endIndex], c.getTargetTupleType(source).elementInfos[startIndex..endIndex], false);
+                                    if (c.getElementTypeOfSliceOfTupleType(source, startLength, @intCast(endLength + impliedArity), false, false)) |restType| {
+                                        try inferFromTypes(c, n_idx, restType, elementTypes[startLength]);
+                                    }
+                                    try inferFromTypes(c, n_idx, trailingSlice, elementTypes[startLength + 1]);
+                                }
+                            }
+                        }
+                    }
+                } else if (middleLength == 1 and elementInfos[startLength].flags & types.ElementFlags.Variadic != 0) {
+                    const priority = if (elementInfos[targetArity - 1].flags & types.ElementFlags.Optional != 0) types.InferencePriority.SpeculativeTuple else types.InferencePriority.None;
+                    const sourceSlice = c.sliceTupleType(source, startLength, @intCast(endLength));
+                    try inferWithPriority(c, n_idx, sourceSlice, elementTypes[startLength], priority);
+                } else if (middleLength == 1 and elementInfos[startLength].flags & types.ElementFlags.Rest != 0) {
+                    if (c.getElementTypeOfSliceOfTupleType(source, startLength, endLength, false, false)) |restType| {
+                        try inferFromTypes(c, n_idx, restType, elementTypes[startLength]);
+                    }
+                }
+            }
+
+            for (0..endLength) |i| {
+                try inferFromTypes(c, n_idx, c.getTypeArguments(source)[sourceArity - i - 1], elementTypes[targetArity - i - 1]);
+            }
+            return;
+        }
+
+        if (c.isArrayType(target)) {
+            try inferFromIndexTypes(c, n_idx, source, target);
+            return;
+        }
+    }
+
+    try inferFromProperties(c, n_idx, source, target);
+    try inferFromSignatures(c, n_idx, source, target, types.SignatureKind.Call);
+    try inferFromSignatures(c, n_idx, source, target, types.SignatureKind.Construct);
+    try inferFromIndexTypes(c, n_idx, source, target);
+}

@@ -222,10 +222,10 @@ pub fn getLspRangeOfNode(ls: *languageservice.LanguageService, fileId: compiler.
     return ls.converters.toLSPRange(ls.getScript(fileId), textRange);
 }
 
-pub fn getRangeOfNode(ls: *languageservice.LanguageService, fileId: compiler.FileId, node: ast.NodeIndex, endNode: ?ast.NodeIndex) core.TextRange {
-    _ = endNode;
+pub fn getRangeOfNode(ls: *languageservice.LanguageService, fileId: compiler.FileId, node: ast.NodeIndex, endNode: ?ast.NodeIndex) ast.TextRange {
     const tree = ls.getAst(fileId);
-    return core.TextRange.init(@intCast(tree.getNodeStart(node)), @intCast(tree.getNodeEnd(node)));
+    _ = endNode;
+    return ast.TextRange{ .pos = @intCast(tree.getNodePos(node)), .end = @intCast(tree.getNodeEnd(node)) };
 }
 
 pub fn isValidReferencePosition(ls: *languageservice.LanguageService, node: ast.NodeIndex, searchSymbolName: []const u8) bool {
@@ -367,6 +367,7 @@ pub fn provideSymbolsAndEntries(
     const position = ls.converters.lineAndCharacterToPosition(script, documentPosition);
 
     const tree = ls.getAst(fileId);
+
     var node = ast_utils.getTouchingPropertyName(tree.getNode(ls.getSourceFileNode(fileId)).SourceFile, tree, position);
     if (isRename) {
         node = getAdjustedLocation(ls, node, true, ls.getSourceFileNode(fileId));

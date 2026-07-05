@@ -91,7 +91,6 @@ fn tscBuildCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8,
             return .{ .status = .DiagnosticsPresent_OutputsSkipped };
         }
         mergeOptions(&project_config.?.options, &parsed.options);
-        resolveProjectPaths(allocator, io, &project_config.?.options, project_dir.?) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
 
         var visiting = std.StringHashMap(void).init(allocator);
         var built = std.StringHashMap(void).init(allocator);
@@ -159,7 +158,6 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
             config_has_errors = true;
         }
         mergeOptions(&project_config.?.options, &parsed.options);
-        resolveProjectPaths(allocator, io, &project_config.?.options, project_dir.?) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
     }
 
     const effective_options = if (project_config) |*config| &config.options else &parsed.options;
@@ -469,26 +467,6 @@ fn mergeOptions(target: *core.CompilerOptions, overrides: *const core.CompilerOp
     inline for (std.meta.fields(core.CompilerOptions)) |field| {
         const value = @field(overrides, field.name);
         if (@typeInfo(field.type) == .optional and value != null) @field(target, field.name) = value;
-    }
-}
-
-fn resolveProjectPaths(allocator: std.mem.Allocator, io: std.Io, options: *core.CompilerOptions, project_dir: []const u8) !void {
-    if (options.outDir) |path| {
-        if (!std.fs.path.isAbsolute(path)) options.outDir = try std.fs.path.join(allocator, &.{ project_dir, path });
-    }
-    if (options.declarationDir) |path| {
-        if (!std.fs.path.isAbsolute(path)) options.declarationDir = try std.fs.path.join(allocator, &.{ project_dir, path });
-    }
-    if (options.tsBuildInfoFile) |path| {
-        if (!std.fs.path.isAbsolute(path)) options.tsBuildInfoFile = try std.fs.path.join(allocator, &.{ project_dir, path });
-    }
-    if (options.baseUrl) |path| {
-        const resolved = if (!std.fs.path.isAbsolute(path)) try std.fs.path.join(allocator, &.{ project_dir, path }) else path;
-        options.baseUrl = canonicalExistingPath(allocator, io, resolved) catch resolved;
-    }
-    if (options.rootDir) |path| {
-        const resolved = if (!std.fs.path.isAbsolute(path)) try std.fs.path.join(allocator, &.{ project_dir, path }) else path;
-        options.rootDir = canonicalExistingPath(allocator, io, resolved) catch resolved;
     }
 }
 
