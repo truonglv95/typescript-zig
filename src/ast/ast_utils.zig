@@ -1,6 +1,13 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const ast_gen = @import("ast_generated.zig");
+
+pub const getTouchingPropertyName = @import("../astnav/tokens.zig").getTouchingPropertyName;
+
+pub fn isPropertyAccessOrQualifiedName(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    const k = tree.getNodeKind(node);
+    return k == .PropertyAccessExpression or k == .QualifiedName;
+}
 const kind = @import("kind.zig");
 const ast_pkg = @import("ast.zig");
 

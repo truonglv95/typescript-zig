@@ -139,7 +139,7 @@ pub const LanguageService = struct {
         const bound = self.program.getBinder(file) orelse @panic("no binder for file");
         const chk = self.allocator.create(checker.Checker) catch @panic("OOM");
         chk.* = checker.Checker.init(self.allocator, bound);
-        chk.checkStatement(unit.source_file) catch unreachable;
+        chk.checkStatementAdHoc(unit.source_file) catch unreachable;
         self.checker_cache.put(file, chk) catch @panic("OOM");
         return chk;
     }
@@ -225,6 +225,15 @@ pub const LanguageService = struct {
         context: ?*lsproto.CompletionContext,
     ) !lsproto.CompletionResponse {
         return completions.provideCompletion(self, allocator, documentURI, position, context);
+    }
+
+    pub fn resolveCompletionItem(
+        self: *LanguageService,
+        allocator: std.mem.Allocator,
+        item: *lsproto.CompletionItem,
+        data: *lsproto.CompletionItemData,
+    ) !lsproto.CompletionResolveResponse {
+        return completions.resolveCompletionItem(self, allocator, item, data);
     }
 
     pub fn provideCodeActions(

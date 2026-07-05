@@ -45,17 +45,23 @@ pub const ArgumentListInfo = struct {
 pub fn provideSignatureHelp(
     ls: *languageservice.LanguageService,
     allocator: std.mem.Allocator,
-    documentURI: []const u8,
+    documentURI: lsproto.DocumentUri,
     position: lsproto.Position,
     context: ?lsproto.SignatureHelpContext,
 ) !?lsproto.SignatureHelp {
-    _ = ls;
-    _ = allocator;
-    _ = documentURI;
-    _ = position;
-    _ = context;
-    // stub
-    return null;
+    const programAndFile = ls.tryGetProgramAndFile(documentURI.fileName()) orelse return null;
+    const script = ls.getScript(programAndFile.file);
+    const pos = ls.converters.*.lineAndCharacterToPosition(script, position);
+
+    const help = try getSignatureHelpItems(
+        ls,
+        allocator,
+        undefined, // ctx stub
+        pos,
+        programAndFile.file,
+        context,
+    );
+    return help;
 }
 
 pub fn getSignatureHelpItems(
@@ -63,17 +69,15 @@ pub fn getSignatureHelpItems(
     allocator: std.mem.Allocator,
     ctx: *anyopaque, // context for cancellation
     position: u32,
-    program: *compiler.Program,
-    sourceFile: ast_gen.NodeIndex,
+    file: compiler.FileId,
     context: ?lsproto.SignatureHelpContext,
 ) !?lsproto.SignatureHelp {
     _ = allocator;
     _ = ctx;
 
-    const typeChecker, const done = try program.getTypeCheckerForFile(sourceFile);
-    defer done();
-
-    const tree = program.getAst(sourceFile);
+    const typeChecker = ls.getTypeCheckerForFile(file);
+    const tree = ls.getAst(file);
+    const sourceFile = ls.getSourceFileNode(file);
 
     const startingToken = astnav_tokens.findPrecedingToken(sourceFile, tree, position);
     if (startingToken == 0) {
@@ -89,18 +93,14 @@ pub fn getSignatureHelpItems(
 
     var triggerReasonKind = signatureHelpTriggerReasonKindInvoked;
     if (context) |c_ctx| {
-        if (std.mem.eql(u8, c_ctx.triggerKind, "TriggerCharacter")) {
+        if (c_ctx.triggerKind == .TriggerCharacter) {
             if (c_ctx.isRetrigger) {
                 triggerReasonKind = signatureHelpTriggerReasonKindRetriggered;
             } else {
                 triggerReasonKind = signatureHelpTriggerReasonKindCharacterTyped;
             }
-        } else if (std.mem.eql(u8, c_ctx.triggerKind, "ContentChange")) {
-            if (c_ctx.isRetrigger) {
-                triggerReasonKind = signatureHelpTriggerReasonKindRetriggered;
-            } else {
-                triggerReasonKind = signatureHelpTriggerReasonKindCharacterTyped;
-            }
+        } else if (c_ctx.triggerKind == .ContentChange) {
+            triggerReasonKind = signatureHelpTriggerReasonKindRetriggered;
         }
     }
 
@@ -123,21 +123,70 @@ pub fn getSignatureHelpItems(
 
 fn createSignatureHelpItems(
     ls: *languageservice.LanguageService,
-    candidates: []checker.types.SignatureIndex,
+    candidates: []const checker.types.SignatureIndex,
     resolvedSignature: checker.types.SignatureIndex,
     argumentInfo: *ArgumentListInfo,
     sourceFile: ast_gen.NodeIndex,
     c: *checker.Checker,
     onlyUseSyntacticOwners: bool,
 ) ?lsproto.SignatureHelp {
-    _ = ls;
-    _ = candidates;
-    _ = resolvedSignature;
-    _ = argumentInfo;
-    _ = sourceFile;
-    _ = c;
     _ = onlyUseSyntacticOwners;
-    return null;
+
+    var signatures = std.ArrayListUnmanaged(lsproto.SignatureInformation).empty;
+
+    var selectedItemIndex: usize = 0;
+    var itemSeen: usize = 0;
+
+    for (candidates, 0..) |candidate, i| {
+        _ = i;
+        const signatureStr = c.signatureToStringEx(candidate, sourceFile, 0, null);
+
+        const params = c.getExpandedParameters(candidate, false);
+        const paramList = params;
+
+        var paramInfos = std.ArrayListUnmanaged(lsproto.ParameterInformation).empty;
+
+        for (paramList) |paramSym| {
+            const symStr = c.symbolToString(paramSym);
+            const typeIdx = c.getTypeOfSymbol(paramSym) catch 0;
+            const typeStr = if (typeIdx != 0) c.typeToString(typeIdx, 0, 0, null) else "";
+
+            const labelStr = if (typeStr.len > 0) std.fmt.allocPrint(ls.allocator, "{s}: {s}", .{ symStr, typeStr }) catch symStr else symStr;
+
+            paramInfos.append(ls.allocator, lsproto.ParameterInformation{
+                .label = labelStr,
+                .documentation = null,
+            }) catch unreachable;
+        }
+
+        var activeParam: ?u32 = null;
+        if (paramList.len > 0) {
+            const argIdx = @as(u32, @intCast(argumentInfo.argumentIndex));
+            activeParam = if (argIdx >= paramList.len) @as(u32, @intCast(paramList.len - 1)) else argIdx;
+        }
+
+        if (candidate == resolvedSignature) {
+            selectedItemIndex = itemSeen;
+        }
+
+        signatures.append(ls.allocator, lsproto.SignatureInformation{
+            .label = signatureStr,
+            .documentation = null,
+            .parameters = paramInfos.items,
+            .activeParameter = activeParam,
+        }) catch unreachable;
+
+        itemSeen += 1;
+    }
+
+    if (signatures.items.len == 0) return null;
+
+    const activeSignature: ?u32 = @as(u32, @intCast(selectedItemIndex));
+    return lsproto.SignatureHelp{
+        .signatures = signatures.items,
+        .activeSignature = activeSignature,
+        .activeParameter = null,
+    };
 }
 
 pub const CandidateOrTypeInfo = struct {
@@ -146,7 +195,7 @@ pub const CandidateOrTypeInfo = struct {
 };
 
 pub const CandidateInfo = struct {
-    candidates: []checker.types.SignatureIndex,
+    candidates: []const checker.types.SignatureIndex,
     resolvedSignature: checker.types.SignatureIndex,
 };
 
@@ -208,10 +257,45 @@ fn tryGetParameterInfo(
     sourceFile: ast_gen.NodeIndex,
     c: *checker.Checker,
 ) ?ArgumentListInfo {
-    _ = tree;
-    _ = startingToken;
-    _ = sourceFile;
-    _ = c;
+    const parent = tree.parents.items[startingToken];
+    const parent_kind = std.meta.activeTag(tree.getNode(parent));
+
+    if (parent_kind == .ParenthesizedExpression or parent_kind == .MethodDeclaration or parent_kind == .FunctionExpression or parent_kind == .ArrowFunction) {
+        if (getArgumentOrParameterListInfo(tree, startingToken, sourceFile, c)) |info| {
+            var contextualType: checker.types.TypeIndex = 0;
+            if (parent_kind == .MethodDeclaration) {
+                contextualType = c.getContextualTypeForObjectLiteralElement(parent, 0);
+            } else {
+                contextualType = c.getContextualType(parent, 0);
+            }
+
+            if (contextualType != 0) {
+                // For simplicity, just get signatures of contextualType
+                const signatures = c.getSignaturesOfType(contextualType, .Call); // Call
+                if (signatures.len > 0) {
+                    const signature = c.resolvedSignaturesPool.items[signatures.start + signatures.len - 1];
+                    const symbol = c.getSymbolOfType(contextualType);
+
+                    return ArgumentListInfo{
+                        .isTypeParameterList = false,
+                        .invocation = .{
+                            .contextual = .{
+                                .signature = signature,
+                                .node = startingToken,
+                                .symbol = symbol,
+                            },
+                        },
+                        .argumentsSpan = info.argumentsSpan,
+                        .argumentIndex = info.argumentIndex,
+                        .argumentCount = info.argumentCount,
+                    };
+                }
+            }
+        }
+    } else if (parent_kind == .BinaryExpression) {
+        // TODO: handle BinaryExpression contextual signature
+    }
+
     return null;
 }
 
@@ -352,7 +436,7 @@ fn getChildListThatStartsWithOpenerToken(
                 if (call_expr.TypeArguments) |v| if (v != 0) return v;
                 return null;
             }
-            if (call_expr.Arguments) |v| if (v != 0) return v;
+            if (call_expr.Arguments != 0) return call_expr.Arguments;
             return null;
         },
         .NewExpression => |new_expr| {
@@ -380,14 +464,10 @@ fn findContainingList(
     // TODO: support TypeArguments when cursor is inside them.
     switch (parent_node) {
         .CallExpression => |call_expr| {
-            if (call_expr.Arguments) |args| {
-                if (args != 0) return args;
-            }
+            if (call_expr.Arguments != 0) return call_expr.Arguments;
         },
         .NewExpression => |new_expr| {
-            if (new_expr.Arguments) |args| {
-                if (args != 0) return args;
-            }
+            if (new_expr.Arguments != 0) return new_expr.Arguments;
         },
         else => {},
     }
@@ -468,15 +548,23 @@ pub fn getCandidateOrTypeInfo(
                 return null;
             }
 
-            // TODO: implement checker.getResolvedSignatureForSignatureHelp
-            return null;
+            const res = checker.services_pkg.getResolvedSignatureForSignatureHelp(c, call.node, info.argumentCount);
+            if (res.candidates.len == 0) return null;
+
+            return CandidateOrTypeInfo{
+                .candidateInfo = .{
+                    .candidates = res.candidates,
+                    .resolvedSignature = if (res.signature != 0) res.signature else res.candidates[0],
+                },
+                .typeInfo = null,
+            };
         },
         .type_args => |type_args| {
             _ = type_args;
             return null;
         },
         .contextual => |contextual| {
-            var candidates = c.arena.alloc(checker.types.SignatureIndex, 1) catch unreachable;
+            var candidates = c.allocator.alloc(checker.types.SignatureIndex, 1) catch unreachable;
             candidates[0] = contextual.signature;
             return CandidateOrTypeInfo{
                 .candidateInfo = .{
@@ -497,5 +585,5 @@ fn isSyntacticOwner(
     _ = tree;
     _ = startingToken;
     _ = node;
-    return false;
+    return true;
 }

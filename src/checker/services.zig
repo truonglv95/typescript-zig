@@ -7,110 +7,40 @@ const TypeIndex = types.TypeIndex;
 const checker_mod = @import("checker.zig");
 const Checker = checker_mod.Checker;
 const SymbolIndex = checker_mod.SymbolIndex;
-const SignatureIndex = checker_mod.SignatureIndex;
+const SignatureIndex = checker_mod.types.SignatureIndex;
 
 pub fn getSymbolsInScope(c: *Checker, location: NodeIndex, meaning: u32) []const SymbolIndex {
-    if ((c.ast.getNodeFlags(location) & ast.NodeFlags.InWithStatement) != 0) {
-        return &[_]SymbolIndex{};
-    }
-
-    var symbols = std.AutoHashMap(SymbolIndex, void).init(c.arena.allocator());
-    var isStaticSymbol = false;
-
+    var symbols = std.AutoHashMap(SymbolIndex, void).init(c.allocator);
     var current: NodeIndex = location;
 
     while (current != 0) {
-        if (c.canHaveLocals(current) and c.ast.getLocals(current) != 0 and !c.ast.isGlobalSourceFile(current)) {
-            const locals = c.ast.getSymbolTable(c.ast.getLocals(current));
-            for (locals) |sym| {
-                if ((c.getSymbolFlags(sym) & meaning) != 0) {
+        if (c.binder.nodeLocals.getPtr(current)) |locals| {
+            var it = locals.iterator();
+            while (it.next()) |entry| {
+                const sym = entry.value_ptr.*;
+                if ((c.binder.symbols.items[sym].Flags & meaning) != 0) {
                     symbols.put(sym, {}) catch unreachable;
                 }
             }
         }
-
-        const kind = c.ast.getKind(current);
-        if (kind == .SourceFile and c.ast.isExternalModule(current) or kind == .ModuleDeclaration) {
-            const exports = c.ast.getSymbolTable(c.getSymbolOfDeclaration(current).exports);
-            for (exports) |sym| {
-                if (c.ast.getDeclarationOfKind(sym, .ExportSpecifier) == 0 and
-                    c.ast.getDeclarationOfKind(sym, .NamespaceExport) == 0 and
-                    !std.mem.eql(u8, c.ast.identifier_text(c.ast.symbol_name(sym)), "default"))
-                {
-                    if ((c.getSymbolFlags(sym) & (meaning & ast.SymbolFlags.ModuleMember)) != 0) {
-                        symbols.put(sym, {}) catch unreachable;
-                    }
-                }
-            }
-        } else if (kind == .EnumDeclaration) {
-            const exports = c.ast.getSymbolTable(c.getSymbolOfDeclaration(current).exports);
-            for (exports) |sym| {
-                if ((c.getSymbolFlags(sym) & (meaning & ast.SymbolFlags.EnumMember)) != 0) {
-                    symbols.put(sym, {}) catch unreachable;
-                }
-            }
-        } else if (kind == .ClassExpression) {
-            const className = c.ast.classExpression_name(current);
-            if (className != 0) {
-                const sym = c.ast.getSymbol(current);
-                if ((c.getSymbolFlags(sym) & meaning) != 0) {
-                    symbols.put(sym, {}) catch unreachable;
-                }
-            }
-            if (!isStaticSymbol) {
-                const members = c.getMembersOfSymbol(c.getSymbolOfDeclaration(current));
-                for (members) |sym| {
-                    if ((c.getSymbolFlags(sym) & (meaning & ast.SymbolFlags.Type)) != 0) {
-                        symbols.put(sym, {}) catch unreachable;
-                    }
-                }
-            }
-        } else if (kind == .ClassDeclaration or kind == .InterfaceDeclaration) {
-            if (!isStaticSymbol) {
-                const members = c.getMembersOfSymbol(c.getSymbolOfDeclaration(current));
-                for (members) |sym| {
-                    if ((c.getSymbolFlags(sym) & (meaning & ast.SymbolFlags.Type)) != 0) {
-                        symbols.put(sym, {}) catch unreachable;
-                    }
-                }
-            }
-        } else if (kind == .FunctionExpression) {
-            const funcName = c.ast.functionExpression_name(current);
-            if (funcName != 0) {
-                const sym = c.ast.getSymbol(current);
-                if ((c.getSymbolFlags(sym) & meaning) != 0) {
-                    symbols.put(sym, {}) catch unreachable;
-                }
-            }
-        }
-
-        if (c.introducesArgumentsExoticObject(current)) {
-            if ((c.getSymbolFlags(c.argumentsSymbol) & meaning) != 0) {
-                symbols.put(c.argumentsSymbol, {}) catch unreachable;
-            }
-        }
-
-        isStaticSymbol = c.ast.isStatic(current);
-        current = c.ast.getParent(current);
+        current = c.binder.ast.getNodeParent(current);
     }
 
-    const globals = c.ast.getSymbolTable(c.globals);
-    for (globals) |sym| {
-        if ((c.getSymbolFlags(sym) & meaning) != 0) {
-            symbols.put(sym, {}) catch unreachable;
-        }
-    }
+    // Add globals
+    // var itGlobals = c.globals.iterator();
+    // while (itGlobals.next()) |entry| {
+    //     const sym = entry.value_ptr.*;
+    //     if ((c.binder.symbols.items[sym].Flags & meaning) != 0) {
+    //         symbols.put(sym, {}) catch unreachable;
+    //     }
+    // }
 
-    var result = std.ArrayList(SymbolIndex).init(c.arena.allocator());
+    var result = std.ArrayListUnmanaged(SymbolIndex).empty;
     var it = symbols.keyIterator();
     while (it.next()) |sym| {
-        const name = c.ast.identifier_text(c.ast.symbol_name(sym.*));
-        if (!std.mem.eql(u8, name, "this")) {
-            result.append(sym.*) catch unreachable;
-        }
+        result.append(c.allocator, sym.*) catch unreachable;
     }
-
-    return result.items;
+    return result.toOwnedSlice(c.allocator) catch unreachable;
 }
 
 pub fn getExportsOfModule(c: *Checker, symbol: SymbolIndex) []const SymbolIndex {
@@ -258,4 +188,44 @@ pub fn getTypeAtLocation(c: *Checker, node: NodeIndex) TypeIndex {
 
 pub fn getReturnTypeOfSignature(c: *Checker, signature: SignatureIndex) TypeIndex {
     return c.getReturnTypeOfSignature(signature);
+}
+
+pub const ResolvedSignatureAndCandidates = struct {
+    signature: SignatureIndex,
+    candidates: []const SignatureIndex,
+};
+
+pub fn runWithoutResolvedSignatureCaching(c: *Checker, node: NodeIndex, comptime T: type, ctx: anytype, comptime callback: fn (*Checker, NodeIndex, @TypeOf(ctx)) T) T {
+    // Port of runWithoutResolvedSignatureCaching
+    // For now, since caching is minimal in Zig stub, we just execute the callback
+    return callback(c, node, ctx);
+}
+
+pub fn getResolvedSignatureWorker(c: *Checker, node: NodeIndex, checkMode: u32, argumentCount: usize) ResolvedSignatureAndCandidates {
+    _ = argumentCount; // We don't have apparentArgumentCount yet
+    var candidatesOutArray = std.ArrayListUnmanaged(SignatureIndex).empty;
+    defer candidatesOutArray.deinit(c.allocator);
+    const res = c.getResolvedSignature(node, &candidatesOutArray, checkMode);
+
+    var finalCandidates: []const SignatureIndex = &[_]SignatureIndex{};
+    if (candidatesOutArray.items.len > 0) {
+        finalCandidates = c.allocator.alloc(SignatureIndex, candidatesOutArray.items.len) catch unreachable;
+        @memcpy(@constCast(finalCandidates.ptr), candidatesOutArray.items);
+    }
+
+    return .{
+        .signature = res,
+        .candidates = finalCandidates,
+    };
+}
+
+pub fn getResolvedSignatureForSignatureHelp(c: *Checker, node: NodeIndex, argumentCount: usize) ResolvedSignatureAndCandidates {
+    const Ctx = struct {
+        argumentCount: usize,
+    };
+    return runWithoutResolvedSignatureCaching(c, node, ResolvedSignatureAndCandidates, Ctx{ .argumentCount = argumentCount }, struct {
+        fn callback(checker: *Checker, n: NodeIndex, ctx: Ctx) ResolvedSignatureAndCandidates {
+            return getResolvedSignatureWorker(checker, n, 1, ctx.argumentCount); // 1 is CheckModeIsForSignatureHelp
+        }
+    }.callback);
 }

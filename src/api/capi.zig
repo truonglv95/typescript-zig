@@ -30,7 +30,7 @@ pub export fn zig_ts_parse_and_check(source: [*]const u8, length: usize, is_jsx:
     var checker = checker_pkg.Checker.init(allocator, &binder);
     defer checker.deinit();
 
-    _ = checker.checkStatement(sourceFileIndex) catch return -4;
+    _ = checker.checkStatementAdHoc(sourceFileIndex) catch return -4;
 
     if (parser.parseDiagnosticsCount > 0) {}
     return @as(i32, @intCast(parser.parseDiagnosticsCount));
@@ -168,7 +168,7 @@ pub export fn zig_ts_get_diagnostics(
 
     var checker = checker_pkg.Checker.init(arena_alloc, &binder);
     defer checker.deinit();
-    _ = checker.checkStatement(sourceFileIndex) catch {};
+    _ = checker.checkStatementAdHoc(sourceFileIndex) catch {};
 
     // Build JSON diagnostics array
     var json = std.ArrayListUnmanaged(u8).empty;

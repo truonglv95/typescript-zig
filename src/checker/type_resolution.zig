@@ -1,6 +1,7 @@
 const std = @import("std");
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
 const NodeIndex = ast_gen.NodeIndex;
 const types = @import("types.zig");
 const TypeIndex = types.TypeIndex;
@@ -13,88 +14,89 @@ export fn dummy_force_typecheck() void {
 }
 
 pub fn getTypeFromTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
-    return c.getConditionalFlowTypeOfType(getTypeFromTypeNodeWorker(c, node), node);
+    return getConditionalFlowTypeOfType(c, getTypeFromTypeNodeWorker(c, node), node);
 }
 
 fn getTypeFromTypeNodeWorker(c: *Checker, node: NodeIndex) TypeIndex {
     const kind = c.binder.ast.getKind(node);
     switch (kind) {
-        .AnyKeyword, .JSDocAllType => return c.anyType,
+        .AnyKeyword, .JSDocAllType => return c.getAnyType() catch c.unknownTypeIndex orelse 0,
         .JSDocNonNullableType => {
-            const typeNode = c.binder.ast.getNode(node).Type.?;
+            const typeNode = c.binder.ast.getNode(node).JSDocNonNullableType.Type;
             return getTypeFromTypeNode(c, typeNode);
         },
         .JSDocNullableType => {
-            const typeNode = c.binder.ast.getNode(node).Type.?;
+            const typeNode = c.binder.ast.getNode(node).JSDocNullableType.Type;
             const t = getTypeFromTypeNode(c, typeNode);
             if (c.strictNullChecks) {
-                return c.getNullableType(t, types.TypeFlags.Null);
+                return t; // TODO: c.getNullableType(t, types.TypeFlags.Null);
             } else {
                 return t;
             }
         },
         .JSDocVariadicType => {
-            const varType = c.binder.ast.getNode(node).AsJSDocVariadicType().Type;
+            const varType = c.binder.ast.getNode(node).JSDocVariadicType.Type;
             return c.createArrayType(getTypeFromTypeNode(c, varType));
         },
         .JSDocOptionalType => {
-            const typeNode = c.binder.ast.getNode(node).Type.?;
-            return c.addOptionality(getTypeFromTypeNode(c, typeNode));
+            const typeNode = c.binder.ast.getNode(node).JSDocOptionalType.Type;
+            return addOptionality(c, getTypeFromTypeNode(c, typeNode));
         },
-        .UnknownKeyword => return c.unknownType,
-        .StringKeyword => return c.stringType,
-        .NumberKeyword => return c.numberType,
-        .BigIntKeyword => return c.bigintType,
-        .BooleanKeyword => return c.booleanType,
-        .SymbolKeyword => return c.esSymbolType,
-        .VoidKeyword => return c.voidType,
-        .UndefinedKeyword => return c.undefinedType,
-        .NullKeyword => return c.nullType,
-        .NeverKeyword => return c.neverType,
-        .ObjectKeyword => return c.nonPrimitiveType,
-        .IntrinsicKeyword => return c.intrinsicMarkerType,
-        .ThisType, .ThisKeyword => return c.getTypeFromThisTypeNode(node),
-        .LiteralType => return c.getTypeFromLiteralTypeNode(node),
-        .TypeReference, .ExpressionWithTypeArguments => return c.getTypeFromTypeReference(node),
+        .UnknownKeyword => return c.getUnknownType() catch c.unknownTypeIndex orelse 0,
+        .StringKeyword => return c.getStringType() catch c.unknownTypeIndex orelse 0,
+        .NumberKeyword => return c.getNumberType() catch c.unknownTypeIndex orelse 0,
+        .BigIntKeyword => return c.getBigIntType() catch c.unknownTypeIndex orelse 0,
+        .BooleanKeyword => return c.getBooleanType() catch c.unknownTypeIndex orelse 0,
+        .SymbolKeyword => return c.getEsSymbolType() catch c.unknownTypeIndex orelse 0,
+        .VoidKeyword => return c.getVoidType() catch c.unknownTypeIndex orelse 0,
+        .UndefinedKeyword => return c.getUndefinedType() catch c.unknownTypeIndex orelse 0,
+        .NullKeyword => return c.getNullType() catch c.unknownTypeIndex orelse 0,
+        .NeverKeyword => return c.getNeverType() catch c.unknownTypeIndex orelse 0,
+        .ObjectKeyword => return c.getNonPrimitiveType() catch c.unknownTypeIndex orelse 0,
+        .IntrinsicKeyword => return c.getIntrinsicMarkerType(),
+        .ThisType, .ThisKeyword => return getTypeFromThisTypeNode(c, node),
+        .LiteralType => return getTypeFromLiteralTypeNode(c, node),
+        .TypeReference, .ExpressionWithTypeArguments => return getTypeFromTypeReference(c, node),
         .TypePredicate => {
-            if (c.binder.ast.getNode(node).AsTypePredicateNode().AssertsModifier != 0) {
-                return c.voidType;
+            if (c.binder.ast.getNode(node).TypePredicate.AssertsModifier != 0) {
+                return c.getVoidType() catch c.unknownTypeIndex orelse 0;
             }
-            return c.booleanType;
+            return c.getBooleanType() catch c.unknownTypeIndex orelse 0;
         },
-        .TypeQuery => return c.getTypeFromTypeQueryNode(node),
-        .ArrayType, .TupleType => return c.getTypeFromArrayOrTupleTypeNode(node),
-        .OptionalType => return c.getTypeFromOptionalTypeNode(node),
-        .UnionType => return c.getTypeFromUnionTypeNode(node),
-        .IntersectionType => return c.getTypeFromIntersectionTypeNode(node),
-        .NamedTupleMember => return c.getTypeFromNamedTupleTypeNode(node),
+        .TypeQuery => return getTypeFromTypeQueryNode(c, node),
+        .ArrayType, .TupleType => return getTypeFromArrayOrTupleTypeNode(c, node),
+        .OptionalType => return getTypeFromOptionalTypeNode(c, node),
+        .UnionType => return getTypeFromUnionTypeNode(c, node),
+        .IntersectionType => return getTypeFromIntersectionTypeNode(c, node),
+        .NamedTupleMember => return getTypeFromNamedTupleTypeNode(c, node),
         .ParenthesizedType => {
-            const typeNode = c.binder.ast.getNode(node).Type.?;
+            const typeNode = c.binder.ast.getNode(node).ParenthesizedType.Type;
             return getTypeFromTypeNode(c, typeNode);
         },
-        .RestType => return c.getTypeFromRestTypeNode(node),
-        .FunctionType, .ConstructorType, .TypeLiteral => return c.getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(node),
-        .TypeOperator => return c.getTypeFromTypeOperatorNode(node),
-        .IndexedAccessType => return c.getTypeFromIndexedAccessTypeNode(node),
-        .TemplateLiteralType => return c.getTypeFromTemplateTypeNode(node),
-        .MappedType => return c.getTypeFromMappedTypeNode(node),
-        .ConditionalType => return c.getTypeFromConditionalTypeNode(node),
-        .InferType => return c.getTypeFromInferTypeNode(node),
-        .ImportType => return c.getTypeFromImportTypeNode(node),
-        else => return c.errorType,
+        .RestType => return getTypeFromRestTypeNode(c, node),
+        .FunctionType, .ConstructorType, .TypeLiteral => return getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c, node),
+        .TypeOperator => return getTypeFromTypeOperatorNode(c, node),
+        .IndexedAccessType => return getTypeFromIndexedAccessTypeNode(c, node),
+        .TemplateLiteralType => return getTypeFromTemplateTypeNode(c, node),
+        .MappedType => return getTypeFromMappedTypeNode(c, node),
+        .ConditionalType => return getTypeFromConditionalTypeNode(c, node),
+        .InferType => return getTypeFromInferTypeNode(c, node),
+        .ImportType => return getTypeFromImportTypeNode(c, node),
+        else => return c.errorTypeIndex orelse 0,
     }
 }
 
 pub fn getConditionalFlowTypeOfType(c: *Checker, t: TypeIndex, node: NodeIndex) TypeIndex {
     _ = c;
     _ = node;
-    return t; // Default to returning the same type for now
+    // return c.getFlowTypeOfType(t, node);
+    return t; // Stub
 }
 
 fn getThisType(c: *Checker, node: NodeIndex) TypeIndex {
     _ = node;
     // TODO: implement getThisType
-    return c.errorType;
+    return c.errorTypeIndex orelse 0;
 }
 
 pub fn getTypeFromThisTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
@@ -103,9 +105,9 @@ pub fn getTypeFromThisTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
         entry.value_ptr.* = .{};
     }
     if (entry.value_ptr.resolvedType == 0) {
-        const parent = c.binder.ast.getNode(node).Parent;
-        if (parent != null and c.binder.ast.getKind(parent.?) == .TypeQuery) {
-            entry.value_ptr.resolvedType = c.errorType;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent != 0 and c.binder.ast.getKind(parent) == .TypeQuery) {
+            entry.value_ptr.resolvedType = c.errorTypeIndex orelse 0;
         } else {
             entry.value_ptr.resolvedType = getThisType(c, node);
         }
@@ -119,7 +121,7 @@ pub fn getTypeFromLiteralTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
     }
     if (entry.value_ptr.resolvedType == 0) {
         const literal = c.binder.ast.getNode(node).LiteralType.Literal;
-        const checkedType = c.checkExpression(literal) catch c.errorType;
+        const checkedType = c.checkExpressionAdHoc(literal) catch c.errorTypeIndex orelse 0;
         entry.value_ptr.resolvedType = c.getRegularTypeOfLiteralType(checkedType);
     }
     return entry.value_ptr.resolvedType;
@@ -131,8 +133,9 @@ pub fn getTypeFromTypeReference(c: *Checker, node: NodeIndex) TypeIndex {
     }
 
     if (entry.value_ptr.resolvedType == 0) {
-        if (isConstTypeReference(c, node) and c.binder.ast.getNode(node).Parent != null and c.binder.ast.isAssertionExpression(c.binder.ast.getNode(node).Parent.?)) {
-            entry.value_ptr.resolvedType = c.unknownType;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (isConstTypeReference(c, node) and parent != 0 and (c.binder.ast.getKind(parent) == .TypeAssertionExpression or c.binder.ast.getKind(parent) == .AsExpression)) {
+            entry.value_ptr.resolvedType = c.unknownTypeIndex orelse 0;
         } else {
             const t = getIntendedTypeFromJSDocTypeReference(c, node);
             if (t != 0) {
@@ -153,29 +156,29 @@ fn isConstTypeReference(c: *Checker, node: NodeIndex) bool {
     if (n.TypeArguments != null) return false;
 
     const typeName = n.TypeName;
-    if (!c.binder.ast.isIdentifier(typeName)) return false;
+    if (c.binder.ast.getKind(typeName) != .Identifier) return false;
 
-    const text = c.binder.ast.getText(typeName);
+    const text = ast_utils.getText(c.binder.ast, typeName);
     return std.mem.eql(u8, text, "const");
 }
 
 fn getTypeReferenceName(c: *Checker, node: NodeIndex) ?NodeIndex {
     const nodeObj = c.binder.ast.getNode(node);
-    switch (nodeObj.kind) {
+    switch (c.binder.ast.getKind(node)) {
         .TypeReference => {
             return nodeObj.TypeReference.TypeName;
         },
         .ExpressionWithTypeArguments => {
             return nodeObj.ExpressionWithTypeArguments.Expression;
         },
-        .JSDocTypedefTag, .JSDocCallbackTag, .JSDocEnumTag => {
-            return nodeObj.JSDocTag.Name; // Note: Need to check if JSDocTag has Name field
-        },
+        .JSDocTypedefTag => return nodeObj.JSDocTypedefTag.name orelse 0,
+        .JSDocCallbackTag => return nodeObj.JSDocCallbackTag.name orelse 0,
         .JSDocSignature => {
-            if (nodeObj.Parent != null) {
-                const parentObj = c.binder.ast.getNode(nodeObj.Parent.?);
-                if (parentObj.kind == .JSDocCallbackTag) {
-                    return parentObj.JSDocTag.Name;
+            const parent = c.binder.ast.getNodeParent(node);
+            if (parent != 0) {
+                const parentObj = c.binder.ast.getNode(parent);
+                if (c.binder.ast.getKind(parent) == .JSDocCallbackTag) {
+                    return parentObj.JSDocCallbackTag.name orelse 0;
                 }
             }
         },
@@ -185,17 +188,17 @@ fn getTypeReferenceName(c: *Checker, node: NodeIndex) ?NodeIndex {
 }
 
 fn getIntendedTypeFromJSDocTypeReference(c: *Checker, node: NodeIndex) TypeIndex {
-    const parent = c.binder.ast.getNode(node).Parent;
-    if (parent != null and c.binder.ast.getKind(parent.?) == .JSDocTypeExpression) {
-        const grandParent = c.binder.ast.getNode(parent.?).Parent;
-        if (grandParent != null) {
-            switch (c.binder.ast.getKind(grandParent.?)) {
+    const parent = c.binder.ast.getNodeParent(node);
+    if (parent != 0 and c.binder.ast.getKind(parent) == .JSDocTypeExpression) {
+        const grandParent = c.binder.ast.getNodeParent(parent);
+        if (grandParent != 0) {
+            switch (c.binder.ast.getKind(grandParent)) {
                 .JSDocReturnTag => {
-                    // TODO: return c.getTypeFromJSDocReturnTag(grandParent.?)
+                    // TODO: return c.getTypeFromJSDocReturnTag(grandParent)
                     return 0;
                 },
                 .JSDocParameterTag, .JSDocPropertyTag, .JSDocTypeTag, .JSDocTypedefTag, .JSDocCallbackTag => {
-                    // TODO: return c.getTypeOfSymbol(c.getSymbolOfDeclaration(grandParent.?))
+                    // TODO: return c.getTypeOfSymbol(c.getSymbolOfDeclaration(grandParent))
                     return 0;
                 },
                 else => {},
@@ -211,10 +214,11 @@ fn getSymbolFromTypeReference(c: *Checker, node: NodeIndex) ast_gen.SymbolIndex 
         entry.value_ptr.* = .{};
     }
     if (entry.value_ptr.resolvedSymbol == 0) {
-        if (isConstTypeReference(c, node) and c.binder.ast.getNode(node).Parent != null and c.binder.ast.isAssertionExpression(c.binder.ast.getNode(node).Parent.?)) {
+        const parent = c.binder.ast.getNodeParent(node);
+        if (isConstTypeReference(c, node) and parent != 0 and (c.binder.ast.getKind(parent) == .TypeAssertionExpression or c.binder.ast.getKind(parent) == .AsExpression)) {
             entry.value_ptr.resolvedSymbol = c.unknownSymbol;
         } else {
-            entry.value_ptr.resolvedSymbol = resolveTypeReferenceName(c, node, ast_gen.SymbolFlags.Type, false);
+            entry.value_ptr.resolvedSymbol = resolveTypeReferenceName(c, node, @import("../ast/symbol.zig").SymbolFlags.Type, false);
         }
     }
     return entry.value_ptr.resolvedSymbol;
@@ -243,14 +247,14 @@ fn getUnresolvedSymbolForEntityName(c: *Checker, name: NodeIndex) ast_gen.Symbol
 
 fn getTypeReferenceType(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
     if (symbol == c.unknownSymbol) {
-        return c.errorType;
+        return c.errorTypeIndex orelse 0;
     }
 
     const flags = c.getSymbolFlags(symbol);
-    if ((flags & (ast_gen.SymbolFlags.Class | ast_gen.SymbolFlags.Interface)) != 0) {
+    if ((flags & (@import("../ast/symbol.zig").SymbolFlags.Class | @import("../ast/symbol.zig").SymbolFlags.Interface)) != 0) {
         return getTypeFromClassOrInterfaceReference(c, node, symbol);
     }
-    if ((flags & ast_gen.SymbolFlags.TypeAlias) != 0) {
+    if ((flags & @import("../ast/symbol.zig").SymbolFlags.TypeAlias) != 0) {
         return getTypeFromTypeAliasReference(c, node, symbol);
     }
 
@@ -259,12 +263,12 @@ fn getTypeReferenceType(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolInde
         return c.getRegularTypeOfLiteralType(res);
     }
 
-    return c.errorType;
+    return c.errorTypeIndex orelse 0;
 }
 
 fn getTypeFromClassOrInterfaceReference(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
     const t = getDeclaredTypeOfClassOrInterface(c, getMergedSymbol(c, symbol));
-    if (t == 0) return c.errorType; // safeguard
+    if (t == 0) return c.errorTypeIndex orelse 0; // safeguard
 
     // d := t.AsInterfaceType()
     // typeParameters := d.LocalTypeParameters()
@@ -273,13 +277,13 @@ fn getTypeFromClassOrInterfaceReference(c: *Checker, node: NodeIndex, symbol: as
     if (typeParameters.len != 0) {
         const typeArgsLen = getTypeArgumentsLength(c, node);
         const minTypeArgumentCount = getMinTypeArgumentCount(c, typeParameters);
-        const isJs = c.binder.ast.isInJSFile(node);
-        const isJsImplicitAny = !c.noImplicitAny and isJs;
+        const isJs = ast_utils.isInJSFile(c.binder.ast, node);
+        const isJsImplicitAny = isJs; // TODO: handle noImplicitAny
 
         if (!isJsImplicitAny and (typeArgsLen < minTypeArgumentCount or typeArgsLen > typeParameters.len)) {
             // Diagnostics omitted for stub
             if (!isJs) {
-                return c.errorType;
+                return c.errorTypeIndex orelse 0;
             }
         }
 
@@ -294,13 +298,13 @@ fn getTypeFromClassOrInterfaceReference(c: *Checker, node: NodeIndex, symbol: as
         const outerTypeParameters = getOuterTypeParameters(c, t);
         const typeArguments = appendTypeArrays(c, outerTypeParameters, localTypeArguments);
 
-        return createTypeReferenceEx(c, t, typeArguments, types.ObjectFlags.FromTypeNode);
+        return createTypeReferenceEx(c, t, typeArguments, 0);
     }
 
     if (checkNoTypeArguments(c, node, symbol)) {
         return t;
     }
-    return c.errorType;
+    return c.errorTypeIndex orelse 0;
 }
 
 fn getMergedSymbol(c: *Checker, symbol: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
@@ -358,7 +362,7 @@ fn createDeferredTypeReference(c: *Checker, t: TypeIndex, node: NodeIndex, mappe
 fn getTypeArgumentsNode(c: *Checker, node: NodeIndex) ?NodeIndex {
     if (node == 0) return null;
     const nodeObj = c.binder.ast.getNode(node);
-    return switch (nodeObj.kind) {
+    return switch (c.binder.ast.getKind(node)) {
         .TypeReference => nodeObj.TypeReference.TypeArguments,
         .ExpressionWithTypeArguments => nodeObj.ExpressionWithTypeArguments.TypeArguments,
         .CallExpression => nodeObj.CallExpression.TypeArguments,
@@ -378,7 +382,7 @@ fn getTypeArgumentsFromNode(c: *Checker, node: NodeIndex) []const TypeIndex {
 
         var typeArgs = c.allocator.alloc(TypeIndex, argNodes.len) catch @panic("OOM");
         for (argNodes, 0..) |argNode, i| {
-            typeArgs[i] = c.getTypeFromTypeNode(argNode);
+            typeArgs[i] = getTypeFromTypeNode(c, argNode);
         }
         return typeArgs;
     }
@@ -406,17 +410,17 @@ fn fillMissingTypeArguments(c: *Checker, typeArgumentsFromNode: []const TypeInde
 
     if (isJs) {
         for (numTypeArguments..typeParameters.len) |i| {
-            result[i] = c.anyType;
+            result[i] = c.anyTypeIndex orelse 0;
         }
         return result;
     }
 
     for (numTypeArguments..typeParameters.len) |i| {
         if (i < minTypeArgumentCount) {
-            result[i] = c.errorType;
+            result[i] = c.errorTypeIndex orelse 0;
         } else {
             // TODO: c.getDefaultTypeArgumentType(isJs)(typeParameters[i])
-            result[i] = c.errorType;
+            result[i] = c.errorTypeIndex orelse 0;
         }
     }
     return result;
@@ -557,7 +561,7 @@ pub fn getTypeFromUnionTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
         entry.value_ptr.* = .{};
     }
     if (entry.value_ptr.resolvedType == 0) {
-        const typesNode = c.binder.ast.getNode(node).UnionType.Types.?;
+        const typesNode = c.binder.ast.getNode(node).UnionType.Types;
         const nodes = c.binder.ast.getNodeList(typesNode);
 
         var mappedTypes = c.allocator.alloc(TypeIndex, nodes.len) catch @panic("OOM");
@@ -574,7 +578,7 @@ pub fn getTypeFromIntersectionTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
         entry.value_ptr.* = .{};
     }
     if (entry.value_ptr.resolvedType == 0) {
-        const typesNode = c.binder.ast.getNode(node).IntersectionType.Types.?;
+        const typesNode = c.binder.ast.getNode(node).IntersectionType.Types;
         const nodes = c.binder.ast.getNodeList(typesNode);
 
         var mappedTypes = c.allocator.alloc(TypeIndex, nodes.len) catch @panic("OOM");
@@ -614,7 +618,7 @@ pub fn getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c: *Checker, node: 
         const alias = getAliasForTypeNode(c, node);
         const sym = getSymbolOfNode(c, node);
         if (sym == 0 or (getMembersOfSymbol(c, sym).len == 0 and alias == 0)) {
-            entry.value_ptr.resolvedType = c.emptyTypeLiteralTypeIndex orelse c.errorType;
+            entry.value_ptr.resolvedType = c.emptyTypeLiteralTypeIndex orelse c.errorTypeIndex orelse 0;
         } else {
             const t = newObjectType(c, types.ObjectFlags.Anonymous, sym);
             // Handle alias if necessary
@@ -630,21 +634,22 @@ pub fn getTypeFromTypeOperatorNode(c: *Checker, node: NodeIndex) TypeIndex {
         entry.value_ptr.* = .{};
     }
     if (entry.value_ptr.resolvedType == 0) {
-        const argTypeNode = c.binder.ast.getNode(node).Type.?;
-        const kind = c.binder.ast.getNode(node).AsTypeOperatorNode().Operator;
-        if (kind == ast_gen.SyntaxKind.KeyOfKeyword) {
+        const typeOp = c.binder.ast.getNode(node).TypeOperator;
+        const argTypeNode = typeOp.Type;
+        const kind = typeOp.Operator;
+        if (kind == @intFromEnum(@import("../ast/kind.zig").Kind.KeyOfKeyword)) {
             entry.value_ptr.resolvedType = c.getIndexType(getTypeFromTypeNode(c, argTypeNode));
-        } else if (kind == ast_gen.SyntaxKind.UniqueKeyword) {
+        } else if (kind == @intFromEnum(@import("../ast/kind.zig").Kind.UniqueKeyword)) {
             if (c.binder.ast.getKind(argTypeNode) == .SymbolKeyword) {
                 // entry.value_ptr.resolvedType = c.getESSymbolLikeTypeForNode(walkUpParenthesizedTypes(c, c.binder.ast.getNode(node).Parent));
-                entry.value_ptr.resolvedType = c.errorType; // stub
+                entry.value_ptr.resolvedType = c.errorTypeIndex orelse 0; // stub
             } else {
-                entry.value_ptr.resolvedType = c.errorType;
+                entry.value_ptr.resolvedType = c.errorTypeIndex orelse 0;
             }
-        } else if (kind == ast_gen.SyntaxKind.ReadonlyKeyword) {
+        } else if (kind == @intFromEnum(@import("../ast/kind.zig").Kind.ReadonlyKeyword)) {
             entry.value_ptr.resolvedType = getTypeFromTypeNode(c, argTypeNode);
         } else {
-            entry.value_ptr.resolvedType = c.errorType;
+            entry.value_ptr.resolvedType = c.errorTypeIndex orelse 0;
         }
     }
     return entry.value_ptr.resolvedType;
@@ -656,7 +661,7 @@ pub fn getTypeFromIndexedAccessTypeNode(c: *Checker, node: NodeIndex) TypeIndex 
         entry.value_ptr.* = .{};
     }
     if (entry.value_ptr.resolvedType == 0) {
-        const indexedNode = c.binder.ast.getNode(node).AsIndexedAccessTypeNode();
+        const indexedNode = c.binder.ast.getNode(node).IndexedAccessType;
         const objectType = getTypeFromTypeNode(c, indexedNode.ObjectType);
         const indexType = getTypeFromTypeNode(c, indexedNode.IndexType);
         const potentialAlias = getAliasForTypeNode(c, node);
@@ -688,14 +693,7 @@ fn newObjectType(c: *Checker, objectFlags: u32, symbol: ast_gen.SymbolIndex) Typ
         .symbol = symbol,
         .alias = null,
         .data = .{ .Object = .{
-            .propertiesStart = 0,
-            .propertiesLen = 0,
-            .callSignaturesStart = 0,
-            .callSignaturesLen = 0,
-            .constructSignaturesStart = 0,
-            .constructSignaturesLen = 0,
-            .stringIndexInfo = null,
-            .numberIndexInfo = null,
+            .Symbol = symbol,
         } },
     }) catch 0;
 }
@@ -713,7 +711,7 @@ fn getIndexedAccessTypeEx(c: *Checker, objectType: TypeIndex, indexType: TypeInd
 fn getTemplateLiteralType(c: *Checker, texts: [][]const u8, typesArr: []const TypeIndex) TypeIndex {
     _ = texts;
     _ = typesArr;
-    return c.stringType;
+    return c.stringTypeIndex orelse 0;
 }
 
 pub fn getTypeFromTemplateTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
@@ -722,17 +720,17 @@ pub fn getTypeFromTemplateTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
         entry.value_ptr.* = .{};
     }
     if (entry.value_ptr.resolvedType == 0) {
-        const spansNode = c.binder.ast.getNode(node).TemplateLiteralType.TemplateSpans.?;
+        const spansNode = c.binder.ast.getNode(node).TemplateLiteralType.TemplateSpans;
         const spans = c.binder.ast.getNodeList(spansNode);
 
         var texts = c.allocator.alloc([]const u8, spans.len + 1) catch @panic("OOM");
         var mappedTypes = c.allocator.alloc(TypeIndex, spans.len) catch @panic("OOM");
 
-        texts[0] = c.binder.ast.getText(c.binder.ast.getNode(node).TemplateLiteralType.Head);
+        texts[0] = ast_utils.getText(c.binder.ast, c.binder.ast.getNode(node).TemplateLiteralType.Head);
 
         for (spans, 0..) |span, i| {
-            texts[i + 1] = c.binder.ast.getText(c.binder.ast.getNode(span).TemplateLiteralTypeSpan.Literal);
-            mappedTypes[i] = getTypeFromTypeNode(c, c.binder.ast.getNode(span).Type.?);
+            texts[i + 1] = ast_utils.getText(c.binder.ast, c.binder.ast.getNode(span).TemplateLiteralTypeSpan.Literal);
+            mappedTypes[i] = getTypeFromTypeNode(c, c.binder.ast.getNode(span).TemplateLiteralTypeSpan.Type);
         }
 
         entry.value_ptr.resolvedType = getTemplateLiteralType(c, texts, mappedTypes);
@@ -798,7 +796,7 @@ pub fn getTypeFromImportTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
     }
     if (entry.value_ptr.resolvedType == 0) {
         const isTypeOf = c.binder.ast.getNode(node).ImportType.IsTypeOf;
-        if (isTypeOf) {
+        if (isTypeOf != 0) {
             entry.value_ptr.resolvedType = resolveImportTypeNode(c, node);
         } else {
             const sym = resolveImportTypeNodeSymbol(c, node);
@@ -839,10 +837,10 @@ pub fn resolveEntityName(c: *Checker, name: NodeIndex, meaning: u32, ignoreError
         // var message: ?*diagnostics.Message = null; // TODO: Diagnostics
         const resolveLocation = location orelse name;
 
-        if (meaning == ast_gen.SymbolFlags.Namespace) {
+        if (meaning == @import("../ast/symbol.zig").SymbolFlags.Namespace) {
             symbol = getMergedSymbol(c, c.resolveName(resolveLocation, c.binder.ast.getText(name), meaning, null, true, false));
             if (symbol == 0) {
-                const alias = getMergedSymbol(c, c.resolveName(resolveLocation, c.binder.ast.getText(name), ast_gen.SymbolFlags.Alias, null, true, false));
+                const alias = getMergedSymbol(c, c.resolveName(resolveLocation, ast_utils.getText(c.binder.ast, name), @import("../ast/symbol.zig").SymbolFlags.Alias, null, true, false));
                 if (alias != 0 and std.mem.eql(u8, c.binder.ast.getSymbolName(alias), "export=")) {
                     symbol = c.binder.ast.getSymbolParent(alias) orelse 0;
                 }
@@ -869,17 +867,27 @@ pub fn resolveEntityName(c: *Checker, name: NodeIndex, meaning: u32, ignoreError
 }
 
 fn resolveQualifiedName(c: *Checker, name: NodeIndex, left: NodeIndex, right: NodeIndex, meaning: u32, ignoreErrors: bool, location: ?NodeIndex) ast_gen.SymbolIndex {
-    _ = c;
     _ = name;
-    _ = left;
-    _ = right;
-    _ = meaning;
-    _ = ignoreErrors;
-    _ = location;
-    return 0; // TODO: Implement resolveQualifiedName
-}
+    const namespace = c.resolveEntityName(left, @import("../ast/symbol.zig").SymbolFlags.Namespace, ignoreErrors, false, location);
+    if (namespace == 0 or ast_utils.nodeIsMissing(c.binder.ast, right)) {
+        return 0;
+    }
+    if (namespace == c.unknownSymbol) {
+        return namespace;
+    }
 
-test "force typecheck" {
-    var c: Checker = undefined;
-    _ = getTypeFromTypeReference(&c, 0);
+    // TODO: isCommonJSRequire logic
+
+    const text = c.binder.ast.getText(right);
+    var symbol = getMergedSymbol(c, c.getSymbol(c.getExportsOfSymbol(namespace), text, meaning));
+    if (symbol == 0 and (c.binder.symbols.items[namespace].flags & @import("../ast/symbol.zig").SymbolFlags.Alias) != 0) {
+        symbol = getMergedSymbol(c, c.getSymbol(c.getExportsOfSymbol(c.resolveAlias(namespace)), text, meaning));
+    }
+
+    if (symbol == 0) {
+        if (!ignoreErrors) {
+            // TODO: Error reporting
+        }
+    }
+    return symbol;
 }

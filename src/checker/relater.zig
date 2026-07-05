@@ -184,7 +184,7 @@ pub const Relater = struct {
                     if (constraint) |cnst| {
                         constraints_alloc.append(cnst) catch unreachable;
                     } else {
-                        constraints_alloc.append(c.unknownType) catch unreachable;
+                        constraints_alloc.append(c.unknownTypeIndex orelse 0) catch unreachable;
                     }
                     same = false;
                 } else {
@@ -744,9 +744,19 @@ pub const Relater = struct {
     }
 
     pub fn getUndefinedStrippedTargetIfNeeded(r: *Relater, source: types.TypeIndex, target: types.TypeIndex) types.TypeIndex {
-        _ = r;
-        _ = source;
-        return target; // Stub
+        const c = r.c;
+        const sourceFlags = c.getTypeFlags(source);
+        const targetFlags = c.getTypeFlags(target);
+        if ((sourceFlags & types.TypeFlags.Union) != 0 and (targetFlags & types.TypeFlags.Union) != 0) {
+            const sourceTypes = c.getTypesOfUnionOrIntersectionType(source);
+            const targetTypes = c.getTypesOfUnionOrIntersectionType(target);
+            if (sourceTypes.len > 0 and targetTypes.len > 0) {
+                if ((c.getTypeFlags(sourceTypes[0]) & types.TypeFlags.Undefined) == 0 and (c.getTypeFlags(targetTypes[0]) & types.TypeFlags.Undefined) != 0) {
+                    return c.extractTypesOfKind(target, ~@as(u32, types.TypeFlags.Undefined));
+                }
+            }
+        }
+        return target;
     }
 
     pub fn typeRelatedToSomeType(r: *Relater, source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool, intersectionState: IntersectionState) types.Ternary {
@@ -1034,7 +1044,7 @@ pub const Relater = struct {
                 var sourceExtends = c.getExtendsTypeFromConditionalType(source);
                 const mapper: ?types.TypeMapperIndex = null;
                 if (sourceParams.len != 0) {
-                    _ = c.newInferenceContext(sourceParams, null, types.InferenceFlags.None, r.isRelatedToWorker);
+                    _ = c.newInferenceContext(sourceParams, null, types.InferenceFlags.None, .RelatedToWorker);
                     // c.inferTypes(ctx.inferences, c.getExtendsTypeFromConditionalType(target), sourceExtends, types.InferencePriority.NoConstraints | types.InferencePriority.AlwaysStrict, false);
                     sourceExtends = c.instantiateType(sourceExtends, 0); // Need context.mapper
                     // mapper = ctx.mapper;
@@ -1472,6 +1482,16 @@ pub const Relater = struct {
         return false; // Stub
     }
 
+    pub fn isRelatedTo(
+        r: *Relater,
+        source: types.TypeIndex,
+        target: types.TypeIndex,
+        recursionFlags: RecursionFlags,
+        reportErrors: bool,
+    ) types.Ternary {
+        return r.isRelatedToEx(source, target, recursionFlags, reportErrors, null, IntersectionState_None);
+    }
+
     pub fn isRelatedToEx(
         self: *Relater,
         originalSource: types.TypeIndex,
@@ -1481,13 +1501,70 @@ pub const Relater = struct {
         headMessage: ?*const diagnostics_gen.Message,
         intersectionState: IntersectionState,
     ) types.Ternary {
-        _ = self;
-        _ = originalSource;
-        _ = originalTarget;
         _ = recursionFlags;
-        _ = reportErrors;
         _ = headMessage;
         _ = intersectionState;
+
+        if (originalSource == originalTarget) return .True;
+
+        const c = self.c;
+        const sourceFlags = c.typesList.items[originalSource].flags;
+        const targetFlags = c.typesList.items[originalTarget].flags;
+
+        if (sourceFlags & types.TypeFlags.Object != 0 and targetFlags & types.TypeFlags.Primitive != 0) {
+            if ((self.relation == &c.comparableRelation and targetFlags & types.TypeFlags.Never == 0 and isSimpleTypeRelatedTo(c, originalTarget, originalSource, self.relation, null)) or
+                isSimpleTypeRelatedTo(c, originalSource, originalTarget, self.relation, null)) // TODO: reportErrors
+            {
+                return .True;
+            }
+            if (reportErrors) {
+                // TODO: reportErrorResults
+            }
+            return .False;
+        }
+
+        const source = c.getNormalizedType(originalSource, false);
+        var target = c.getNormalizedType(originalTarget, true);
+
+        if (source == target) return .True;
+
+        if (self.relation == &c.identityRelation) {
+            const sFlags = c.typesList.items[source].flags;
+            const tFlags = c.typesList.items[target].flags;
+            if (sFlags != tFlags) return .False;
+            if (sFlags & types.TypeFlags.Singleton != 0) return .True;
+            // TODO: traceUnionsOrIntersectionsTooLarge
+            // return recursiveTypeRelatedTo(...)
+        }
+
+        // We fastpath comparing a type parameter to exactly its constraint, as this is _super_ common...
+        if (c.typesList.items[source].flags & types.TypeFlags.TypeParameter != 0 and c.getConstraintOfType(source) == target) {
+            return .True;
+        }
+
+        // See if we're relating a definitely non-nullable type to a union that includes null and/or undefined
+        if (c.typesList.items[source].flags & types.TypeFlags.DefinitelyNonNullable != 0 and c.typesList.items[target].flags & types.TypeFlags.Union != 0) {
+            const unionTypes = c.getTypesFromUnion(target);
+            var candidate: ?types.TypeIndex = null;
+            if (unionTypes.len == 2 and c.typesList.items[unionTypes[0]].flags & types.TypeFlags.Nullable != 0) {
+                candidate = unionTypes[1];
+            } else if (unionTypes.len == 3 and c.typesList.items[unionTypes[0]].flags & types.TypeFlags.Nullable != 0 and c.typesList.items[unionTypes[1]].flags & types.TypeFlags.Nullable != 0) {
+                candidate = unionTypes[2];
+            }
+            if (candidate) |cand| {
+                if (c.typesList.items[cand].flags & types.TypeFlags.Nullable == 0) {
+                    target = c.getNormalizedType(cand, true);
+                    if (source == target) return .True;
+                }
+            }
+        }
+
+        if ((self.relation == &c.comparableRelation and targetFlags & types.TypeFlags.Never == 0 and isSimpleTypeRelatedTo(c, target, source, self.relation, null)) or
+            isSimpleTypeRelatedTo(c, source, target, self.relation, null)) // TODO: reportErrors
+        {
+            return .True;
+        }
+
         return .False; // Stub
     }
 };

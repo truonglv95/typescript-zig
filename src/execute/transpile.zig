@@ -169,7 +169,7 @@ pub fn transpileFile(alloc: std.mem.Allocator, io: std.Io, filepath: []const u8,
 
     const checker_pkg = @import("../checker/checker.zig");
     var chk = checker_pkg.Checker.init(alloc, &b);
-    try chk.checkStatement(astIndex);
+    try chk.checkStatementAdHoc(astIndex);
 
     var emit_resolver = emitresolver_pkg.EmitResolver{};
     var ref_resolver = referenceresolver.ReferenceResolver.init(&p.ast, .{});

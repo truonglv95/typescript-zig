@@ -402,6 +402,11 @@ pub const Parser = struct {
         return self.isIdentifier() or kind.isKeyword(self.token) or self.token == kind.Kind.GreaterThanToken;
     }
 
+    pub fn nextTokenIsIdentifier(self: *Parser) bool {
+        self.nextToken();
+        return self.isIdentifier();
+    }
+
     /// scanClassMemberStart: lookAhead predicate for ClassMembers list
     fn scanClassMemberStart(self: *Parser) bool {
         if (self.token == kind.Kind.AtToken) return true;
@@ -1382,48 +1387,34 @@ pub const Parser = struct {
         } });
     }
 
-    pub fn parseModuleDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
-        var keyword: kind.Kind = undefined;
-        var flags: u32 = 0;
+    pub fn parseModuleOrNamespaceDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32, nested: bool, keyword: kind.Kind, flags: u32) anyerror!ast_gen.NodeIndex {
         var name: ?ast_gen.NodeIndex = null;
-        if (self.token == kind.Kind.GlobalKeyword) {
-            keyword = kind.Kind.GlobalKeyword;
-            flags |= @import("../ast/ast_utils.zig").NodeFlags.GlobalAugmentation;
-            name = try self.parseIdentifier(); // global is parsed as identifier
+        if (nested) {
+            name = try self.parseIdentifierName();
         } else {
-            if (self.parseOptional(kind.Kind.NamespaceKeyword)) {
-                keyword = kind.Kind.NamespaceKeyword;
-                flags |= @import("../ast/ast_utils.zig").NodeFlags.Namespace;
-            } else {
-                _ = self.parseExpected(kind.Kind.ModuleKeyword);
-                keyword = kind.Kind.ModuleKeyword;
-                if (self.token == kind.Kind.StringLiteral) {
-                    name = try @import("expression.zig").parseLiteralExpression(self);
-                }
-            }
-            if (name == null) {
-                name = try self.parseIdentifier();
-            }
+            name = try self.parseIdentifier();
         }
 
         var body: ?ast_gen.NodeIndex = null;
-        if (self.token == kind.Kind.OpenBraceToken) {
-            body = try self.parseModuleBlock();
-        } else if (self.parseOptional(kind.Kind.DotToken)) {
-            body = try self.parseModuleDeclaration(null, 0);
+        const nodeFlags = flags;
+        if (self.parseOptional(kind.Kind.DotToken)) {
+            // Implicit export modifier for nested namespace?
+            // In zig we just set NestedNamespace flag for the inner module
+            body = try self.parseModuleOrNamespaceDeclaration(null, 0, true, keyword, 0);
             if (body != null and body.? != 0) {
                 var inner_node = self.ast.getNode(body.?);
                 if (inner_node == .ModuleDeclaration) {
-                    inner_node.ModuleDeclaration.Flags |= @import("../ast/ast_utils.zig").NodeFlags.NestedNamespace; // NestedNamespace
+                    inner_node.ModuleDeclaration.Flags |= @import("../ast/ast_utils.zig").NodeFlags.NestedNamespace;
                     self.ast.nodes.set(body.?, inner_node);
                 }
             }
         } else {
-            self.parseSemicolon();
+            body = try self.parseModuleBlock();
         }
+
         return self.ast.pushNode(.{ .ModuleDeclaration = .{
             .Symbol = 0,
-            .Flags = flags,
+            .Flags = nodeFlags,
             .modifiers = modifiers,
             .modifierFlags = modifierFlags,
             .AsteriskToken = null,
@@ -1431,6 +1422,57 @@ pub const Parser = struct {
             .Keyword = @intFromEnum(keyword),
             .name = name.?,
         } });
+    }
+
+    pub fn parseModuleDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        var keyword: kind.Kind = kind.Kind.ModuleKeyword;
+        var flags: u32 = 0;
+        var isAmbientExternal = false;
+
+        if (self.token == kind.Kind.GlobalKeyword) {
+            keyword = kind.Kind.GlobalKeyword;
+            flags |= @import("../ast/ast_utils.zig").NodeFlags.GlobalAugmentation;
+            isAmbientExternal = true;
+        } else {
+            if (self.parseOptional(kind.Kind.NamespaceKeyword)) {
+                keyword = kind.Kind.NamespaceKeyword;
+                flags |= @import("../ast/ast_utils.zig").NodeFlags.Namespace;
+            } else {
+                _ = self.parseExpected(kind.Kind.ModuleKeyword);
+                if (self.token == kind.Kind.StringLiteral) {
+                    isAmbientExternal = true;
+                }
+            }
+        }
+
+        if (isAmbientExternal) {
+            var name: ?ast_gen.NodeIndex = null;
+            if (keyword == kind.Kind.GlobalKeyword) {
+                name = try self.parseIdentifier();
+            } else {
+                name = try @import("expression.zig").parseLiteralExpression(self);
+            }
+
+            var body: ?ast_gen.NodeIndex = null;
+            if (self.token == kind.Kind.OpenBraceToken) {
+                body = try self.parseModuleBlock();
+            } else {
+                self.parseSemicolon();
+            }
+
+            return self.ast.pushNode(.{ .ModuleDeclaration = .{
+                .Symbol = 0,
+                .Flags = flags,
+                .modifiers = modifiers,
+                .modifierFlags = modifierFlags,
+                .AsteriskToken = null,
+                .Body = body,
+                .Keyword = @intFromEnum(keyword),
+                .name = name orelse 0,
+            } });
+        }
+
+        return self.parseModuleOrNamespaceDeclaration(modifiers, modifierFlags, false, keyword, flags);
     }
 
     pub fn parseImportDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
@@ -2382,7 +2424,7 @@ pub const Parser = struct {
         return nextNext == kind.Kind.Identifier or nextNext == kind.Kind.OpenBraceToken or nextNext == kind.Kind.OpenBracketToken;
     }
 
-    fn isModifierKind(self: *Parser, token: kind.Kind) bool {
+    pub fn isModifierKind(self: *Parser, token: kind.Kind) bool {
         switch (token) {
             kind.Kind.PublicKeyword, kind.Kind.PrivateKeyword, kind.Kind.ProtectedKeyword, kind.Kind.ReadonlyKeyword, kind.Kind.StaticKeyword, kind.Kind.AbstractKeyword, kind.Kind.AsyncKeyword, kind.Kind.DeclareKeyword, kind.Kind.OverrideKeyword, kind.Kind.AccessorKeyword => return true,
 
@@ -3120,6 +3162,7 @@ pub const Parser = struct {
             return true;
         }
         self.parseError("Expected token");
+        self.nextToken();
         return false;
     }
 

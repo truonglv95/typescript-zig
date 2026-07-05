@@ -47,6 +47,7 @@ pub const TypeFlags = struct {
     pub const Literal: u32 = StringLiteral | NumberLiteral | BigIntLiteral | BooleanLiteral;
     pub const Unit: u32 = Literal | UniqueESSymbol | Undefined | Null;
     pub const Primitive: u32 = String | Number | BigInt | Boolean | ESSymbol | Void | Undefined | Null | Never | Literal | UniqueESSymbol;
+    pub const Intrinsic: u32 = Any | Unknown | String | Number | Boolean | BigInt | ESSymbol | Void | Undefined | Null | Never | NonPrimitive;
     pub const NumberLike: u32 = Number | NumberLiteral | Enum;
     pub const StringLike: u32 = String | StringLiteral | TemplateLiteral | StringMapping;
     pub const BooleanLike: u32 = Boolean | BooleanLiteral;
@@ -70,6 +71,7 @@ pub const TypeFlags = struct {
     pub const IncludesConstrainedTypeVariable: u32 = ESSymbol;
     pub const IncludesMissingType: u32 = TemplateLiteral;
     pub const NotUnionOrUnit: u32 = ~(Union | Unit);
+    pub const DefinitelyNonNullable: u32 = StringLike | NumberLike | BigIntLike | BooleanLike | EnumLike | ESSymbolLike | Object | NonPrimitive;
     pub const Freshable: u32 = Enum | Literal;
 };
 
@@ -137,12 +139,14 @@ pub const TypeData = union(enum) {
         /// Index into an external types list (stored in Checker.unionTypes)
         typesStart: u32,
         typesLen: u32,
+        origin: ?TypeIndex = null,
     },
 
     /// Intersection type: A & B
     Intersection: struct {
         typesStart: u32,
         typesLen: u32,
+        origin: ?TypeIndex = null,
     },
 
     /// Conditional type: T extends U ? X : Y
@@ -181,6 +185,10 @@ pub const TypeData = union(enum) {
     },
 
     StringMapping: struct {
+        target: TypeIndex,
+    },
+
+    Index: struct {
         target: TypeIndex,
     },
 
@@ -349,6 +357,7 @@ pub const AssignmentReducedKey = struct {
 pub const TypeNodeLinks = struct {
     resolvedType: TypeIndex = 0,
     outerTypeParameters: ?[]const TypeIndex = null,
+    restrictiveTypeParameter: ?TypeIndex = null,
 };
 
 pub const Signature = struct {
@@ -384,11 +393,14 @@ pub const Range = struct {
 
 pub const ObjectTypeData = struct {
     Symbol: ?ast_gen.SymbolIndex = null,
+    node: ?ast_gen.NodeIndex = null,
     target: ?TypeIndex = null,
+    mapper: ?TypeMapperIndex = null,
     typeArgumentsStart: u32 = 0,
     typeArgumentsLen: u32 = 0,
     evolvingArrayElementType: ?TypeIndex = null,
     finalArrayType: ?TypeIndex = null,
+    instantiations: ?std.AutoHashMapUnmanaged(CacheHashKey, TypeIndex) = null,
 };
 
 pub const FunctionTypeData = struct {
@@ -498,9 +510,31 @@ pub fn typeToString(t: *const Type, buf: []u8) []u8 {
     return s;
 }
 
+pub const CompareTypesKind = enum {
+    Assignable,
+    AssignableSimple,
+    Identical,
+    SubtypeOf,
+    RelatedToWorker,
+};
+
+pub const InferenceFlags = packed struct(u32) {
+    NoDefault: bool = false,
+    AnyDefault: bool = false,
+    SkippedGenericFunction: bool = false,
+    _pad: u29 = 0,
+
+    pub const None = InferenceFlags{};
+};
+
 pub const InferenceContext = struct {
     inferences: std.ArrayListUnmanaged(u32) = .empty,
     intraExpressionInferenceSites: std.ArrayListUnmanaged(u32) = .empty,
+    signature: ?u32 = null,
+    flags: InferenceFlags = InferenceFlags.None,
+    compareTypes: CompareTypesKind = .Assignable,
+    mapper: u32 = 0,
+    nonFixingMapper: u32 = 0,
 };
 pub const InferenceContextInfo = struct {};
 pub const InferenceInfo = struct {
@@ -697,6 +731,7 @@ pub const CheckFlags = struct {
     pub const None: u32 = 0;
     pub const Readonly: u32 = 1 << 3;
     pub const Partial: u32 = 1 << 4;
+    pub const Late: u32 = 1 << 12;
 };
 
 pub const TypeMapperIndex = u32;
@@ -744,4 +779,166 @@ pub const AliasSymbolLinks = struct {
     aliasTarget: ?ast_gen.SymbolIndex = null,
     referenced: bool = false,
     typeOnlyDeclaration: ?ast_gen.NodeIndex = null,
+};
+
+pub const TypeAliasLinks = struct {
+    declaredType: ?TypeIndex = null,
+    typeParameters: []const TypeIndex = &[_]TypeIndex{},
+    instantiations: ?std.AutoHashMapUnmanaged(CacheHashKey, TypeIndex) = null,
+};
+
+pub const SymbolReferenceLinks = struct {
+    referenceKinds: u32 = 0,
+};
+
+pub const ValueSymbolLinks = struct {
+    resolvedType: ?TypeIndex = null,
+    writeType: ?TypeIndex = null,
+    target: ?ast_gen.SymbolIndex = null,
+    mapper: u32 = 0,
+    nameType: ?TypeIndex = null,
+    containingType: ?TypeIndex = null,
+    functionOrConstructorChecked: bool = false,
+};
+
+pub const MappedSymbolLinks = struct {
+    keyType: ?TypeIndex = null,
+    syntheticOrigin: ?ast_gen.SymbolIndex = null,
+};
+
+pub const DeferredSymbolLinks = struct {
+    parent: ?TypeIndex = null,
+    constituentsStart: u32 = 0,
+    constituentsLen: u32 = 0,
+    writeConstituentsStart: u32 = 0,
+    writeConstituentsLen: u32 = 0,
+};
+
+pub const ModuleSymbolLinks = struct {
+    resolvedExports: u32 = 0, // SymbolTableIndex
+    typeOnlyExportStarMap: u32 = 0,
+    exportsChecked: bool = false,
+};
+
+pub const ReverseMappedSymbolLinks = struct {
+    propertyType: ?TypeIndex = null,
+    mappedType: ?TypeIndex = null,
+    constraintType: ?TypeIndex = null,
+};
+
+pub const LateBoundLinks = struct {
+    lateSymbol: ?ast_gen.SymbolIndex = null,
+};
+
+pub const ExportTypeLinks = struct {
+    target: ?ast_gen.SymbolIndex = null,
+    originatingImport: ?ast_gen.NodeIndex = null,
+};
+
+pub const DeclaredTypeLinks = struct {
+    declaredType: ?TypeIndex = null,
+    interfaceChecked: bool = false,
+    indexSignaturesChecked: bool = false,
+    typeParametersChecked: bool = false,
+    enumChecked: bool = false,
+};
+
+pub const ExhaustiveState = enum(u8) {
+    Unknown = 0,
+    Computing = 1,
+    False = 2,
+    True = 3,
+};
+
+pub const SwitchStatementLinks = struct {
+    exhaustiveState: ExhaustiveState = .Unknown,
+    switchTypesComputed: bool = false,
+    witnessesComputed: bool = false,
+    switchTypesStart: u32 = 0,
+    switchTypesLen: u32 = 0,
+    witnessesStart: u32 = 0,
+    witnessesLen: u32 = 0,
+};
+
+pub const ArrayLiteralLinks = struct {
+    indicesComputed: bool = false,
+    firstSpreadIndex: i32 = -1,
+    lastSpreadIndex: i32 = -1,
+};
+
+pub const MembersOrExportsResolutionKind = enum(u8) {
+    ResolvedExports = 0,
+    ResolvedMembers = 1,
+};
+
+pub const MembersAndExportsLinks = [2]u32; // SymbolTable indices
+
+pub const SpreadLinks = struct {
+    leftSpread: ?ast_gen.SymbolIndex = null,
+    rightSpread: ?ast_gen.SymbolIndex = null,
+};
+
+pub const VarianceFlags = struct {
+    pub const Invariant: u32 = 0;
+    pub const Covariant: u32 = 1 << 0;
+    pub const Contravariant: u32 = 1 << 1;
+    pub const Bivariant: u32 = Covariant | Contravariant;
+    pub const Independent: u32 = 1 << 2;
+    pub const VarianceMask: u32 = Invariant | Covariant | Contravariant | Independent;
+    pub const Unmeasurable: u32 = 1 << 3;
+    pub const Unreliable: u32 = 1 << 4;
+    pub const AllowsStructuralFallback: u32 = Unmeasurable | Unreliable;
+};
+
+pub const VarianceLinks = struct {
+    variancesStart: u32 = 0,
+    variancesLen: u32 = 0,
+};
+
+pub const ParseFlags = struct {
+    pub const None: u32 = 0;
+    pub const Yield: u32 = 1 << 0;
+    pub const Await: u32 = 1 << 1;
+    pub const Type: u32 = 1 << 2;
+    pub const IgnoreMissingOpenBrace: u32 = 1 << 4;
+    pub const JSDoc: u32 = 1 << 5;
+};
+
+pub const ContextFlags = struct {
+    pub const None: u32 = 0;
+    pub const Signature: u32 = 1 << 0;
+    pub const NoConstraints: u32 = 1 << 1;
+    pub const IgnoreNodeInferences: u32 = 1 << 2;
+    pub const SkipBindingPatterns: u32 = 1 << 3;
+};
+
+pub const ExternalEmitHelpers = struct {
+    pub const Rest: u32 = 1 << 0;
+    pub const Decorate: u32 = 1 << 1;
+    pub const Metadata: u32 = 1 << 2;
+    pub const Param: u32 = 1 << 3;
+    pub const Awaiter: u32 = 1 << 4;
+    pub const Await: u32 = 1 << 5;
+    pub const AsyncGenerator: u32 = 1 << 6;
+    pub const AsyncDelegator: u32 = 1 << 7;
+    pub const AsyncValues: u32 = 1 << 8;
+    pub const ExportStar: u32 = 1 << 9;
+    pub const ImportStar: u32 = 1 << 10;
+    pub const ImportDefault: u32 = 1 << 11;
+    pub const MakeTemplateObject: u32 = 1 << 12;
+    pub const ClassPrivateFieldGet: u32 = 1 << 13;
+    pub const ClassPrivateFieldSet: u32 = 1 << 14;
+    pub const ClassPrivateFieldIn: u32 = 1 << 15;
+    pub const SetFunctionName: u32 = 1 << 16;
+    pub const PropKey: u32 = 1 << 17;
+    pub const AddDisposableResourceAndDisposeResources: u32 = 1 << 18;
+    pub const RewriteRelativeImportExtension: u32 = 1 << 19;
+    pub const ESDecorateAndRunInitializers: u32 = Decorate;
+
+    pub const FirstEmitHelper = Rest;
+    pub const LastEmitHelper = RewriteRelativeImportExtension;
+
+    pub const ForAwaitOfIncludes = AsyncValues;
+    pub const AsyncGeneratorIncludes = Await | AsyncGenerator;
+    pub const AsyncDelegatorIncludes = Await | AsyncDelegator | AsyncValues;
 };

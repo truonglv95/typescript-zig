@@ -4,6 +4,7 @@ const std = @import("std");
 pub const embed = @import("embed.zig");
 
 pub const Embedded = embed.embedded;
+pub const embedded = Embedded;
 pub const LibNames = @import("libs_generated.zig").LibNames;
 
 pub fn WrapFS(fs: anytype) @TypeOf(fs) {

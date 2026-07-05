@@ -45,7 +45,8 @@ pub const CompilerBaselineRunner = struct {
         const testSuitName = testType.toString();
         var basePath: []const u8 = undefined;
         if (isSubmodule) {
-            basePath = try std.fmt.allocPrint(allocator, "../_submodules/TypeScript/tests/cases/{s}", .{testSuitName});
+            const tsp = try repo.typeScriptSubmodulePath(allocator);
+            basePath = try std.fmt.allocPrint(allocator, "{s}/tests/cases/{s}", .{ tsp, testSuitName });
         } else {
             basePath = try std.fmt.allocPrint(allocator, "tests/cases/{s}", .{testSuitName});
         }
@@ -76,6 +77,7 @@ pub const CompilerBaselineRunner = struct {
             return self.testFiles;
         }
         const files = try harnessutil.EnumerateFiles(self.allocator, self.basePath, compilerBaselineRegex, true);
+        std.debug.print("Found {d} test files in {s}\n", .{ files.len, self.basePath });
         self.testFiles = files;
         return files;
     }
@@ -159,6 +161,7 @@ pub const CompilerBaselineRunner = struct {
     }
 
     pub fn runTest(self: *CompilerBaselineRunner, filename: []const u8) !void {
+        std.debug.print("Running test: {s}\n", .{filename});
         const test_case = try getCompilerFileBasedTest(self.allocator, filename);
         const basename = tspath.GetBaseFileName(filename);
         if (test_case.configurations.len > 0) {

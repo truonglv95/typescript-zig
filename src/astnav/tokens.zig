@@ -28,6 +28,13 @@ const GetTouchingNodeVisitor = struct {
             }
         }
     }
+
+    pub fn visitList(self: *@This(), list: u32) anyerror!void {
+        for (self.tree.getNodeList(list)) |child| {
+            try self.visitNode(child);
+            if (self.found != 0) break;
+        }
+    }
 };
 
 pub fn getTouchingPropertyName(sourceFile: ast.NodeIndex, a: *ast.Ast, position: u32) ast.NodeIndex {

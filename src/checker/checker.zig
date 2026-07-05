@@ -4,7 +4,7 @@ const ast = @import("../ast/ast.zig");
 const symbol = @import("../ast/symbol.zig");
 const binder = @import("../binder/binder.zig");
 const nameresolver = @import("../binder/nameresolver.zig");
-const types = @import("types.zig");
+pub const types = @import("types.zig");
 const flow = @import("flow.zig");
 const ast_flow = @import("../ast/flow.zig");
 const kind = @import("../ast/kind.zig");
@@ -32,6 +32,7 @@ pub const printer_mod = @import("printer.zig");
 pub const services_pkg = @import("services.zig");
 pub const nodecopy_pkg = @import("nodecopy.zig");
 pub const type_resolution_pkg = @import("type_resolution.zig");
+pub const SymbolIndex = ast_gen.SymbolIndex;
 
 pub const EnumRelationKey = packed struct(u64) {
     sourceId: ast_gen.SymbolIndex,
@@ -53,6 +54,42 @@ pub const CheckMode = enum(u32) {
 pub const symbolaccessibility = @import("symbolaccessibility.zig");
 
 pub const Checker = struct {
+    pub fn signatureToStringEx(self: *Checker, signature: types.SignatureIndex, enclosingDeclaration: ast_gen.NodeIndex, flags: u32, vc: ?*anyopaque) []const u8 {
+        _ = self;
+        _ = signature;
+        _ = enclosingDeclaration;
+        _ = flags;
+        _ = vc;
+        return "";
+    }
+
+    pub fn getExpandedParameters(self: *Checker, signatureIdx: types.SignatureIndex, isJSDoc: bool) []const ast_gen.SymbolIndex {
+        _ = isJSDoc;
+        const sig = self.signatures.items[signatureIdx];
+        return self.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+    }
+
+    pub fn getContextualTypeForObjectLiteralElement(self: *Checker, element: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
+        _ = self;
+        _ = element;
+        _ = contextFlags;
+        return 0;
+    }
+
+    pub fn getContextualTypeForArgumentAtIndex(self: *Checker, node: ast_gen.NodeIndex, argIndex: usize) types.TypeIndex {
+        _ = self;
+        _ = node;
+        _ = argIndex;
+        return 0;
+    }
+
+    pub fn getContextualType(self: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
+        _ = self;
+        _ = node;
+        _ = contextFlags;
+        return 0;
+    }
+
     pub fn isFunctionType(c: *Checker, t: types.TypeIndex) bool {
         return (c.getTypeFlags(t) & types.TypeFlags.Object) != 0 and c.getSignaturesOfType(t, .Call).len > 0;
     }
@@ -187,6 +224,21 @@ pub const Checker = struct {
     antecedentTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
     nodeFlowNodes: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, ast_flow.FlowNodeIndex) = .empty,
     symbolContainerLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ContainingSymbolLinks) = .empty,
+    typeAliasLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.TypeAliasLinks) = .empty,
+    symbolReferenceLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.SymbolReferenceLinks) = .empty,
+    valueSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ValueSymbolLinks) = .empty,
+    mappedSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.MappedSymbolLinks) = .empty,
+    deferredSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.DeferredSymbolLinks) = .empty,
+    moduleSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ModuleSymbolLinks) = .empty,
+    reverseMappedSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ReverseMappedSymbolLinks) = .empty,
+    lateBoundLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.LateBoundLinks) = .empty,
+    exportTypeLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ExportTypeLinks) = .empty,
+    declaredTypeLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.DeclaredTypeLinks) = .empty,
+    switchStatementLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.SwitchStatementLinks) = .empty,
+    arrayLiteralLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.ArrayLiteralLinks) = .empty,
+    membersAndExportsLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.MembersAndExportsLinks) = .empty,
+    spreadLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.SpreadLinks) = .empty,
+    varianceLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.VarianceLinks) = .empty,
 
     // Pools for resolved members
     resolvedPropertiesPool: std.ArrayListUnmanaged(ast_gen.SymbolIndex) = .empty,
@@ -195,6 +247,9 @@ pub const Checker = struct {
     resolvedStructuredTypeMembers: std.AutoHashMapUnmanaged(types.TypeIndex, types.StructuredTypeMembers) = .empty,
     resolvedDeclaredMembers: std.AutoHashMapUnmanaged(types.TypeIndex, types.StructuredTypeMembers) = .empty,
     resolvedUnionOrIntersectionProperties: std.AutoHashMapUnmanaged(types.TypeIndex, types.Range) = .empty,
+
+    numberLiteralTypes: std.AutoHashMapUnmanaged(f64, types.TypeIndex) = .empty,
+    stringLiteralTypes: std.StringHashMapUnmanaged(types.TypeIndex) = .empty,
 
     // Signatures
     signatures: std.ArrayListUnmanaged(types.Signature) = .empty,
@@ -240,6 +295,7 @@ pub const Checker = struct {
     emptyTypeLiteralTypeIndex: ?u32 = null,
     emptyGenericTypeIndex: ?u32 = null,
     emptyObjectTypeIndex: ?u32 = null,
+    intrinsicMarkerTypeIndex: ?u32 = null,
 
     unknownSymbol: ast_gen.SymbolIndex = 0,
 
@@ -272,12 +328,13 @@ pub const Checker = struct {
     freeRelater: ?*relater.Relater = null,
     typeToStringNodebuilder: ?*nodebuilder.NodeBuilder = null,
     ownedDiagnosticArgs: std.ArrayListUnmanaged([]const []const u8) = .empty,
+    ownedStrings: std.ArrayListUnmanaged([]const u8) = .empty,
 
     typeNodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.TypeNodeLinks) = .empty,
-    stringLiteralTypes: std.StringHashMapUnmanaged(types.TypeIndex) = .empty,
     symbolNodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.SymbolNodeLinks) = .empty,
     mergedSymbols: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, ast_gen.SymbolIndex) = .empty,
     assignmentReducedTypes: std.AutoHashMapUnmanaged(types.AssignmentReducedKey, types.TypeIndex) = .empty,
+    restrictiveTypeParameterCache: std.AutoHashMapUnmanaged(types.TypeIndex, types.TypeIndex) = .empty,
 
     // Inference state pool
     inferenceStates: std.ArrayListUnmanaged(inference.InferenceState) = .empty,
@@ -285,6 +342,8 @@ pub const Checker = struct {
     inferenceContextInfos: std.ArrayListUnmanaged(types.InferenceContextInfo) = .empty,
     inferenceContexts: std.ArrayListUnmanaged(types.InferenceContext) = .empty,
     inferenceInfos: std.ArrayListUnmanaged(types.InferenceInfo) = .empty,
+
+    canCollectSymbolAliasAccessibilityData: bool = true,
 
     // Added for EmitResolver
     enumMemberLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.EnumMemberLink) = .empty,
@@ -312,6 +371,8 @@ pub const Checker = struct {
         }
         for (self.ownedDiagnosticArgs.items) |args| self.allocator.free(args);
         self.ownedDiagnosticArgs.deinit(self.allocator);
+        for (self.ownedStrings.items) |s| self.allocator.free(s);
+        self.ownedStrings.deinit(self.allocator);
         self.typesList.deinit(self.allocator);
         self.unionTypesPool.deinit(self.allocator);
         self.tupleTypesPool.deinit(self.allocator);
@@ -358,7 +419,7 @@ pub const Checker = struct {
         self.inferenceInfos.deinit(self.allocator);
     }
 
-    fn createType(self: *Checker, t: types.Type) !u32 {
+    pub fn createType(self: *Checker, t: types.Type) !u32 {
         const index = @as(u32, @intCast(self.typesList.items.len));
         try self.typesList.append(self.allocator, t);
         return index;
@@ -1008,6 +1069,16 @@ pub const Checker = struct {
         return "symbol";
     }
 
+    pub fn getNormalizedType(self: *Checker, t: types.TypeIndex, writing: bool) types.TypeIndex {
+        _ = writing;
+        const typeData = &self.typesList.items[t];
+        if (typeData.objectFlags & types.ObjectFlags.FreshLiteral != 0) {
+            // It should return the regular type for literal, but we stub it for now
+            // Need to port getRegularTypeOfLiteralType
+        }
+        return t; // Stub
+    }
+
     pub fn TypeToStringEx(self: *Checker, t: types.TypeIndex, enclosingDeclaration: ast_gen.NodeIndex, formatFlags: u32, tracer: ?*nodebuilder.VerbosityContext) []const u8 {
         if (t == 0) return "any";
         const typeData = &self.typesList.items[t];
@@ -1022,6 +1093,24 @@ pub const Checker = struct {
         if (typeData.flags & types.TypeFlags.Never != 0) return "never";
         if (typeData.flags & types.TypeFlags.BigInt != 0) return "bigint";
 
+        if (typeData.flags & types.TypeFlags.StringLiteral != 0) {
+            const str = std.fmt.allocPrint(self.allocator, "\"{s}\"", .{typeData.data.StringLiteral.text}) catch return "string";
+            self.ownedStrings.append(self.allocator, str) catch {};
+            return str;
+        }
+        if (typeData.flags & types.TypeFlags.NumberLiteral != 0) {
+            const str = std.fmt.allocPrint(self.allocator, "{d}", .{typeData.data.NumberLiteral.value}) catch return "number";
+            self.ownedStrings.append(self.allocator, str) catch {};
+            return str;
+        }
+        if (typeData.flags & types.TypeFlags.BooleanLiteral != 0) {
+            return if (typeData.data.BooleanLiteral.value) "true" else "false";
+        }
+        if (typeData.flags & types.TypeFlags.BigIntLiteral != 0) {
+            const str = std.fmt.allocPrint(self.allocator, "{s}n", .{typeData.data.BigIntLiteral.text}) catch return "bigint";
+            self.ownedStrings.append(self.allocator, str) catch {};
+            return str;
+        }
         if (self.serializationLevel >= 100) { // maxSerializationLevel
             return "?";
         }
@@ -1200,12 +1289,6 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn checkExpressionEx(c: *Checker, node: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
-        _ = node;
-        _ = checkMode;
-        return c.anyTypeIndex orelse 0;
-    }
-
     pub fn getGenericObjectFlags(c: *Checker, t: types.TypeIndex) u32 {
         var combinedFlags: u32 = 0;
         var typeNode = &c.typesList.items[t];
@@ -1358,7 +1441,7 @@ pub const Checker = struct {
                 const tp_node = c.ast.getNode(tp_idx).TypeParameter;
                 if (tp_node.Constraint) |constraint_idx| {
                     const type_node = c.ast.getNode(constraint_idx).TypeOperator.Type; // KeyOfKeyword's Type
-                    const resolvedType = c.getTypeFromTypeNode(type_node);
+                    const resolvedType = c.getTypeOfNode(type_node) catch c.unknownTypeIndex orelse 0;
                     m.modifiersType = c.instantiateType(resolvedType, m.mapper);
                 }
             }
@@ -1415,19 +1498,19 @@ pub const Checker = struct {
     }
 
     pub fn getTrueTypeFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        var target = &c.getTargetTypeData(t).Conditional;
+        var target = &c.typesList.items[c.getTargetType(t)].data.Conditional;
         if (target.resolvedTrueType == null) {
-            const trueTypeNode = c.ast.getNode(target.root).ConditionalType.TrueType;
-            target.resolvedTrueType = c.instantiateType(c.getTypeFromTypeNode(trueTypeNode), target.mapper);
+            const trueTypeNode = c.binder.ast.getNode(target.root).ConditionalType.TrueType;
+            target.resolvedTrueType = c.instantiateType(c.getTypeOfNode(trueTypeNode) catch c.unknownTypeIndex orelse 0, target.mapper);
         }
         return target.resolvedTrueType.?;
     }
 
     pub fn getFalseTypeFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        var target = &c.getTargetTypeData(t).Conditional;
+        var target = &c.typesList.items[c.getTargetType(t)].data.Conditional;
         if (target.resolvedFalseType == null) {
-            const falseTypeNode = c.ast.getNode(target.root).ConditionalType.FalseType;
-            target.resolvedFalseType = c.instantiateType(c.getTypeFromTypeNode(falseTypeNode), target.mapper);
+            const falseTypeNode = c.binder.ast.getNode(target.root).ConditionalType.FalseType;
+            target.resolvedFalseType = c.instantiateType(c.getTypeOfNode(falseTypeNode) catch c.unknownTypeIndex orelse 0, target.mapper);
         }
         return target.resolvedFalseType.?;
     }
@@ -1495,13 +1578,14 @@ pub const Checker = struct {
     }
 
     pub fn hasTypeParameterDefault(c: *Checker, t: types.TypeIndex) bool {
-        const type_sym = c.getType(t).symbol orelse return false;
-        const sym_ptr = c.symbols.getPtr(type_sym) orelse return false;
+        const type_sym = c.typesList.items[t].symbol orelse return false;
+        if (type_sym >= c.binder.symbols.items.len) return false;
+        const sym_ptr = &c.binder.symbols.items[type_sym];
 
         for (sym_ptr.Declarations.items) |d_idx| {
-            const node = c.ast.getNode(d_idx);
-            if (node.tag == .TypeParameterDeclaration) {
-                if (node.TypeParameterDeclaration.DefaultType != 0) return true;
+            const node = c.binder.ast.getNode(d_idx);
+            if (node == .TypeParameter) {
+                if (node.TypeParameter.DefaultType != 0) return true;
             }
         }
         return false;
@@ -1523,7 +1607,8 @@ pub const Checker = struct {
     }
 
     pub fn getResolvedTypeParameterDefault(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        var target = &c.getTargetTypeData(t).TypeParameter;
+        const targetType = c.getTargetType(t);
+        var target = &c.typesList.items[targetType].data.TypeParameter;
         if (target.resolvedDefaultType) |defaultType| {
             return defaultType;
         }
@@ -1567,7 +1652,7 @@ pub const Checker = struct {
                 }
 
                 if (defaultType != 0) {
-                    const mapper = c.createTypeMapper(typeParameters, result) catch return typeArguments;
+                    const mapper = makeArrayTypeMapper(c, typeParameters, result) catch return typeArguments;
                     result[i] = c.instantiateType(defaultType, mapper);
                 } else {
                     result[i] = baseDefaultType;
@@ -1651,7 +1736,7 @@ pub const Checker = struct {
             return c.esSymbolTypeIndex orelse 0;
         }
         if (flags & types.TypeFlags.EnumLiteral != 0) {
-            return 0; // stub: c.getBaseTypeOfEnumLiteralType(t);
+            return c.getBaseTypeOfEnumLikeType(t);
         }
         return t;
     }
@@ -1708,7 +1793,7 @@ pub const Checker = struct {
         if (c.typesList.items[t].flags & types.TypeFlags.TypeParameter != 0) {
             const tp = &c.getTargetTypeData(t).TypeParameter;
             if (!tp.isTypeParameterConstraintResolved) {
-                c.resolveTypeParameterConstraint(t);
+                resolveTypeParameterConstraint(c, t);
             }
             if (tp.constraintType != 0 and tp.constraintType != (c.noConstraintTypeIndex orelse 0)) {
                 return tp.constraintType;
@@ -1717,7 +1802,7 @@ pub const Checker = struct {
         return null;
     }
 
-    pub fn getIndexedAccessTypeOrUndefined(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: types.AccessFlags, context: ?ast.NodeIndex, declaration: ?ast.NodeIndex) ?types.TypeIndex {
+    pub fn getIndexedAccessTypeOrUndefined(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: u32, context: ?ast.NodeIndex, declaration: ?ast.NodeIndex) ?types.TypeIndex {
         _ = c;
         _ = objectType;
         _ = indexType;
@@ -1746,7 +1831,7 @@ pub const Checker = struct {
         return c.getConstraintOfType(t);
     }
 
-    pub fn getIndexTypeEx(c: *Checker, t: types.TypeIndex, indexFlags: types.IndexFlags) types.TypeIndex {
+    pub fn getIndexTypeEx(c: *Checker, t: types.TypeIndex, indexFlags: u32) types.TypeIndex {
         _ = c;
         _ = t;
         _ = indexFlags;
@@ -1827,20 +1912,12 @@ pub const Checker = struct {
     pub fn instantiateTypeWorker(c: *Checker, t: types.TypeIndex, mapperIdx: types.TypeMapperIndex) types.TypeIndex {
         const flags = c.typesList.items[t].flags;
         if ((flags & types.TypeFlags.TypeParameter) != 0) {
-            return c.mapType(t, mapperIdx);
+            return mapTypeWithMapper(c, t, mapperIdx);
         }
         if ((flags & types.TypeFlags.Object) != 0) {
             const objectFlags = c.typesList.items[t].objectFlags;
             if ((objectFlags & (types.ObjectFlags.Reference | types.ObjectFlags.Anonymous | types.ObjectFlags.Mapped)) != 0) {
-                if ((objectFlags & types.ObjectFlags.Reference) != 0 and c.getTargetTypeData(t).Reference.node == null) {
-                    const resolvedTypeArguments = c.getTargetTypeData(t).Reference.resolvedTypeArguments;
-                    if (resolvedTypeArguments.len > 0) {
-                        const newTypeArguments = c.instantiateTypes(resolvedTypeArguments, mapperIdx) catch resolvedTypeArguments;
-                        if (newTypeArguments.ptr == resolvedTypeArguments.ptr) return t;
-                        return c.createNormalizedTypeReference(c.getTargetTypeData(t).Reference.target, newTypeArguments) catch t;
-                    }
-                }
-                // reverse mapped, object type instantiation is skipped for now
+                // TODO: Object type instantiation is skipped for now
             }
             return t;
         }
@@ -1852,8 +1929,8 @@ pub const Checker = struct {
                     source = origin.?;
                 }
             }
-            const typesArr = c.getTypes(source);
-            const newTypes = c.instantiateTypes(typesArr, mapperIdx) catch typesArr;
+            const typesArr = c.getTypesOfUnionOrIntersectionType(source);
+            const newTypes = instantiateTypes(c, typesArr, mapperIdx) catch typesArr;
             if (newTypes.ptr == typesArr.ptr) return t;
 
             if ((c.typesList.items[source].flags & types.TypeFlags.Intersection) != 0) {
@@ -1950,7 +2027,7 @@ pub const Checker = struct {
     }
 
     pub fn getConstraintOfIndexedAccess(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
-        var target = &c.getTargetTypeData(t).IndexedAccess;
+        var target = &c.typesList.items[c.getTargetType(t)].data.IndexedAccess;
         if (target.constraint == 0) {
             target.constraint = c.noConstraintTypeIndex orelse 0;
             if (c.getConstraintOfType(target.objectType)) |constraintType| {
@@ -1966,7 +2043,7 @@ pub const Checker = struct {
     }
 
     pub fn getConstraintOfConditionalType(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
-        var target = &c.getTargetTypeData(t).Conditional;
+        var target = &c.typesList.items[c.getTargetType(t)].data.Conditional;
         if (target.constraint == 0) {
             target.constraint = c.noConstraintTypeIndex orelse 0;
             const trueType = c.getTrueTypeFromConditionalType(t);
@@ -2041,13 +2118,31 @@ pub const Checker = struct {
         return c.getIntersectionType(&typesArr);
     }
 
-    pub fn newInferenceContext(c: *Checker, typeParameters: []const types.TypeIndex, signature: ?types.SignatureIndex, flags: types.InferenceFlags, comptime isRelatedToWorker: anytype) *types.InferenceContext {
-        _ = c;
-        _ = typeParameters;
-        _ = signature;
-        _ = flags;
-        _ = isRelatedToWorker;
-        return undefined; // Skipped
+    pub fn newInferenceContext(c: *Checker, typeParameters: []const types.TypeIndex, signature: ?types.SignatureIndex, flags: types.InferenceFlags, compareTypes: types.CompareTypesKind) u32 {
+        var inferences = std.ArrayListUnmanaged(types.InferenceInfoIndex){};
+        inferences.ensureTotalCapacity(c.arena.allocator(), typeParameters.len) catch unreachable;
+        for (typeParameters) |tp| {
+            inferences.appendAssumeCapacity(c.newInferenceInfo(tp));
+        }
+        return c.newInferenceContextWorker(inferences.items, signature, flags, compareTypes);
+    }
+
+    pub fn newInferenceContextWorker(c: *Checker, inferences: []const types.InferenceInfoIndex, signature: ?types.SignatureIndex, flags: types.InferenceFlags, compareTypes: types.CompareTypesKind) u32 {
+        var inferences_list = std.ArrayListUnmanaged(types.InferenceInfoIndex){};
+        inferences_list.appendSlice(c.arena.allocator(), inferences) catch unreachable;
+
+        c.inferenceContexts.append(c.arena.allocator(), types.InferenceContext{
+            .inferences = inferences_list,
+            .signature = signature orelse 0,
+            .flags = flags,
+            .compareTypes = compareTypes,
+        }) catch unreachable;
+        const n = @as(u32, @intCast(c.inferenceContexts.items.len - 1));
+
+        c.inferenceContexts.items[n].mapper = c.createTypeMapper(types.TypeMapper{ .Inference = .{ .n = n, .fixing = true } }) catch unreachable;
+        c.inferenceContexts.items[n].nonFixingMapper = c.createTypeMapper(types.TypeMapper{ .Inference = .{ .n = n, .fixing = false } }) catch unreachable;
+
+        return n;
     }
 
     pub fn inferTypes(c: *Checker, inferences: []types.InferenceInfoIndex, target: types.TypeIndex, source: types.TypeIndex, priority: types.InferencePriority, b: bool) void {
@@ -2067,6 +2162,10 @@ pub const Checker = struct {
         _ = c;
         _ = t;
         return undefined; // Skipped
+    }
+
+    pub fn isTypeAny(c: *Checker, t: types.TypeIndex) bool {
+        return c.typesList.items[t].flags & types.TypeFlags.Any != 0;
     }
 
     pub fn getDefaultConstraintOfConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -2277,7 +2376,7 @@ pub const Checker = struct {
         for (sym.Declarations.items) |decl_index| {
             const declaration_type: ?types.TypeIndex = switch (self.binder.ast.getNode(decl_index)) {
                 .BinaryExpression => |binary| switch (self.binder.ast.getNode(binary.OperatorToken)) {
-                    .EqualsToken => try self.checkExpression(binary.Right),
+                    .EqualsToken => try self.checkExpressionAdHoc(binary.Right),
                     else => null,
                 },
                 .TypeAliasDeclaration => |declaration| try self.getTypeOfNode(declaration.Type),
@@ -2339,19 +2438,19 @@ pub const Checker = struct {
 
             .VariableDeclaration => |decl| {
                 if (decl.Type) |typeNode| return try self.getTypeOfNode(typeNode);
-                if (decl.Initializer) |initExpr| return try self.checkExpression(initExpr);
+                if (decl.Initializer) |initExpr| return try self.checkExpressionAdHoc(initExpr);
                 return try self.getAnyType();
             },
             .PropertyDeclaration => |p| {
                 if (p.Type) |typeNode| return try self.getTypeOfNode(typeNode);
-                if (p.Initializer) |initExpr| return try self.checkExpression(initExpr);
+                if (p.Initializer) |initExpr| return try self.checkExpressionAdHoc(initExpr);
                 return try self.getAnyType();
             },
             .PropertyAssignment => |p| {
                 if (p.Type) |typeNode| {
                     if (typeNode != 0) return try self.getTypeOfNode(typeNode);
                 }
-                return try self.checkExpression(p.Initializer);
+                return try self.checkExpressionAdHoc(p.Initializer);
             },
             .PropertySignature => |ps| {
                 if (ps.Type) |typeNode| {
@@ -2452,7 +2551,7 @@ pub const Checker = struct {
     // checkExpression - thực hiện type checking cho expressions
     // =========================================================================
 
-    pub fn checkExpression(self: *Checker, nodeIndex: u32) anyerror!u32 {
+    pub fn checkExpressionAdHoc(self: *Checker, nodeIndex: u32) anyerror!u32 {
         const node = self.binder.ast.getNode(nodeIndex);
         switch (node) {
             // Literals
@@ -2513,19 +2612,19 @@ pub const Checker = struct {
 
             // Unary expressions
             .PrefixUnaryExpression => |pue| {
-                const operandType = try self.checkExpression(pue.Operand);
+                const operandType = try self.checkExpressionAdHoc(pue.Operand);
                 return try self.checkPrefixUnary(pue.Operator, operandType);
             },
             .PostfixUnaryExpression => |poe| {
-                _ = try self.checkExpression(poe.Operand);
+                _ = try self.checkExpressionAdHoc(poe.Operand);
                 return try self.getNumberType(); // ++ / -- always produce number
             },
 
             // Conditional / ternary
             .ConditionalExpression => |ce| {
-                _ = try self.checkExpression(ce.Condition);
-                const trueType = try self.checkExpression(ce.WhenTrue);
-                const falseType = try self.checkExpression(ce.WhenFalse);
+                _ = try self.checkExpressionAdHoc(ce.Condition);
+                const trueType = try self.checkExpressionAdHoc(ce.WhenTrue);
+                const falseType = try self.checkExpressionAdHoc(ce.WhenFalse);
                 return try self.getUnionType(trueType, falseType);
             },
 
@@ -2590,7 +2689,7 @@ pub const Checker = struct {
                 if (ole.Properties != 0) {
                     const props = self.binder.ast.getNodeList(ole.Properties);
                     for (props) |prop| {
-                        _ = self.checkStatement(prop) catch {};
+                        _ = self.checkStatementAdHoc(prop) catch {};
                     }
                 }
                 return try self.createType(.{
@@ -2607,7 +2706,7 @@ pub const Checker = struct {
                 defer element_types.deinit(self.allocator);
                 if (ale.Elements != 0) {
                     const elems = self.binder.ast.getNodeList(ale.Elements);
-                    for (elems) |elem| try element_types.append(self.allocator, try self.checkExpression(elem));
+                    for (elems) |elem| try element_types.append(self.allocator, try self.checkExpressionAdHoc(elem));
                 }
                 const element_type = if (element_types.items.len == 0) try self.getNeverType() else try self.createUnionType(element_types.items);
                 return try self.createType(.{
@@ -2622,7 +2721,7 @@ pub const Checker = struct {
 
             // Property access
             .PropertyAccessExpression => |pae| {
-                const objTypeIdx = try self.checkExpression(pae.Expression);
+                const objTypeIdx = try self.checkExpressionAdHoc(pae.Expression);
                 const propNodeData = self.binder.ast.getNode(pae.name);
                 if (std.meta.activeTag(propNodeData) == .Identifier) {
                     const propName = propNodeData.Identifier.Text;
@@ -2635,8 +2734,8 @@ pub const Checker = struct {
 
             // Element access: arr[0]
             .ElementAccessExpression => |eae| {
-                const objTypeIdx = try self.checkExpression(eae.Expression);
-                const argTypeIdx = try self.checkExpression(eae.ArgumentExpression);
+                const objTypeIdx = try self.checkExpressionAdHoc(eae.Expression);
+                const argTypeIdx = try self.checkExpressionAdHoc(eae.ArgumentExpression);
 
                 if (argTypeIdx < self.typesList.items.len) {
                     const argType = self.typesList.items[argTypeIdx];
@@ -2653,7 +2752,7 @@ pub const Checker = struct {
 
             // Call expression
             .CallExpression => |ce| {
-                const calleeTypeIdx = try self.checkExpression(ce.Expression);
+                const calleeTypeIdx = try self.checkExpressionAdHoc(ce.Expression);
 
                 var declNode: u32 = 0;
                 var retType: u32 = 0;
@@ -2685,7 +2784,7 @@ pub const Checker = struct {
                         const paramData = self.binder.ast.getNode(params[i]);
                         if (std.meta.activeTag(paramData) == .Parameter) {
                             const param = paramData.Parameter;
-                            const argTypeIdx = try self.checkExpression(args[i]);
+                            const argTypeIdx = try self.checkExpressionAdHoc(args[i]);
                             var paramTypeIdx: u32 = 0;
                             if (param.Type != null and param.Type.? != 0) {
                                 paramTypeIdx = try self.getTypeOfNode(param.Type.?);
@@ -2706,12 +2805,12 @@ pub const Checker = struct {
                                 self.addDiagnostic(diag);
                             }
                         } else {
-                            _ = try self.checkExpression(args[i]);
+                            _ = try self.checkExpressionAdHoc(args[i]);
                         }
                     }
                     // Evaluate remaining args if any
                     for (minLen..args.len) |i| {
-                        _ = try self.checkExpression(args[i]);
+                        _ = try self.checkExpressionAdHoc(args[i]);
                     }
 
                     if (args.len < params.len) {
@@ -2731,7 +2830,7 @@ pub const Checker = struct {
                     if (ce.Arguments != 0) {
                         const args = self.binder.ast.getNodeList(ce.Arguments);
                         for (args) |arg| {
-                            _ = try self.checkExpression(arg);
+                            _ = try self.checkExpressionAdHoc(arg);
                         }
                     }
                 }
@@ -2742,12 +2841,12 @@ pub const Checker = struct {
 
             // new expr(args)
             .NewExpression => |ne| {
-                _ = try self.checkExpression(ne.Expression);
+                _ = try self.checkExpressionAdHoc(ne.Expression);
                 if (ne.Arguments) |argsIdx| {
                     if (argsIdx != 0) {
                         const args = self.binder.ast.getNodeList(argsIdx);
                         for (args) |arg| {
-                            _ = try self.checkExpression(arg);
+                            _ = try self.checkExpressionAdHoc(arg);
                         }
                     }
                 }
@@ -2756,20 +2855,20 @@ pub const Checker = struct {
 
             // Wrapping expressions
             .ParenthesizedExpression => |pe| {
-                return try self.checkExpression(pe.Expression);
+                return try self.checkExpressionAdHoc(pe.Expression);
             },
             .AsExpression => |ae| {
-                _ = try self.checkExpression(ae.Expression);
+                _ = try self.checkExpressionAdHoc(ae.Expression);
                 return try self.getTypeOfNode(ae.Type);
             },
             .SatisfiesExpression => |se| {
-                return try self.checkExpression(se.Expression);
+                return try self.checkExpressionAdHoc(se.Expression);
             },
             .NonNullExpression => |nne| {
-                return try self.checkExpression(nne.Expression);
+                return try self.checkExpressionAdHoc(nne.Expression);
             },
             .TypeAssertionExpression => |ta| {
-                _ = try self.checkExpression(ta.Expression);
+                _ = try self.checkExpressionAdHoc(ta.Expression);
                 return try self.getTypeOfNode(ta.Type);
             },
 
@@ -2781,11 +2880,11 @@ pub const Checker = struct {
                 return try self.getUndefinedType();
             },
             .AwaitExpression => |ae| {
-                return try self.checkExpression(ae.Expression);
+                return try self.checkExpressionAdHoc(ae.Expression);
             },
             .YieldExpression => |ye| {
                 if (ye.Expression) |expr| {
-                    return try self.checkExpression(expr);
+                    return try self.checkExpressionAdHoc(expr);
                 }
                 return try self.getAnyType();
             },
@@ -2793,7 +2892,7 @@ pub const Checker = struct {
                 return try self.getBooleanType();
             },
             .SpreadElement => |se| {
-                return try self.checkExpression(se.Expression);
+                return try self.checkExpressionAdHoc(se.Expression);
             },
             .JsxElement => {
                 return jsx.checkJsxElement(self, nodeIndex, .Normal);
@@ -2821,7 +2920,7 @@ pub const Checker = struct {
                 if (ce.Members != 0) {
                     const members = self.binder.ast.getNodeList(ce.Members);
                     for (members) |mem| {
-                        _ = self.checkStatement(mem) catch {};
+                        _ = self.checkStatementAdHoc(mem) catch {};
                     }
                 }
                 return try self.createType(.{
@@ -2843,8 +2942,8 @@ pub const Checker = struct {
     // =========================================================================
 
     fn checkBinaryExpression(self: *Checker, bin: ast_gen.BinaryExpressionNode) !u32 {
-        const leftTypeIdx = try self.checkExpression(bin.Left);
-        const rightTypeIdx = try self.checkExpression(bin.Right);
+        const leftTypeIdx = try self.checkExpressionAdHoc(bin.Left);
+        const rightTypeIdx = try self.checkExpressionAdHoc(bin.Right);
         const leftType = if (leftTypeIdx < self.typesList.items.len)
             self.typesList.items[leftTypeIdx]
         else
@@ -2950,8 +3049,8 @@ pub const Checker = struct {
     // checkPrefixUnary
     // =========================================================================
 
-    fn checkPrefixUnary(self: *Checker, operatorNodeIdx: u32, operandTypeIdx: u32) !u32 {
-        const opKind = self.binder.ast.getKind(operatorNodeIdx);
+    fn checkPrefixUnary(self: *Checker, operatorKindNum: u32, operandTypeIdx: u32) !u32 {
+        const opKind: @import("../ast/kind.zig").Kind = @enumFromInt(operatorKindNum);
         switch (opKind) {
             .ExclamationToken => {
                 const facts = self.getTypeFacts(operandTypeIdx, types.TypeFacts.Truthy | types.TypeFacts.Falsy);
@@ -3018,7 +3117,7 @@ pub const Checker = struct {
     // checkStatement
     // =========================================================================
 
-    pub fn checkStatement(self: *Checker, nodeIndex: u32) anyerror!void {
+    pub fn checkStatementAdHoc(self: *Checker, nodeIndex: u32) anyerror!void {
         const node = self.binder.ast.getNode(nodeIndex);
         switch (node) {
             // Source file - entry point
@@ -3026,7 +3125,7 @@ pub const Checker = struct {
                 if (sf.Statements != 0) {
                     const stmts = self.binder.ast.getNodeList(sf.Statements);
                     for (stmts) |stmt| {
-                        try self.checkStatement(stmt);
+                        try self.checkStatementAdHoc(stmt);
                     }
                 }
             },
@@ -3036,27 +3135,27 @@ pub const Checker = struct {
                 if (blk.Statements != 0) {
                     const stmts = self.binder.ast.getNodeList(blk.Statements);
                     for (stmts) |stmt| {
-                        try self.checkStatement(stmt);
+                        try self.checkStatementAdHoc(stmt);
                     }
                 }
             },
 
             // Variables
             .VariableStatement => |varStmt| {
-                try self.checkStatement(varStmt.DeclarationList);
+                try self.checkStatementAdHoc(varStmt.DeclarationList);
             },
             .VariableDeclarationList => |varList| {
                 if (varList.Declarations != 0) {
                     const decls = self.binder.ast.getNodeList(varList.Declarations);
                     for (decls) |decl| {
-                        try self.checkStatement(decl);
+                        try self.checkStatementAdHoc(decl);
                     }
                 }
             },
             .VariableDeclaration => |decl| {
                 var initType: u32 = try self.getAnyType();
                 if (decl.Initializer) |initExpr| {
-                    initType = try self.checkExpression(initExpr);
+                    initType = try self.checkExpressionAdHoc(initExpr);
                 }
 
                 if (decl.Type) |typeNode| {
@@ -3086,7 +3185,7 @@ pub const Checker = struct {
             // Functions
             .FunctionDeclaration => |f| {
                 if (f.Body) |body| {
-                    try self.checkStatement(body);
+                    try self.checkStatementAdHoc(body);
                 }
                 // Also check parameters
                 if (f.Parameters != 0) {
@@ -3101,7 +3200,7 @@ pub const Checker = struct {
             .ReturnStatement => |ret| {
                 var exprTypeIdx: u32 = 0;
                 if (ret.Expression) |expr| {
-                    exprTypeIdx = try self.checkExpression(expr);
+                    exprTypeIdx = try self.checkExpressionAdHoc(expr);
                 } else {
                     exprTypeIdx = try self.getUndefinedType();
                 }
@@ -3145,28 +3244,28 @@ pub const Checker = struct {
 
             // Expression statement
             .ExpressionStatement => |es| {
-                _ = try self.checkExpression(es.Expression);
+                _ = try self.checkExpressionAdHoc(es.Expression);
             },
 
             // If statement
             .IfStatement => |ifs| {
-                _ = try self.checkExpression(ifs.Expression);
-                try self.checkStatement(ifs.ThenStatement);
+                _ = try self.checkExpressionAdHoc(ifs.Expression);
+                try self.checkStatementAdHoc(ifs.ThenStatement);
                 if (ifs.ElseStatement) |elseStmt| {
-                    try self.checkStatement(elseStmt);
+                    try self.checkStatementAdHoc(elseStmt);
                 }
             },
 
             // While loop
             .WhileStatement => |ws| {
-                _ = try self.checkExpression(ws.Expression);
-                try self.checkStatement(ws.Statement);
+                _ = try self.checkExpressionAdHoc(ws.Expression);
+                try self.checkStatementAdHoc(ws.Statement);
             },
 
             // Do-while loop
             .DoStatement => |ds| {
-                try self.checkStatement(ds.Statement);
-                _ = try self.checkExpression(ds.Expression);
+                try self.checkStatementAdHoc(ds.Statement);
+                _ = try self.checkExpressionAdHoc(ds.Expression);
             },
 
             // For loop
@@ -3175,44 +3274,44 @@ pub const Checker = struct {
                     // init can be variable declaration list or expression
                     const initNode = self.binder.ast.getNode(initializer_node);
                     switch (initNode) {
-                        .VariableDeclarationList => try self.checkStatement(initializer_node),
-                        else => _ = try self.checkExpression(initializer_node),
+                        .VariableDeclarationList => try self.checkStatementAdHoc(initializer_node),
+                        else => _ = try self.checkExpressionAdHoc(initializer_node),
                     }
                 }
                 if (fs.Condition) |cond| {
-                    _ = try self.checkExpression(cond);
+                    _ = try self.checkExpressionAdHoc(cond);
                 }
                 if (fs.Incrementor) |incr| {
-                    _ = try self.checkExpression(incr);
+                    _ = try self.checkExpressionAdHoc(incr);
                 }
-                try self.checkStatement(fs.Statement);
+                try self.checkStatementAdHoc(fs.Statement);
             },
 
             // For-in / For-of
             .ForInStatement, .ForOfStatement => |fio| {
-                _ = try self.checkExpression(fio.Expression);
-                try self.checkStatement(fio.Statement);
+                _ = try self.checkExpressionAdHoc(fio.Expression);
+                try self.checkStatementAdHoc(fio.Statement);
             },
 
             // Switch
             .SwitchStatement => |ss| {
-                _ = try self.checkExpression(ss.Expression);
-                try self.checkStatement(ss.CaseBlock);
+                _ = try self.checkExpressionAdHoc(ss.Expression);
+                try self.checkStatementAdHoc(ss.CaseBlock);
             },
             .CaseBlock => |cb| {
                 if (cb.Clauses != 0) {
                     const clauses = self.binder.ast.getNodeList(cb.Clauses);
                     for (clauses) |clause| {
-                        try self.checkStatement(clause);
+                        try self.checkStatementAdHoc(clause);
                     }
                 }
             },
             .CaseClause => |cc| {
-                _ = try self.checkExpression(cc.Expression);
+                _ = try self.checkExpressionAdHoc(cc.Expression);
                 if (cc.Statements != 0) {
                     const stmts = self.binder.ast.getNodeList(cc.Statements);
                     for (stmts) |stmt| {
-                        try self.checkStatement(stmt);
+                        try self.checkStatementAdHoc(stmt);
                     }
                 }
             },
@@ -3220,28 +3319,28 @@ pub const Checker = struct {
                 if (dc.Statements != 0) {
                     const stmts = self.binder.ast.getNodeList(dc.Statements);
                     for (stmts) |stmt| {
-                        try self.checkStatement(stmt);
+                        try self.checkStatementAdHoc(stmt);
                     }
                 }
             },
 
             // Throw
             .ThrowStatement => |ts| {
-                _ = try self.checkExpression(ts.Expression);
+                _ = try self.checkExpressionAdHoc(ts.Expression);
             },
 
             // Try-catch-finally
             .TryStatement => |ts| {
-                try self.checkStatement(ts.TryBlock);
+                try self.checkStatementAdHoc(ts.TryBlock);
                 if (ts.CatchClause) |catchNode| {
-                    try self.checkStatement(catchNode);
+                    try self.checkStatementAdHoc(catchNode);
                 }
                 if (ts.FinallyBlock) |finallyNode| {
-                    try self.checkStatement(finallyNode);
+                    try self.checkStatementAdHoc(finallyNode);
                 }
             },
             .CatchClause => |cc| {
-                try self.checkStatement(cc.Block);
+                try self.checkStatementAdHoc(cc.Block);
             },
 
             // Classes
@@ -3249,13 +3348,13 @@ pub const Checker = struct {
                 if (cd.Members != 0) {
                     const members = self.binder.ast.getNodeList(cd.Members);
                     for (members) |mem| {
-                        try self.checkStatement(mem);
+                        try self.checkStatementAdHoc(mem);
                     }
                 }
             },
             .MethodDeclaration => |m| {
                 if (m.Body) |body| {
-                    try self.checkStatement(body);
+                    try self.checkStatementAdHoc(body);
                 }
                 if (m.Parameters != 0) {
                     const params = self.binder.ast.getNodeList(m.Parameters);
@@ -3267,33 +3366,33 @@ pub const Checker = struct {
             .Constructor => {},
             .GetAccessor => |ga| {
                 if (ga.Body) |body| {
-                    try self.checkStatement(body);
+                    try self.checkStatementAdHoc(body);
                 }
             },
             .SetAccessor => |sa| {
                 if (sa.Body) |body| {
-                    try self.checkStatement(body);
+                    try self.checkStatementAdHoc(body);
                 }
             },
             .PropertyDeclaration => |pd| {
                 if (pd.Initializer) |pd_init| {
-                    _ = try self.checkExpression(pd_init);
+                    _ = try self.checkExpressionAdHoc(pd_init);
                 }
             },
 
             // Labeled statement
             .LabeledStatement => |ls| {
-                try self.checkStatement(ls.Statement);
+                try self.checkStatementAdHoc(ls.Statement);
             },
 
             // Export assignment: export = expr
             .ExportAssignment => |ea| {
-                _ = try self.checkExpression(ea.Expression);
+                _ = try self.checkExpressionAdHoc(ea.Expression);
             },
 
             // ExpressionStatement cho arrow/function expressions
             .ArrowFunction, .FunctionExpression => {
-                _ = try self.checkExpression(nodeIndex);
+                _ = try self.checkExpressionAdHoc(nodeIndex);
             },
 
             // Import/Export declarations (no type checking needed here)
@@ -3311,7 +3410,7 @@ pub const Checker = struct {
                         switch (memNode) {
                             .EnumMember => |em| {
                                 if (em.Initializer) |initIdx| {
-                                    _ = try self.checkExpression(initIdx);
+                                    _ = try self.checkExpressionAdHoc(initIdx);
                                 }
                             },
                             else => {},
@@ -3328,18 +3427,18 @@ pub const Checker = struct {
                 if (mb.Statements != 0) {
                     const stmts = self.binder.ast.getNodeList(mb.Statements);
                     for (stmts) |stmt| {
-                        try self.checkStatement(stmt);
+                        try self.checkStatementAdHoc(stmt);
                     }
                 }
             },
 
             // Property assignment trong object literal
             .PropertyAssignment => |pa| {
-                _ = try self.checkExpression(pa.Initializer);
+                _ = try self.checkExpressionAdHoc(pa.Initializer);
             },
             .ShorthandPropertyAssignment => |spa| {
                 if (spa.ObjectAssignmentInitializer) |initExpr| {
-                    _ = try self.checkExpression(initExpr);
+                    _ = try self.checkExpressionAdHoc(initExpr);
                 }
             },
 
@@ -3637,6 +3736,36 @@ pub const Checker = struct {
         return t;
     }
 
+    pub fn getNumberLiteralType(c: *Checker, value: f64) types.TypeIndex {
+        if (std.math.isNan(value)) {
+            // NaN handling if needed, skip for now or cache it
+            // Assuming NaN logic here if we add nanType, else just create it
+            return c.createType(.{
+                .flags = types.TypeFlags.NumberLiteral,
+                .objectFlags = 0,
+                .id = 0,
+                .symbol = null,
+                .alias = null,
+                .data = .{ .NumberLiteral = .{ .value = value } },
+            }) catch 0;
+        }
+
+        if (c.numberLiteralTypes.get(value)) |cached_t| {
+            return cached_t;
+        }
+
+        const t = c.createType(.{
+            .flags = types.TypeFlags.NumberLiteral,
+            .objectFlags = 0,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .NumberLiteral = .{ .value = value } },
+        }) catch 0;
+        c.numberLiteralTypes.put(c.allocator, value, t) catch {};
+        return t;
+    }
+
     pub fn getMatchingUnionConstituentForType(c: *Checker, target: types.TypeIndex, source: types.TypeIndex) ?types.TypeIndex {
         _ = c;
         _ = target;
@@ -3693,10 +3822,10 @@ pub const Checker = struct {
     }
 
     pub fn removeMissingType(c: *Checker, t: types.TypeIndex, optional: bool) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = optional;
-        return 0; // Skipped
+        if ((c.options.exactOptionalPropertyTypes orelse false) and optional) {
+            return c.removeType(t, c.getMissingType());
+        }
+        return t;
     }
 
     pub fn shouldReportUnmatchedPropertyError(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
@@ -3727,6 +3856,11 @@ pub const Checker = struct {
         _ = c;
         _ = sym;
         return false; // Skipped
+    }
+
+    pub fn getReturnTypeOfSignature(c: *Checker, signature: *types.Signature) types.TypeIndex {
+        _ = signature;
+        return c.unknownTypeIndex orelse 0; // Skipped
     }
 
     pub fn getErasedSignature(c: *Checker, signature: *types.Signature) *types.Signature {
@@ -3803,9 +3937,7 @@ pub const Checker = struct {
     }
 
     pub fn getNonMissingTypeOfSymbol(c: *Checker, prop: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = prop;
-        return 0; // Skipped
+        return c.removeMissingType(c.getTypeOfSymbol(prop), (c.getSymbolFlags(prop) & symbol.SymbolFlags.Optional) != 0);
     }
 
     pub fn getNarrowedType(c: *Checker, t: types.TypeIndex, candidate: types.TypeIndex, assumeTrue: bool, checkDerived: bool) types.TypeIndex {
@@ -3817,9 +3949,24 @@ pub const Checker = struct {
     }
 
     pub fn getInstanceType(c: *Checker, constructorType: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = constructorType;
-        return 0;
+        const prototypePropertyType = c.getTypeOfPropertyOfType(constructorType, "prototype");
+        if (prototypePropertyType != 0 and !c.isTypeAny(prototypePropertyType)) {
+            return prototypePropertyType;
+        }
+
+        const constructSignatures = c.getSignaturesOfType(constructorType, types.SignatureKind.Construct);
+        if (constructSignatures.len != 0) {
+            var returnTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
+            defer returnTypes.deinit(c.allocator);
+            const sigs = c.resolvedSignaturesPool.items[constructSignatures.start .. constructSignatures.start + constructSignatures.len];
+            for (sigs) |sigIdx| {
+                const sigPtr = &c.signatures.items[sigIdx];
+                const erased = c.getErasedSignature(sigPtr);
+                returnTypes.append(c.allocator, c.getReturnTypeOfSignature(erased)) catch unreachable;
+            }
+            return c.getUnionTypeFromArray(returnTypes.items);
+        }
+        return c.emptyObjectType;
     }
 
     pub fn getSymbolForPrivateIdentifierExpression(c: *Checker, expr: ast_gen.NodeIndex) ast_gen.SymbolIndex {
@@ -4027,7 +4174,7 @@ pub const Checker = struct {
     pub fn mapType(c: *Checker, t: types.TypeIndex, comptime mapFn: anytype, ctx: anytype) types.TypeIndex {
         const flags = c.getTypeFlags(t);
         if ((flags & types.TypeFlags.Union) != 0) {
-            var typesList: std.ArrayList(types.TypeIndex) = .empty;
+            var typesList: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
             defer typesList.deinit(c.allocator);
             const unionTypes = c.getTypesFromUnion(t);
             for (unionTypes) |u| {
@@ -4041,7 +4188,7 @@ pub const Checker = struct {
     pub fn filterType(c: *Checker, t: types.TypeIndex, comptime filterFn: anytype, ctx: anytype) types.TypeIndex {
         const flags = c.getTypeFlags(t);
         if ((flags & types.TypeFlags.Union) != 0) {
-            var typesList: std.ArrayList(types.TypeIndex) = .empty;
+            var typesList: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
             defer typesList.deinit(c.allocator);
             const unionTypes = c.getTypesFromUnion(t);
             for (unionTypes) |u| {
@@ -4076,11 +4223,11 @@ pub const Checker = struct {
     }
 
     pub fn getGlobalNonNullableTypeInstantiation(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        // Skipped implementation: Just intersect with empty object type
-        // In Go:
-        // alias := c.getGlobalNonNullableTypeAliasOrNil()
-        // if alias != nil { return c.getTypeAliasInstantiation(alias, []*Type{t}, nil) }
-        // return c.getIntersectionType([]*Type{t, c.emptyObjectType})
+        const alias = c.getGlobalTypeAliasSymbol("NonNullable", 1, false);
+        if (alias != 0) {
+            const typesArr = [_]types.TypeIndex{t};
+            return c.getTypeAliasInstantiation(alias, &typesArr, null);
+        }
         const typesToIntersect = [_]types.TypeIndex{ t, c.emptyObjectTypeIndex.? };
         return c.getIntersectionType(&typesToIntersect);
     }
@@ -4151,7 +4298,7 @@ pub const Checker = struct {
     pub fn removeType(c: *Checker, t: types.TypeIndex, toRemove: types.TypeIndex) types.TypeIndex {
         const flags = c.getTypeFlags(t);
         if ((flags & types.TypeFlags.Union) != 0) {
-            var typesList: std.ArrayList(types.TypeIndex) = .empty;
+            var typesList: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
             defer typesList.deinit(c.allocator);
             const unionTypes = c.getTypesFromUnion(t);
             for (unionTypes) |u| {
@@ -4220,16 +4367,115 @@ pub const Checker = struct {
     }
 
     pub fn getGlobalRecordSymbol(c: *Checker) ast_gen.SymbolIndex {
-        _ = c;
-        return 0; // stub
+        return c.getGlobalTypeAliasSymbol("Record", 2, true);
     }
 
-    pub fn getTypeAliasInstantiation(c: *Checker, sym: ast_gen.SymbolIndex, typeArguments: []const types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = sym;
-        _ = typeArguments;
-        _ = node;
-        return 0; // stub
+    pub fn getGlobalTypeAliasSymbol(c: *Checker, name: []const u8, arity: u32, reportErrors: bool) ast_gen.SymbolIndex {
+        _ = reportErrors; // TODO: reportErrors
+        const symId = c.getGlobalSymbol(name, symbol.SymbolFlags.TypeAlias, null);
+        if (symId == 0) return 0;
+
+        _ = c.getDeclaredTypeOfSymbol(symId);
+        const links = c.typeAliasLinks.getPtr(symId);
+        if (links) |l| {
+            if (l.typeParameters.len != arity) {
+                return 0; // TODO: report error
+            }
+        }
+        return symId;
+    }
+
+    pub fn getGlobalSymbol(c: *Checker, name: []const u8, meaning: u32, diagnostic: ?*const diagnostics.Message) ast_gen.SymbolIndex {
+        return resolveName(c, 0, name, meaning, diagnostic, false, false);
+    }
+
+    pub fn resolveExternalModuleSymbol(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, dontResolveAlias: bool) ast_gen.SymbolIndex {
+        _ = dontResolveAlias;
+        if (moduleSymbol != 0) {
+            if (c.binder.symbols.items[moduleSymbol].exports) |exports| {
+                const id = c.binder.ast.stringPool.get("export=") orelse return moduleSymbol;
+                if (exports.get(id)) |exportEquals| {
+                    const resolved = c.resolveSymbol(exportEquals); // TODO: dontResolveAlias
+                    if (resolved != 0) {
+                        return c.getMergedSymbol(resolved);
+                    }
+                }
+            }
+        }
+        return moduleSymbol;
+    }
+
+    pub fn getIntrinsicMarkerType(c: *Checker) types.TypeIndex {
+        if (c.intrinsicMarkerTypeIndex) |idx| return idx;
+        const idx = c.createType(.{ .flags = types.TypeFlags.Intrinsic, .objectFlags = 0, .id = 0, .symbol = null, .alias = null, .data = .{ .Intrinsic = .{ .intrinsicName = "error" } } }) catch 0;
+        c.intrinsicMarkerTypeIndex = idx;
+        return idx;
+    }
+
+    pub fn getTypeAliasInstantiationKey(typeArguments: []const types.TypeIndex, alias: ?types.TypeAlias) types.CacheHashKey {
+        return getTypeInstantiationKey(typeArguments, alias, false);
+    }
+
+    pub fn getTypeInstantiationKey(typeArguments: []const types.TypeIndex, alias: ?types.TypeAlias, singleSignature: bool) types.CacheHashKey {
+        var hasher = std.hash.Wyhash.init(0);
+        for (typeArguments) |t| {
+            std.hash.autoHash(&hasher, t);
+        }
+        if (alias) |a| {
+            std.hash.autoHash(&hasher, a.symbol);
+            if (a.typeArgumentsLen > 0) {
+                // We should hash the type arguments of the alias, but they are stored in the checker's type alias array,
+                // wait, typeArgumentsStart and typeArgumentsLen! We need to pass Checker or the array.
+                // Since this is just a hash, we can hash the start and len for uniqueness.
+                std.hash.autoHash(&hasher, a.typeArgumentsStart);
+                std.hash.autoHash(&hasher, a.typeArgumentsLen);
+            }
+        }
+        if (singleSignature) {
+            std.hash.autoHash(&hasher, @as(u8, '!'));
+        }
+        return hasher.final();
+    }
+
+    pub fn instantiateTypeWithAlias(c: *Checker, t: types.TypeIndex, mapperIdx: types.TypeMapperIndex, alias: ?types.TypeAlias) types.TypeIndex {
+        _ = alias;
+        return c.instantiateType(t, mapperIdx);
+    }
+
+    pub fn getTypeAliasInstantiation(c: *Checker, sym: ast_gen.SymbolIndex, typeArguments: []const types.TypeIndex, alias: ?types.TypeAlias) types.TypeIndex {
+        const t = c.getDeclaredTypeOfSymbol(sym);
+        if (t == c.getIntrinsicMarkerType()) {
+            // TODO: intrinsicTypeKinds logic
+            return t; // fallback
+        }
+
+        const links = c.typeAliasLinks.getPtr(sym);
+        if (links) |l| {
+            const typeParameters = l.typeParameters;
+            const key = getTypeAliasInstantiationKey(typeArguments, alias);
+
+            if (l.instantiations) |insts| {
+                if (insts.get(key)) |inst| {
+                    return inst;
+                }
+            }
+
+            const minTypeArgumentCount = c.getMinTypeArgumentCount(typeParameters);
+            const isJs = ast_utils.isInJSFile(c.binder.ast, c.getSymbolValueDeclaration(sym));
+            const filledArgs = c.fillMissingTypeArguments(typeArguments, typeParameters, minTypeArgumentCount, isJs);
+
+            if (makeArrayTypeMapper(c, typeParameters, filledArgs)) |mapperIdx| {
+                const inst = instantiateTypeWithAlias(c, t, mapperIdx, alias);
+                if (l.instantiations == null) {
+                    l.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex).empty;
+                }
+                l.instantiations.?.put(c.allocator, key, inst) catch {};
+                return inst;
+            } else |_| {
+                return c.unknownTypeIndex orelse 0;
+            }
+        }
+        return t;
     }
 
     pub fn isTypeDerivedFrom(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
@@ -4294,10 +4540,67 @@ pub const Checker = struct {
         return c.typesList.items[t].objectFlags;
     }
 
+    pub fn getElementTypeOfSliceOfTupleType(c: *Checker, tupleType: types.TypeIndex, startIndex: usize, endIndex: usize, endSkipCount: isize) ?types.TypeIndex {
+        _ = c;
+        _ = tupleType;
+        _ = startIndex;
+        _ = endIndex;
+        _ = endSkipCount;
+        return null;
+    }
+
+    pub fn createTupleTypeEx(c: *Checker, elementTypes: []const types.TypeIndex, elementInfos: []const types.TupleElementInfo, readonly: bool) types.TypeIndex {
+        _ = elementTypes;
+        _ = elementInfos;
+        _ = readonly;
+        return c.anyType;
+    }
+
+    pub fn typesDefinitelyUnrelated(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
+        _ = c;
+        _ = source;
+        _ = target;
+        return false;
+    }
+
+    pub fn isConstTypeVariable(c: *Checker, t: types.TypeIndex, depth: usize) bool {
+        _ = c;
+        _ = t;
+        _ = depth;
+        return false;
+    }
+
+    pub fn isMutableArrayLikeType(c: *Checker, t: types.TypeIndex) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
     pub fn isTupleType(c: *Checker, t: types.TypeIndex) bool {
         const objectFlags = c.getObjectFlags(t);
         if (objectFlags & types.ObjectFlags.Reference == 0) return false;
-        return (c.getObjectFlags(c.getTargetType(t)) & types.ObjectFlags.Tuple) != 0;
+        const target = c.getTargetType(t);
+        return c.getObjectFlags(target) & types.ObjectFlags.Tuple != 0;
+    }
+
+    pub fn getTypePredicateType(c: *Checker, predicate: types.TypePredicateIndex) ?types.TypeIndex {
+        _ = c;
+        _ = predicate;
+        return null;
+    }
+
+    pub fn isTupleTypeStructureMatching(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) bool {
+        if (c.getTypeReferenceArity(t1) != c.getTypeReferenceArity(t2)) {
+            return false;
+        }
+        const t1_target = c.getTargetTupleType(t1);
+        const t2_target = c.getTargetTupleType(t2);
+        for (t1_target.elementInfos, 0..) |e, i| {
+            if (e.flags & types.ElementFlags.Variable != t2_target.elementInfos[i].flags & types.ElementFlags.Variable) {
+                return false;
+            }
+        }
+        return true;
     }
 
     pub fn isArrayType(c: *Checker, t: types.TypeIndex) bool {
@@ -4447,6 +4750,43 @@ pub const Checker = struct {
     pub fn reportUnreliableMapperStub(c: *Checker) void {
         _ = c; // Skipped
     }
+
+    pub fn getResolvedSignature(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: u32) types.SignatureIndex {
+        _ = checkMode;
+
+        const callNodeKind = std.meta.activeTag(c.binder.ast.getNode(node));
+        var targetExpr: ast_gen.NodeIndex = 0;
+        if (callNodeKind == .CallExpression) {
+            targetExpr = c.binder.ast.getNode(node).CallExpression.Expression;
+        } else if (callNodeKind == .NewExpression) {
+            targetExpr = c.binder.ast.getNode(node).NewExpression.Expression;
+        } else if (callNodeKind == .TaggedTemplateExpression) {
+            targetExpr = c.binder.ast.getNode(node).TaggedTemplateExpression.Tag;
+        } else {
+            return 0;
+        }
+
+        const targetType = c.checkExpressionAdHoc(targetExpr) catch return 0;
+
+        // SignatureKind.Call = 0, SignatureKind.Construct = 1
+        const sigKind: types.SignatureKind = if (callNodeKind == .NewExpression) .Construct else .Call;
+        const candidates = c.getSignaturesOfType(targetType, sigKind);
+
+        if (candidatesOutArray) |outArray| {
+            if (candidates.len > 0) {
+                const sigIndices = c.resolvedSignaturesPool.items[candidates.start .. candidates.start + candidates.len];
+                outArray.appendSlice(c.allocator, sigIndices) catch unreachable;
+            }
+        }
+
+        if (candidates.len == 0) return 0;
+
+        if (c.resolvedSignatureLinks.get(node)) |sig| {
+            return sig;
+        }
+
+        return c.resolvedSignaturesPool.items[candidates.start];
+    }
 };
 
 fn containsTypeIndex(items: []const types.TypeIndex, needle: types.TypeIndex) bool {
@@ -4496,12 +4836,16 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
 
     if (c.binder.ast.getNodeKind(node) == .PropertyAccessExpression) {
         // Return property symbol if already typechecked and cached
-        return c.getSymbolOfNode(node) orelse 0;
+        return getSymbolOfNode(c, node) orelse 0;
     }
 
     // fallback: mostly for declarations
     return c.binder.ast.getNodeSymbol(node) orelse 0;
 }
+pub fn getSymbolOfNode(c: *Checker, node: ast_gen.NodeIndex) ?ast_gen.SymbolIndex {
+    return c.binder.ast.getNodeSymbol(node); // simplified fallback
+}
+
 pub fn getMergedSymbol(c: *Checker, symIndex: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
     if (symIndex != 0) {
         if (c.mergedSymbols.get(symIndex)) |merged| {
@@ -4549,7 +4893,7 @@ test "checker models tuple array and union types without collapsing to any" {
     const element_type = checker.typesList.items[array_type].data.Array.elementType;
     try std.testing.expect(checker.typesList.items[element_type].flags & types.TypeFlags.Union != 0);
 
-    const inferred_array = try checker.checkExpression(parsed.ast.getNode(declaration).VariableDeclaration.Initializer.?);
+    const inferred_array = try checker.checkExpressionAdHoc(parsed.ast.getNode(declaration).VariableDeclaration.Initializer.?);
     try std.testing.expect(checker.typesList.items[inferred_array].data == .Array);
     const inferred_element = checker.typesList.items[inferred_array].data.Array.elementType;
     try std.testing.expect(checker.typesList.items[inferred_element].flags & types.TypeFlags.Union != 0);
@@ -4595,21 +4939,28 @@ pub fn createTypeMapper(self: *Checker, m: types.TypeMapper) !types.TypeMapperIn
     return idx;
 }
 
+pub fn appendTypeMapping(self: *Checker, mapper: types.TypeMapperIndex, source: types.TypeIndex, target: types.TypeIndex) !types.TypeMapperIndex {
+    return try createTypeMapper(self, .{
+        .kind = .Deferred,
+        .data = .{ .Deferred = .{ .source = source, .target = target, .mapper = mapper } },
+    });
+}
+
 pub fn makeSimpleTypeMapper(self: *Checker, source: types.TypeIndex, target: types.TypeIndex) !types.TypeMapperIndex {
-    return try self.createTypeMapper(.{
+    return try createTypeMapper(self, .{
         .kind = .Simple,
         .data = .{ .Simple = .{ .source = source, .target = target } },
     });
 }
 
 pub fn makeArrayTypeMapper(self: *Checker, sources: []const types.TypeIndex, targets: []const types.TypeIndex) !types.TypeMapperIndex {
-    return try self.createTypeMapper(.{
+    return try createTypeMapper(self, .{
         .kind = .Array,
         .data = .{ .Array = .{ .sources = sources, .targets = targets } },
     });
 }
 
-pub fn mapType(c: *Checker, t: types.TypeIndex, mapperIdx: types.TypeMapperIndex) types.TypeIndex {
+pub fn mapTypeWithMapper(c: *Checker, t: types.TypeIndex, mapperIdx: types.TypeMapperIndex) types.TypeIndex {
     if (mapperIdx == 0) return t;
     const mapper = c.mappersList.items[mapperIdx];
     switch (mapper.kind) {
@@ -4624,25 +4975,47 @@ pub fn mapType(c: *Checker, t: types.TypeIndex, mapperIdx: types.TypeMapperIndex
             return t;
         },
         .Merged => {
-            const target = c.mapType(t, mapper.data.Merged.mapper1);
+            const target = mapTypeWithMapper(c, t, mapper.data.Merged.mapper1);
             if (target != t) return target;
-            return c.mapType(t, mapper.data.Merged.mapper2);
+            return mapTypeWithMapper(c, t, mapper.data.Merged.mapper2);
         },
         .Permissive => {
             if ((c.typesList.items[t].flags & types.TypeFlags.TypeParameter) != 0) {
-                return c.getWildcardType() catch t;
+                return c.wildcardTypeIndex orelse 0;
             }
             return t;
         },
         .Restrictive => {
             if ((c.typesList.items[t].flags & types.TypeFlags.TypeParameter) != 0) {
-                // return c.getRestrictiveTypeParameter(t); // TODO
-                return t;
+                return getRestrictiveTypeParameter(c, t);
             }
             return t;
         },
         else => return t,
     }
+}
+
+pub fn getRestrictiveTypeParameter(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+    const tp = &c.typesList.items[t].data.TypeParameter;
+    const constraintType = tp.constraintType;
+    if ((constraintType == 0 and getConstraintDeclaration(c, t) == null) or constraintType == (c.noConstraintTypeIndex orelse 0)) {
+        return t;
+    }
+
+    const gop = c.restrictiveTypeParameterCache.getOrPut(c.allocator, t) catch unreachable;
+    if (gop.found_existing) {
+        return gop.value_ptr.*;
+    }
+
+    const result = c.createType(.{
+        .flags = types.TypeFlags.TypeParameter,
+        .objectFlags = 0,
+        .symbol = c.typesList.items[t].symbol,
+        .data = .{ .TypeParameter = .{ .constraintType = c.noConstraintTypeIndex orelse 0 } },
+    }) catch 0;
+
+    gop.value_ptr.* = result;
+    return result;
 }
 
 pub fn instantiateTypes(c: *Checker, typesArr: []const types.TypeIndex, mapperIdx: types.TypeMapperIndex) ![]const types.TypeIndex {
@@ -4675,6 +5048,13 @@ pub fn getPermissiveMapper(self: *Checker) !types.TypeMapperIndex {
     return idx;
 }
 
+pub fn prependTypeMapping(self: *Checker, source: types.TypeIndex, target: types.TypeIndex, mapper: types.TypeMapperIndex) !types.TypeMapperIndex {
+    return try createTypeMapper(self, .{
+        .kind = .Deferred,
+        .data = .{ .Deferred = .{ .source = source, .target = target, .mapper = mapper } },
+    });
+}
+
 pub fn getRestrictiveMapper(self: *Checker) !types.TypeMapperIndex {
     if (self.restrictiveMapperIndex) |idx| return idx;
     const idx = try self.createTypeMapper(.{
@@ -4689,12 +5069,15 @@ pub fn getConstraintDeclaration(c: *Checker, t: types.TypeIndex) ?ast_gen.NodeIn
     const symbolIdx = c.typesList.items[t].symbol;
     if (symbolIdx) |sIdx| {
         const sym = c.binder.symbols.items[sIdx];
-        for (sym.declarations) |declIdx| {
-            const decl = c.binder.nodes.items[declIdx];
-            if (decl.kind == .TypeParameterDeclaration) {
-                if (decl.data.TypeParameterDeclaration.constraint) |constraintIdx| {
-                    return constraintIdx;
-                }
+        for (sym.Declarations.items) |declIdx| {
+            const decl = c.binder.ast.nodes.get(declIdx);
+            switch (decl) {
+                .TypeParameter => |tpd| {
+                    if (tpd.Constraint) |constraintIdx| {
+                        return constraintIdx;
+                    }
+                },
+                else => {},
             }
         }
     }
@@ -4702,13 +5085,751 @@ pub fn getConstraintDeclaration(c: *Checker, t: types.TypeIndex) ?ast_gen.NodeIn
 }
 
 pub fn resolveTypeParameterConstraint(c: *Checker, t: types.TypeIndex) void {
-    const tp = &c.getTargetTypeData(t).TypeParameter;
+    var tp = &c.typesList.items[c.getTargetType(t)].data.TypeParameter;
     tp.isTypeParameterConstraintResolved = true;
-    const constraintDeclaration = c.getConstraintDeclaration(t);
+    const constraintDeclaration = getConstraintDeclaration(c, t);
     if (constraintDeclaration) |constraintIdx| {
         // Skipped: pushTypeResolution check
-        tp.constraintType = c.getTypeFromTypeNode(constraintIdx);
+        const type_resolution = @import("type_resolution.zig");
+        tp.constraintType = type_resolution.getTypeFromTypeNode(c, constraintIdx);
     } else {
         tp.constraintType = c.noConstraintTypeIndex orelse 0;
     }
+}
+pub fn checkSourceElementWorker(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    const node = c.binder.ast.getNode(node_idx);
+    switch (node) {
+        .TypeParameter => checkTypeParameter(c, node_idx),
+        .Parameter => checkParameter(c, node_idx),
+        .PropertyDeclaration => checkPropertyDeclaration(c, node_idx),
+        .PropertySignature => checkPropertySignature(c, node_idx),
+        .ConstructorType, .FunctionType, .CallSignature, .ConstructSignature, .IndexSignature => checkSignatureDeclaration(c, node_idx),
+        .MethodDeclaration, .MethodSignature => checkMethodDeclaration(c, node_idx),
+        .ClassStaticBlockDeclaration => checkClassStaticBlockDeclaration(c, node_idx),
+        .Constructor => checkConstructorDeclaration(c, node_idx),
+        .GetAccessor, .SetAccessor => checkAccessorDeclaration(c, node_idx),
+        .TypeReference => checkTypeReferenceNode(c, node_idx),
+        .TypePredicate => checkTypePredicate(c, node_idx),
+        .TypeQuery => checkTypeQuery(c, node_idx),
+        .TypeLiteral => checkTypeLiteral(c, node_idx),
+        .ArrayType => checkArrayType(c, node_idx),
+        .TupleType => checkTupleType(c, node_idx),
+        .UnionType, .IntersectionType => checkUnionOrIntersectionType(c, node_idx),
+        .ParenthesizedType, .OptionalType, .RestType => {
+            // TODO: forEachChild
+        },
+        .ThisType => checkThisType(c, node_idx),
+        .TypeOperator => checkTypeOperator(c, node_idx),
+        .ConditionalType => checkConditionalType(c, node_idx),
+        .InferType => checkInferType(c, node_idx),
+        .TemplateLiteralType => checkTemplateLiteralType(c, node_idx),
+        .ImportType => checkImportType(c, node_idx),
+        .NamedTupleMember => checkNamedTupleMember(c, node_idx),
+        .IndexedAccessType => checkIndexedAccessType(c, node_idx),
+        .MappedType => checkMappedType(c, node_idx),
+        .FunctionDeclaration => checkFunctionDeclaration(c, node_idx),
+        .Block, .ModuleBlock => checkBlock(c, node_idx),
+        .VariableStatement => checkVariableStatement(c, node_idx),
+        .ExpressionStatement => checkExpressionStatement(c, node_idx),
+        .IfStatement => checkIfStatement(c, node_idx),
+        .DoStatement => checkDoStatement(c, node_idx),
+        .WhileStatement => checkWhileStatement(c, node_idx),
+        .ForStatement => checkForStatement(c, node_idx),
+        .ForInStatement => checkForInStatement(c, node_idx),
+        .ForOfStatement => checkForOfStatement(c, node_idx),
+        .ContinueStatement, .BreakStatement => checkBreakOrContinueStatement(c, node_idx),
+        .ReturnStatement => checkReturnStatement(c, node_idx),
+        .WithStatement => checkWithStatement(c, node_idx),
+        .SwitchStatement => checkSwitchStatement(c, node_idx),
+        .LabeledStatement => checkLabeledStatement(c, node_idx),
+        .ThrowStatement => checkThrowStatement(c, node_idx),
+        .TryStatement => checkTryStatement(c, node_idx),
+        .VariableDeclaration => checkVariableDeclaration(c, node_idx),
+        .BindingElement => checkBindingElement(c, node_idx),
+        .ClassDeclaration => checkClassDeclaration(c, node_idx),
+        .InterfaceDeclaration => checkInterfaceDeclaration(c, node_idx),
+        .TypeAliasDeclaration, .JSTypeAliasDeclaration => checkTypeAliasDeclaration(c, node_idx),
+        .EnumDeclaration => checkEnumDeclaration(c, node_idx),
+        .EnumMember => checkEnumMember(c, node_idx),
+        .ModuleDeclaration => checkModuleDeclaration(c, node_idx),
+        .ImportDeclaration, .JSImportDeclaration => checkImportDeclaration(c, node_idx),
+        .ImportEqualsDeclaration => checkImportEqualsDeclaration(c, node_idx),
+        .ExportDeclaration => checkExportDeclaration(c, node_idx),
+        .ExportAssignment => checkExportAssignment(c, node_idx),
+        .EmptyStatement => checkGrammarStatementInAmbientContext(c, node_idx),
+        .DebuggerStatement => checkGrammarStatementInAmbientContext(c, node_idx),
+        .MissingDeclaration => checkMissingDeclaration(c, node_idx),
+        .JSDocNonNullableType, .JSDocNullableType, .JSDocAllType, .JSDocTypeLiteral => checkJSDocType(c, node_idx),
+        else => {},
+    }
+}
+
+pub fn checkAccessorDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkArrayType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkBindingElement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkBlock(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkBreakOrContinueStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkClassDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkClassStaticBlockDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkConditionalType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkConstructorDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkDoStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkEnumDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkEnumMember(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkExportAssignment(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkExportDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkExpressionStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkForInStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkForOfStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkForStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkFunctionDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkGrammarStatementInAmbientContext(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkIfStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkImportDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkImportEqualsDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkImportType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkIndexedAccessType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkInferType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkInterfaceDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkJSDocType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkLabeledStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkMappedType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkMethodDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkMissingDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkModuleDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkNamedTupleMember(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkParameter(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkPropertyDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkPropertySignature(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkReturnStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkSignatureDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkSwitchStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTemplateLiteralType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkThisType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkThrowStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTryStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTupleType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTypeAliasDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTypeLiteral(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTypeOperator(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTypeParameter(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTypePredicate(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTypeQuery(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkTypeReferenceNode(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkUnionOrIntersectionType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkVariableDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkVariableStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkWhileStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+pub fn checkWithStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node_idx;
+}
+
+pub fn checkExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    return checkExpressionEx(c, node_idx, types.CheckMode.Normal);
+}
+
+pub fn checkExpressionEx(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    return checkExpressionWorker(c, node_idx, checkMode);
+}
+
+pub fn checkSourceElement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    if (node_idx != 0) {
+        checkSourceElementWorker(c, node_idx);
+    }
+}
+pub fn checkExpressionWorker(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    const node = c.binder.ast.getNode(node_idx);
+    switch (node) {
+        .Identifier => {
+            return checkIdentifier(c, node_idx, checkMode);
+        },
+        .PrivateIdentifier => {
+            return checkPrivateIdentifierExpression(c, node_idx);
+        },
+        .ThisKeyword => {
+            return checkThisExpression(c, node_idx);
+        },
+        .SuperKeyword => {
+            return checkSuperExpression(c, node_idx);
+        },
+        .NullKeyword => {
+            return c.nullWideningType orelse 0;
+        },
+        .StringLiteral, .NoSubstitutionTemplateLiteral => {
+            return checkStringLiteral(c, node_idx, checkMode);
+        },
+        .NumericLiteral => {
+            return checkNumericLiteral(c, node_idx, checkMode);
+        },
+        .BigIntLiteral => {
+            return checkBigIntLiteral(c, node_idx, checkMode);
+        },
+        .RegularExpressionLiteral => {
+            return c.getGlobalRegExpType(true) catch (c.anyTypeIndex orelse 0);
+        },
+        .ArrayLiteralExpression => {
+            return checkArrayLiteral(c, node_idx, checkMode, null);
+        },
+        .ObjectLiteralExpression => {
+            return checkObjectLiteral(c, node_idx, checkMode);
+        },
+        .PropertyAccessExpression => {
+            return checkPropertyAccessExpression(c, node_idx);
+        },
+        .ElementAccessExpression => {
+            return checkElementAccessExpression(c, node_idx);
+        },
+        .CallExpression => {
+            return checkCallExpression(c, node_idx);
+        },
+        .NewExpression => {
+            return checkNewExpression(c, node_idx);
+        },
+        .TaggedTemplateExpression => {
+            return checkTaggedTemplateExpression(c, node_idx);
+        },
+        .ParenthesizedExpression => {
+            return checkParenthesizedExpression(c, node_idx, checkMode);
+        },
+        .FunctionExpression, .ArrowFunction => {
+            return checkFunctionExpressionOrObjectLiteralMethod(c, node_idx, checkMode);
+        },
+        .ClassExpression => {
+            return checkClassExpression(c, node_idx);
+        },
+        .TypeAssertionExpression => {
+            return checkAssertion(c, node_idx);
+        },
+        .AsExpression => {
+            return checkAssertion(c, node_idx);
+        },
+        .SatisfiesExpression => {
+            return checkSatisfiesExpression(c, node_idx);
+        },
+        .NonNullExpression => {
+            return checkNonNullExpression(c, node_idx);
+        },
+        .MetaProperty => {
+            return checkMetaProperty(c, node_idx);
+        },
+        .PrefixUnaryExpression => {
+            return checkPrefixUnaryExpression(c, node_idx);
+        },
+        .PostfixUnaryExpression => {
+            return checkPostfixUnaryExpression(c, node_idx);
+        },
+        .BinaryExpression => {
+            return checkBinaryExpression(c, node_idx, checkMode);
+        },
+        .ConditionalExpression => {
+            return checkConditionalExpression(c, node_idx, checkMode);
+        },
+        .YieldExpression => {
+            return checkYieldExpression(c, node_idx);
+        },
+        .SpreadElement => {
+            return checkSpreadExpression(c, node_idx, checkMode);
+        },
+        .OmittedExpression => {
+            return c.getUndefinedType() catch (c.anyTypeIndex orelse 0);
+        },
+        .Block, .ModuleBlock => {
+            checkBlock(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .VariableStatement => {
+            checkVariableStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ExpressionStatement => {
+            checkExpressionStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .IfStatement => {
+            checkIfStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .DoStatement => {
+            checkDoStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .WhileStatement => {
+            checkWhileStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ForStatement => {
+            checkForStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ForInStatement => {
+            checkForInStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ForOfStatement => {
+            checkForOfStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ContinueStatement, .BreakStatement => {
+            checkBreakOrContinueStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ReturnStatement => {
+            checkReturnStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .WithStatement => {
+            checkWithStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .SwitchStatement => {
+            checkSwitchStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .LabeledStatement => {
+            checkLabeledStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ThrowStatement => {
+            checkThrowStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .TryStatement => {
+            checkTryStatement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .VariableDeclaration => {
+            checkVariableDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .BindingElement => {
+            checkBindingElement(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ClassDeclaration => {
+            checkClassDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .InterfaceDeclaration => {
+            checkInterfaceDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .TypeAliasDeclaration => {
+            checkTypeAliasDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .EnumDeclaration => {
+            checkEnumDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .EnumMember => {
+            checkEnumMember(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ModuleDeclaration => {
+            checkModuleDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ImportDeclaration => {
+            checkImportDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ImportEqualsDeclaration => {
+            checkImportEqualsDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ExportDeclaration => {
+            checkExportDeclaration(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .ExportAssignment => {
+            checkExportAssignment(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .EmptyStatement => {
+            checkGrammarStatementInAmbientContext(c, node_idx);
+            return c.anyTypeIndex orelse 0;
+        },
+        .TemplateExpression => {
+            return checkTemplateExpression(c, node_idx);
+        },
+        .PartiallyEmittedExpression => {
+            return checkPartiallyEmittedExpression(c, node_idx);
+        },
+        .CommaListExpression => {
+            return checkCommaListExpression(c, node_idx);
+        },
+        .SyntheticExpression => {
+            return checkSyntheticExpression(c, node_idx);
+        },
+        .TrueKeyword => {
+            return c.getTrueType() catch (c.anyTypeIndex orelse 0);
+        },
+        .FalseKeyword => {
+            return c.getFalseType() catch (c.anyTypeIndex orelse 0);
+        },
+        .VoidExpression => {
+            return checkVoidExpression(c, node_idx);
+        },
+        .TypeOfExpression => {
+            return checkTypeOfExpression(c, node_idx);
+        },
+        .DeleteExpression => {
+            return checkDeleteExpression(c, node_idx);
+        },
+        .AwaitExpression => {
+            return checkAwaitExpression(c, node_idx);
+        },
+        .TypeParameter, .Parameter, .ConstructorType, .FunctionType, .CallSignature, .ConstructSignature, .IndexSignature, .MethodSignature, .Constructor, .GetAccessor, .SetAccessor, .PropertySignature, .TypeReference, .TypePredicate, .TypeQuery, .TypeLiteral, .ArrayType, .TupleType, .UnionType, .IntersectionType, .ParenthesizedType, .OptionalType, .ThisType, .TypeOperator, .ConditionalType, .InferType, .TemplateLiteralType, .ImportType, .NamedTupleMember, .IndexedAccessType, .MappedType, .DebuggerStatement, .MissingDeclaration, .PropertyDeclaration, .MethodDeclaration, .ClassStaticBlockDeclaration, .JSDocNonNullableType, .JSDocNullableType, .JSDocAllType, .JSDocTypeLiteral => {
+            return c.errorTypeIndex orelse 0;
+        },
+        else => return c.anyTypeIndex orelse 0,
+    }
+}
+
+// Stubs
+pub fn checkArrayLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode, arg4: ?ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    _ = arg4;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkAssertion(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkAwaitExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    const node = c.binder.ast.getNode(node_idx).AwaitExpression;
+    return checkExpression(c, node.Expression);
+}
+pub fn checkBigIntLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkBinaryExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkClassExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkCommaListExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkConditionalExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkDeleteExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    const node = c.binder.ast.getNode(node_idx).DeleteExpression;
+    _ = checkExpression(c, node.Expression);
+    return c.booleanTypeIndex orelse 0;
+}
+pub fn checkElementAccessExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkFunctionExpressionOrObjectLiteralMethod(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkIdentifier(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkMetaProperty(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkNewExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkNonNullExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkNumericLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = checkMode;
+    const n = c.binder.ast.getNode(node_idx).NumericLiteral;
+    const value = std.fmt.parseFloat(f64, n.Text) catch 0.0;
+    return c.getFreshTypeOfLiteralType(c.getNumberLiteralType(value));
+}
+pub fn checkObjectLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkParenthesizedExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkPartiallyEmittedExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkPostfixUnaryExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    const expr = c.binder.ast.getNode(node_idx).PostfixUnaryExpression;
+    _ = checkExpression(c, expr.Operand);
+    return c.numberTypeIndex orelse 0;
+}
+pub fn checkPrefixUnaryExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    const expr = c.binder.ast.getNode(node_idx).PrefixUnaryExpression;
+    _ = checkExpression(c, expr.Operand);
+
+    const operandKind = c.binder.ast.getKind(expr.Operand);
+    if (operandKind == .NumericLiteral) {
+        if (expr.Operator == .MinusToken) {
+            const text = c.binder.ast.getNode(expr.Operand).NumericLiteral.Text;
+            const value = std.fmt.parseFloat(f64, text) catch 0.0;
+            return c.getFreshTypeOfLiteralType(c.getNumberLiteralType(-value));
+        } else if (expr.Operator == .PlusToken) {
+            const text = c.binder.ast.getNode(expr.Operand).NumericLiteral.Text;
+            const value = std.fmt.parseFloat(f64, text) catch 0.0;
+            return c.getFreshTypeOfLiteralType(c.getNumberLiteralType(value));
+        }
+    }
+
+    switch (expr.Operator) {
+        .PlusToken, .MinusToken, .TildeToken => return c.numberTypeIndex orelse 0,
+        .ExclamationToken => return c.booleanTypeIndex orelse 0,
+        .PlusPlusToken, .MinusMinusToken => return c.numberTypeIndex orelse 0,
+        else => return c.anyTypeIndex orelse 0,
+    }
+}
+pub fn checkPrivateIdentifierExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkPropertyAccessExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkSatisfiesExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkSpreadExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = node_idx;
+    _ = checkMode;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkStringLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: types.CheckMode) types.TypeIndex {
+    _ = checkMode;
+    const s = c.binder.ast.getNode(node_idx).StringLiteral;
+    return c.getFreshTypeOfLiteralType(c.getStringLiteralType(s.Text));
+}
+pub fn checkSuperExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkSyntheticExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkTaggedTemplateExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkTemplateExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkThisExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
+}
+pub fn checkTypeOfExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    const node = c.binder.ast.getNode(node_idx).TypeOfExpression;
+    _ = checkExpression(c, node.Expression);
+    return c.stringTypeIndex orelse 0;
+}
+pub fn checkVoidExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    const node = c.binder.ast.getNode(node_idx).VoidExpression;
+    _ = checkExpression(c, node.Expression);
+    return c.undefinedTypeIndex orelse 0;
+}
+pub fn checkYieldExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node_idx;
+    return c.anyTypeIndex orelse 0;
 }
