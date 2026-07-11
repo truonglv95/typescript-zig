@@ -266,9 +266,15 @@ pub const TypeAlias = struct {
     typeArgumentsLen: u32,
 };
 
+pub const TupleElementInfo = struct {
+    flags: u32, // ElementFlags
+    labeledDeclaration: ?ast_gen.NodeIndex = null,
+};
+
 pub const TupleType = struct {
     typesStart: u32,
     typesLen: u32,
+    elementInfosStart: u32 = 0,
     readonly: bool = false,
     combinedFlags: u32 = 0,
     minLength: u32 = 0,
