@@ -1020,7 +1020,7 @@ pub fn inferFromObjectTypes(c: *checker.Checker, n_idx: InferenceStateIndex, sou
             const sourceArity = c.getTypeReferenceArity(source);
             const targetArity = c.getTypeReferenceArity(target);
             const elementTypes = c.getTypeArguments(target);
-            const elementInfos = c.getTargetTupleType(target).elementInfos;
+            const elementInfos = c.getTupleElementInfos(target);
 
             if (c.isTupleType(source) and c.isTupleTypeStructureMatching(source, target)) {
                 for (0..targetArity) |i| {
@@ -1044,7 +1044,7 @@ pub fn inferFromObjectTypes(c: *checker.Checker, n_idx: InferenceStateIndex, sou
                 try inferFromTypes(c, n_idx, c.getTypeArguments(source)[i], elementTypes[i]);
             }
 
-            if (!c.isTupleType(source) or (sourceArity >= startLength + endLength and sourceArity - startLength - endLength == 1 and c.getTargetTupleType(source).elementInfos[startLength].flags & types.ElementFlags.Rest != 0)) {
+            if (!c.isTupleType(source) or (sourceArity >= startLength + endLength and sourceArity - startLength - endLength == 1 and c.getTupleElementInfos(source)[startLength].flags & types.ElementFlags.Rest != 0)) {
                 const restType = c.getTypeArguments(source)[startLength];
                 for (startLength..targetArity - endLength) |i| {
                     var t = restType;
@@ -1081,7 +1081,7 @@ pub fn inferFromObjectTypes(c: *checker.Checker, n_idx: InferenceStateIndex, sou
                                 const endIndex = sourceArity - c.getEndElementCount(c.getTargetTupleType(target), types.ElementFlags.Fixed);
                                 const startIndex = endIndex - impliedArity;
                                 if (startIndex >= startLength) {
-                                    const trailingSlice = c.createTupleTypeEx(c.getTypeArguments(source)[startIndex..endIndex], c.getTargetTupleType(source).elementInfos[startIndex..endIndex], false);
+                                    const trailingSlice = c.createTupleTypeEx(c.getTypeArguments(source)[startIndex..endIndex], c.getTupleElementInfos(source)[startIndex..endIndex], false);
                                     if (c.getElementTypeOfSliceOfTupleType(source, startLength, @intCast(endLength + impliedArity), false, false)) |restType| {
                                         try inferFromTypes(c, n_idx, restType, elementTypes[startLength]);
                                     }

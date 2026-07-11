@@ -351,6 +351,8 @@ pub const Checker = struct {
     inferenceContexts: std.ArrayListUnmanaged(types.InferenceContext) = .empty,
     inferenceInfos: std.ArrayListUnmanaged(types.InferenceInfo) = .empty,
 
+    tupleElementInfos: std.ArrayListUnmanaged(types.TupleElementInfo) = .empty,
+
     canCollectSymbolAliasAccessibilityData: bool = true,
 
     // Added for EmitResolver
@@ -444,6 +446,7 @@ pub const Checker = struct {
             info.contraCandidates.deinit(self.allocator);
         }
         self.inferenceInfos.deinit(self.allocator);
+        self.tupleElementInfos.deinit(self.allocator);
     }
 
     pub fn createType(self: *Checker, t: types.Type) !u32 {
@@ -1985,6 +1988,11 @@ pub const Checker = struct {
     pub fn getTargetTupleType(c: *Checker, t: types.TypeIndex) *types.TupleType {
         const target = c.getTargetType(t);
         return &c.typesList.items[target].data.Tuple;
+    }
+
+    pub fn getTupleElementInfos(c: *Checker, t: types.TypeIndex) []const types.TupleElementInfo {
+        const tupleType = c.getTargetTupleType(t);
+        return c.tupleElementInfos.items[tupleType.elementInfosStart .. tupleType.elementInfosStart + tupleType.typesLen];
     }
 
     pub fn getTypeArguments(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
@@ -4117,6 +4125,12 @@ pub const Checker = struct {
         _ = node;
     }
 
+    pub fn getHomomorphicTypeVariable(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        const typeVariable = c.getTypeParameterFromMappedType(t);
+        if (typeVariable == 0) return 0;
+        return c.getConstraintOfTypeParameter(typeVariable) orelse 0;
+    }
+
     pub fn getOriginOfUnionType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
         _ = t;
@@ -4217,17 +4231,20 @@ pub const Checker = struct {
     }
 
     pub fn getStartElementCount(c: *Checker, tupleType: *types.TupleType, flags: u32) usize {
-        _ = c;
-        _ = tupleType;
-        _ = flags;
-        return 0; // Skipped
+        const infos = c.tupleElementInfos.items[tupleType.elementInfosStart .. tupleType.elementInfosStart + tupleType.typesLen];
+        for (infos, 0..) |info, i| {
+            if ((info.flags & flags) == 0) return i;
+        }
+        return infos.len;
     }
 
     pub fn getEndElementCount(c: *Checker, tupleType: *types.TupleType, flags: u32) usize {
-        _ = c;
-        _ = tupleType;
-        _ = flags;
-        return 0; // Skipped
+        const infos = c.tupleElementInfos.items[tupleType.elementInfosStart .. tupleType.elementInfosStart + tupleType.typesLen];
+        var i = infos.len;
+        while (i > 0) : (i -= 1) {
+            if ((infos[i - 1].flags & flags) == 0) return infos.len - i;
+        }
+        return infos.len;
     }
 
     pub fn removeMissingType(c: *Checker, t: types.TypeIndex, optional: bool) types.TypeIndex {
@@ -5138,9 +5155,42 @@ pub const Checker = struct {
     }
 
     pub fn isConstTypeVariable(c: *Checker, t: types.TypeIndex, depth: usize) bool {
-        _ = c;
-        _ = t;
-        _ = depth;
+        if (depth >= 5 or t == 0) return false;
+
+        const ty = c.typesList.items[t];
+        if (ty.flags & types.TypeFlags.TypeParameter != 0) {
+            if (ty.symbol != 0) {
+                const sym = c.binder.ast.symbols.items[ty.symbol];
+                for (sym.Declarations.items) |d| {
+                    if (@import("../ast/ast_utils.zig").hasSyntacticModifier(c.binder.ast, d, @import("../ast/ast_utils.zig").ModifierFlags.Const)) return true;
+                }
+            }
+        } else if (ty.flags & types.TypeFlags.UnionOrIntersection != 0) {
+            for (c.getTypes(t)) |s| {
+                if (c.isConstTypeVariable(s, depth)) return true;
+            }
+        } else if (ty.flags & types.TypeFlags.IndexedAccess != 0) {
+            return c.isConstTypeVariable(ty.data.IndexedAccess.objectType, depth + 1);
+        } else if (ty.flags & types.TypeFlags.Conditional != 0) {
+            if (c.getConstraintOfConditionalType(t)) |constraint| {
+                return c.isConstTypeVariable(constraint, depth + 1);
+            }
+        } else if (ty.flags & types.TypeFlags.Substitution != 0) {
+            return c.isConstTypeVariable(ty.data.Substitution.baseType, depth);
+        } else if (ty.flags & types.TypeFlags.Object != 0 and ty.objectFlags & types.ObjectFlags.Mapped != 0) {
+            const typeVariable = c.getHomomorphicTypeVariable(t);
+            if (typeVariable != 0) return c.isConstTypeVariable(typeVariable, depth);
+        } else if (c.isGenericTupleType(t)) {
+            const elementTypes = c.getTypeArguments(t);
+            const target = c.getTargetType(t);
+            const elementInfos = c.getTupleElementInfos(target);
+            for (elementTypes, 0..) |s, i| {
+                if (elementInfos.len > i and elementInfos[i].flags & types.ElementFlags.Variadic != 0) {
+                    if (c.isConstTypeVariable(s, depth)) return true;
+                }
+            }
+        }
+
         return false;
     }
 
@@ -5178,10 +5228,10 @@ pub const Checker = struct {
         if (c.getTypeReferenceArity(t1) != c.getTypeReferenceArity(t2)) {
             return false;
         }
-        const t1_target = c.getTargetTupleType(t1);
-        const t2_target = c.getTargetTupleType(t2);
-        for (t1_target.elementInfos, 0..) |e, i| {
-            if (e.flags & types.ElementFlags.Variable != t2_target.elementInfos[i].flags & types.ElementFlags.Variable) {
+        const t1_infos = c.getTupleElementInfos(t1);
+        const t2_infos = c.getTupleElementInfos(t2);
+        for (t1_infos, 0..) |e, i| {
+            if (e.flags & types.ElementFlags.Variable != t2_infos[i].flags & types.ElementFlags.Variable) {
                 return false;
             }
         }

@@ -438,7 +438,7 @@ pub const Relater = struct {
                 while (sourcePosition < sourceArity) : (sourcePosition += 1) {
                     var sourceFlags: u32 = 0;
                     if (c.isTupleType(source)) {
-                        sourceFlags = c.getTargetTupleType(source).elementInfos[sourcePosition].flags;
+                        sourceFlags = c.getTupleElementInfos(source)[sourcePosition].flags;
                     } else {
                         sourceFlags = types.ElementFlags.Rest;
                     }
@@ -451,7 +451,7 @@ pub const Relater = struct {
                     }
                     var targetFlags: u32 = types.ElementFlags.None;
                     if (targetPosition >= 0) {
-                        targetFlags = c.getTargetTupleType(target).elementInfos[targetPosition].flags;
+                        targetFlags = c.getTupleElementInfos(target)[targetPosition].flags;
                     }
                     if (targetFlags & types.ElementFlags.Variadic != 0 and sourceFlags & types.ElementFlags.Variadic == 0) {
                         if (reportErrors) {
