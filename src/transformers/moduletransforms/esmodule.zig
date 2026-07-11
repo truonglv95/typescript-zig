@@ -34,6 +34,14 @@ pub const ESModuleTransformer = struct {
             .SourceFile => {
                 return self.visitSourceFile(visitor, node);
             },
+            .ExportAssignment => |exportAssignment| {
+                if (exportAssignment.IsExportEquals != 0) {
+                    if ((self.compilerOptions.module orelse .None) != .Preserve) {
+                        return 0; // Elide `export=` as it is not legal with --module ES6
+                    }
+                }
+                return visitor.visitEachChild(node);
+            },
             // We just need the empty `export {};` for now, so we won't rewrite imports
             else => {
                 return visitor.visitEachChild(node);
@@ -62,7 +70,7 @@ pub const ESModuleTransformer = struct {
         // does not rewrite module syntax. Revisiting every statement here can
         // re-run child visitors over already transformed imports and elide a
         // side-effect-only import. Preserve the source-file statements as-is.
-        var result = node;
+        var result = visitor.visitEachChild(node);
         const resultNode = tree.getNode(result).SourceFile;
 
         // If it's an external module, and module kind != Preserve, and no statements are external module indicators

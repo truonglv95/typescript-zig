@@ -52,7 +52,10 @@ pub const NodeVisitor = struct {
         if (node == 0) return 0;
         const visited = self.visitFn(self.ctx, self, node);
 
-        if (visited != 0) {
+        if (visited != 0 and visited != node) {
+            if (self.tree.positions.items[visited].pos == 0 and self.tree.positions.items[visited].end == 0) {
+                self.tree.positions.items[visited] = self.tree.positions.items[node];
+            }
             const vData = self.tree.getNode(visited);
             if (vData == .SyntaxList) {
                 const children = self.tree.getNodeList(vData.SyntaxList.Children);
@@ -64,6 +67,9 @@ pub const NodeVisitor = struct {
                     const sData = self.tree.getNode(single);
                     if (sData == .SyntaxList) {
                         std.debug.panic("The result of visiting and lifting a Node may not be SyntaxList", .{});
+                    }
+                    if (self.tree.positions.items[single].pos == 0 and self.tree.positions.items[single].end == 0) {
+                        self.tree.positions.items[single] = self.tree.positions.items[node];
                     }
                 }
                 return single;
@@ -93,6 +99,11 @@ pub const NodeVisitor = struct {
 
         for (nodes, 0..) |n, i| {
             const visited = self.visitFn(self.ctx, self, n);
+            if (visited != 0 and visited != n) {
+                if (self.tree.positions.items[visited].pos == 0 and self.tree.positions.items[visited].end == 0) {
+                    self.tree.positions.items[visited] = self.tree.positions.items[n];
+                }
+            }
             if (visited == 0 or visited != n) {
                 result.appendSlice(self.allocator, nodes[0..i]) catch unreachable;
                 changed = true;
@@ -107,6 +118,9 @@ pub const NodeVisitor = struct {
                         if (std.meta.activeTag(vNode) == .SyntaxList) {
                             const children = self.tree.getNodeList(vNode.SyntaxList.Children);
                             for (children) |c| {
+                                if (self.tree.positions.items[c].pos == 0 and self.tree.positions.items[c].end == 0) {
+                                    self.tree.positions.items[c] = self.tree.positions.items[nodeIter];
+                                }
                                 result.append(self.allocator, c) catch unreachable;
                             }
                         } else {
@@ -119,6 +133,11 @@ pub const NodeVisitor = struct {
 
                     nodeIter = nodes[idx];
                     visitedIter = self.visitFn(self.ctx, self, nodeIter);
+                    if (visitedIter != 0 and visitedIter != nodeIter) {
+                        if (self.tree.positions.items[visitedIter].pos == 0 and self.tree.positions.items[visitedIter].end == 0) {
+                            self.tree.positions.items[visitedIter] = self.tree.positions.items[nodeIter];
+                        }
+                    }
                 }
                 break;
             }

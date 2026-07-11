@@ -1,9 +1,12 @@
 const std = @import("std");
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
+const sym_mod = @import("../ast/symbol.zig");
 const types = @import("types.zig");
 const checker_mod = @import("checker.zig");
 const Checker = checker_mod.Checker;
+const factory_pkg = @import("../printer/factory.zig");
 
 pub const Flags = packed struct(u32) {
     NoTruncation: bool = false,
@@ -186,9 +189,9 @@ pub const NodeBuilderImpl = struct {
         {
             return true;
         }
-        const symbol = b.c.getSymbol(t);
-        if (objectFlags & types.ObjectFlags.Anonymous != 0 and symbol != 0 and
-            b.c.getSymbolFlags(symbol) & (types.SymbolFlags.Class | types.SymbolFlags.Enum | types.SymbolFlags.ValueModule | types.SymbolFlags.Function | types.SymbolFlags.Method) != 0)
+        const type_symbol = b.c.getSymbolOfType(t);
+        if (objectFlags & types.ObjectFlags.Anonymous != 0 and type_symbol != 0 and
+            b.c.getSymbolFlags(type_symbol) & (sym_mod.SymbolFlags.Class | sym_mod.SymbolFlags.Enum | sym_mod.SymbolFlags.ValueModule | sym_mod.SymbolFlags.Function | sym_mod.SymbolFlags.Method) != 0)
         {
             return true;
         }
@@ -409,9 +412,215 @@ pub const NodeBuilderImpl = struct {
         return 0;
     }
 
+    fn synthesizedFlags() u32 {
+        return ast_utils.NodeFlags.Synthesized;
+    }
+
+    fn factory(b: *NodeBuilderImpl) factory_pkg.NodeFactory {
+        return factory_pkg.NodeFactory.init(b.c.allocator, b.c.binder.ast);
+    }
+
+    fn createKeywordTypeNode(b: *NodeBuilderImpl, kind: ast_gen.NodeData) ast_gen.NodeIndex {
+        return b.c.binder.ast.pushNode(kind) catch 0;
+    }
+
+    fn createLiteralTypeNode(b: *NodeBuilderImpl, literal: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return b.c.binder.ast.pushNode(.{
+            .LiteralType = .{
+                .Flags = synthesizedFlags(),
+                .Literal = literal,
+            },
+        }) catch 0;
+    }
+
+    fn createPropertyNameNode(b: *NodeBuilderImpl, name: []const u8) ast_gen.NodeIndex {
+        var f = factory(b);
+        return f.newIdentifier(name);
+    }
+
+    fn primitiveTypeToTypeNode(b: *NodeBuilderImpl, typ: types.TypeIndex) ?ast_gen.NodeIndex {
+        const typeData = &b.c.typesList.items[typ];
+        const flags = typeData.flags;
+        if (flags & types.TypeFlags.String != 0) return createKeywordTypeNode(b, .StringKeyword);
+        if (flags & types.TypeFlags.Number != 0) return createKeywordTypeNode(b, .NumberKeyword);
+        if (flags & types.TypeFlags.Boolean != 0) return createKeywordTypeNode(b, .BooleanKeyword);
+        if (flags & types.TypeFlags.Void != 0) return createKeywordTypeNode(b, .VoidKeyword);
+        if (flags & types.TypeFlags.Undefined != 0) return createKeywordTypeNode(b, .UndefinedKeyword);
+        if (flags & types.TypeFlags.Null != 0) return createKeywordTypeNode(b, .NullKeyword);
+        if (flags & types.TypeFlags.Any != 0) return createKeywordTypeNode(b, .AnyKeyword);
+        if (flags & types.TypeFlags.Unknown != 0) return createKeywordTypeNode(b, .UnknownKeyword);
+        if (flags & types.TypeFlags.Never != 0) return createKeywordTypeNode(b, .NeverKeyword);
+        if (flags & types.TypeFlags.BigInt != 0) return createKeywordTypeNode(b, .BigIntKeyword);
+        if (flags & types.TypeFlags.StringLiteral != 0) {
+            var f = factory(b);
+            const literal = f.newStringLiteral(typeData.data.StringLiteral.text, false);
+            return createLiteralTypeNode(b, literal);
+        }
+        if (flags & types.TypeFlags.NumberLiteral != 0) {
+            const text = std.fmt.allocPrint(b.c.allocator, "{d}", .{typeData.data.NumberLiteral.value}) catch return null;
+            defer b.c.allocator.free(text);
+            var f = factory(b);
+            const literal = f.newNumericLiteral(text, 0);
+            return createLiteralTypeNode(b, literal);
+        }
+        if (flags & types.TypeFlags.BooleanLiteral != 0) {
+            var f = factory(b);
+            const literal = if (typeData.data.BooleanLiteral.value) f.newTrueExpression() else f.newFalseExpression();
+            return createLiteralTypeNode(b, literal);
+        }
+        return null;
+    }
+
+    fn symbolToTypeReferenceNode(b: *NodeBuilderImpl, sym: ast_gen.SymbolIndex, typeArguments: ?ast_gen.NodeIndex) ast_gen.NodeIndex {
+        if (sym == 0) return 0;
+        const nameNode = createPropertyNameNode(b, b.c.getSymbolName(sym));
+        return b.c.binder.ast.pushNode(.{
+            .TypeReference = .{
+                .Flags = synthesizedFlags(),
+                .TypeName = nameNode,
+                .TypeArguments = typeArguments,
+            },
+        }) catch 0;
+    }
+
+    fn createTypeNodeFromObjectType(b: *NodeBuilderImpl, t: types.TypeIndex) ast_gen.NodeIndex {
+        const members = b.c.resolveStructuredTypeMembers(t);
+        const properties = b.c.resolvedPropertiesPool.items[members.propertiesStart .. members.propertiesStart + members.propertiesLen];
+
+        var member_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        defer member_nodes.deinit(b.c.allocator);
+
+        for (properties) |prop| {
+            if (!b.c.symbolIsValue(prop)) continue;
+            const prop_type = b.c.getTypeOfSymbol(prop) catch 0;
+            const type_node = if (prop_type != 0) b.typeToTypeNode(prop_type) else createKeywordTypeNode(b, .AnyKeyword);
+            const optional = (b.c.getSymbolFlags(prop) & sym_mod.SymbolFlags.Optional) != 0;
+            const name_node = createPropertyNameNode(b, b.c.getSymbolName(prop));
+            var f = factory(b);
+            const member = b.c.binder.ast.pushNode(.{
+                .PropertySignature = .{
+                    .Flags = synthesizedFlags(),
+                    .Symbol = 0,
+                    .modifiers = null,
+                    .modifierFlags = 0,
+                    .name = name_node,
+                    .PostfixToken = if (optional) f.newToken(.{ .QuestionToken = {} }) else null,
+                    .Type = type_node,
+                    .Initializer = null,
+                },
+            }) catch return 0;
+            member_nodes.append(b.c.allocator, member) catch return 0;
+        }
+
+        const members_list = b.c.binder.ast.pushNodeList(member_nodes.items) catch return 0;
+        return b.c.binder.ast.pushNode(.{
+            .TypeLiteral = .{
+                .Flags = synthesizedFlags(),
+                .Symbol = 0,
+                .Members = members_list,
+            },
+        }) catch 0;
+    }
+
+    fn unionOrIntersectionTypeToTypeNode(b: *NodeBuilderImpl, typ: types.TypeIndex, isUnion: bool) ast_gen.NodeIndex {
+        const constituents = if (isUnion) b.c.getTypesFromUnion(typ) else b.c.getTypesFromIntersection(typ);
+        if (constituents.len == 0) return 0;
+        if (constituents.len == 1) return b.typeToTypeNode(constituents[0]);
+
+        var type_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        defer type_nodes.deinit(b.c.allocator);
+        for (constituents) |constituent| {
+            const type_node = b.typeToTypeNode(constituent);
+            if (type_node == 0) return 0;
+            type_nodes.append(b.c.allocator, type_node) catch return 0;
+        }
+        const list = b.c.binder.ast.pushNodeList(type_nodes.items) catch return 0;
+        return b.c.binder.ast.pushNode(if (isUnion)
+            .{ .UnionType = .{ .Flags = synthesizedFlags(), .Types = list } }
+        else
+            .{ .IntersectionType = .{ .Flags = synthesizedFlags(), .Types = list } }) catch 0;
+    }
+
     pub fn typeToTypeNode(b: *NodeBuilderImpl, typ: types.TypeIndex) ast_gen.NodeIndex {
-        _ = b;
-        _ = typ;
+        if (typ == 0 or typ >= b.c.typesList.items.len) return 0;
+        if (primitiveTypeToTypeNode(b, typ)) |node| return node;
+
+        const typeData = &b.c.typesList.items[typ];
+        const typeFlags = typeData.flags;
+        const objectFlags = typeData.objectFlags;
+
+        if (typeFlags & types.TypeFlags.Union != 0) {
+            return unionOrIntersectionTypeToTypeNode(b, typ, true);
+        }
+        if (typeFlags & types.TypeFlags.Intersection != 0) {
+            return unionOrIntersectionTypeToTypeNode(b, typ, false);
+        }
+        if (typeFlags & types.TypeFlags.Object != 0) {
+            if (objectFlags & types.ObjectFlags.Reference != 0) {
+                const target = b.c.getTargetType(typ);
+                if (b.c.isArrayType(typ)) {
+                    const element_type = if (typeData.data == .Array)
+                        typeData.data.Array.elementType
+                    else
+                        b.c.getTypeArguments(typ)[0];
+                    const element_node = b.typeToTypeNode(element_type);
+                    if (element_node == 0) return 0;
+                    return b.c.binder.ast.pushNode(.{
+                        .ArrayType = .{
+                            .Flags = synthesizedFlags(),
+                            .ElementType = element_node,
+                        },
+                    }) catch 0;
+                }
+                if (objectFlags & types.ObjectFlags.Tuple != 0) {
+                    const tuple = typeData.data.Tuple;
+                    const tuple_types = b.c.tupleTypesPool.items[tuple.typesStart .. tuple.typesStart + tuple.typesLen];
+                    var element_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+                    defer element_nodes.deinit(b.c.allocator);
+                    for (tuple_types) |element_type| {
+                        const element_node = b.typeToTypeNode(element_type);
+                        if (element_node == 0) return 0;
+                        element_nodes.append(b.c.allocator, element_node) catch return 0;
+                    }
+                    const list = b.c.binder.ast.pushNodeList(element_nodes.items) catch return 0;
+                    return b.c.binder.ast.pushNode(.{
+                        .TupleType = .{
+                            .Flags = synthesizedFlags(),
+                            .Elements = list,
+                        },
+                    }) catch 0;
+                }
+                const sym = b.c.getSymbolOfType(target);
+                const type_args = b.c.getTypeArguments(typ);
+                const type_args_node = if (type_args.len > 0) blk: {
+                    var arg_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+                    defer arg_nodes.deinit(b.c.allocator);
+                    for (type_args) |arg| {
+                        const arg_node = b.typeToTypeNode(arg);
+                        if (arg_node == 0) return 0;
+                        arg_nodes.append(b.c.allocator, arg_node) catch return 0;
+                    }
+                    break :blk b.c.binder.ast.pushNodeList(arg_nodes.items) catch return 0;
+                } else null;
+                return symbolToTypeReferenceNode(b, sym, type_args_node);
+            }
+            if (objectFlags & (types.ObjectFlags.Anonymous | types.ObjectFlags.Mapped) != 0) {
+                return createTypeNodeFromObjectType(b, typ);
+            }
+            if (objectFlags & types.ObjectFlags.ClassOrInterface != 0) {
+                return symbolToTypeReferenceNode(b, b.c.getSymbolOfType(typ), null);
+            }
+        }
+        if (typeData.data == .Array) {
+            const element_node = b.typeToTypeNode(typeData.data.Array.elementType);
+            if (element_node == 0) return 0;
+            return b.c.binder.ast.pushNode(.{
+                .ArrayType = .{
+                    .Flags = synthesizedFlags(),
+                    .ElementType = element_node,
+                },
+            }) catch 0;
+        }
         return 0;
     }
 

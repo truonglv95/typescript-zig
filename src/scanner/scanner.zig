@@ -1557,11 +1557,11 @@ pub fn getTokenPosOfNode(tree: *ast.Ast, node: ast.NodeIndex, includeJSDoc: bool
     }
     const nodeTag = std.meta.activeTag(tree.getNode(node));
     if (nodeTag == .JsxText) {
-        return skipTriviaEx(tree.sourceText, tree.positions.items[node].pos, .{ .stopAtComments = true });
+        return @intCast(skipTriviaEx(tree.sourceText, tree.positions.items[node].pos, .{ .stopAtComments = true }));
     }
     const nodeFlags = tree.getNodeFlags(node);
     const inJSDoc = nodeFlags & @import("../ast/ast_utils.zig").NodeFlags.JSDoc != 0;
-    return skipTriviaEx(tree.sourceText, tree.positions.items[node].pos, .{ .inJSDoc = inJSDoc });
+    return @intCast(skipTriviaEx(tree.sourceText, tree.positions.items[node].pos, .{ .inJSDoc = inJSDoc }));
 }
 
 // =========================================================================

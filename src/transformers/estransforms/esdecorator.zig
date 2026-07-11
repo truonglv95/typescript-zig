@@ -1371,7 +1371,7 @@ pub const ESDecoratorTransformer = struct {
             var discarded_visitor = visitor.NodeVisitor.init(self.allocator, tree, self, visitDiscardedValue, .{});
             const left = discarded_visitor.visitNode(bin.Left);
             const right = if (discarded) discarded_visitor.visitNode(bin.Right) else v.visitNode(bin.Right);
-            return f.newBinaryExpression(0, left, 0, bin.OperatorToken, right);
+            return f.updateBinaryExpression(node, 0, left, 0, bin.OperatorToken, right);
         }
 
         return v.visitEachChild(node);

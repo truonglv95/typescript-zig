@@ -21,6 +21,10 @@ pub fn parseJsxElementOrSelfClosingElementOrFragment(
 
     var result: ast_gen.NodeIndex = 0;
     const openingNode = p.ast.getNode(opening);
+    const jsx_start = if (opening != 0 and opening < p.ast.positions.items.len and p.ast.positions.items[opening].pos != 0)
+        p.ast.positions.items[opening].pos
+    else
+        @as(u32, @intCast(p.scanner.state.tokenStart));
 
     switch (openingNode) {
         .JsxOpeningElement => {
@@ -32,6 +36,7 @@ pub fn parseJsxElementOrSelfClosingElementOrFragment(
                 .Children = children,
                 .ClosingElement = closingElement,
             } });
+            p.setNodeStartPos(result, jsx_start);
         },
         .JsxOpeningFragment => {
             const children = try parseJsxChildren(p, opening);
@@ -42,6 +47,7 @@ pub fn parseJsxElementOrSelfClosingElementOrFragment(
                 .Children = children,
                 .ClosingFragment = closingFragment,
             } });
+            p.setNodeStartPos(result, jsx_start);
         },
         .JsxSelfClosingElement => {
             // Self-closing: nothing more to parse
@@ -136,6 +142,7 @@ pub fn parseJsxChild(p: *parser_pkg.Parser, openingTag: ast_gen.NodeIndex, token
 // parseJsxText — already implemented, keep it
 // Go: func (p *Parser) parseJsxText() *ast.Node
 pub fn parseJsxText(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
+    const start_pos = p.scanner.state.tokenStart;
     const isAllWhiteSpace = if (p.token == kind.Kind.JsxTextAllWhiteSpaces) @as(u32, 1) else @as(u32, 0);
     const result = try p.ast.pushNode(.{ .JsxText = .{
         .Flags = 0,
@@ -143,6 +150,7 @@ pub fn parseJsxText(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
         .TokenFlags = p.scanner.state.tokenFlags,
         .ContainsOnlyTriviaWhiteSpaces = isAllWhiteSpace,
     } });
+    p.setNodeStartPos(result, start_pos);
     // scanJsxText() — update token
     _ = p.scanner.scanJsxToken();
     p.token = p.scanner.state.token;
@@ -152,6 +160,7 @@ pub fn parseJsxText(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
 // parseJsxExpression
 // Go: func (p *Parser) parseJsxExpression(inExpressionContext bool) *ast.Node
 pub fn parseJsxExpression(p: *parser_pkg.Parser, inExpressionContext: bool) anyerror!ast_gen.NodeIndex {
+    const start_pos = p.scanner.state.tokenStart;
     if (!p.parseExpected(kind.Kind.OpenBraceToken)) {
         return 0;
     }
@@ -180,11 +189,13 @@ pub fn parseJsxExpression(p: *parser_pkg.Parser, inExpressionContext: bool) anye
         }
     }
 
-    return try p.ast.pushNode(.{ .JsxExpression = .{
+    const node = try p.ast.pushNode(.{ .JsxExpression = .{
         .Flags = 0,
         .DotDotDotToken = dotDotDotToken,
         .Expression = expression,
     } });
+    p.setNodeStartPos(node, start_pos);
+    return node;
 }
 
 // scanJsxText helper (updates parser token via JSX scanner mode)
@@ -208,6 +219,7 @@ pub fn scanJsxAttributeValue(p: *parser_pkg.Parser) kind.Kind {
 // parseJsxClosingElement
 // Go: func (p *Parser) parseJsxClosingElement(open *ast.Node, inExpressionContext bool)
 pub fn parseJsxClosingElement(p: *parser_pkg.Parser, open: ast_gen.NodeIndex, inExpressionContext: bool) anyerror!ast_gen.NodeIndex {
+    const start_pos = p.scanner.state.tokenStart;
     _ = p.parseExpected(kind.Kind.LessThanSlashToken);
     const tagName = try parseJsxElementName(p);
 
@@ -231,10 +243,12 @@ pub fn parseJsxClosingElement(p: *parser_pkg.Parser, open: ast_gen.NodeIndex, in
         _ = p.parseExpected(kind.Kind.GreaterThanToken);
     }
 
-    return try p.ast.pushNode(.{ .JsxClosingElement = .{
+    const node = try p.ast.pushNode(.{ .JsxClosingElement = .{
         .Flags = 0,
         .TagName = tagName,
     } });
+    p.setNodeStartPos(node, start_pos);
+    return node;
 }
 
 // parseJsxOpeningOrSelfClosingElementOrOpeningFragment
@@ -243,6 +257,7 @@ pub fn parseJsxOpeningOrSelfClosingElementOrOpeningFragment(
     p: *parser_pkg.Parser,
     inExpressionContext: bool,
 ) anyerror!ast_gen.NodeIndex {
+    const start_pos = p.scanner.state.tokenStart;
     _ = p.parseExpected(kind.Kind.LessThanToken);
 
     // Check for fragment: `<>`
@@ -250,9 +265,11 @@ pub fn parseJsxOpeningOrSelfClosingElementOrOpeningFragment(
         // Opening fragment — scan to JSX text mode
         _ = p.scanner.scanJsxToken();
         p.token = p.scanner.state.token;
-        return try p.ast.pushNode(.{ .JsxOpeningFragment = .{
+        const node = try p.ast.pushNode(.{ .JsxOpeningFragment = .{
             .Flags = 0,
         } });
+        p.setNodeStartPos(node, start_pos);
+        return node;
     }
 
     const tagName = try parseJsxElementName(p);
@@ -271,12 +288,14 @@ pub fn parseJsxOpeningOrSelfClosingElementOrOpeningFragment(
         // Opening element — scan into JSX text mode
         _ = p.scanner.scanJsxToken();
         p.token = p.scanner.state.token;
-        return try p.ast.pushNode(.{ .JsxOpeningElement = .{
+        const node = try p.ast.pushNode(.{ .JsxOpeningElement = .{
             .Flags = 0,
             .TagName = tagName,
             .TypeArguments = null,
             .Attributes = attributes,
         } });
+        p.setNodeStartPos(node, start_pos);
+        return node;
     } else {
         // Self-closing: expect `/>`
         _ = p.parseExpected(kind.Kind.SlashToken);
@@ -290,12 +309,14 @@ pub fn parseJsxOpeningOrSelfClosingElementOrOpeningFragment(
         } else {
             _ = p.parseExpected(kind.Kind.GreaterThanToken);
         }
-        return try p.ast.pushNode(.{ .JsxSelfClosingElement = .{
+        const node = try p.ast.pushNode(.{ .JsxSelfClosingElement = .{
             .Flags = 0,
             .TagName = tagName,
             .TypeArguments = null,
             .Attributes = attributes,
         } });
+        p.setNodeStartPos(node, start_pos);
+        return node;
     }
 }
 
@@ -347,41 +368,50 @@ pub fn parseJsxTagName(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
 // parseJsxAttributes
 // Go: func (p *Parser) parseJsxAttributes() *ast.Node
 pub fn parseJsxAttributes(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
+    const start_pos = p.scanner.state.tokenStart;
     const properties = try p.parseList(parser_pkg.ParsingContext.JsxAttributes, parseJsxAttribute);
-    return try p.ast.pushNode(.{ .JsxAttributes = .{
+    const node = try p.ast.pushNode(.{ .JsxAttributes = .{
         .Flags = 0,
         .Symbol = 0,
         .Properties = properties,
     } });
+    p.setNodeStartPos(node, start_pos);
+    return node;
 }
 
 // parseJsxAttribute
 // Go: func (p *Parser) parseJsxAttribute() *ast.Node
 pub fn parseJsxAttribute(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
+    const start_pos = p.scanner.state.tokenStart;
     if (p.token == kind.Kind.OpenBraceToken) {
         return try parseJsxSpreadAttribute(p);
     }
     const name = try parseJsxAttributeName(p);
     const value = try parseJsxAttributeValue(p);
-    return try p.ast.pushNode(.{ .JsxAttribute = .{
+    const node = try p.ast.pushNode(.{ .JsxAttribute = .{
         .Flags = 0,
         .Symbol = 0,
         .name = name,
         .Initializer = if (value != 0) value else null,
     } });
+    p.setNodeStartPos(node, start_pos);
+    return node;
 }
 
 // parseJsxSpreadAttribute
 // Go: func (p *Parser) parseJsxSpreadAttribute() *ast.Node
 pub fn parseJsxSpreadAttribute(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex {
+    const start_pos = p.scanner.state.tokenStart;
     _ = p.parseExpected(kind.Kind.OpenBraceToken);
     _ = p.parseExpected(kind.Kind.DotDotDotToken);
     const expression = try expr_parser.parseExpression(p);
     _ = p.parseExpected(kind.Kind.CloseBraceToken);
-    return try p.ast.pushNode(.{ .JsxSpreadAttribute = .{
+    const node = try p.ast.pushNode(.{ .JsxSpreadAttribute = .{
         .Flags = 0,
         .Expression = expression,
     } });
+    p.setNodeStartPos(node, start_pos);
+    return node;
 }
 
 // parseJsxAttributeName

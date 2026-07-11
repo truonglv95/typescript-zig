@@ -15,8 +15,13 @@ const typeeraser = @import("../transformers/tstransforms/typeeraser.zig");
 const core = @import("../core/core.zig");
 const emitresolver_pkg = @import("../printer/emitresolver.zig");
 const referenceresolver = @import("../binder/referenceresolver.zig");
-const emit_pkg = @import("tsc/emit.zig");
+const compiler_pkg = @import("../compiler/compiler.zig");
 const diagnostics = @import("../diagnostics/diagnostics.zig");
+const harness = @import("../compiler/harness.zig");
+
+fn hasErrorCategoryDiagnostics(compiler: *compiler_pkg.Compiler) bool {
+    return compiler.hasErrorDiagnostics();
+}
 
 pub const CommandLineTesting = ?*anyopaque;
 
@@ -24,6 +29,8 @@ pub const ExitStatus = enum {
     Success,
     DiagnosticsPresent_OutputsSkipped,
     DiagnosticsPresent_OutputsGenerated,
+    InvalidProject_OutputsSkipped,
+    ProjectReferenceCycle_OutputsSkipped,
     NotImplemented,
 };
 
@@ -186,38 +193,90 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
         return .{ .status = .DiagnosticsPresent_OutputsSkipped };
     }
 
-    const active_options = effective_options;
+    var active_options = effective_options;
+    var harness_compilation: ?harness.HarnessCompilation = null;
+    defer if (harness_compilation) |*compilation| harness.deinitHarnessCompilation(allocator, compilation);
+
     var resolved_sources = std.ArrayList([]const u8).empty;
     defer resolved_sources.deinit(allocator);
-    for (input_files) |input| {
-        resolved_sources.append(allocator, if (std.fs.path.isAbsolute(input)) input else if (project_dir) |directory| std.fs.path.join(allocator, &.{ directory, input }) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped } else input) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+
+    if (project_config == null and parsed.fileNames.items.len == 1) {
+        const harness_input = parsed.fileNames.items[0];
+        const maybe_prepared = harness.tryPrepareHarnessCompilation(allocator, io, harness_input, active_options) catch null;
+        if (maybe_prepared) |prepared| {
+            harness_compilation = prepared;
+            if (prepared.project_config_path) |config_path| {
+                const lexical_project_dir = std.fs.path.dirname(config_path) orelse ".";
+                project_dir = canonicalExistingPath(allocator, io, lexical_project_dir) catch lexical_project_dir;
+                project_config = tsconfig.parseTsConfigFile(allocator, io, config_path) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+                if (project_config.?.errors.items.len != 0) {
+                    for (project_config.?.errors.items) |message| std.debug.print("error TS5083: {s}\n", .{message});
+                    config_has_errors = true;
+                }
+                mergeOptions(&project_config.?.options, active_options);
+                active_options = &project_config.?.options;
+                discovered_files.clearRetainingCapacity();
+                if (project_config.?.fileNames.items.len == 0 and !project_config.?.hasExplicitFiles) {
+                    discoverProjectFiles(allocator, io, project_dir.?, project_config.?.options.outDir, project_config.?.includeSpecs.items, project_config.?.excludeSpecs.items, &discovered_files) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+                }
+                const harness_inputs = if (project_config.?.fileNames.items.len != 0) project_config.?.fileNames.items else discovered_files.items;
+                for (harness_inputs) |input| {
+                    const resolved = if (std.fs.path.isAbsolute(input))
+                        allocator.dupe(u8, input) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped }
+                    else
+                        std.fs.path.join(allocator, &.{ project_dir.?, input }) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+                    resolved_sources.append(allocator, resolved) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+                }
+            } else {
+                project_dir = prepared.project_dir;
+                for (prepared.root_names) |root| {
+                    resolved_sources.append(allocator, root) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+                }
+            }
+        }
     }
 
-    var graph = program.Program.init(allocator, .{
+    if (resolved_sources.items.len == 0) {
+        const sources = if (project_config) |*config| (if (config.fileNames.items.len != 0) config.fileNames.items else discovered_files.items) else input_files;
+        for (sources) |input| {
+            const resolved = if (std.fs.path.isAbsolute(input))
+                allocator.dupe(u8, input) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped }
+            else if (project_dir) |directory|
+                std.fs.path.join(allocator, &.{ directory, input }) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped }
+            else
+                allocator.dupe(u8, input) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+            resolved_sources.append(allocator, resolved) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+        }
+    }
+
+    var compiler_instance = compiler_pkg.Compiler.init(allocator, .{
         .options = active_options.*,
         .rootNames = resolved_sources.items,
-        .projectName = project_dir orelse ".",
+        .projectName = project_dir orelse sys.getCurrentDirectory(),
         .pathMappings = if (project_config) |*config| config.pathMappings.items else &.{},
         .defaultLibraryPath = defaultLibraryPath(allocator, io) catch "",
     });
-    defer graph.deinit();
+    defer compiler_instance.deinit();
 
-    graph.load(io) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
-    graph.bind() catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
-    graph.link() catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
-    graph.check() catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+    compiler_instance.performCompilation(io) catch {
+        std.debug.print("error TS18003: Compilation failed.\n", .{});
+        return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+    };
 
     if ((active_options.listFiles orelse false) or (active_options.listFilesOnly orelse false)) {
-        for (graph.units.items) |unit| std.debug.print("{s}\n", .{unit.path});
+        for (compiler_instance.program.units.items) |unit| std.debug.print("{s}\n", .{unit.path});
     }
 
     var has_errors = config_has_errors;
-    if (graph.diagnostics.items.len != 0) {
-        for (graph.diagnostics.items) |diagnostic| {
-            std.debug.print("{s}: error TS{d}: {s}\n", .{ graph.getUnit(diagnostic.file).path, diagnostic.code, diagnostic.message });
+    if (compiler_instance.getDiagnostics().len != 0) {
+        for (compiler_instance.getDiagnostics()) |diagnostic| {
+            std.debug.print("{s}({d},{d}): error TS{d}: {s}\n", .{ compiler_instance.program.getUnit(diagnostic.file).path, diagnostic.line, diagnostic.column, diagnostic.code, diagnostic.message });
+            if (diagnostic.category == .Error) has_errors = true;
         }
-        has_errors = true;
-        if (active_options.noEmitOnError orelse false) return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+        if (has_errors) {
+            if (active_options.noEmitOnError orelse false) return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+            if (active_options.noEmit orelse false) return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+        }
     }
 
     const incremental = (active_options.incremental orelse false) or (active_options.composite orelse false);
@@ -234,14 +293,14 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
     const options_changed = previous_options == null or previous_options.?.source != current_options_hash;
     new_states.put("<compiler-options>", .{ .source = current_options_hash, .signature = current_options_hash }) catch {};
 
-    const changed_public = allocator.alloc(bool, graph.units.items.len) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+    const changed_public = allocator.alloc(bool, compiler_instance.program.units.items.len) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
     defer allocator.free(changed_public);
-    const source_changed = allocator.alloc(bool, graph.units.items.len) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
+    const source_changed = allocator.alloc(bool, compiler_instance.program.units.items.len) catch return .{ .status = .DiagnosticsPresent_OutputsSkipped };
     defer allocator.free(source_changed);
 
-    for (graph.units.items, 0..) |unit, index| {
+    for (compiler_instance.program.units.items, 0..) |unit, index| {
         const source_hash = sourceHash(allocator, io, unit.path) catch 0;
-        const signature_hash = graph.signatureHash(@intCast(index));
+        const signature_hash = compiler_instance.program.signatureHash(@intCast(index));
         const previous = old_states.get(unit.path);
         source_changed[index] = options_changed or previous == null or previous.?.source != source_hash;
         changed_public[index] = options_changed or previous == null or previous.?.signature != signature_hash;
@@ -251,7 +310,7 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
     var propagated = true;
     while (propagated) {
         propagated = false;
-        for (graph.units.items, 0..) |unit, index| {
+        for (compiler_instance.program.units.items, 0..) |unit, index| {
             if (changed_public[index]) continue;
             for (unit.dependencies.items) |dependency| if (dependency.resolved) |target| {
                 if (changed_public[target]) {
@@ -264,36 +323,20 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
     }
 
     if (!(active_options.noEmit orelse false) and !(active_options.listFilesOnly orelse false)) {
-        var compile_times = emit_pkg.CompileTimes{};
-        const input = emit_pkg.EmitInput{
-            .sys = sys,
-            .program = &graph,
-            .options = active_options,
-            .reportDiagnostic = struct {
-                fn report(diag: *diagnostics.Diagnostic) void {
-                    // TODO: proper reporter
-                    _ = diag;
+        if (compiler_instance.emitFiles()) |maybe_emit_result| {
+            if (maybe_emit_result) |er| {
+                if (er.EmitSkipped and hasErrorCategoryDiagnostics(&compiler_instance)) {
+                    has_errors = true;
+                } else if (hasErrorCategoryDiagnostics(&compiler_instance)) {
+                    has_errors = true;
                 }
-            }.report,
-            .reportErrorSummary = struct {
-                fn report(diags: []*diagnostics.Diagnostic) void {
-                    // TODO: proper reporter
-                    _ = diags;
-                }
-            }.report,
-            .writer = sys.writer(),
-            .compileTimes = &compile_times,
-        };
-
-        const result = emit_pkg.emitAndReportStatistics(input) catch |err| {
+            } else {
+                std.debug.print("maybe_emit_result is null! diagnostics len: {}\n", .{compiler_instance.getDiagnostics().len});
+            }
+        } else |err| {
             std.debug.print("Emit failed with error: {}\n", .{err});
             has_errors = true;
             return .{ .status = .DiagnosticsPresent_OutputsSkipped };
-        };
-
-        // Wait, does emit_pkg handle Diagnostics? Yes, it returns them.
-        if (result.status != .Success) {
-            has_errors = true; // Wait, tscCompilation checks has_errors earlier.
         }
 
         if (active_options.listEmittedFiles orelse false) {
@@ -306,13 +349,17 @@ fn tscCompilation(ctx: *anyopaque, sys: *system.System, args: [][]const u8, test
     if (active_options.watch orelse false) {
         if (testing == null) {
             const exe_name = if (args.len > 0) args[0] else "tsc";
-            watchLoop(allocator, io, exe_name, parsed.options.project, project_dir, active_options.outDir, graph.units.items) catch {};
+            watchLoop(allocator, io, exe_name, parsed.options.project, project_dir, active_options.outDir, compiler_instance.program.units.items) catch {};
         } else {
             return .{ .status = .Success };
         }
     }
 
-    return .{ .status = if (has_errors) .DiagnosticsPresent_OutputsGenerated else .Success };
+    if (!has_errors and hasErrorCategoryDiagnostics(&compiler_instance)) {
+        has_errors = true;
+    }
+
+    return .{ .status = if (has_errors) (if (active_options.noEmit orelse false) .DiagnosticsPresent_OutputsSkipped else .DiagnosticsPresent_OutputsGenerated) else .Success };
 }
 
 // Watch Loop and watch helpers
@@ -623,8 +670,21 @@ fn discoverProjectFiles(allocator: std.mem.Allocator, io: std.Io, project_dir: [
     }
 }
 
+fn includePatternMatches(path: []const u8, pattern: []const u8) bool {
+    if (globMatch(path, pattern, 0, 0)) return true;
+    if (std.mem.indexOf(u8, pattern, "*") != null or std.mem.indexOf(u8, pattern, "?") != null) return false;
+    const normalized_pattern = if (std.mem.startsWith(u8, pattern, "./")) pattern[2..] else pattern;
+    const normalized_path = if (std.mem.startsWith(u8, path, "./")) path[2..] else path;
+    if (std.mem.eql(u8, normalized_pattern, normalized_path)) return true;
+    if (std.mem.startsWith(u8, normalized_path, normalized_pattern)) {
+        if (normalized_path.len == normalized_pattern.len) return true;
+        if (normalized_path[normalized_pattern.len] == '/') return true;
+    }
+    return false;
+}
+
 fn matchesAny(path: []const u8, patterns: []const []const u8) bool {
-    for (patterns) |pattern| if (globMatch(path, pattern, 0, 0)) return true;
+    for (patterns) |pattern| if (includePatternMatches(path, pattern)) return true;
     return false;
 }
 
@@ -649,7 +709,3 @@ fn isWithinDirectory(path: []const u8, directory: []const u8) bool {
     if (path.len == directory.len) return true;
     return directory.len > 0 and (directory[directory.len - 1] == std.fs.path.sep or path[directory.len] == std.fs.path.sep);
 }
-
-// transpileFile is the Zig-specific fast-path single-file transpiler.
-// It does NOT exist in typescript-go. Use the standard compilation pipeline instead.
-pub const transpileFile = @import("transpile.zig").transpileFile;

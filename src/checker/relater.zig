@@ -806,7 +806,7 @@ pub const Relater = struct {
             }
         }
         if (reportErrors) {
-            const bestMatchingType = c.getBestMatchingType(source, target, r.isRelatedToSimple);
+            const bestMatchingType = c.getBestMatchingType(source, target, r);
             if (bestMatchingType) |bmt| {
                 _ = r.isRelatedToEx(source, bmt, RecursionFlags_Target, true, null, intersectionState);
             }
@@ -1162,9 +1162,21 @@ pub const Relater = struct {
             }
 
             if ((c.getTypeFlags(mappedSource) & (types.TypeFlags.Object | types.TypeFlags.Intersection) != 0 or sourceIsPrimitive and r.relation != &c.identityRelation) and target_flags & types.TypeFlags.Object != 0) {
-                result = r.propertiesRelatedTo(mappedSource, target, reportErrors, false, intersectionState);
+                const reportStructuralErrors = reportErrors and r.errorChain == saveErrorState.errorChain and !sourceIsPrimitive;
+                result = r.propertiesRelatedTo(mappedSource, target, reportStructuralErrors, false, intersectionState);
                 if (result != .False) {
-                    return result;
+                    result = types.Ternary.andValues(result, r.signaturesRelatedTo(mappedSource, target, types.SignatureKind.Call, reportStructuralErrors, intersectionState));
+                    if (result != .False) {
+                        result = types.Ternary.andValues(result, r.signaturesRelatedTo(mappedSource, target, types.SignatureKind.Construct, reportStructuralErrors, intersectionState));
+                        if (result != .False) {
+                            result = types.Ternary.andValues(result, r.indexSignaturesRelatedTo(mappedSource, target, sourceIsPrimitive, reportStructuralErrors, intersectionState));
+                        }
+                    }
+                }
+                if (result != .False) {
+                    if (!varianceCheckFailed) {
+                        return result;
+                    }
                 }
                 if (reportErrors) {
                     originalErrorChain = r.errorChain;
@@ -1480,6 +1492,14 @@ pub const Relater = struct {
         _ = r;
         _ = args;
         return false; // Stub
+    }
+
+    pub fn isRelatedToSimple(
+        r: *Relater,
+        source: types.TypeIndex,
+        target: types.TypeIndex,
+    ) types.Ternary {
+        return r.isRelatedToEx(source, target, RecursionFlags_Both, false, null, IntersectionState_None);
     }
 
     pub fn isRelatedTo(
@@ -1841,47 +1861,78 @@ pub fn getRecursionIdentity(c: *Checker, t: types.TypeIndex) RecursionId {
 }
 
 pub fn getBestMatchingType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, isRelatedToFn: *const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) ?types.TypeIndex {
-    _ = c;
-    _ = source;
-    _ = target;
-    _ = isRelatedToFn;
-    return null; // Stub
+    if (findMatchingDiscriminantType(c, source, target, isRelatedToFn)) |t| return t;
+    if (findMatchingTypeReferenceOrTypeAliasReference(c, source, target)) |t| return t;
+    if (findBestTypeForObjectLiteral(c, source, target)) |t| return t;
+    if (findBestTypeForInvokable(c, source, target, .Call)) |t| return t;
+    if (findBestTypeForInvokable(c, source, target, .Construct)) |t| return t;
+    return findMostOverlappyType(c, source, target);
 }
 
 pub fn findMatchingTypeReferenceOrTypeAliasReference(c: *Checker, source: types.TypeIndex, unionTarget: types.TypeIndex) ?types.TypeIndex {
-    _ = c;
-    _ = source;
-    _ = unionTarget;
-    return null; // Stub
+    const source_object_flags = c.getObjectFlags(source);
+    if ((source_object_flags & (types.ObjectFlags.Reference | types.ObjectFlags.Anonymous)) == 0) return null;
+    if ((c.getTypeFlags(unionTarget) & types.TypeFlags.Union) == 0) return null;
+    for (c.getTypesOfUnionOrIntersectionType(unionTarget)) |target| {
+        if ((c.getTypeFlags(target) & types.TypeFlags.Object) == 0) continue;
+        const overlap = source_object_flags & c.getObjectFlags(target);
+        if ((overlap & types.ObjectFlags.Reference) != 0 and c.getTargetType(source) == c.getTargetType(target)) {
+            return target;
+        }
+        if ((overlap & types.ObjectFlags.Anonymous) != 0) {
+            const source_alias = c.getAliasSymbol(source);
+            const target_alias = c.getAliasSymbol(target);
+            if (source_alias != 0 and target_alias != 0 and source_alias == target_alias) {
+                return target;
+            }
+        }
+    }
+    return null;
 }
 
 pub fn findBestTypeForInvokable(c: *Checker, source: types.TypeIndex, unionTarget: types.TypeIndex, kind: types.SignatureKind) ?types.TypeIndex {
-    _ = c;
-    _ = source;
-    _ = unionTarget;
-    _ = kind;
-    return null; // Stub
+    if (c.getSignaturesOfType(source, kind).len == 0) return null;
+    for (c.getTypesOfUnionOrIntersectionType(unionTarget)) |t| {
+        if (c.getSignaturesOfType(t, kind).len != 0) return t;
+    }
+    return null;
 }
 
 pub fn findMostOverlappyType(c: *Checker, source: types.TypeIndex, unionTarget: types.TypeIndex) ?types.TypeIndex {
-    _ = c;
-    _ = source;
-    _ = unionTarget;
-    return null; // Stub
+    var best_match: ?types.TypeIndex = null;
+    if ((c.getTypeFlags(source) & types.TypeFlags.Primitive) != 0 and (c.getTypeFlags(source) & types.TypeFlags.Instantiable) == 0) return null;
+    var matching_count: usize = 0;
+    for (c.getTypesOfUnionOrIntersectionType(unionTarget)) |target| {
+        if ((c.getTypeFlags(target) & types.TypeFlags.Primitive) != 0 and (c.getTypeFlags(target) & types.TypeFlags.Instantiable) == 0) continue;
+        const overlap = c.getIntersectionType(&.{ c.getIndexType(source), c.getIndexType(target) });
+        if ((c.getTypeFlags(overlap) & types.TypeFlags.Index) != 0) return target;
+        // Simplified overlap scoring for union/index types
+        if ((c.getTypeFlags(overlap) & types.TypeFlags.Union) != 0 or isUnitType(c, overlap)) {
+            const length: usize = 1;
+            if (length >= matching_count) {
+                best_match = target;
+                matching_count = length;
+            }
+        }
+    }
+    return best_match;
 }
 
 pub fn findBestTypeForObjectLiteral(c: *Checker, source: types.TypeIndex, unionTarget: types.TypeIndex) ?types.TypeIndex {
-    _ = c;
-    _ = source;
-    _ = unionTarget;
-    return null; // Stub
+    if ((c.getObjectFlags(source) & types.ObjectFlags.ObjectLiteral) == 0) return null;
+    for (c.getTypesOfUnionOrIntersectionType(unionTarget)) |t| {
+        if (!c.isArrayLikeType(t)) return t;
+    }
+    return null;
+}
+
+fn isUnitType(c: *Checker, t: types.TypeIndex) bool {
+    const flags = c.getTypeFlags(t);
+    return (flags & (types.TypeFlags.StringLiteral | types.TypeFlags.NumberLiteral | types.TypeFlags.BooleanLiteral | types.TypeFlags.EnumLiteral)) != 0;
 }
 
 pub fn shouldReportUnmatchedPropertyError(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-    _ = c;
-    _ = source;
-    _ = target;
-    return true; // Stub
+    return c.shouldReportUnmatchedPropertyError(source, target);
 }
 
 pub fn getUnmatchedProperty(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, requireOptionalProperties: bool, matchDiscriminantProperties: bool) ?ast.SymbolIndex {
@@ -1895,20 +1946,48 @@ pub fn getUnmatchedProperties(c: *Checker, allocator: std.mem.Allocator, source:
 }
 
 pub fn getUnmatchedPropertiesWorker(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, requireOptionalProperties: bool, matchDiscriminantProperties: bool, propsOut: ?*std.ArrayList(ast.SymbolIndex)) ?ast.SymbolIndex {
-    _ = c;
-    _ = source;
-    _ = target;
-    _ = requireOptionalProperties;
-    _ = matchDiscriminantProperties;
-    _ = propsOut;
-    return null; // Stub
+    const properties = c.getPropertiesOfType(target);
+    for (properties) |target_prop| {
+        const target_flags = c.getSymbolFlags(target_prop);
+        const target_check = c.getSymbolCheckFlags(target_prop);
+        if (!requireOptionalProperties and (target_flags & symbol.SymbolFlags.Optional) != 0) continue;
+        if (!requireOptionalProperties and (target_check & types.CheckFlags.Partial) != 0) continue;
+
+        const prop_name = c.getSymbolName(target_prop);
+        const source_prop = c.getPropertyOfType(source, prop_name);
+        if (source_prop == null) {
+            if (propsOut) |out| {
+                out.append(target_prop) catch {};
+            } else {
+                return target_prop;
+            }
+            continue;
+        }
+        if (!matchDiscriminantProperties) continue;
+        const target_type = c.getTypeOfSymbol(target_prop) catch 0;
+        if ((c.getTypeFlags(target_type) & types.TypeFlags.Unit) == 0) continue;
+        const source_type = c.getTypeOfSymbol(source_prop.?) catch 0;
+        if ((c.getTypeFlags(source_type) & types.TypeFlags.Any) != 0) continue;
+        if (c.getRegularTypeOfLiteralType(source_type) == c.getRegularTypeOfLiteralType(target_type)) continue;
+        if (propsOut) |out| {
+            out.append(target_prop) catch {};
+        } else {
+            return target_prop;
+        }
+    }
+    return null;
 }
 
 pub fn excludeProperties(c: *Checker, allocator: std.mem.Allocator, properties: []ast.SymbolIndex, excludedProperties: std.StringHashMapUnmanaged(void)) ![]ast.SymbolIndex {
-    _ = c;
-    _ = allocator;
-    _ = excludedProperties;
-    return properties; // Stub
+    if (excludedProperties.count() == 0 or properties.len == 0) return properties;
+    var reduced = std.ArrayList(ast.SymbolIndex).init(allocator);
+    for (properties) |prop| {
+        const name = c.getSymbolName(prop);
+        if (!excludedProperties.contains(name)) {
+            try reduced.append(prop);
+        }
+    }
+    return reduced.toOwnedSlice();
 }
 
 pub const TypeDiscriminator = struct {
@@ -1925,82 +2004,275 @@ pub const TypeDiscriminator = struct {
     }
 
     pub fn matches(self: *const TypeDiscriminator, index: usize, t: types.TypeIndex) bool {
-        _ = self;
-        _ = index;
-        _ = t;
-        return false; // Stub
+        const propType = self.c.getNonMissingTypeOfSymbol(self.props[index]);
+        for (self.c.distributedTypes(propType)) |s| {
+            if (self.isRelatedToFn(self.c, s, t) != .False) return true;
+        }
+        return false;
     }
 };
 
+fn isLiteralType(c: *Checker, t: types.TypeIndex) bool {
+    const flags = c.getTypeFlags(t);
+    return (flags & (types.TypeFlags.Literal | types.TypeFlags.EnumLiteral)) != 0;
+}
+
+fn isGenericType(c: *Checker, t: types.TypeIndex) bool {
+    return c.getGenericObjectFlags(t) & types.ObjectFlags.IsGenericType != 0;
+}
+
 pub fn findMatchingDiscriminantType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, isRelatedToFn: *const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) ?types.TypeIndex {
-    _ = c;
-    _ = source;
-    _ = target;
-    _ = isRelatedToFn;
-    return null; // Stub
+    if ((c.getTypeFlags(target) & types.TypeFlags.Union) == 0) return null;
+    if ((c.getTypeFlags(source) & (types.TypeFlags.Intersection | types.TypeFlags.Object)) == 0) return null;
+
+    if (getMatchingUnionConstituentForType(c, target, source)) |match| return match;
+
+    const discriminantProperties = c.findDiscriminantProperties(c.getPropertiesOfType(source), target);
+    if (discriminantProperties.len == 0) return null;
+
+    var discriminator = TypeDiscriminator{ .c = c, .props = discriminantProperties, .isRelatedToFn = isRelatedToFn };
+    const discriminated = discriminateTypeByDiscriminableItems(c, target, &discriminator);
+    if (discriminated != target) return discriminated;
+    return null;
 }
 
 pub fn findDiscriminantProperties(c: *Checker, allocator: std.mem.Allocator, sourceProperties: []ast.SymbolIndex, target: types.TypeIndex) ![]ast.SymbolIndex {
-    _ = c;
-    _ = allocator;
-    _ = sourceProperties;
-    _ = target;
-    return &[_]ast.SymbolIndex{}; // Stub
+    var result = std.ArrayList(ast.SymbolIndex).init(allocator);
+    errdefer result.deinit();
+    for (sourceProperties) |sourceProperty| {
+        const name = c.getSymbolName(sourceProperty);
+        if (isDiscriminantProperty(c, target, name)) {
+            try result.append(sourceProperty);
+        }
+    }
+    return result.toOwnedSlice();
 }
 
 pub fn isDiscriminantProperty(c: *Checker, t: types.TypeIndex, name: []const u8) bool {
-    _ = c;
-    _ = t;
-    _ = name;
-    return false; // Stub
+    if ((c.getTypeFlags(t) & types.TypeFlags.Union) == 0) return false;
+
+    if (c.getUnionOrIntersectionProperty(t, name)) |prop| {
+        const checkFlags = c.getSymbolCheckFlags(prop);
+        if ((checkFlags & types.CheckFlags.SyntheticProperty) != 0) {
+            if ((checkFlags & types.CheckFlags.NonUniformAndLiteral) == types.CheckFlags.NonUniformAndLiteral) {
+                const propType = c.getTypeOfSymbol(prop) catch 0;
+                return propType != 0 and !isGenericType(c, propType);
+            }
+            return false;
+        }
+    }
+
+    var hasLiteral = false;
+    var hasNonUniform = false;
+    var firstRegularType: ?types.TypeIndex = null;
+    var firstLiteralType: ?types.TypeIndex = null;
+    var foundAny = false;
+
+    for (c.getTypesFromUnion(t)) |constituent| {
+        const apparent = c.getApparentType(constituent);
+        if ((c.getTypeFlags(apparent) & types.TypeFlags.Never) != 0) continue;
+
+        const propType = c.getTypeOfPropertyOfType(apparent, name);
+        if (propType == 0) return false;
+        if (!isLiteralType(c, propType)) return false;
+        if (isGenericType(c, propType)) return false;
+
+        hasLiteral = true;
+        const regularType = c.getRegularTypeOfLiteralType(propType);
+        if (firstRegularType) |firstRegular| {
+            if (regularType != firstRegular or propType != firstLiteralType.?) {
+                hasNonUniform = true;
+            }
+        } else {
+            firstRegularType = regularType;
+            firstLiteralType = propType;
+        }
+        foundAny = true;
+    }
+
+    return foundAny and hasLiteral and hasNonUniform;
 }
 
 pub fn getMatchingUnionConstituentForType(c: *Checker, unionType: types.TypeIndex, t: types.TypeIndex) ?types.TypeIndex {
-    _ = c;
-    _ = unionType;
-    _ = t;
-    return null; // Stub
+    const keyPropertyName = getKeyPropertyName(c, unionType);
+    if (keyPropertyName.len == 0) return null;
+    const propType = c.getTypeOfPropertyOfType(t, keyPropertyName);
+    if (propType == 0) return null;
+    return getConstituentTypeForKeyType(c, unionType, propType);
 }
 
 pub fn getKeyPropertyName(c: *Checker, t: types.TypeIndex) []const u8 {
-    _ = c;
-    _ = t;
-    return ""; // Stub
+    if ((c.getTypeFlags(t) & types.TypeFlags.Union) == 0) return "";
+    if (!c.unionKeyPropertyCache.contains(t)) {
+        computeKeyPropertyNameAndMap(c, t);
+    }
+    const entry = c.unionKeyPropertyCache.get(t) orelse return "";
+    if (std.mem.eql(u8, entry.keyPropertyName, symbol.InternalSymbolNameMissing)) return "";
+    return entry.keyPropertyName;
 }
 
 pub fn getConstituentTypeForKeyType(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) ?types.TypeIndex {
-    _ = c;
-    _ = t;
-    _ = keyType;
-    return null; // Stub
+    _ = getKeyPropertyName(c, t);
+    const entry = c.unionKeyPropertyCache.get(t) orelse return null;
+    const map = entry.constituentMap orelse return null;
+    const regularKey = c.getRegularTypeOfLiteralType(keyType);
+    const result = map.get(regularKey) orelse return null;
+    if (result == (c.unknownTypeIndex orelse 0)) return null;
+    return result;
+}
+
+fn mapTypesByKeyProperty(c: *Checker, typeList: []const types.TypeIndex, keyPropertyName: []const u8) ?std.AutoHashMapUnmanaged(types.TypeIndex, types.TypeIndex) {
+    var typesByKey = std.AutoHashMapUnmanaged(types.TypeIndex, types.TypeIndex).empty;
+    var count: usize = 0;
+    const unknown = c.unknownTypeIndex orelse 0;
+
+    for (typeList) |t| {
+        const flags = c.getTypeFlags(t);
+        if ((flags & (types.TypeFlags.Object | types.TypeFlags.Intersection | types.TypeFlags.InstantiableNonPrimitive)) == 0) continue;
+
+        const discriminant = c.getTypeOfPropertyOfType(t, keyPropertyName);
+        if (discriminant == 0 or !isLiteralType(c, discriminant)) {
+            typesByKey.deinit(c.allocator);
+            return null;
+        }
+
+        var duplicate = false;
+        for (c.distributedTypes(discriminant)) |d| {
+            const key = c.getRegularTypeOfLiteralType(d);
+            if (typesByKey.get(key)) |existing| {
+                if (existing != unknown) {
+                    typesByKey.put(c.allocator, key, unknown) catch {};
+                    duplicate = true;
+                }
+            } else {
+                typesByKey.put(c.allocator, key, t) catch {};
+            }
+        }
+        if (!duplicate) count += 1;
+    }
+
+    if (count >= 10 and count * 2 >= typeList.len) {
+        return typesByKey;
+    }
+    typesByKey.deinit(c.allocator);
+    return null;
 }
 
 pub fn computeKeyPropertyNameAndMap(c: *Checker, t: types.TypeIndex) void {
-    _ = c;
-    _ = t;
-    // Stub
+    const typeList = c.getTypesFromUnion(t);
+    const typeNode = &c.typesList.items[t];
+    var keyPropertyName = symbol.InternalSymbolNameMissing;
+    var constituentMap: ?std.AutoHashMapUnmanaged(types.TypeIndex, types.TypeIndex) = null;
+
+    if (typeList.len >= 10 and (typeNode.objectFlags & types.ObjectFlags.PrimitiveUnion) == 0) {
+        var nonPrimitiveCount: usize = 0;
+        for (typeList) |ct| {
+            if (isObjectOrInstantiableNonPrimitive(c, ct)) nonPrimitiveCount += 1;
+        }
+        if (nonPrimitiveCount >= 10) {
+            const candidateName = getKeyPropertyCandidateName(c, typeList);
+            if (candidateName.len > 0) {
+                if (mapTypesByKeyProperty(c, typeList, candidateName)) |map| {
+                    keyPropertyName = candidateName;
+                    constituentMap = map;
+                }
+            }
+        }
+    }
+
+    c.unionKeyPropertyCache.put(c.allocator, t, .{
+        .keyPropertyName = keyPropertyName,
+        .constituentMap = constituentMap,
+    }) catch {};
+}
+
+pub fn getKeyPropertyCandidateName(c: *Checker, typeList: []types.TypeIndex) []const u8 {
+    for (typeList) |t| {
+        if (isObjectOrInstantiableNonPrimitive(c, t)) {
+            for (c.getPropertiesOfType(t)) |p| {
+                const propType = c.getTypeOfSymbol(p) catch continue;
+                if (isUnitType(c, propType)) {
+                    return c.getSymbolName(p);
+                }
+            }
+        }
+    }
+    return "";
+}
+
+pub fn discriminateTypeByDiscriminableItems(c: *Checker, target: types.TypeIndex, discriminator: *TypeDiscriminator) types.TypeIndex {
+    const typeList = c.getTypesFromUnion(target);
+    var include = c.allocator.alloc(types.Ternary, typeList.len) catch return target;
+    defer c.allocator.free(include);
+
+    for (typeList, 0..) |t, i| {
+        if ((c.getTypeFlags(t) & types.TypeFlags.Primitive) == 0 and (c.getTypeFlags(c.getReducedType(t)) & types.TypeFlags.Never) == 0) {
+            include[i] = .True;
+        } else {
+            include[i] = .False;
+        }
+    }
+
+    for (0..discriminator.len()) |n| {
+        var matched = false;
+        const discName = discriminator.name(n);
+        for (typeList, 0..) |t, i| {
+            if (include[i] == .False) continue;
+            if (c.getTypeOfPropertyOrIndexSignatureOfType(t, discName)) |targetType| {
+                if (discriminator.matches(n, targetType)) {
+                    matched = true;
+                } else {
+                    include[i] = .Maybe;
+                }
+            }
+        }
+        for (include) |*inc| {
+            if (inc.* == .Maybe) {
+                inc.* = if (matched) .False else .True;
+            }
+        }
+    }
+
+    var hasFalse = false;
+    for (include) |inc| {
+        if (inc == .False) {
+            hasFalse = true;
+            break;
+        }
+    }
+    if (!hasFalse) return target;
+
+    var filteredTypes = std.ArrayList(types.TypeIndex).init(c.allocator);
+    defer filteredTypes.deinit();
+    for (typeList, include) |t, inc| {
+        if (inc == .True) {
+            filteredTypes.append(t) catch return target;
+        }
+    }
+    const filtered = c.getUnionTypeFromArray(filteredTypes.items);
+    if ((c.getTypeFlags(filtered) & types.TypeFlags.Never) == 0) {
+        return filtered;
+    }
+    return target;
+}
+
+pub fn filterPrimitivesIfContainsNonPrimitive(c: *Checker, unionType: types.TypeIndex) types.TypeIndex {
+    if (c.maybeTypeOfKind(unionType, types.TypeFlags.NonPrimitive)) {
+        const result = c.filterType(unionType, nonPrimitiveFilter, struct {});
+        if ((c.getTypeFlags(result) & types.TypeFlags.Never) == 0) {
+            return result;
+        }
+    }
+    return unionType;
+}
+
+fn nonPrimitiveFilter(c: *Checker, t: types.TypeIndex, _: void) bool {
+    return isNonPrimitiveType(c, t);
 }
 
 pub fn isObjectOrInstantiableNonPrimitive(c: *Checker, t: types.TypeIndex) bool {
     const typeObj = &c.typesList.items[t];
     return typeObj.flags & (types.TypeFlags.Object | types.TypeFlags.InstantiableNonPrimitive) != 0;
-}
-
-pub fn getKeyPropertyCandidateName(c: *Checker, typeList: []types.TypeIndex) []const u8 {
-    _ = c;
-    _ = typeList;
-    return ""; // Stub
-}
-
-pub fn discriminateTypeByDiscriminableItems(c: *Checker, target: types.TypeIndex, discriminator: *TypeDiscriminator) types.TypeIndex {
-    _ = c;
-    _ = discriminator;
-    return target; // Stub
-}
-
-pub fn filterPrimitivesIfContainsNonPrimitive(c: *Checker, unionType: types.TypeIndex) types.TypeIndex {
-    _ = c;
-    return unionType; // Stub
 }
 
 pub fn isNonPrimitiveType(c: *Checker, t: types.TypeIndex) bool {
@@ -2611,9 +2883,7 @@ pub fn isUnknownLikeUnionType(c: *Checker, target: types.TypeIndex) bool {
 }
 
 pub fn IsEmptyAnonymousObjectType(c: *Checker, source: types.TypeIndex) bool {
-    _ = c;
-    _ = source;
-    return false; // Stub
+    return c.isEmptyAnonymousObjectType(source);
 }
 
 pub fn isSimpleTypeRelatedTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, errorReporter: ErrorReporter) bool {
@@ -2630,6 +2900,9 @@ pub fn isSimpleTypeRelatedTo(c: *Checker, source: types.TypeIndex, target: types
     }
     if (t & types.TypeFlags.Never != 0) {
         return false;
+    }
+    if (s & types.TypeFlags.Unknown != 0 and (relation == &c.assignableRelation or relation == &c.comparableRelation)) {
+        return t & (types.TypeFlags.Unknown | types.TypeFlags.Any) != 0;
     }
     if (s & types.TypeFlags.StringLike != 0 and t & types.TypeFlags.String != 0) {
         return true;

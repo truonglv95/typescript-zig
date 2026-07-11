@@ -556,6 +556,7 @@ pub const NodeFactory = struct {
     }
 
     pub fn inlineExpressions(self: *NodeFactory, expressions: []const ast_gen.NodeIndex) ast_gen.NodeIndex {
+        std.debug.print("inlineExpressions called!\n", .{});
         if (expressions.len == 0) return 0;
         if (expressions.len == 1) return expressions[0];
 
@@ -580,6 +581,27 @@ pub const NodeFactory = struct {
             .Right = right,
             .linesBeforeOperator = 0,
             .linesAfterOperator = 0,
+        } }) catch unreachable;
+    }
+
+    pub fn updateBinaryExpression(self: *NodeFactory, node: ast_gen.NodeIndex, modifiers: ast_gen.NodeIndex, left: ast_gen.NodeIndex, typeNode: ast_gen.NodeIndex, operatorToken: ast_gen.NodeIndex, right: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        const bin = self.tree.getNode(node).BinaryExpression;
+        const mods = if (modifiers == 0) null else modifiers;
+        const typ = if (typeNode == 0) null else typeNode;
+        if (bin.modifiers == mods and bin.Left == left and bin.Type == typ and bin.OperatorToken == operatorToken and bin.Right == right) {
+            return node;
+        }
+        return self.tree.pushNode(.{ .BinaryExpression = .{
+            .Flags = bin.Flags,
+            .Symbol = bin.Symbol,
+            .modifiers = mods,
+            .modifierFlags = bin.modifierFlags,
+            .Left = left,
+            .Type = typ,
+            .OperatorToken = operatorToken,
+            .Right = right,
+            .linesBeforeOperator = bin.linesBeforeOperator,
+            .linesAfterOperator = bin.linesAfterOperator,
         } }) catch unreachable;
     }
 
@@ -814,6 +836,30 @@ pub const NodeFactory = struct {
             }
         }
         return .{ .prologue = source, .statements = &[_]ast_gen.NodeIndex{} };
+    }
+
+    pub fn ensureUseStrict(self: *NodeFactory, statements: []const ast_gen.NodeIndex) ![]const ast_gen.NodeIndex {
+        for (statements) |statement| {
+            if (@import("../ast/ast_utils.zig").isPrologueDirective(self.tree, statement)) {
+                if (self.tree.getNode(statement) == .ExpressionStatement) {
+                    const expr = self.tree.getNode(statement).ExpressionStatement.Expression;
+                    if (self.tree.getNode(expr) == .StringLiteral) {
+                        const text = self.tree.getNode(expr).StringLiteral.Text;
+                        if (std.mem.eql(u8, text, "use strict")) {
+                            return statements;
+                        }
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        const use_strict_literal = self.newStringLiteral("use strict", false);
+        const expr_stmt = self.newExpressionStatement(use_strict_literal);
+        var new_statements = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        try new_statements.append(self.allocator, expr_stmt);
+        try new_statements.appendSlice(self.allocator, statements);
+        return new_statements.toOwnedSlice(self.allocator);
     }
 
     allocator: std.mem.Allocator,
@@ -1216,7 +1262,9 @@ pub const NodeFactory = struct {
             var new_node = node;
             new_node.Statements = statements;
             new_node.EndOfFileToken = endOfFileToken;
-            return self.tree.pushNode(.{ .SourceFile = new_node }) catch unreachable;
+            const newNodeIndex = self.tree.pushNode(.{ .SourceFile = new_node }) catch unreachable;
+            self.tree.positions.items[newNodeIndex] = self.tree.positions.items[nodeIndex];
+            return newNodeIndex;
         }
         return nodeIndex;
     }

@@ -287,6 +287,10 @@ pub fn parseTestFilesAndSymlinksWithOptions(comptime T: type, allocator: std.mem
                 currentFileOptions = std.StringHashMap([]const u8).init(allocator);
             }
         } else {
+            if (currentFileName.len == 0) {
+                const trimmed = std.mem.trim(u8, line, " \t");
+                if (trimmed.len == 0 or std.mem.startsWith(u8, trimmed, "//")) continue;
+            }
             if (options.allowImplicitFirstFile) {
                 if (seenContentLine) {
                     try currentFileContent.append(allocator, '\n');
