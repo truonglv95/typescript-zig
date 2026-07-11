@@ -1520,9 +1520,8 @@ pub const Checker = struct {
     // =========================================================================
 
     pub fn hasParseDiagnostics(c: *Checker, sourceFile: ast_gen.NodeIndex) bool {
-        _ = c;
         _ = sourceFile;
-        return false;
+        return c.binder.ast.diagnostics.items.len > 0;
     }
 
     pub fn addDiagnostic(c: *Checker, diag: diagnostics.Diagnostic) void {
@@ -1673,9 +1672,8 @@ pub const Checker = struct {
     }
 
     pub fn isErrorType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false;
+        const ty = c.typesList.items[t];
+        return (ty.flags & types.TypeFlags.Any) != 0 and ty.data == .Intrinsic and std.mem.eql(u8, ty.data.Intrinsic.intrinsicName, "error");
     }
 
     pub fn getVariances(c: *Checker, t: types.TypeIndex) []const types.VarianceFlags {
@@ -4212,10 +4210,10 @@ pub const Checker = struct {
     }
 
     pub fn appendIfUniqueTypeIndex(c: *Checker, list: *std.ArrayListUnmanaged(types.TypeIndex), item: types.TypeIndex) void {
-        _ = c;
-        _ = list;
-        _ = item;
-        // Skipped
+        for (list.items) |i| {
+            if (i == item) return;
+        }
+        list.append(c.allocator, item) catch unreachable;
     }
 
     pub fn getStartElementCount(c: *Checker, tupleType: *types.TupleType, flags: u32) usize {
@@ -4309,16 +4307,14 @@ pub const Checker = struct {
         return relater.isTypeRelatedTo(c, source, target, relation);
     }
 
-    pub fn isSetAccessorSymbol(c: *Checker, sym: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = sym;
-        return false; // Skipped
+    pub fn isSetAccessorSymbol(c: *Checker, symIdx: ast_gen.SymbolIndex) bool {
+        const sym = c.binder.ast.getSymbol(symIdx);
+        return (sym.flags & ast_gen.SymbolFlags.SetAccessor) != 0;
     }
 
-    pub fn isGetAccessorSymbol(c: *Checker, sym: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = sym;
-        return false; // Skipped
+    pub fn isGetAccessorSymbol(c: *Checker, symIdx: ast_gen.SymbolIndex) bool {
+        const sym = c.binder.ast.getSymbol(symIdx);
+        return (sym.flags & ast_gen.SymbolFlags.GetAccessor) != 0;
     }
 
     pub fn getReturnTypeOfSignature(c: *Checker, signature: *types.Signature) types.TypeIndex {
@@ -5230,9 +5226,7 @@ pub const Checker = struct {
     }
 
     pub fn getNodeKind(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SyntaxKind {
-        _ = c;
-        _ = node;
-        return .Unknown; // Skipped
+        return c.binder.ast.getKind(node);
     }
 
     pub fn getWriteTypeOfSymbol(c: *Checker, sym: ast_gen.SymbolIndex) types.TypeIndex {
