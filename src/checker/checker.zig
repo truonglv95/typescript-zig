@@ -4453,10 +4453,7 @@ pub const Checker = struct {
     }
 
     pub fn isIgnoredJsxProperty(c: *Checker, source: types.TypeIndex, prop: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = source;
-        _ = prop;
-        return false; // Skipped
+        return (c.getObjectFlags(source) & types.ObjectFlags.JsxAttributes != 0) and relater.isHyphenatedJsxName(c.getSymbolName(prop));
     }
 
     pub fn getLiteralTypeFromProperty(c: *Checker, prop: ast_gen.SymbolIndex, include: u32, stringify: bool) types.TypeIndex {
