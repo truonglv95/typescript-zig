@@ -275,6 +275,7 @@ pub const Checker = struct {
     anyTypeIndex: ?u32 = null,
     noConstraintTypeIndex: ?u32 = null,
     stringTypeIndex: ?u32 = null,
+    numericStringTypeIndex: ?u32 = null,
     booleanTypeIndex: ?u32 = null,
     voidTypeIndex: ?u32 = null,
     undefinedTypeIndex: ?u32 = null,
@@ -4363,10 +4364,71 @@ pub const Checker = struct {
     }
 
     pub fn getApplicableIndexInfo(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) ?types.IndexInfo {
-        _ = c;
-        _ = t;
-        _ = keyType;
-        return null; // Skipped
+        return c.findApplicableIndexInfo(c.getIndexInfosOfType(t), keyType);
+    }
+
+    pub fn getApplicableIndexInfoForName(c: *Checker, t: types.TypeIndex, name: []const u8) ?types.IndexInfo {
+        if (utils.isLateBoundName(name)) {
+            return c.getApplicableIndexInfo(t, c.esSymbolTypeIndex orelse 0);
+        }
+        return c.getApplicableIndexInfo(t, c.getStringLiteralType(name));
+    }
+
+    pub fn findApplicableIndexInfo(c: *Checker, indexInfos: []const types.IndexInfo, keyType: types.TypeIndex) ?types.IndexInfo {
+        var stringIndexInfo: ?types.IndexInfo = null;
+        var applicableInfos = std.ArrayListUnmanaged(types.IndexInfo){};
+        defer applicableInfos.deinit(c.arena.allocator());
+
+        for (indexInfos) |info| {
+            if (info.keyType == (c.stringTypeIndex orelse 0)) {
+                stringIndexInfo = info;
+            } else if (c.isApplicableIndexType(keyType, info.keyType)) {
+                applicableInfos.append(c.arena.allocator(), info) catch {};
+            }
+        }
+
+        switch (applicableInfos.items.len) {
+            0 => {
+                if (stringIndexInfo) |s_info| {
+                    if (c.isApplicableIndexType(keyType, c.stringTypeIndex orelse 0)) {
+                        return s_info;
+                    }
+                }
+                return null;
+            },
+            1 => return applicableInfos.items[0],
+            else => {
+                var isReadonly = true;
+                var typesArr = std.ArrayListUnmanaged(types.TypeIndex){};
+                defer typesArr.deinit(c.arena.allocator());
+
+                for (applicableInfos.items) |info| {
+                    typesArr.append(c.arena.allocator(), info.valueType) catch {};
+                    if (!info.isReadonly) {
+                        isReadonly = false;
+                    }
+                }
+                return c.newIndexInfo(c.getUnknownType(), c.getIntersectionType(typesArr.items), isReadonly, 0, null);
+            },
+        }
+    }
+
+    pub fn isApplicableIndexType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
+        if (c.isTypeAssignableTo(source, target)) return true;
+
+        if (target == (c.stringTypeIndex orelse 0)) {
+            if (c.isTypeAssignableTo(source, c.numberTypeIndex orelse 0)) return true;
+        }
+
+        if (target == (c.numberTypeIndex orelse 0)) {
+            if (c.numericStringTypeIndex) |n| {
+                if (source == n) return true;
+            }
+            if (c.typesList.items[source].flags & types.TypeFlags.StringLiteral != 0) {
+                if (utils.isNumericLiteralName(c.typesList.items[source].data.StringLiteral.text)) return true;
+            }
+        }
+        return false;
     }
 
     pub fn compareSignaturesIdentical(c: *Checker, source: *types.Signature, target: *types.Signature, partialMatch: bool, ignoreThisTypes: bool, ignoreReturnTypes: bool, isRelatedCtx: anytype, comptime isRelatedFn: fn (ctx: @TypeOf(isRelatedCtx), source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
@@ -4394,13 +4456,6 @@ pub const Checker = struct {
         _ = c;
         _ = source;
         _ = prop;
-        return false; // Skipped
-    }
-
-    pub fn isApplicableIndexType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c;
-        _ = source;
-        _ = target;
         return false; // Skipped
     }
 
