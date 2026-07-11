@@ -25,12 +25,17 @@ pub fn main(init: std.process.Init) !void {
     const result = tsc.execute.tsc_module.commandLine(&os_sys, &sys, raw_args.items, null);
     switch (result.status) {
         .Success => {},
-        .DiagnosticsPresent_OutputsSkipped, .DiagnosticsPresent_OutputsGenerated => {
+        .DiagnosticsPresent_OutputsSkipped => {
             std.process.exit(1);
         },
+        .DiagnosticsPresent_OutputsGenerated => {
+            std.process.exit(2);
+        },
+        .InvalidProject_OutputsSkipped => std.process.exit(3),
+        .ProjectReferenceCycle_OutputsSkipped => std.process.exit(4),
         .NotImplemented => {
             std.debug.print("Command not implemented.\n", .{});
-            std.process.exit(1);
+            std.process.exit(5);
         },
     }
 }

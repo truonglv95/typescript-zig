@@ -11,12 +11,15 @@ const parser = @import("../parser/parser.zig");
 const binder = @import("../binder/binder.zig");
 const checker = @import("../checker/checker.zig");
 const core = @import("../core/core.zig");
+const tspath = @import("../tspath/tspath.zig");
+const scanner = @import("../scanner/scanner.zig");
 const semver = @import("../semver/version.zig");
 const semver_range = @import("../semver/version_range.zig");
 const text_writer = @import("../printer/textwriter.zig");
 const emitcontext = @import("../printer/emitcontext.zig");
 const transformers = @import("../transformers/transformer.zig");
 const declarations = @import("../transformers/declarations.zig");
+const harness = @import("harness.zig");
 
 pub const FileId = u32;
 
@@ -68,13 +71,43 @@ pub const ExportedSymbol = struct {
 pub const AliasSymbol = struct {
     target_file: FileId,
     imported_name: []const u8,
+    declaration_node: ast.NodeIndex = 0,
 };
 
 pub const ProgramDiagnostic = struct {
     file: FileId,
     code: u32,
     message: []const u8,
+    category: diagnostics.Category = .Error,
+    line: u32 = 1,
+    column: u32 = 1,
 };
+
+const LineColumn = struct { line: u32, column: u32 };
+
+fn computeLineColumn(source_text: []const u8, pos: u32) LineColumn {
+    var line: u32 = 1;
+    var column: u32 = 1;
+    var index: u32 = 0;
+    const limit = @min(pos, @as(u32, @intCast(source_text.len)));
+    while (index < limit) : (index += 1) {
+        if (source_text[index] == '\n') {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+    return .{ .line = line, .column = column };
+}
+
+fn diagnosticLocation(tree: *ast.Ast, node_index: ast.NodeIndex, explicit_pos: u32) LineColumn {
+    const pos = if (node_index != 0)
+        scanner.getTokenPosOfNode(tree, node_index, false)
+    else
+        explicit_pos;
+    return computeLineColumn(tree.sourceText, pos);
+}
 
 const CachedResolution = struct {
     path: ?[]u8,
@@ -289,6 +322,13 @@ pub const Program = struct {
     fn declarationEmitBlocked(context_ptr: *anyopaque) bool {
         const self: *Program = @ptrCast(@alignCast(context_ptr));
         return self.diagnostics.items.len > self.declaration_diagnostic_start;
+    }
+
+    pub fn hasErrorDiagnostics(self: *const Program) bool {
+        for (self.diagnostics.items) |diagnostic| {
+            if (diagnostic.category == .Error) return true;
+        }
+        return false;
     }
 
     // Program emit coordination logic
@@ -581,6 +621,10 @@ pub const Program = struct {
         defer _ = self.loading.remove(normalized);
 
         const content = try std.Io.Dir.cwd().readFileAlloc(io, normalized, self.allocator, @enumFromInt(std.math.maxInt(usize)));
+        // NOTE: Harness directive comments (e.g. `// @noEmit`) are only honored when a
+        // multi-file harness is materialized via `tryPrepareHarnessCompilation`. Applying
+        // them for every root file here would diverge from the real `tsc`/`tsgo` CLI, which
+        // treats such comments as ordinary trivia.
         const parser_instance = try self.allocator.create(parser.Parser);
         parser_instance.* = parser.Parser.init(self.allocator, content);
         parser_instance.ast.fileName = normalized;
@@ -659,7 +703,7 @@ pub const Program = struct {
                 self.allocator.free(path);
             }
             try unit.dependencies.append(self.allocator, .{ .specifier = owned_specifier, .resolved = resolved });
-            if (resolved == null) try self.appendDiagnostic(file_id, 2307, try std.fmt.allocPrint(self.allocator, "Cannot find module '{s}' or its corresponding type declarations.", .{specifier}));
+            if (resolved == null) try self.appendDiagnostic(file_id, 2307, try std.fmt.allocPrint(self.allocator, "Cannot find module '{s}' or its corresponding type declarations.", .{specifier}), statement, 0);
         }
         var require_offset: usize = 0;
         while (std.mem.indexOfPos(u8, unit.content, require_offset, "require(")) |call_start| {
@@ -685,7 +729,7 @@ pub const Program = struct {
                 self.allocator.free(path);
             }
             try unit.dependencies.append(self.allocator, .{ .specifier = try self.allocator.dupe(u8, specifier), .resolved = resolved });
-            if (resolved == null) try self.appendDiagnostic(file_id, 2307, try std.fmt.allocPrint(self.allocator, "Cannot find module '{s}' or its corresponding type declarations.", .{specifier}));
+            if (resolved == null) try self.appendDiagnostic(file_id, 2307, try std.fmt.allocPrint(self.allocator, "Cannot find module '{s}' or its corresponding type declarations.", .{specifier}), 0, @intCast(call_start));
         }
         for (tree.referencedFiles.items) |reference| {
             const owned_specifier = try self.allocator.dupe(u8, reference.fileName);
@@ -695,7 +739,7 @@ pub const Program = struct {
                 self.allocator.free(path);
             }
             try unit.dependencies.append(self.allocator, .{ .specifier = owned_specifier, .resolved = resolved });
-            if (resolved == null) try self.appendDiagnostic(file_id, 6053, try std.fmt.allocPrint(self.allocator, "File '{s}' not found.", .{reference.fileName}));
+            if (resolved == null) try self.appendDiagnostic(file_id, 6053, try std.fmt.allocPrint(self.allocator, "File '{s}' not found.", .{reference.fileName}), 0, reference.pos);
         }
         for (tree.typeReferenceDirectives.items) |reference| {
             const owned_specifier = try self.allocator.dupe(u8, reference.fileName);
@@ -705,7 +749,7 @@ pub const Program = struct {
                 self.allocator.free(path);
             }
             try unit.dependencies.append(self.allocator, .{ .specifier = owned_specifier, .resolved = resolved });
-            if (resolved == null) try self.appendDiagnostic(file_id, 2688, try std.fmt.allocPrint(self.allocator, "Cannot find type definition file for '{s}'.", .{reference.fileName}));
+            if (resolved == null) try self.appendDiagnostic(file_id, 2688, try std.fmt.allocPrint(self.allocator, "Cannot find type definition file for '{s}'.", .{reference.fileName}), 0, reference.pos);
         }
         for (tree.libReferenceDirectives.items) |reference| try self.loadLibraryByName(io, reference.fileName);
     }
@@ -730,8 +774,16 @@ pub const Program = struct {
         return resolved;
     }
 
-    fn appendDiagnostic(self: *Program, file: FileId, code: u32, owned_message: []u8) !void {
-        try self.diagnostics.append(self.allocator, .{ .file = file, .code = code, .message = owned_message });
+    fn appendDiagnostic(self: *Program, file: FileId, code: u32, owned_message: []u8, node_index: ast.NodeIndex, explicit_pos: u32) !void {
+        const unit = self.units.items[file];
+        const loc = diagnosticLocation(unit.tree(), node_index, explicit_pos);
+        try self.diagnostics.append(self.allocator, .{
+            .file = file,
+            .code = code,
+            .message = owned_message,
+            .line = loc.line,
+            .column = loc.column,
+        });
     }
 
     fn resolveRelative(self: *Program, io: std.Io, containing_file: []const u8, specifier: []const u8) !?[]const u8 {
@@ -1259,13 +1311,13 @@ pub const Program = struct {
             const clause_node = tree.getNode(clause_index);
             if (clause_node != .ImportClause) continue;
             const clause = clause_node.ImportClause;
-            if ((clause.name orelse 0) != 0) try self.putAlias(file, ast_utils.getText(tree, clause.name.?), target_file, "default");
+            if ((clause.name orelse 0) != 0) try self.putAlias(file, ast_utils.getText(tree, clause.name.?), target_file, "default", clause.name.?);
             if ((clause.NamedBindings orelse 0) == 0) continue;
             switch (tree.getNode(clause.NamedBindings.?)) {
-                .NamespaceImport => |namespace| try self.putAlias(file, ast_utils.getText(tree, namespace.name), target_file, "*"),
+                .NamespaceImport => |namespace| try self.putAlias(file, ast_utils.getText(tree, namespace.name), target_file, "*", namespace.name),
                 .NamedImports => |named| for (tree.getNodeList(named.Elements)) |element| {
                     const specifier = tree.getNode(element).ImportSpecifier;
-                    try self.putAlias(file, ast_utils.getText(tree, specifier.name), target_file, ast_utils.getText(tree, specifier.PropertyName orelse specifier.name));
+                    try self.putAlias(file, ast_utils.getText(tree, specifier.name), target_file, ast_utils.getText(tree, specifier.PropertyName orelse specifier.name), element);
                 },
                 else => {},
             }
@@ -1287,13 +1339,17 @@ pub const Program = struct {
         try self.exports_by_key.put(key, .{ .file = file, .declaration_file = declaration_file, .declaration = declaration, .meaning = meaning });
     }
 
-    fn putAlias(self: *Program, file: FileId, local_name: []const u8, target_file: FileId, imported_name: []const u8) !void {
+    fn putAlias(self: *Program, file: FileId, local_name: []const u8, target_file: FileId, imported_name: []const u8, declaration_node: ast.NodeIndex) !void {
         const key = try symbolKey(self.allocator, file, local_name);
         if (self.aliases_by_key.contains(key)) {
             self.allocator.free(key);
             return;
         }
-        try self.aliases_by_key.put(key, .{ .target_file = target_file, .imported_name = try self.allocator.dupe(u8, imported_name) });
+        try self.aliases_by_key.put(key, .{
+            .target_file = target_file,
+            .imported_name = try self.allocator.dupe(u8, imported_name),
+            .declaration_node = declaration_node,
+        });
     }
 
     pub fn resolveAlias(self: *Program, file: FileId, local_name: []const u8) ?ExportedSymbol {
@@ -1307,18 +1363,56 @@ pub const Program = struct {
     }
 
     pub fn check(self: *Program) !void {
+        var default_lib_binder: ?*binder.Binder = null;
+        for (self.units.items) |unit| {
+            if (unit.is_default_library) {
+                if (unit.binder_instance) |b| {
+                    default_lib_binder = b;
+                    break;
+                }
+            }
+        }
+
+        const module_kind = emitter_mod.getEmitModuleKind(&self.opts.options);
+
         for (self.units.items, 0..) |unit, file_index| {
             if (unit.is_default_library) continue;
+            if (!unit.is_root and isJsSourcePath(unit.path)) continue;
             const bound = unit.binder_instance orelse continue;
             var instance = checker.Checker.init(self.allocator, bound);
+            instance.default_lib_binder = default_lib_binder;
+            const strict = self.opts.options.strict orelse false;
+            instance.strictNullChecks = self.opts.options.strictNullChecks orelse strict;
+            instance.noImplicitAny = self.opts.options.noImplicitAny orelse strict;
+            instance.checkJs = self.opts.options.checkJs orelse false;
+            instance.allowJs = self.opts.options.allowJs orelse false;
+            instance.erasableSyntaxOnly = self.opts.options.erasableSyntaxOnly orelse false;
+            instance.moduleKind = module_kind;
             defer instance.deinit();
             try instance.checkStatementAdHoc(unit.source_file);
-            for (bound.diagnosticsList.items) |diagnostic| {
+            const parser_ast = &unit.parser_instance.ast;
+            for (parser_ast.diagnostics.items) |diagnostic| {
                 const formatted_message = try formatDiagnosticMessage(self.allocator, diagnostic.message.text, diagnostic.args);
+                const loc = diagnosticLocation(parser_ast, diagnostic.nodeIndex, diagnostic.pos);
                 try self.diagnostics.append(self.allocator, .{
                     .file = @intCast(file_index),
                     .code = diagnostic.message.code,
                     .message = formatted_message,
+                    .category = diagnostic.message.category,
+                    .line = loc.line,
+                    .column = loc.column,
+                });
+            }
+            for (bound.diagnosticsList.items) |diagnostic| {
+                const formatted_message = try formatDiagnosticMessage(self.allocator, diagnostic.message.text, diagnostic.args);
+                const loc = diagnosticLocation(bound.ast, diagnostic.nodeIndex, 0);
+                try self.diagnostics.append(self.allocator, .{
+                    .file = @intCast(file_index),
+                    .code = diagnostic.message.code,
+                    .message = formatted_message,
+                    .category = diagnostic.message.category,
+                    .line = loc.line,
+                    .column = loc.column,
                 });
             }
         }
@@ -1326,15 +1420,20 @@ pub const Program = struct {
         while (aliases.next()) |entry| {
             const alias = entry.value_ptr.*;
             if (std.mem.eql(u8, alias.imported_name, "*")) continue;
+            if (std.mem.eql(u8, alias.imported_name, "default") and (self.opts.options.allowSyntheticDefaultImports orelse false)) continue;
             const target_key = try symbolKey(self.allocator, alias.target_file, alias.imported_name);
             defer self.allocator.free(target_key);
             if (!self.exports_by_key.contains(target_key)) {
                 const separator = std.mem.indexOfScalar(u8, entry.key_ptr.*, ':') orelse 0;
                 const file = std.fmt.parseInt(FileId, entry.key_ptr.*[0..separator], 10) catch 0;
+                const unit = self.units.items[file];
+                const loc = diagnosticLocation(unit.tree(), alias.declaration_node, 0);
                 try self.diagnostics.append(self.allocator, .{
                     .file = file,
                     .code = 2305,
                     .message = try std.fmt.allocPrint(self.allocator, "Module has no exported member '{s}'.", .{alias.imported_name}),
+                    .line = loc.line,
+                    .column = loc.column,
                 });
             }
         }
@@ -1433,7 +1532,7 @@ fn moduleSpecifier(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
             .ExternalModuleReference => |reference| reference.Expression,
             else => 0,
         },
-        .ModuleDeclaration => |declaration| if (tree.getNode(declaration.name) == .StringLiteral) declaration.name else 0,
+        .ModuleDeclaration => 0,
         else => 0,
     };
 }
@@ -1492,6 +1591,14 @@ fn usesRequireConditions(path: []const u8) bool {
 fn containsString(values: []const []const u8, needle: []const u8) bool {
     for (values) |value| if (std.mem.eql(u8, value, needle)) return true;
     return false;
+}
+
+fn isJsSourcePath(path: []const u8) bool {
+    const ext = tspath.tryGetExtensionFromPath(path);
+    return std.mem.eql(u8, ext, ".js") or
+        std.mem.eql(u8, ext, ".jsx") or
+        std.mem.eql(u8, ext, ".mjs") or
+        std.mem.eql(u8, ext, ".cjs");
 }
 
 fn defaultLibraryName(target: core.ScriptTarget) []const u8 {

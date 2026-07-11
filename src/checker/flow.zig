@@ -475,7 +475,7 @@ fn narrowTypeByOptionality(c: *Checker, f: *FlowState, t: types.TypeIndex, expr:
     return t;
 }
 
-fn isReadonlySymbol(c: *Checker, sym: ast_gen.SymbolIndex) bool {
+pub fn isReadonlySymbol(c: *Checker, sym: ast_gen.SymbolIndex) bool {
     if (sym >= c.binder.symbols.items.len) return false;
     const symbol = c.binder.symbols.items[sym];
     const checkFlags = Checker.getSymbolCheckFlags(c, sym);

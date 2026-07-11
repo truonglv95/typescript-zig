@@ -729,9 +729,17 @@ pub const AccessFlags = struct {
 
 pub const CheckFlags = struct {
     pub const None: u32 = 0;
+    pub const SyntheticProperty: u32 = 1 << 1;
     pub const Readonly: u32 = 1 << 3;
-    pub const Partial: u32 = 1 << 4;
+    pub const ReadPartial: u32 = 1 << 4;
+    pub const WritePartial: u32 = 1 << 5;
+    pub const HasNonUniformType: u32 = 1 << 6;
+    pub const HasLiteralType: u32 = 1 << 7;
     pub const Late: u32 = 1 << 12;
+    pub const IsDiscriminantComputed: u32 = 1 << 21;
+    pub const IsDiscriminant: u32 = 1 << 22;
+    pub const NonUniformAndLiteral: u32 = HasNonUniformType | HasLiteralType;
+    pub const Partial: u32 = ReadPartial | WritePartial;
 };
 
 pub const TypeMapperIndex = u32;

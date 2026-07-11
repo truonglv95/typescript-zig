@@ -664,6 +664,12 @@ pub const Parser = struct {
         return self.token;
     }
 
+    pub fn setNodeStartPos(self: *Parser, node: ast_gen.NodeIndex, start_pos: usize) void {
+        if (node != 0 and node < self.ast.positions.items.len) {
+            self.ast.positions.items[node].pos = @intCast(start_pos);
+        }
+    }
+
     pub fn parseSourceFile(self: *Parser) anyerror!ast_gen.NodeIndex {
         self.ast.sourceText = self.sourceText;
         const statements = try self.parseList(.SourceElements, parseStatement);
@@ -704,6 +710,7 @@ pub const Parser = struct {
         self.ast.nodes.set(sourceFileIndex, sourceFileNode);
 
         try @import("../ast/ast_utils.zig").fixupParentReferences(&self.ast, sourceFileIndex);
+        @import("../ast/position_fixup.zig").fillMissingNodePositions(&self.ast, sourceFileIndex);
 
         // Copy comment directives from scanner to AST
         try self.ast.commentDirectives.appendSlice(self.allocator, self.scanner.commentDirectives.items);
@@ -861,32 +868,41 @@ pub const Parser = struct {
     }
 
     pub fn parseExpressionStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         const expr = try @import("expression.zig").parseExpression(self);
 
         if (self.token == kind.Kind.ColonToken and std.meta.activeTag(self.ast.getNode(expr)) == .Identifier) {
             _ = self.nextToken(); // consume ':'
             const statement = try self.parseStatement();
-            return self.ast.pushNode(.{ .LabeledStatement = .{
+            const stmt = try self.ast.pushNode(.{ .LabeledStatement = .{
                 .Flags = 0,
                 .Label = expr,
                 .Statement = statement,
             } });
+            self.setNodeStartPos(stmt, start_pos);
+            return stmt;
         }
 
         self.parseSemicolon();
 
-        return self.ast.pushNode(.{ .ExpressionStatement = .{
+        const stmt = try self.ast.pushNode(.{ .ExpressionStatement = .{
             .Flags = 0,
             .Expression = expr,
         } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseEmptyStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         self.parseSemicolon();
-        return self.ast.pushNode(.{ .EmptyStatement = .{ .Flags = 0 } });
+        const stmt = try self.ast.pushNode(.{ .EmptyStatement = .{ .Flags = 0 } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseDoStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.DoKeyword);
         const statement = try self.parseStatement();
         _ = self.parseExpected(kind.Kind.WhileKeyword);
@@ -894,10 +910,13 @@ pub const Parser = struct {
         const expression = try @import("expression.zig").parseExpression(self);
         _ = self.parseExpected(kind.Kind.CloseParenToken);
         _ = self.parseOptional(kind.Kind.SemicolonToken);
-        return self.ast.pushNode(.{ .DoStatement = .{ .Flags = 0, .Statement = statement, .Expression = expression } });
+        const stmt = try self.ast.pushNode(.{ .DoStatement = .{ .Flags = 0, .Statement = statement, .Expression = expression } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseContinueStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ContinueKeyword);
         var label: ?ast_gen.NodeIndex = null;
         if (!self.isSemicolon()) {
@@ -906,10 +925,13 @@ pub const Parser = struct {
             }
         }
         self.parseSemicolon();
-        return self.ast.pushNode(.{ .ContinueStatement = .{ .Flags = 0, .Label = label } });
+        const stmt = try self.ast.pushNode(.{ .ContinueStatement = .{ .Flags = 0, .Label = label } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseBreakStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.BreakKeyword);
         var label: ?ast_gen.NodeIndex = null;
         if (!self.isSemicolon()) {
@@ -918,19 +940,25 @@ pub const Parser = struct {
             }
         }
         self.parseSemicolon();
-        return self.ast.pushNode(.{ .BreakStatement = .{ .Flags = 0, .Label = label } });
+        const stmt = try self.ast.pushNode(.{ .BreakStatement = .{ .Flags = 0, .Label = label } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseWithStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.WithKeyword);
         _ = self.parseExpected(kind.Kind.OpenParenToken);
         const expression = try @import("expression.zig").parseExpression(self);
         _ = self.parseExpected(kind.Kind.CloseParenToken);
         const statement = try self.parseStatement();
-        return self.ast.pushNode(.{ .WithStatement = .{ .Flags = 0, .Expression = expression, .Statement = statement } });
+        const stmt = try self.ast.pushNode(.{ .WithStatement = .{ .Flags = 0, .Expression = expression, .Statement = statement } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseCaseBlock(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.OpenBraceToken);
         var clauses_arr = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         defer clauses_arr.deinit(self.allocator);
@@ -940,34 +968,45 @@ pub const Parser = struct {
         }
         const clauses = try self.ast.pushNodeList(clauses_arr.items);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
-        return self.ast.pushNode(.{ .CaseBlock = .{ .Flags = 0, .Clauses = clauses } });
+        const block = try self.ast.pushNode(.{ .CaseBlock = .{ .Flags = 0, .Clauses = clauses } });
+        self.setNodeStartPos(block, start_pos);
+        return block;
     }
 
     pub fn parseCaseOrDefaultClause(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         if (self.token == kind.Kind.CaseKeyword) {
             self.nextToken();
             const expression = try @import("expression.zig").parseExpression(self);
             _ = self.parseExpected(kind.Kind.ColonToken);
             const statements = try self.parseList(.SwitchClauseStatements, parseStatement);
-            return self.ast.pushNode(.{ .CaseClause = .{ .Flags = 0, .Expression = expression, .Statements = statements } });
+            const clause = try self.ast.pushNode(.{ .CaseClause = .{ .Flags = 0, .Expression = expression, .Statements = statements } });
+            self.setNodeStartPos(clause, start_pos);
+            return clause;
         } else {
             _ = self.parseExpected(kind.Kind.DefaultKeyword);
             _ = self.parseExpected(kind.Kind.ColonToken);
             const statements = try self.parseList(.SwitchClauseStatements, parseStatement);
-            return self.ast.pushNode(.{ .DefaultClause = .{ .Flags = 0, .Expression = 0, .Statements = statements } }); // 0 for missing expression
+            const clause = try self.ast.pushNode(.{ .DefaultClause = .{ .Flags = 0, .Expression = 0, .Statements = statements } }); // 0 for missing expression
+            self.setNodeStartPos(clause, start_pos);
+            return clause;
         }
     }
 
     pub fn parseSwitchStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.SwitchKeyword);
         _ = self.parseExpected(kind.Kind.OpenParenToken);
         const expression = try @import("expression.zig").parseExpression(self);
         _ = self.parseExpected(kind.Kind.CloseParenToken);
         const caseBlock = try self.parseCaseBlock();
-        return self.ast.pushNode(.{ .SwitchStatement = .{ .Flags = 0, .Expression = expression, .CaseBlock = caseBlock } });
+        const stmt = try self.ast.pushNode(.{ .SwitchStatement = .{ .Flags = 0, .Expression = expression, .CaseBlock = caseBlock } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseThrowStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ThrowKeyword);
         var expression: ast_gen.NodeIndex = 0;
         if (!self.scanner.hasPrecedingLineBreak()) {
@@ -976,10 +1015,13 @@ pub const Parser = struct {
             expression = try self.ast.pushNode(.{ .Identifier = .{ .Flags = 0, .Text = "" } });
         }
         self.parseSemicolon();
-        return self.ast.pushNode(.{ .ThrowStatement = .{ .Flags = 0, .Expression = expression } });
+        const stmt = try self.ast.pushNode(.{ .ThrowStatement = .{ .Flags = 0, .Expression = expression } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseCatchClause(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.CatchKeyword);
         var variableDeclaration: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.OpenParenToken)) {
@@ -987,10 +1029,13 @@ pub const Parser = struct {
             _ = self.parseExpected(kind.Kind.CloseParenToken);
         }
         const block = try self.parseBlock();
-        return self.ast.pushNode(.{ .CatchClause = .{ .Flags = 0, .VariableDeclaration = variableDeclaration, .Block = block } });
+        const clause = try self.ast.pushNode(.{ .CatchClause = .{ .Flags = 0, .VariableDeclaration = variableDeclaration, .Block = block } });
+        self.setNodeStartPos(clause, start_pos);
+        return clause;
     }
 
     pub fn parseTryStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.TryKeyword);
         const tryBlock = try self.parseBlock();
         var catchClause: ?ast_gen.NodeIndex = null;
@@ -1002,13 +1047,18 @@ pub const Parser = struct {
             _ = self.parseExpected(kind.Kind.FinallyKeyword);
             finallyBlock = try self.parseBlock();
         }
-        return self.ast.pushNode(.{ .TryStatement = .{ .Flags = 0, .TryBlock = tryBlock, .CatchClause = catchClause, .FinallyBlock = finallyBlock } });
+        const stmt = try self.ast.pushNode(.{ .TryStatement = .{ .Flags = 0, .TryBlock = tryBlock, .CatchClause = catchClause, .FinallyBlock = finallyBlock } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseDebuggerStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         self.nextToken();
         self.parseSemicolon();
-        return self.ast.pushNode(.{ .DebuggerStatement = .{ .Flags = 0 } }); // stub
+        const stmt = try self.ast.pushNode(.{ .DebuggerStatement = .{ .Flags = 0 } }); // stub
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseDeclaration(self: *Parser) anyerror!ast_gen.NodeIndex {
@@ -1032,6 +1082,7 @@ pub const Parser = struct {
     }
 
     pub fn parseTypeParameter(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         var modifierList = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         defer modifierList.deinit(self.allocator);
 
@@ -1058,7 +1109,7 @@ pub const Parser = struct {
             defaultType = self.parseType() catch 0;
         }
 
-        return self.ast.pushNode(.{ .TypeParameter = .{
+        const param = try self.ast.pushNode(.{ .TypeParameter = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -1068,6 +1119,8 @@ pub const Parser = struct {
             .Expression = null,
             .DefaultType = defaultType,
         } });
+        self.setNodeStartPos(param, start_pos);
+        return param;
     }
 
     pub fn parseDeclarationWorker(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
@@ -1134,6 +1187,7 @@ pub const Parser = struct {
     }
 
     pub fn parseSignatureMember(self: *Parser, kindTag: kind.Kind) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         if (kindTag == .ConstructSignature) {
             _ = self.parseExpected(kind.Kind.NewKeyword);
         }
@@ -1143,7 +1197,7 @@ pub const Parser = struct {
         self.parseTypeMemberSemicolon();
 
         if (kindTag == .ConstructSignature) {
-            return self.ast.pushNode(.{ .ConstructSignature = .{
+            const sig = try self.ast.pushNode(.{ .ConstructSignature = .{
                 .Flags = 0,
                 .Symbol = 0,
                 .TypeParameters = typeParameters,
@@ -1151,8 +1205,10 @@ pub const Parser = struct {
                 .Type = returnType,
                 .FullSignature = null,
             } });
+            self.setNodeStartPos(sig, start_pos);
+            return sig;
         } else {
-            return self.ast.pushNode(.{ .CallSignature = .{
+            const sig = try self.ast.pushNode(.{ .CallSignature = .{
                 .Flags = 0,
                 .Symbol = 0,
                 .TypeParameters = typeParameters,
@@ -1160,10 +1216,13 @@ pub const Parser = struct {
                 .Type = returnType,
                 .FullSignature = null,
             } });
+            self.setNodeStartPos(sig, start_pos);
+            return sig;
         }
     }
 
     pub fn parseTypeMember(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const member_start = self.scanner.state.tokenStart;
         if (self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.LessThanToken) {
             return self.parseSignatureMember(.CallSignature);
         }
@@ -1197,7 +1256,9 @@ pub const Parser = struct {
         }
 
         if (self.isIndexSignature()) {
-            return self.parseIndexSignatureDeclaration(modifiers, modifierFlags);
+            const sig = try self.parseIndexSignatureDeclaration(modifiers, modifierFlags);
+            self.setNodeStartPos(sig, member_start);
+            return sig;
         }
 
         const name = try self.parsePropertyName();
@@ -1213,7 +1274,7 @@ pub const Parser = struct {
             const returnType = try self.parseReturnTypeAnnotation();
             self.parseTypeMemberSemicolon();
             if (isGet) {
-                return self.ast.pushNode(.{ .GetAccessor = .{
+                const sig = try self.ast.pushNode(.{ .GetAccessor = .{
                     .Flags = 0,
                     .Symbol = 0,
                     .modifiers = modifiers,
@@ -1227,8 +1288,10 @@ pub const Parser = struct {
                     .FullSignature = null,
                     .AsteriskToken = null,
                 } });
+                self.setNodeStartPos(sig, member_start);
+                return sig;
             } else if (isSet) {
-                return self.ast.pushNode(.{ .SetAccessor = .{
+                const sig = try self.ast.pushNode(.{ .SetAccessor = .{
                     .Flags = 0,
                     .Symbol = 0,
                     .modifiers = modifiers,
@@ -1242,8 +1305,10 @@ pub const Parser = struct {
                     .FullSignature = null,
                     .AsteriskToken = null,
                 } });
+                self.setNodeStartPos(sig, member_start);
+                return sig;
             } else {
-                return self.ast.pushNode(.{ .MethodSignature = .{
+                const sig = try self.ast.pushNode(.{ .MethodSignature = .{
                     .Flags = 0,
                     .Symbol = 0,
                     .modifiers = modifiers,
@@ -1255,6 +1320,8 @@ pub const Parser = struct {
                     .Type = returnType,
                     .FullSignature = null,
                 } });
+                self.setNodeStartPos(sig, member_start);
+                return sig;
             }
         } else {
             const typeNode = try self.parseTypeAnnotation();
@@ -1263,7 +1330,7 @@ pub const Parser = struct {
                 initializer = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
             }
             self.parseTypeMemberSemicolon();
-            return self.ast.pushNode(.{ .PropertySignature = .{
+            const sig = try self.ast.pushNode(.{ .PropertySignature = .{
                 .Flags = 0,
                 .Symbol = 0,
                 .modifiers = modifiers,
@@ -1273,10 +1340,13 @@ pub const Parser = struct {
                 .Type = typeNode orelse 0,
                 .Initializer = initializer orelse 0,
             } });
+            self.setNodeStartPos(sig, member_start);
+            return sig;
         }
     }
 
     pub fn parseInterfaceDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.InterfaceKeyword);
         const name = try self.parseIdentifier();
         const typeParameters = try self.parseTypeParameters();
@@ -1296,7 +1366,7 @@ pub const Parser = struct {
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
         const members = try self.ast.pushNodeList(members_arr.items);
 
-        return self.ast.pushNode(.{ .InterfaceDeclaration = .{
+        const decl = try self.ast.pushNode(.{ .InterfaceDeclaration = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -1306,9 +1376,12 @@ pub const Parser = struct {
             .HeritageClauses = heritageClauses,
             .Members = members,
         } });
+        self.setNodeStartPos(decl, start_pos);
+        return decl;
     }
 
     pub fn parseTypeAliasDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.TypeKeyword);
         const name = try self.parseIdentifier();
         const typeParameters = try self.parseTypeParameters();
@@ -1316,7 +1389,7 @@ pub const Parser = struct {
         const typeNode = try self.parseType();
         self.parseSemicolon();
 
-        return self.ast.pushNode(.{ .TypeAliasDeclaration = .{
+        const decl = try self.ast.pushNode(.{ .TypeAliasDeclaration = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -1325,9 +1398,12 @@ pub const Parser = struct {
             .TypeParameters = typeParameters,
             .Type = typeNode,
         } });
+        self.setNodeStartPos(decl, start_pos);
+        return decl;
     }
 
     pub fn parseEnumDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.EnumKeyword);
         const name = try self.parseIdentifier();
 
@@ -1347,7 +1423,7 @@ pub const Parser = struct {
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
         const members = try self.ast.pushNodeList(members_arr.items);
 
-        return self.ast.pushNode(.{ .EnumDeclaration = .{
+        const decl = try self.ast.pushNode(.{ .EnumDeclaration = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -1355,16 +1431,19 @@ pub const Parser = struct {
             .name = name,
             .Members = members,
         } });
+        self.setNodeStartPos(decl, start_pos);
+        return decl;
     }
 
     pub fn parseEnumMember(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         const name = try self.parsePropertyName();
         var initializer: ?ast_gen.NodeIndex = null;
         if (self.token == kind.Kind.EqualsToken) {
             self.nextToken();
             initializer = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
         }
-        return self.ast.pushNode(.{ .EnumMember = .{
+        const member = try self.ast.pushNode(.{ .EnumMember = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = null,
@@ -1373,21 +1452,26 @@ pub const Parser = struct {
             .PostfixToken = null,
             .Initializer = initializer,
         } });
+        self.setNodeStartPos(member, start_pos);
+        return member;
     }
 
     fn parseModuleBlock(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.OpenBraceToken);
 
         const statements = try self.parseList(.BlockStatements, parseStatement);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
 
-        return self.ast.pushNode(.{ .ModuleBlock = .{
+        const block = try self.ast.pushNode(.{ .ModuleBlock = .{
             .Flags = 0,
             .Statements = statements,
         } });
+        self.setNodeStartPos(block, start_pos);
+        return block;
     }
 
-    pub fn parseModuleOrNamespaceDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32, nested: bool, keyword: kind.Kind, flags: u32) anyerror!ast_gen.NodeIndex {
+    pub fn parseModuleOrNamespaceDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32, nested: bool, keyword: kind.Kind, flags: u32, start_pos: usize) anyerror!ast_gen.NodeIndex {
         var name: ?ast_gen.NodeIndex = null;
         if (nested) {
             name = try self.parseIdentifierName();
@@ -1400,7 +1484,7 @@ pub const Parser = struct {
         if (self.parseOptional(kind.Kind.DotToken)) {
             // Implicit export modifier for nested namespace?
             // In zig we just set NestedNamespace flag for the inner module
-            body = try self.parseModuleOrNamespaceDeclaration(null, 0, true, keyword, 0);
+            body = try self.parseModuleOrNamespaceDeclaration(null, 0, true, keyword, 0, self.scanner.state.tokenStart);
             if (body != null and body.? != 0) {
                 var inner_node = self.ast.getNode(body.?);
                 if (inner_node == .ModuleDeclaration) {
@@ -1412,7 +1496,7 @@ pub const Parser = struct {
             body = try self.parseModuleBlock();
         }
 
-        return self.ast.pushNode(.{ .ModuleDeclaration = .{
+        const decl = try self.ast.pushNode(.{ .ModuleDeclaration = .{
             .Symbol = 0,
             .Flags = nodeFlags,
             .modifiers = modifiers,
@@ -1422,9 +1506,12 @@ pub const Parser = struct {
             .Keyword = @intFromEnum(keyword),
             .name = name.?,
         } });
+        self.setNodeStartPos(decl, start_pos);
+        return decl;
     }
 
     pub fn parseModuleDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         var keyword: kind.Kind = kind.Kind.ModuleKeyword;
         var flags: u32 = 0;
         var isAmbientExternal = false;
@@ -1460,7 +1547,7 @@ pub const Parser = struct {
                 self.parseSemicolon();
             }
 
-            return self.ast.pushNode(.{ .ModuleDeclaration = .{
+            const decl = try self.ast.pushNode(.{ .ModuleDeclaration = .{
                 .Symbol = 0,
                 .Flags = flags,
                 .modifiers = modifiers,
@@ -1470,12 +1557,15 @@ pub const Parser = struct {
                 .Keyword = @intFromEnum(keyword),
                 .name = name orelse 0,
             } });
+            self.setNodeStartPos(decl, start_pos);
+            return decl;
         }
 
-        return self.parseModuleOrNamespaceDeclaration(modifiers, modifierFlags, false, keyword, flags);
+        return self.parseModuleOrNamespaceDeclaration(modifiers, modifierFlags, false, keyword, flags, start_pos);
     }
 
     pub fn parseImportDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const statement_start = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ImportKeyword);
 
         var isTypeOnly: u32 = 0;
@@ -1513,7 +1603,7 @@ pub const Parser = struct {
                     }
                     _ = self.parseExpected(kind.Kind.CloseParenToken);
                     self.parseSemicolon();
-                    return self.ast.pushNode(.{ .ImportEqualsDeclaration = .{
+                    const decl = try self.ast.pushNode(.{ .ImportEqualsDeclaration = .{
                         .Symbol = 0,
                         .Flags = 0,
                         .modifiers = modifiers,
@@ -1522,6 +1612,8 @@ pub const Parser = struct {
                         .name = name,
                         .ModuleReference = moduleReference,
                     } });
+                    self.ast.positions.items[decl].pos = @intCast(statement_start);
+                    return decl;
                 } else {
                     // Namespace/entity name path
                     moduleReference = try self.parseIdentifier();
@@ -1534,7 +1626,7 @@ pub const Parser = struct {
                         } });
                     }
                     self.parseSemicolon();
-                    return self.ast.pushNode(.{ .ImportEqualsDeclaration = .{
+                    const decl = try self.ast.pushNode(.{ .ImportEqualsDeclaration = .{
                         .Symbol = 0,
                         .Flags = 0,
                         .modifiers = modifiers,
@@ -1543,6 +1635,8 @@ pub const Parser = struct {
                         .name = name,
                         .ModuleReference = moduleReference,
                     } });
+                    self.ast.positions.items[decl].pos = @intCast(statement_start);
+                    return decl;
                 }
             }
         }
@@ -1561,7 +1655,7 @@ pub const Parser = struct {
         const attributes = try self.parseImportAttributes();
 
         self.parseSemicolon();
-        return self.ast.pushNode(.{ .ImportDeclaration = .{
+        const decl = try self.ast.pushNode(.{ .ImportDeclaration = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -1570,6 +1664,8 @@ pub const Parser = struct {
             .ModuleSpecifier = moduleSpecifier,
             .Attributes = attributes,
         } });
+        self.setNodeStartPos(decl, statement_start);
+        return decl;
     }
 
     pub fn parseImportAttributes(self: *Parser) anyerror!?ast_gen.NodeIndex {
@@ -1702,12 +1798,13 @@ pub const Parser = struct {
     }
 
     pub fn parseExportDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ExportKeyword);
         if (self.token == kind.Kind.DefaultKeyword) {
             self.nextToken();
             const expression = try @import("expression.zig").parseExpression(self);
             self.parseSemicolon();
-            return self.ast.pushNode(.{ .ExportAssignment = .{
+            const decl = try self.ast.pushNode(.{ .ExportAssignment = .{
                 .Symbol = 0,
                 .Flags = 0,
                 .modifiers = modifiers,
@@ -1716,11 +1813,13 @@ pub const Parser = struct {
                 .Type = 0,
                 .Expression = expression,
             } });
+            self.setNodeStartPos(decl, start_pos);
+            return decl;
         } else if (self.token == kind.Kind.EqualsToken) {
             self.nextToken();
             const expression = try @import("expression.zig").parseExpression(self);
             self.parseSemicolon();
-            return self.ast.pushNode(.{ .ExportAssignment = .{
+            const decl = try self.ast.pushNode(.{ .ExportAssignment = .{
                 .Symbol = 0,
                 .Flags = 0,
                 .modifiers = modifiers,
@@ -1729,18 +1828,22 @@ pub const Parser = struct {
                 .Type = 0,
                 .Expression = expression,
             } });
+            self.setNodeStartPos(decl, start_pos);
+            return decl;
         } else if (self.token == kind.Kind.AsKeyword) {
             self.nextToken();
             _ = self.parseExpected(kind.Kind.NamespaceKeyword);
             const name = try self.parseIdentifier();
             self.parseSemicolon();
-            return self.ast.pushNode(.{ .NamespaceExportDeclaration = .{
+            const decl = try self.ast.pushNode(.{ .NamespaceExportDeclaration = .{
                 .Symbol = 0,
                 .Flags = 0,
                 .modifiers = modifiers,
                 .modifierFlags = modifierFlags,
                 .name = name,
             } });
+            self.setNodeStartPos(decl, start_pos);
+            return decl;
         } else {
             var exportClause: ?ast_gen.NodeIndex = null;
             var isTypeOnly: u1 = 0;
@@ -1836,7 +1939,7 @@ pub const Parser = struct {
             const attributes = try self.parseImportAttributes();
 
             self.parseSemicolon();
-            return self.ast.pushNode(.{ .ExportDeclaration = .{
+            const decl = try self.ast.pushNode(.{ .ExportDeclaration = .{
                 .Symbol = 0,
                 .Flags = 0,
                 .modifiers = modifiers,
@@ -1846,6 +1949,8 @@ pub const Parser = struct {
                 .ModuleSpecifier = moduleSpecifier,
                 .Attributes = attributes,
             } });
+            self.setNodeStartPos(decl, start_pos);
+            return decl;
         }
     }
 
@@ -1854,18 +1959,22 @@ pub const Parser = struct {
     }
 
     pub fn parseVariableStatement(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         const declarationList = try self.parseVariableDeclarationList();
         self.parseSemicolon();
 
-        return self.ast.pushNode(.{ .VariableStatement = .{
+        const stmt = try self.ast.pushNode(.{ .VariableStatement = .{
             .Flags = 0,
             .modifiers = modifiers,
             .modifierFlags = modifierFlags,
             .DeclarationList = declarationList,
         } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseVariableDeclarationList(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         var flags: u32 = 0;
         if (self.token == kind.Kind.LetKeyword) {
             flags |= @import("../ast/ast_utils.zig").NodeFlags.Let;
@@ -1889,13 +1998,16 @@ pub const Parser = struct {
 
         const declarations = self.parseDelimitedList(.VariableDeclarations, parseVariableDeclarationWrapper);
 
-        return self.ast.pushNode(.{ .VariableDeclarationList = .{
+        const list = try self.ast.pushNode(.{ .VariableDeclarationList = .{
             .Flags = flags,
             .Declarations = declarations,
         } });
+        self.setNodeStartPos(list, start_pos);
+        return list;
     }
 
     pub fn parseObjectBindingElement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         var dotDotDotToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.DotDotDotToken)) {
             dotDotDotToken = try self.ast.pushTokenNode(kind.Kind.DotDotDotToken);
@@ -1918,7 +2030,7 @@ pub const Parser = struct {
             initializer = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
         }
 
-        return self.ast.pushNode(.{ .BindingElement = .{
+        const elem = try self.ast.pushNode(.{ .BindingElement = .{
             .Symbol = 0,
             .Flags = 0,
             .DotDotDotToken = dotDotDotToken,
@@ -1926,9 +2038,12 @@ pub const Parser = struct {
             .name = name.?,
             .Initializer = initializer,
         } });
+        self.setNodeStartPos(elem, start_pos);
+        return elem;
     }
 
     pub fn parseArrayBindingElement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         var dotDotDotToken: ?ast_gen.NodeIndex = null;
         var name: ?ast_gen.NodeIndex = null;
         var initializer: ?ast_gen.NodeIndex = null;
@@ -1944,7 +2059,7 @@ pub const Parser = struct {
             }
         }
 
-        return self.ast.pushNode(.{ .BindingElement = .{
+        const elem = try self.ast.pushNode(.{ .BindingElement = .{
             .Symbol = 0,
             .Flags = 0,
             .DotDotDotToken = dotDotDotToken,
@@ -1952,6 +2067,8 @@ pub const Parser = struct {
             .name = name,
             .Initializer = initializer,
         } });
+        self.setNodeStartPos(elem, start_pos);
+        return elem;
     }
 
     pub fn parseObjectBindingElementWrapper(self: *Parser) ast_gen.NodeIndex {
@@ -1959,10 +2076,13 @@ pub const Parser = struct {
     }
 
     pub fn parseObjectBindingPattern(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.OpenBraceToken);
         const elements = self.parseDelimitedList(.ObjectBindingElements, parseObjectBindingElementWrapper);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
-        return self.ast.pushNode(.{ .ObjectBindingPattern = .{ .Flags = 0, .Elements = elements } });
+        const pattern = try self.ast.pushNode(.{ .ObjectBindingPattern = .{ .Flags = 0, .Elements = elements } });
+        self.setNodeStartPos(pattern, start_pos);
+        return pattern;
     }
 
     pub fn parseArrayBindingElementWrapper(self: *Parser) ast_gen.NodeIndex {
@@ -1970,10 +2090,13 @@ pub const Parser = struct {
     }
 
     pub fn parseArrayBindingPattern(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.OpenBracketToken);
         const elements = self.parseDelimitedList(.ArrayBindingElements, parseArrayBindingElementWrapper);
         _ = self.parseExpected(kind.Kind.CloseBracketToken);
-        return self.ast.pushNode(.{ .ArrayBindingPattern = .{ .Flags = 0, .Elements = elements } });
+        const pattern = try self.ast.pushNode(.{ .ArrayBindingPattern = .{ .Flags = 0, .Elements = elements } });
+        self.setNodeStartPos(pattern, start_pos);
+        return pattern;
     }
 
     pub fn parseIdentifierOrPattern(self: *Parser) anyerror!ast_gen.NodeIndex {
@@ -1987,6 +2110,7 @@ pub const Parser = struct {
     }
 
     pub fn parseVariableDeclaration(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         const jsdoc_info = self.jsdocScannerInfo();
         const name = try self.parseIdentifierOrPattern();
         const nameNode = self.ast.getNode(name);
@@ -2015,6 +2139,7 @@ pub const Parser = struct {
                 .Initializer = initializer,
             },
         });
+        self.setNodeStartPos(result, start_pos);
         _ = try jsdoc.withJSDoc(self, result, jsdoc_info);
         return result;
     }
@@ -2024,6 +2149,7 @@ pub const Parser = struct {
     }
 
     pub fn parseIfStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.IfKeyword);
         _ = self.parseExpected(kind.Kind.OpenParenToken);
         const expression = try @import("expression.zig").parseExpression(self);
@@ -2036,15 +2162,18 @@ pub const Parser = struct {
             elseStatement = try self.parseStatement();
         }
 
-        return self.ast.pushNode(.{ .IfStatement = .{
+        const stmt = try self.ast.pushNode(.{ .IfStatement = .{
             .Flags = 0,
             .Expression = expression,
             .ThenStatement = thenStatement,
             .ElseStatement = elseStatement,
         } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseReturnStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ReturnKeyword);
 
         var expression: ?ast_gen.NodeIndex = null;
@@ -2053,27 +2182,33 @@ pub const Parser = struct {
         }
         self.parseSemicolon();
 
-        return self.ast.pushNode(.{ .ReturnStatement = .{
+        const stmt = try self.ast.pushNode(.{ .ReturnStatement = .{
             .Flags = 0,
             .Expression = expression,
         } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseBlock(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.OpenBraceToken);
         const multiLine = self.scanner.hasPrecedingLineBreak();
 
         const statements = try self.parseList(.BlockStatements, parseStatement);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
 
-        return self.ast.pushNode(.{ .Block = .{
+        const block = try self.ast.pushNode(.{ .Block = .{
             .Flags = 0,
             .Statements = statements,
             .MultiLine = multiLine,
         } });
+        self.setNodeStartPos(block, start_pos);
+        return block;
     }
 
     pub fn parseWhileStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.WhileKeyword);
         _ = self.parseExpected(kind.Kind.OpenParenToken);
         const expression = try @import("expression.zig").parseExpression(self);
@@ -2081,14 +2216,17 @@ pub const Parser = struct {
 
         const statement = try self.parseStatement();
 
-        return self.ast.pushNode(.{ .WhileStatement = .{
+        const stmt = try self.ast.pushNode(.{ .WhileStatement = .{
             .Flags = 0,
             .Statement = statement,
             .Expression = expression,
         } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseForStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ForKeyword);
         var awaitToken: ?ast_gen.NodeIndex = null;
         if (self.parseOptional(kind.Kind.AwaitKeyword)) {
@@ -2117,7 +2255,7 @@ pub const Parser = struct {
             _ = self.parseExpected(kind.Kind.CloseParenToken);
             const statement = try self.parseStatement();
 
-            return self.ast.pushNode(.{
+            const stmt = try self.ast.pushNode(.{
                 .ForInStatement = .{
                     .Flags = 0,
                     .AwaitModifier = awaitToken,
@@ -2126,18 +2264,22 @@ pub const Parser = struct {
                     .Statement = statement,
                 },
             });
+            self.setNodeStartPos(stmt, start_pos);
+            return stmt;
         } else if (self.parseOptional(kind.Kind.OfKeyword)) {
             const expression = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
             _ = self.parseExpected(kind.Kind.CloseParenToken);
             const statement = try self.parseStatement();
 
-            return self.ast.pushNode(.{ .ForOfStatement = .{
+            const stmt = try self.ast.pushNode(.{ .ForOfStatement = .{
                 .Flags = 0,
                 .AwaitModifier = awaitToken,
                 .Initializer = initializer orelse 0,
                 .Expression = expression,
                 .Statement = statement,
             } });
+            self.setNodeStartPos(stmt, start_pos);
+            return stmt;
         }
 
         _ = self.parseExpected(kind.Kind.SemicolonToken);
@@ -2156,16 +2298,19 @@ pub const Parser = struct {
 
         const statement = try self.parseStatement();
 
-        return self.ast.pushNode(.{ .ForStatement = .{
+        const stmt = try self.ast.pushNode(.{ .ForStatement = .{
             .Flags = 0,
             .Statement = statement,
             .Initializer = initializer,
             .Condition = condition,
             .Incrementor = incrementor,
         } });
+        self.setNodeStartPos(stmt, start_pos);
+        return stmt;
     }
 
     pub fn parseParameter(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const param_start = self.scanner.state.tokenStart;
         const jsdoc_info = self.jsdocScannerInfo();
         const modifiers = try self.parseModifiers();
         const modifierFlags = self.modifiersToFlags(modifiers);
@@ -2177,8 +2322,10 @@ pub const Parser = struct {
 
         // Handle `this` as a special parameter name (e.g., `this: T`)
         const paramName = if (self.token == kind.Kind.ThisKeyword) blk: {
+            const this_start = self.scanner.state.tokenStart;
             const nameNode = try self.ast.pushNode(.{ .Identifier = .{ .Flags = 0, .Text = "this" } });
             self.nextToken();
+            self.setNodeStartPos(nameNode, this_start);
             break :blk nameNode;
         } else try self.parseIdentifierOrPattern();
 
@@ -2205,6 +2352,7 @@ pub const Parser = struct {
             .Type = paramType,
             .Initializer = initializer,
         } });
+        self.setNodeStartPos(result, param_start);
         _ = try jsdoc.withJSDoc(self, result, jsdoc_info);
         return result;
     }
@@ -2221,6 +2369,7 @@ pub const Parser = struct {
     }
 
     pub fn parseFunctionDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const function_start = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.FunctionKeyword);
         var asteriskToken: ?ast_gen.NodeIndex = null;
         if (self.token == kind.Kind.AsteriskToken) {
@@ -2246,7 +2395,7 @@ pub const Parser = struct {
             self.parseSemicolon();
         }
 
-        return self.ast.pushNode(.{ .FunctionDeclaration = .{
+        const decl = try self.ast.pushNode(.{ .FunctionDeclaration = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -2259,9 +2408,12 @@ pub const Parser = struct {
             .Body = body,
             .name = name,
         } });
+        self.setNodeStartPos(decl, function_start);
+        return decl;
     }
 
     pub fn parseFunctionExpression(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         var modifiers: ?ast_gen.NodeListIndex = null;
         if (self.token == kind.Kind.AsyncKeyword) {
             modifiers = try self.parseModifiers();
@@ -2287,7 +2439,7 @@ pub const Parser = struct {
             _ = self.parseExpected(kind.Kind.OpenBraceToken);
         }
 
-        return self.ast.pushNode(.{ .FunctionExpression = .{
+        const expr = try self.ast.pushNode(.{ .FunctionExpression = .{
             .Flags = 0,
             .Symbol = 0,
             .modifiers = modifiers,
@@ -2300,15 +2452,20 @@ pub const Parser = struct {
             .Body = body,
             .name = name,
         } });
+        self.setNodeStartPos(expr, start_pos);
+        return expr;
     }
 
     pub fn parseDecorator(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.AtToken);
         const expr = try @import("expression.zig").parseLeftHandSideExpressionOrHigher(self);
-        return self.ast.pushNode(.{ .Decorator = .{
+        const decorator = try self.ast.pushNode(.{ .Decorator = .{
             .Flags = 0,
             .Expression = expr,
         } });
+        self.setNodeStartPos(decorator, start_pos);
+        return decorator;
     }
 
     fn modifiersToFlags(self: *Parser, modifiers: ?ast_gen.NodeListIndex) u32 {
@@ -2515,35 +2672,45 @@ pub const Parser = struct {
 
     fn parseClassElementWorker(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.token == kind.Kind.SemicolonToken) {
+            const start_pos = self.scanner.state.tokenStart;
             self.nextToken();
-            return self.ast.pushNode(.{ .SemicolonClassElement = .{
+            const elem = try self.ast.pushNode(.{ .SemicolonClassElement = .{
                 .Symbol = 0,
                 .Flags = 0,
             } });
+            self.setNodeStartPos(elem, start_pos);
+            return elem;
         }
 
+        const element_start = self.scanner.state.tokenStart;
         const modifiers = try self.parseModifiersEx(true);
         const modifierFlags = self.modifiersToFlags(modifiers);
 
         if (self.token == kind.Kind.StaticKeyword and self.peekNextToken() == kind.Kind.OpenBraceToken) {
             self.nextToken(); // consume static
             const body = try self.parseBlock();
-            return self.ast.pushNode(.{ .ClassStaticBlockDeclaration = .{
+            const decl = try self.ast.pushNode(.{ .ClassStaticBlockDeclaration = .{
                 .Flags = 0,
                 .Symbol = 0,
                 .modifiers = modifiers,
                 .modifierFlags = modifierFlags,
                 .Body = body,
             } });
+            self.setNodeStartPos(decl, element_start);
+            return decl;
         }
 
         if (self.token == kind.Kind.GetKeyword and self.lookAheadAccessor()) {
             self.nextToken();
-            return self.parseAccessorDeclaration(modifiers, modifierFlags, true);
+            const decl = try self.parseAccessorDeclaration(modifiers, modifierFlags, true);
+            self.setNodeStartPos(decl, element_start);
+            return decl;
         }
         if (self.token == kind.Kind.SetKeyword and self.lookAheadAccessor()) {
             self.nextToken();
-            return self.parseAccessorDeclaration(modifiers, modifierFlags, false);
+            const decl = try self.parseAccessorDeclaration(modifiers, modifierFlags, false);
+            self.setNodeStartPos(decl, element_start);
+            return decl;
         }
 
         if (self.token == kind.Kind.ConstructorKeyword or (self.token == kind.Kind.StringLiteral and std.mem.eql(u8, self.scanner.state.tokenValue, "constructor")) or (self.token == kind.Kind.Identifier and std.mem.eql(u8, self.scanner.state.tokenValue, "constructor"))) {
@@ -2567,7 +2734,7 @@ pub const Parser = struct {
                     self.parseSemicolon();
                 }
 
-                return self.ast.pushNode(.{ .Constructor = .{
+                const decl = try self.ast.pushNode(.{ .Constructor = .{
                     .Flags = 0,
                     .Symbol = 0,
                     .modifiers = modifiers,
@@ -2579,11 +2746,15 @@ pub const Parser = struct {
                     .AsteriskToken = null,
                     .Body = body,
                 } });
+                self.setNodeStartPos(decl, element_start);
+                return decl;
             }
         }
 
         if (self.isIndexSignature()) {
-            return self.parseIndexSignatureDeclaration(modifiers, modifierFlags);
+            const decl = try self.parseIndexSignatureDeclaration(modifiers, modifierFlags);
+            self.setNodeStartPos(decl, element_start);
+            return decl;
         }
 
         // Simple property or method declaration for now.
@@ -2608,7 +2779,7 @@ pub const Parser = struct {
                 self.parseSemicolon();
             }
 
-            return self.ast.pushNode(.{ .MethodDeclaration = .{
+            const decl = try self.ast.pushNode(.{ .MethodDeclaration = .{
                 .Symbol = 0,
                 .Flags = 0,
                 .modifiers = modifiers,
@@ -2622,6 +2793,8 @@ pub const Parser = struct {
                 .FullSignature = null,
                 .Body = body,
             } });
+            self.setNodeStartPos(decl, element_start);
+            return decl;
         } else {
             // Property
             if (postfixToken == null and !self.scanner.hasPrecedingLineBreak()) {
@@ -2637,7 +2810,7 @@ pub const Parser = struct {
             }
             self.parseSemicolon();
 
-            return self.ast.pushNode(.{ .PropertyDeclaration = .{
+            const decl = try self.ast.pushNode(.{ .PropertyDeclaration = .{
                 .Symbol = 0,
                 .Flags = 0,
                 .modifiers = modifiers,
@@ -2647,10 +2820,13 @@ pub const Parser = struct {
                 .Type = typeNode,
                 .Initializer = initializer,
             } });
+            self.setNodeStartPos(decl, element_start);
+            return decl;
         }
     }
 
     pub fn parseClassExpression(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ClassKeyword);
         var name: ?ast_gen.NodeIndex = null;
         if (self.isIdentifier() and self.token != kind.Kind.ExtendsKeyword and self.token != kind.Kind.ImplementsKeyword) {
@@ -2678,7 +2854,7 @@ pub const Parser = struct {
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
         const members = try self.ast.pushNodeList(members_arr.items);
 
-        return self.ast.pushNode(.{ .ClassExpression = .{
+        const expr = try self.ast.pushNode(.{ .ClassExpression = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -2688,9 +2864,12 @@ pub const Parser = struct {
             .HeritageClauses = heritageClauses orelse 0,
             .Members = members,
         } });
+        self.setNodeStartPos(expr, start_pos);
+        return expr;
     }
 
     pub fn parseExpressionWithTypeArguments(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         const expression = try @import("expression.zig").parseLeftHandSideExpressionOrHigher(self);
         const expressionNode = self.ast.getNode(expression);
         if (std.meta.activeTag(expressionNode) == .ExpressionWithTypeArguments) {
@@ -2702,7 +2881,9 @@ pub const Parser = struct {
             typeArguments = try self.parseTypeArguments();
         }
 
-        return self.ast.pushNode(.{ .ExpressionWithTypeArguments = .{ .Flags = 0, .Expression = expression, .TypeArguments = typeArguments } });
+        const node = try self.ast.pushNode(.{ .ExpressionWithTypeArguments = .{ .Flags = 0, .Expression = expression, .TypeArguments = typeArguments } });
+        self.setNodeStartPos(node, start_pos);
+        return node;
     }
 
     pub fn isStartOfLeftHandSideExpression(self: *Parser) bool {
@@ -2726,6 +2907,7 @@ pub const Parser = struct {
     }
 
     pub fn parseHeritageClause(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         const tokenKind = self.token;
         self.nextToken();
         var types = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
@@ -2750,7 +2932,9 @@ pub const Parser = struct {
             }
         }
         const typesList = try self.ast.pushNodeList(types.items);
-        return self.ast.pushNode(.{ .HeritageClause = .{ .Flags = 0, .Token = @intFromEnum(tokenKind), .Types = typesList } });
+        const clause = try self.ast.pushNode(.{ .HeritageClause = .{ .Flags = 0, .Token = @intFromEnum(tokenKind), .Types = typesList } });
+        self.setNodeStartPos(clause, start_pos);
+        return clause;
     }
 
     pub fn parseHeritageClauses(self: *Parser) anyerror!?ast_gen.NodeListIndex {
@@ -2767,6 +2951,7 @@ pub const Parser = struct {
     }
 
     pub fn parseClassDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ClassKeyword);
         var name: ?ast_gen.NodeIndex = null;
         if (self.isIdentifier() and self.token != kind.Kind.ExtendsKeyword and self.token != kind.Kind.ImplementsKeyword) {
@@ -2794,7 +2979,7 @@ pub const Parser = struct {
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
         const members = try self.ast.pushNodeList(members_arr.items);
 
-        return self.ast.pushNode(.{ .ClassDeclaration = .{
+        const decl = try self.ast.pushNode(.{ .ClassDeclaration = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -2804,6 +2989,8 @@ pub const Parser = struct {
             .HeritageClauses = heritageClauses,
             .Members = members,
         } });
+        self.setNodeStartPos(decl, start_pos);
+        return decl;
     }
 
     pub fn parseTypeAnnotation(self: *Parser) anyerror!?ast_gen.NodeIndex {
@@ -2878,26 +3065,30 @@ pub const Parser = struct {
 
     pub fn parseTypeArguments(self: *Parser) anyerror!?ast_gen.NodeListIndex {
         if (self.token != kind.Kind.LessThanToken) return null;
+        const saveMark = self.mark();
+        errdefer self.rewind(saveMark);
         self.nextToken(); // consume `<`
 
         var typeArgs = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         defer typeArgs.deinit(self.allocator);
 
         while (self.token != kind.Kind.GreaterThanToken and self.token != kind.Kind.EndOfFile) {
-            const startPos = self.scanner.state.pos;
             const t = try self.parseType();
             try typeArgs.append(self.allocator, t);
 
             if (self.token == kind.Kind.CommaToken) {
                 self.nextToken();
+                continue;
             }
-
-            if (self.scanner.state.pos == startPos) {
-                self.nextToken();
-            }
+            // Not `>` or `,` — e.g. `i < 10;` — abort without consuming further tokens.
+            break;
         }
 
-        _ = self.parseExpected(kind.Kind.GreaterThanToken);
+        if (self.token != kind.Kind.GreaterThanToken) {
+            self.rewind(saveMark);
+            return null;
+        }
+        self.nextToken(); // consume `>`
 
         return try self.ast.pushNodeList(typeArgs.items);
     }
@@ -3051,6 +3242,7 @@ pub const Parser = struct {
                 .TypeName = typeName,
             } });
         } else if (self.token == kind.Kind.OpenBraceToken) {
+            const start_pos = self.scanner.state.tokenStart;
             if (self.nextIsStartOfMappedType()) {
                 return try self.parseMappedType();
             }
@@ -3067,7 +3259,9 @@ pub const Parser = struct {
             }
             _ = self.parseExpected(kind.Kind.CloseBraceToken);
             const members = try self.ast.pushNodeList(members_arr.items);
-            return try self.ast.pushNode(.{ .TypeLiteral = .{ .Flags = 0, .Symbol = 0, .Members = members } });
+            const lit = try self.ast.pushNode(.{ .TypeLiteral = .{ .Flags = 0, .Symbol = 0, .Members = members } });
+            self.setNodeStartPos(lit, start_pos);
+            return lit;
         } else if (self.token == kind.Kind.OpenBracketToken) {
             return try self.parseTupleType();
         } else if (self.token == kind.Kind.OpenParenToken) {
@@ -3177,28 +3371,42 @@ pub const Parser = struct {
 
     pub fn parsePropertyName(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.token == kind.Kind.StringLiteral) {
+            const start_pos = self.scanner.state.tokenStart;
+            const end_pos = self.scanner.getTokenEnd();
             const text = self.scanner.getTokenValue();
             const tokenFlags = self.scanner.getTokenFlags();
             self.nextToken();
-            return self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
+            const node = try self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
+            self.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            return node;
         } else if (self.token == kind.Kind.NumericLiteral or self.token == kind.Kind.BigIntLiteral) {
+            const start_pos = self.scanner.state.tokenStart;
+            const end_pos = self.scanner.getTokenEnd();
             const text = self.scanner.state.tokenValue;
             const tokenKind = self.token;
             self.nextToken();
-            if (tokenKind == kind.Kind.NumericLiteral) {
-                return self.ast.pushNode(.{ .NumericLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = 0 } });
-            } else {
-                return self.ast.pushNode(.{ .BigIntLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = 0 } });
-            }
+            const node = if (tokenKind == kind.Kind.NumericLiteral)
+                try self.ast.pushNode(.{ .NumericLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = 0 } })
+            else
+                try self.ast.pushNode(.{ .BigIntLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = 0 } });
+            self.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            return node;
         } else if (self.token == kind.Kind.OpenBracketToken) {
+            const start_pos = self.scanner.state.tokenStart;
             self.nextToken();
             const expr = try @import("expression.zig").parseExpression(self);
             _ = self.parseExpected(kind.Kind.CloseBracketToken);
-            return self.ast.pushNode(.{ .ComputedPropertyName = .{ .Flags = 0, .Expression = expr } });
+            const node = try self.ast.pushNode(.{ .ComputedPropertyName = .{ .Flags = 0, .Expression = expr } });
+            self.setNodeStartPos(node, start_pos);
+            return node;
         } else if (self.token == kind.Kind.PrivateIdentifier) {
+            const start_pos = self.scanner.state.tokenStart;
+            const end_pos = self.scanner.getTokenEnd();
             const text = self.scanner.state.tokenValue;
             self.nextToken();
-            return self.ast.pushNode(.{ .PrivateIdentifier = .{ .Flags = 0, .Text = text } });
+            const node = try self.ast.pushNode(.{ .PrivateIdentifier = .{ .Flags = 0, .Text = text } });
+            self.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            return node;
         } else {
             return self.parseIdentifierName();
         }
@@ -3206,34 +3414,46 @@ pub const Parser = struct {
 
     pub fn parseModuleExportName(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.token == kind.Kind.StringLiteral) {
+            const start_pos = self.scanner.state.tokenStart;
+            const end_pos = self.scanner.getTokenEnd();
             const text = self.scanner.state.tokenValue;
             const tokenFlags = self.scanner.getTokenFlags();
             self.nextToken();
-            return self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
+            const node = try self.ast.pushNode(.{ .StringLiteral = .{ .Flags = 0, .Text = text, .TokenFlags = tokenFlags } });
+            self.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            return node;
         }
         return self.parseIdentifierName();
     }
 
     pub fn parseIdentifierName(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.token == kind.Kind.Identifier or kind.isKeyword(self.token)) {
+            const start_pos = self.scanner.state.tokenStart;
+            const end_pos = self.scanner.getTokenEnd();
             const text = self.scanner.state.tokenValue;
             self.nextToken();
-            return self.ast.pushNode(.{ .Identifier = .{
+            const node = try self.ast.pushNode(.{ .Identifier = .{
                 .Flags = 0,
                 .Text = text,
             } });
+            self.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            return node;
         }
         return self.parseIdentifier();
     }
 
     pub fn parseIdentifier(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.isIdentifier()) {
+            const start_pos = self.scanner.state.tokenStart;
+            const end_pos = self.scanner.getTokenEnd();
             const text = self.scanner.state.tokenValue;
             self.nextToken();
-            return self.ast.pushNode(.{ .Identifier = .{
+            const node = try self.ast.pushNode(.{ .Identifier = .{
                 .Flags = 0,
                 .Text = text,
             } });
+            self.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            return node;
         }
         self.parseError("Expected identifier");
         return self.ast.pushNode(.{ .Identifier = .{
@@ -3376,6 +3596,7 @@ pub const Parser = struct {
             .message = message,
             .nodeIndex = 0,
             .args = args,
+            .pos = @intCast(self.scanner.state.tokenStart),
         }) catch {};
     }
 
@@ -3597,7 +3818,7 @@ pub const Parser = struct {
         return typeNode;
     }
 
-    pub fn parseMethodDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32, asteriskToken: ?ast_gen.NodeIndex, name: ast_gen.NodeIndex, postfixToken: ?ast_gen.NodeIndex) anyerror!ast_gen.NodeIndex {
+    pub fn parseMethodDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32, asteriskToken: ?ast_gen.NodeIndex, name: ast_gen.NodeIndex, postfixToken: ?ast_gen.NodeIndex, start_pos: usize) anyerror!ast_gen.NodeIndex {
         const typeParameters = try self.parseTypeParameters();
         const parameters = try self.parseParameters();
         const returnType = try self.parseReturnTypeAnnotation();
@@ -3608,7 +3829,7 @@ pub const Parser = struct {
             self.parseSemicolon();
         }
 
-        return self.ast.pushNode(.{ .MethodDeclaration = .{
+        const decl = try self.ast.pushNode(.{ .MethodDeclaration = .{
             .Symbol = 0,
             .Flags = 0,
             .modifiers = modifiers,
@@ -3622,6 +3843,8 @@ pub const Parser = struct {
             .AsteriskToken = asteriskToken,
             .Body = body,
         } });
+        self.setNodeStartPos(decl, start_pos);
+        return decl;
     }
 
     pub fn nextIsStartOfMappedType(self: *Parser) bool {
@@ -3847,6 +4070,7 @@ pub const Parser = struct {
     }
 
     pub fn parseTypeElement(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const element_start = self.scanner.state.tokenStart;
         if (self.token == kind.Kind.OpenParenToken or self.token == kind.Kind.LessThanToken) {
             const typeParameters = try self.parseTypeParameters();
             const parameters = try self.parseParameters();
@@ -3855,12 +4079,14 @@ pub const Parser = struct {
                 returnType = try self.parseType();
             }
             _ = self.parseOptional(kind.Kind.SemicolonToken) or self.parseOptional(kind.Kind.CommaToken);
-            return self.ast.pushNode(.{ .CallSignature = .{
+            const sig = try self.ast.pushNode(.{ .CallSignature = .{
                 .Flags = 0,
                 .TypeParameters = typeParameters,
                 .Parameters = parameters,
                 .Type = returnType,
             } });
+            self.setNodeStartPos(sig, element_start);
+            return sig;
         }
 
         if (self.token == kind.Kind.NewKeyword) {
@@ -3875,12 +4101,14 @@ pub const Parser = struct {
                     returnType = try self.parseType();
                 }
                 _ = self.parseOptional(kind.Kind.SemicolonToken) or self.parseOptional(kind.Kind.CommaToken);
-                return self.ast.pushNode(.{ .ConstructSignature = .{
+                const sig = try self.ast.pushNode(.{ .ConstructSignature = .{
                     .Flags = 0,
                     .TypeParameters = typeParameters,
                     .Parameters = parameters,
                     .Type = returnType,
                 } });
+                self.setNodeStartPos(sig, element_start);
+                return sig;
             }
         }
 
@@ -3894,7 +4122,7 @@ pub const Parser = struct {
             defer parametersList.deinit(self.allocator);
             try parametersList.append(self.allocator, parameter);
             const parameters = try self.ast.pushNodeList(parametersList.items);
-            return self.ast.pushNode(.{ .IndexSignature = .{
+            const sig = try self.ast.pushNode(.{ .IndexSignature = .{
                 .Flags = 0,
                 .modifiers = null,
                 .modifierFlags = 0,
@@ -3903,6 +4131,8 @@ pub const Parser = struct {
                 .Type = returnType orelse 0,
                 .FullSignature = null,
             } });
+            self.setNodeStartPos(sig, element_start);
+            return sig;
         }
 
         var isGet = false;
@@ -3938,7 +4168,7 @@ pub const Parser = struct {
             _ = self.parseOptional(kind.Kind.SemicolonToken) or self.parseOptional(kind.Kind.CommaToken);
 
             if (isGet) {
-                return self.ast.pushNode(.{ .GetAccessor = .{
+                const sig = try self.ast.pushNode(.{ .GetAccessor = .{
                     .Flags = 0,
                     .modifiers = null,
                     .modifierFlags = 0,
@@ -3951,8 +4181,10 @@ pub const Parser = struct {
                     .FullSignature = null,
                     .AsteriskToken = null,
                 } });
+                self.setNodeStartPos(sig, element_start);
+                return sig;
             } else if (isSet) {
-                return self.ast.pushNode(.{ .SetAccessor = .{
+                const sig = try self.ast.pushNode(.{ .SetAccessor = .{
                     .Flags = 0,
                     .modifiers = null,
                     .modifierFlags = 0,
@@ -3965,8 +4197,10 @@ pub const Parser = struct {
                     .FullSignature = null,
                     .AsteriskToken = null,
                 } });
+                self.setNodeStartPos(sig, element_start);
+                return sig;
             } else {
-                return self.ast.pushNode(.{ .MethodSignature = .{
+                const sig = try self.ast.pushNode(.{ .MethodSignature = .{
                     .Flags = 0,
                     .modifiers = null,
                     .modifierFlags = 0,
@@ -3976,12 +4210,14 @@ pub const Parser = struct {
                     .Parameters = parameters,
                     .Type = returnType,
                 } });
+                self.setNodeStartPos(sig, element_start);
+                return sig;
             }
         } else {
             const typeNode = try self.parseTypeAnnotation();
             _ = self.parseOptional(kind.Kind.SemicolonToken) or self.parseOptional(kind.Kind.CommaToken);
 
-            return self.ast.pushNode(.{ .PropertySignature = .{
+            const sig = try self.ast.pushNode(.{ .PropertySignature = .{
                 .Flags = 0,
                 .modifiers = null,
                 .modifierFlags = 0,
@@ -3990,6 +4226,8 @@ pub const Parser = struct {
                 .Type = typeNode orelse 0,
                 .Initializer = 0,
             } });
+            self.setNodeStartPos(sig, element_start);
+            return sig;
         }
     }
 
@@ -4013,6 +4251,7 @@ pub const Parser = struct {
     /// Type members can be separated by commas OR (possibly ASI) semicolons.
     /// See: https://www.typescriptlang.org/docs/handbook/2/objects.html
     pub fn parseIndexSignatureDeclaration(self: *Parser, modifiers: ?ast_gen.NodeListIndex, modifierFlags: u32) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.OpenBracketToken);
         const parameter = try self.parseParameter();
         _ = self.parseExpected(kind.Kind.CloseBracketToken);
@@ -4024,7 +4263,7 @@ pub const Parser = struct {
         try parametersList.append(self.allocator, parameter);
         const parameters = try self.ast.pushNodeList(parametersList.items);
 
-        return self.ast.pushNode(.{ .IndexSignature = .{
+        const sig = try self.ast.pushNode(.{ .IndexSignature = .{
             .Flags = 0,
             .Symbol = 0,
             .modifiers = modifiers,
@@ -4034,6 +4273,8 @@ pub const Parser = struct {
             .Type = returnType orelse 0,
             .FullSignature = null,
         } });
+        self.setNodeStartPos(sig, start_pos);
+        return sig;
     }
 
     pub fn parseTypeMemberSemicolon(self: *Parser) void {

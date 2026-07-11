@@ -1,7 +1,7 @@
 const std = @import("std");
 const ast = @import("../../ast/ast.zig");
 const compiler = @import("../../compiler/compiler.zig");
-const tsc = @import("../tsc/emit.zig");
+const tsc = @import("../tsc.zig");
 
 // Skeleton for project build
 pub const Options = struct {
@@ -19,13 +19,10 @@ pub const Orchestrator = struct {
         };
     }
 
-    pub fn start(self: *Orchestrator) tsc.CompileAndEmitResult {
+    pub fn start(self: *Orchestrator) tsc.CommandLineResult {
         _ = self;
         return .{
             .status = .NotImplemented,
-            .diagnostics = &.{},
-            .emitResult = null,
-            .times = undefined,
         };
     }
 };

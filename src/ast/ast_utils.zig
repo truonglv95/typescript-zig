@@ -31,6 +31,7 @@ pub fn isParameterPropertyDeclaration(tree: *ast.Ast, nodeIndex: ast_gen.NodeInd
 }
 
 pub const OEKAllExceptAssertionsOrExpressionsWithTypeArguments = 1;
+pub const OEKAll = ~@as(u32, 0);
 
 pub fn isJSDocTypeAssertion(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     _ = a;

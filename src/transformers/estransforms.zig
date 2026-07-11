@@ -60,17 +60,43 @@ pub fn getESTransformer(allocator: std.mem.Allocator, opts: *transformers.Transf
 pub const UseStrictTransformer = struct {
     base: transformers.Transformer,
     allocator: std.mem.Allocator,
+    compilerOptions: *const core.CompilerOptions,
 
     pub fn new(allocator: std.mem.Allocator, opt: *transformers.TransformOptions) !*transformers.Transformer {
         const tx = try allocator.create(UseStrictTransformer);
         tx.allocator = allocator;
+        tx.compilerOptions = opt.compilerOptions;
         tx.base = (try transformers.Transformer.init(allocator, visit, tx, opt.context)).*;
         return &tx.base;
     }
 
     fn visit(ctx: ?*anyopaque, v: *visitor.NodeVisitor, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = ctx;
+        const self: *UseStrictTransformer = @ptrCast(@alignCast(ctx));
+        if (v.tree.getNode(node) == .SourceFile) {
+            return self.visitSourceFile(v, node);
+        }
         return v.visitEachChild(node);
+    }
+
+    fn visitSourceFile(self: *UseStrictTransformer, v: *visitor.NodeVisitor, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        const tree = v.tree;
+        const sourceFile = tree.getNode(node).SourceFile;
+
+        const isExternalModule = @import("../ast/ast_utils.zig").isExternalModule(tree, node);
+        const moduleKind = @import("../compiler/emitter.zig").getEmitModuleKind(@constCast(self.compilerOptions));
+
+        // ESM is always strict
+        if (isExternalModule and @intFromEnum(moduleKind) >= @intFromEnum(core.ModuleKind.ES2015)) {
+            if (moduleKind == .Preserve or @intFromEnum(moduleKind) >= @intFromEnum(core.ModuleKind.ES2015)) return node;
+        }
+
+        const statements = v.tree.getNodeList(sourceFile.Statements);
+        const new_statements = self.base.factory.ensureUseStrict(statements) catch statements;
+
+        if (statements.ptr == new_statements.ptr) return node;
+
+        const statementsListIndex = v.tree.pushNodeList(new_statements) catch return node;
+        return self.base.factory.updateSourceFile(node, sourceFile, statementsListIndex, sourceFile.EndOfFileToken);
     }
 };
 

@@ -43,7 +43,6 @@ pub const DeclarationTransformer = struct {
         const f = self.transformer.factory;
         const result = switch (v.tree.getNode(node)) {
             .SourceFile => |source| blk: {
-                self.validateCommonJsDefineProperty(v);
                 var statements = std.ArrayListUnmanaged(ast.NodeIndex).empty;
                 defer statements.deinit(self.allocator);
                 const original_statements = self.allocator.dupe(ast.NodeIndex, v.tree.getNodeList(source.Statements)) catch unreachable;
@@ -274,7 +273,6 @@ pub const DeclarationTransformer = struct {
                 break :blk updated;
             },
             .PropertyDeclaration => |n| if (v.tree.getNode(n.name) == .PrivateIdentifier) 0 else blk: {
-                if ((n.Type orelse 0) == 0 and containsObjectLiteralThis(v.tree, n.Initializer orelse 0)) self.reportDeclarationError(2527, "The inferred type references an inaccessible 'this' type. A type annotation is necessary.");
                 const updated = f.updatePropertyDeclaration(node, n, self.classMemberModifiers(v, n.modifiers orelse 0), n.name, n.PostfixToken orelse 0, self.inferredDeclarationType(v, f, n.name, n.Type orelse 0, n.Initializer orelse 0), 0);
                 self.setOriginal(updated, node);
                 break :blk updated;
@@ -1193,6 +1191,25 @@ pub const DeclarationTransformer = struct {
         const f = self.transformer.factory;
         var namespace_statements = std.ArrayListUnmanaged(ast.NodeIndex).empty;
         defer namespace_statements.deinit(self.allocator);
+        var has_any_export = false;
+        for (candidates.items) |candidate| {
+            const binary = v.tree.getNode(candidate.declaration).BinaryExpression;
+            const is_rhs_identifier = v.tree.getNode(binary.Right) == .Identifier;
+            if (is_rhs_identifier) {
+                has_any_export = true;
+                break;
+            }
+            const assignment_parent = v.tree.getNodeParent(candidate.declaration);
+            const statement_parent = if (assignment_parent != 0) v.tree.getNodeParent(assignment_parent) else 0;
+            const is_direct_statement = assignment_parent != 0 and v.tree.getNode(assignment_parent) == .ExpressionStatement and statement_parent != 0 and v.tree.getNode(statement_parent) == .SourceFile;
+            const rhs_kind = v.tree.getNode(binary.Right);
+            const is_func_or_class = rhs_kind == .FunctionExpression or rhs_kind == .ArrowFunction or rhs_kind == .ClassExpression;
+            const needs_alias = !is_exported and is_direct_statement and !is_func_or_class;
+            if (needs_alias) {
+                has_any_export = true;
+                break;
+            }
+        }
         for (candidates.items) |candidate| {
             const sym = bound.symbols.items[candidate.symbol_index];
             const binary = v.tree.getNode(candidate.declaration).BinaryExpression;
@@ -1207,12 +1224,14 @@ pub const DeclarationTransformer = struct {
                 const assignment_parent = v.tree.getNodeParent(candidate.declaration);
                 const statement_parent = if (assignment_parent != 0) v.tree.getNodeParent(assignment_parent) else 0;
                 const is_direct_statement = assignment_parent != 0 and v.tree.getNode(assignment_parent) == .ExpressionStatement and statement_parent != 0 and v.tree.getNode(statement_parent) == .SourceFile;
-                const needs_alias = !is_exported and is_direct_statement;
+                const rhs_kind = v.tree.getNode(binary.Right);
+                const is_func_or_class = rhs_kind == .FunctionExpression or rhs_kind == .ArrowFunction or rhs_kind == .ClassExpression;
+                const needs_alias = !is_exported and is_direct_statement and !is_func_or_class;
                 const local_name_node = f.newIdentifier(if (needs_alias) "_a" else sym.Name);
                 const type_node = self.inferredDeclarationType(v, f, local_name_node, 0, binary.Right);
                 const var_decl = f.newVariableDeclaration(local_name_node, 0, type_node, 0);
                 const declaration_list = f.newVariableDeclarationList(f.newNodeList(&.{var_decl}), 0);
-                const var_modifiers = if (!is_exported and !needs_alias) f.newModifierList(&.{f.newToken(.{ .ExportKeyword = {} })}) else 0;
+                const var_modifiers = if (has_any_export and !needs_alias) f.newModifierList(&.{f.newToken(.{ .ExportKeyword = {} })}) else 0;
                 const var_stmt = f.newVariableStatement(var_modifiers, declaration_list);
                 namespace_statements.append(self.allocator, var_stmt) catch unreachable;
                 if (needs_alias) {
@@ -1266,7 +1285,6 @@ pub const DeclarationTransformer = struct {
     }
 
     fn transformMethod(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, method: ast_gen.MethodDeclarationNode) ast.NodeIndex {
-        if ((method.Type orelse 0) == 0 and containsObjectLiteralThis(v.tree, method.Body orelse 0)) self.reportDeclarationError(2527, "The inferred type references an inaccessible 'this' type. A type annotation is necessary.");
         const f = self.transformer.factory;
         const utils = @import("../ast/ast_utils.zig");
         const jsdoc_visibility = jsdocVisibilityModifier(v.tree, node);
@@ -1360,19 +1378,6 @@ pub const DeclarationTransformer = struct {
         const program = self.semantic_program orelse return;
         const file = self.semantic_file orelse return;
         program.diagnostics.append(program.allocator, .{ .file = file, .code = code, .message = program.allocator.dupe(u8, message) catch unreachable }) catch unreachable;
-    }
-
-    fn validateCommonJsDefineProperty(self: *DeclarationTransformer, v: *visitor.NodeVisitor) void {
-        const text = v.tree.sourceText;
-        if (std.mem.indexOf(u8, text, "Object.defineProperty(exports") == null or std.mem.indexOf(u8, text, "require(") == null) return;
-        const program = self.semantic_program orelse return;
-        for (program.units.items) |target_unit| {
-            const declaration_text = target_unit.content;
-            if (std.mem.indexOf(u8, declaration_text, "interface ") != null and std.mem.indexOf(u8, declaration_text, "export =") != null) {
-                self.reportDeclarationError(4023, "Exported variable has or is using a private name from an external module but cannot be named.");
-                return;
-            }
-        }
     }
 
     fn methodDeclarationModifiers(self: *DeclarationTransformer, v: *visitor.NodeVisitor, node: ast.NodeIndex, modifiers: ast.NodeIndex, visibility: @import("../ast/kind.zig").Kind) ast.NodeIndex {
@@ -1725,6 +1730,40 @@ pub const DeclarationTransformer = struct {
                                     .TypeArguments = null,
                                     .ExprName = initializer,
                                 } }) catch unreachable;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (tree.getNode(initializer) == .PropertyAccessExpression) {
+                const pae = tree.getNode(initializer).PropertyAccessExpression;
+                if (tree.getNode(pae.Expression) == .Identifier) {
+                    const obj_name = @import("../ast/ast_utils.zig").getText(tree, pae.Expression);
+                    var target_decl: ast.NodeIndex = 0;
+                    var target_tree = tree;
+                    if (program.resolveAlias(file, obj_name)) |symbol| {
+                        target_decl = symbol.declaration;
+                        target_tree = program.getUnit(symbol.declaration_file).tree();
+                    } else if (self.semantic_binder) |bound| {
+                        target_decl = self.findDeclarationInFile(tree, bound, obj_name);
+                    }
+                    if (target_decl != 0 and target_tree.getNode(target_decl) == .VariableDeclaration) {
+                        const vd = target_tree.getNode(target_decl).VariableDeclaration;
+                        if (vd.Type) |t| {
+                            if (target_tree.getNode(t) == .TypeLiteral) {
+                                const members = target_tree.getNodeList(target_tree.getNode(t).TypeLiteral.Members);
+                                const prop_name = @import("../ast/ast_utils.zig").getText(tree, pae.name);
+                                for (members) |member| {
+                                    if (target_tree.getNode(member) == .PropertySignature) {
+                                        const ps = target_tree.getNode(member).PropertySignature;
+                                        if (std.mem.eql(u8, @import("../ast/ast_utils.zig").getText(target_tree, ps.name), prop_name)) {
+                                            if (ps.Type) |prop_type| {
+                                                return self.copyForeignTypeNode(target_tree, prop_type, &.{});
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -3113,6 +3152,19 @@ const IdentifierUseCollector = struct {
                 _ = node_visitor.visitNode(fd.Type orelse 0);
                 return node;
             },
+            .PropertyDeclaration => |pd| {
+                _ = node_visitor.visitNode(pd.name);
+                if (pd.Type) |type_node| {
+                    _ = node_visitor.visitNode(type_node);
+                } else if (self.is_resolvable) {
+                    if (pd.Initializer) |init_node| {
+                        if (tree.getNode(init_node) == .Identifier) {
+                            _ = node_visitor.visitNode(init_node);
+                        }
+                    }
+                }
+                return node;
+            },
             .MethodDeclaration => |md| {
                 _ = node_visitor.visitNode(md.name);
                 if (md.TypeParameters) |tp| {
@@ -3790,6 +3842,64 @@ fn inferredTypeInner(tree: *ast.Ast, factory: anytype, explicit_type: ast.NodeIn
     if (tree.getNode(initializer) == .NewExpression) {
         const expression = tree.getNode(initializer).NewExpression.Expression;
         if (tree.getNode(expression) == .Identifier) return factory.tree.pushNode(.{ .TypeReference = .{ .Flags = 0, .TypeArguments = null, .TypeName = expression } }) catch unreachable;
+    }
+    if (tree.getNode(initializer) == .PropertyAccessExpression) {
+        if (visitor_opt) |v| {
+            const self: *DeclarationTransformer = @ptrCast(@alignCast(v.ctx.?));
+            const pae = tree.getNode(initializer).PropertyAccessExpression;
+            if (tree.getNode(pae.Expression) == .Identifier) {
+                const obj_name = @import("../ast/ast_utils.zig").getText(tree, pae.Expression);
+                var target_decl: ast.NodeIndex = 0;
+                var target_tree = tree;
+                if (self.semantic_program != null and self.semantic_file != null) {
+                    if (self.semantic_program.?.resolveAlias(self.semantic_file.?, obj_name)) |symbol| {
+                        target_decl = symbol.declaration;
+                        target_tree = self.semantic_program.?.getUnit(symbol.declaration_file).tree();
+                    } else if (self.semantic_binder) |bound| {
+                        target_decl = self.findDeclarationInFile(tree, bound, obj_name);
+                    }
+                }
+                if (target_decl != 0 and target_tree.getNode(target_decl) == .VariableDeclaration) {
+                    const vd = target_tree.getNode(target_decl).VariableDeclaration;
+                    if (vd.Type) |t| {
+                        if (target_tree.getNode(t) == .TypeLiteral) {
+                            const members = target_tree.getNodeList(target_tree.getNode(t).TypeLiteral.Members);
+                            const prop_name = @import("../ast/ast_utils.zig").getText(tree, pae.name);
+                            for (members) |member| {
+                                if (target_tree.getNode(member) == .PropertySignature) {
+                                    const ps = target_tree.getNode(member).PropertySignature;
+                                    if (std.mem.eql(u8, @import("../ast/ast_utils.zig").getText(target_tree, ps.name), prop_name)) {
+                                        if (ps.Type) |prop_type| {
+                                            return self.copyForeignTypeNode(target_tree, prop_type, &.{});
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (target_decl != 0 and target_tree.getNode(target_decl) == .ClassDeclaration) {
+                    const class_decl = target_tree.getNode(target_decl).ClassDeclaration;
+                    if (class_decl.Members != 0) {
+                        const members = target_tree.getNodeList(class_decl.Members);
+                        const prop_name = @import("../ast/ast_utils.zig").getText(tree, pae.name);
+                        for (members) |member| {
+                            if (target_tree.getNode(member) == .PropertyDeclaration) {
+                                const pd = target_tree.getNode(member).PropertyDeclaration;
+                                if (pd.modifiers != null and (@import("../ast/ast_utils.zig").getModifierFlags(target_tree, member) & @import("../ast/ast_utils.zig").ModifierFlags.Static) != 0) {
+                                    if (std.mem.eql(u8, @import("../ast/ast_utils.zig").getText(target_tree, pd.name), prop_name)) {
+                                        if (pd.Type) |prop_type| {
+                                            return self.copyForeignTypeNode(target_tree, prop_type, &.{});
+                                        } else if (pd.Initializer) |init| {
+                                            return inferredTypeInner(target_tree, factory, 0, init, visitor_opt);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     if (tree.getNode(initializer) == .ArrowFunction) {
         const arrow = tree.getNode(initializer).ArrowFunction;

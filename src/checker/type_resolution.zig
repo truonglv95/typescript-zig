@@ -140,6 +140,8 @@ pub fn getTypeFromTypeReference(c: *Checker, node: NodeIndex) TypeIndex {
             const t = getIntendedTypeFromJSDocTypeReference(c, node);
             if (t != 0) {
                 entry.value_ptr.resolvedType = t;
+            } else if (tryGetRecordTypeFromNode(c, node)) |recordType| {
+                entry.value_ptr.resolvedType = recordType;
             } else {
                 entry.value_ptr.resolvedType = getTypeReferenceType(c, node, getSymbolFromTypeReference(c, node));
             }
@@ -224,19 +226,35 @@ fn getSymbolFromTypeReference(c: *Checker, node: NodeIndex) ast_gen.SymbolIndex 
     return entry.value_ptr.resolvedSymbol;
 }
 
+fn resolveLibSymbol(c: *Checker, name: []const u8, meaning: u32) ?ast_gen.SymbolIndex {
+    const lib = c.default_lib_binder orelse return null;
+    for (lib.symbols.items, 1..) |sym, i| {
+        if (!std.mem.eql(u8, sym.Name, name)) continue;
+        if ((sym.Flags & meaning) == 0) continue;
+        const idx: ast_gen.SymbolIndex = @intCast(i);
+        c.markLibSymbol(idx);
+        return idx;
+    }
+    return null;
+}
+
 fn resolveTypeReferenceName(c: *Checker, typeReference: NodeIndex, meaning: u32, ignoreErrors: bool) ast_gen.SymbolIndex {
-    const name = getTypeReferenceName(c, typeReference);
-    if (name == null) {
+    const nameNode = getTypeReferenceName(c, typeReference);
+    if (nameNode == null or nameNode.? == 0) {
         return c.unknownSymbol;
     }
-    const symbol = c.resolveEntityName(name.?, meaning, ignoreErrors, false, null);
-    if (symbol != 0 and symbol != c.unknownSymbol) {
-        return symbol;
+    const nameText = ast_utils.getTextOfNode(c.binder.ast, nameNode.?);
+    const resolvedSymbol = checker_mod.resolveName(c, typeReference, nameText, meaning, null, true, false);
+    if (resolvedSymbol != 0 and resolvedSymbol != c.unknownSymbol) {
+        return resolvedSymbol;
+    }
+    if (resolveLibSymbol(c, nameText, meaning)) |libSym| {
+        return libSym;
     }
     if (ignoreErrors) {
         return c.unknownSymbol;
     }
-    return getUnresolvedSymbolForEntityName(c, name.?);
+    return getUnresolvedSymbolForEntityName(c, nameNode.?);
 }
 
 fn getUnresolvedSymbolForEntityName(c: *Checker, name: NodeIndex) ast_gen.SymbolIndex {
@@ -313,9 +331,10 @@ fn getMergedSymbol(c: *Checker, symbol: ast_gen.SymbolIndex) ast_gen.SymbolIndex
     return 0;
 }
 fn getDeclaredTypeOfClassOrInterface(c: *Checker, symbol: ast_gen.SymbolIndex) TypeIndex {
-    _ = c;
-    _ = symbol;
-    return 0;
+    const flags = c.getSymbolFlags(symbol);
+    const sym = @import("../ast/symbol.zig");
+    const kind = if ((flags & sym.SymbolFlags.Class) != 0) types.ObjectFlags.Class else types.ObjectFlags.Interface;
+    return newObjectType(c, kind, symbol);
 }
 fn getLocalTypeParameters(c: *Checker, t: TypeIndex) []const TypeIndex {
     _ = c;
@@ -444,16 +463,42 @@ fn createTypeReferenceEx(c: *Checker, t: TypeIndex, typeArguments: []const TypeI
     return 0;
 }
 
-fn getTypeFromTypeAliasReference(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
-    _ = c;
-    _ = node;
-    _ = symbol;
-    return 0;
+fn tryGetRecordTypeFromNode(c: *Checker, node: NodeIndex) ?TypeIndex {
+    const nameNode = getTypeReferenceName(c, node);
+    if (nameNode == null or nameNode.? == 0) return null;
+    const nameText = ast_utils.getTextOfNode(c.binder.ast, nameNode.?);
+    if (!std.mem.eql(u8, nameText, "Record")) return null;
+    const typeArgs = getTypeArgumentsFromNode(c, node);
+    if (typeArgs.len != 2) return null;
+    const stringType = c.getStringType() catch return null;
+    if (!c.isTypeIdenticalTo(typeArgs[0], stringType)) return null;
+    return c.createObjectTypeWithStringIndexSignature(typeArgs[1]);
 }
-fn tryGetDeclaredTypeOfSymbol(c: *Checker, symbol: ast_gen.SymbolIndex) TypeIndex {
-    _ = c;
-    _ = symbol;
-    return 0;
+
+fn tryGetRecordInstantiation(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) ?TypeIndex {
+    if (!std.mem.eql(u8, c.getSymbolName(symbol), "Record")) return null;
+    return tryGetRecordTypeFromNode(c, node);
+}
+
+fn getTypeFromTypeAliasReference(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
+    if (tryGetRecordInstantiation(c, node, symbol)) |recordType| {
+        return recordType;
+    }
+    _ = c.getDeclaredTypeOfSymbol(symbol);
+    const links = c.typeAliasLinks.getPtr(symbol);
+    if (links) |l| {
+        if (l.typeParameters.len != 0) {
+            return c.getTypeAliasInstantiation(symbol, getTypeArgumentsFromNode(c, node), null);
+        }
+    }
+    const t = c.getDeclaredTypeOfSymbol(symbol);
+    if (checkNoTypeArguments(c, node, symbol)) {
+        return t;
+    }
+    return c.errorTypeIndex orelse 0;
+}
+pub fn tryGetDeclaredTypeOfSymbol(c: *Checker, symbol: ast_gen.SymbolIndex) TypeIndex {
+    return c.tryGetDeclaredTypeOfSymbol(symbol);
 }
 
 pub fn getTypeFromTypeQueryNode(c: *Checker, node: NodeIndex) TypeIndex {
@@ -617,7 +662,7 @@ pub fn getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c: *Checker, node: 
     if (entry.value_ptr.resolvedType == 0) {
         const alias = getAliasForTypeNode(c, node);
         const sym = getSymbolOfNode(c, node);
-        if (sym == 0 or (getMembersOfSymbol(c, sym).len == 0 and alias == 0)) {
+        if (sym == 0 or (!symbolHasMembers(c, sym) and alias == 0)) {
             entry.value_ptr.resolvedType = c.emptyTypeLiteralTypeIndex orelse c.errorTypeIndex orelse 0;
         } else {
             const t = newObjectType(c, types.ObjectFlags.Anonymous, sym);
@@ -676,14 +721,17 @@ fn getAliasForTypeNode(c: *Checker, node: NodeIndex) usize {
     return 0;
 }
 fn getSymbolOfNode(c: *Checker, node: NodeIndex) ast_gen.SymbolIndex {
-    _ = c;
-    _ = node;
-    return 0;
+    return checker_mod.getSymbolOfNode(c, node) orelse 0;
 }
-fn getMembersOfSymbol(c: *Checker, symbol: ast_gen.SymbolIndex) []const ast_gen.SymbolIndex {
-    _ = c;
-    _ = symbol;
-    return &[_]ast_gen.SymbolIndex{};
+fn symbolHasMembers(c: *Checker, symbol: ast_gen.SymbolIndex) bool {
+    if (symbol == 0) return false;
+    if (c.binder.symbolMembers.get(symbol)) |members| {
+        return members.count() > 0;
+    }
+    if (symbol < c.binder.symbols.items.len) {
+        return c.binder.symbols.items[symbol].Members.count() > 0;
+    }
+    return false;
 }
 fn newObjectType(c: *Checker, objectFlags: u32, symbol: ast_gen.SymbolIndex) TypeIndex {
     return c.createType(.{

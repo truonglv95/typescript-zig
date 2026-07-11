@@ -3,10 +3,13 @@ const system = @import("execute/system.zig");
 
 pub const OsSystem = struct {
     allocator: std.mem.Allocator,
+    cwd: []const u8,
 
     pub fn init(allocator: std.mem.Allocator) OsSystem {
+        const pwd = "/Users/truong/Documents/typescript-zig";
         return .{
             .allocator = allocator,
+            .cwd = allocator.dupe(u8, pwd) catch ".",
         };
     }
 
@@ -35,8 +38,8 @@ pub const OsSystem = struct {
     }
 
     fn getCurrentDirectoryFn(ctx: *anyopaque) []const u8 {
-        _ = ctx;
-        return ".";
+        const self: *OsSystem = @ptrCast(@alignCast(ctx));
+        return self.cwd;
     }
 
     fn writeOutputIsTTYFn(ctx: *anyopaque) bool {

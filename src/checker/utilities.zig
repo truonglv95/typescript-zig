@@ -597,7 +597,7 @@ pub fn isInAmbientOrTypeNode(ast_data: *const ast.Ast, node: NodeIndex) bool {
 }
 
 pub fn isLiteralExpressionOfObject(ast_data: *const ast.Ast, node: NodeIndex) bool {
-    const n_data = ast_data.getNode(node);
+    const n_data = @constCast(ast_data).getNode(node);
     switch (n_data) {
         .ObjectLiteralExpression, .ArrayLiteralExpression, .RegularExpressionLiteral, .FunctionExpression, .ClassExpression => return true,
         else => return false,
@@ -878,7 +878,7 @@ pub fn isInNameOfExpressionWithTypeArguments(ast_data: *const ast.Ast, node_in: 
 
 pub fn isThisTypeParameter(c: *const @import("checker.zig").Checker, typeIndex: types.TypeIndex) bool {
     if (typeIndex == 0) return false;
-    const typeObj = c.types.items[typeIndex];
+    const typeObj = c.typesList.items[typeIndex];
     if ((typeObj.flags & types.TypeFlags.TypeParameter) != 0) {
         return typeObj.data.TypeParameter.isThisType;
     }

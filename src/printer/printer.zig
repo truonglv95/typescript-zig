@@ -1396,7 +1396,11 @@ pub const Printer = struct {
 
         const listLen = self.tree.getNodeList(node.Members).len;
         if (listLen > 0) {
-            try self.printList(@import("emit_list.zig").ListFormat.TypeLiteralMembers, node.Members);
+            const format = if ((node.Flags & @import("../ast/ast_utils.zig").NodeFlags.Synthesized) != 0 or self.shouldEmitOnSingleLine(nodeIndex))
+                @import("emit_list.zig").ListFormat.SpaceBetweenSiblings | @import("emit_list.zig").ListFormat.SingleLine | @import("emit_list.zig").ListFormat.SpaceBetweenBraces
+            else
+                @import("emit_list.zig").ListFormat.TypeLiteralMembers;
+            try self.printList(format, node.Members);
         }
 
         self.writer.writePunctuation("}");
@@ -2510,7 +2514,7 @@ pub const Printer = struct {
         }
         if (bodyIndex < self.tree.positions.items.len) {
             const loc = self.tree.positions.items[bodyIndex];
-            if (loc.pos != 0 or loc.end != 0) {
+            if (loc.pos != 0 and loc.end != 0) {
                 const utils = @import("utilities.zig");
                 if (!utils.rangeIsOnSingleLine(self.tree, .{ .pos = loc.pos, .end = loc.end }, self.currentSourceFile)) {
                     return false;

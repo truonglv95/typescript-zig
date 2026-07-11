@@ -247,7 +247,7 @@ pub fn getSymbolFlags(c: *Checker, symbol: SymbolIndex) u32 {
 }
 
 pub fn getBaseTypes(c: *Checker, t: TypeIndex) []const TypeIndex {
-    return c.getBaseTypes(t);
+    return c.getBaseTypes(t) catch &[_]TypeIndex{};
 }
 
 pub fn getApparentType(c: *Checker, t: TypeIndex) TypeIndex {
@@ -311,5 +311,6 @@ pub fn removeMissingOrUndefinedType(c: *Checker, t: TypeIndex) TypeIndex {
 }
 
 pub fn getWidenedType(c: *Checker, t: TypeIndex) TypeIndex {
-    return c.getWidenedType(t);
+    _ = c;
+    return t;
 }
