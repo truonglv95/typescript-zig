@@ -767,3 +767,62 @@ pub const EmitResolver = struct {
         return &[_]ast_gen.NodeIndex{};
     }
 };
+
+pub fn newEmitResolver(checker_: *anyopaque) *anyopaque {
+    _ = checker_;
+    return undefined;
+}
+
+pub fn aliasMarkingVisitorWorker(r: *anyopaque, node: *anyopaque) bool {
+    _ = r;
+    _ = node;
+    return false;
+}
+
+pub fn markLinkedAliases(r: *anyopaque, node: *anyopaque) void {
+    _ = r;
+    _ = node;
+}
+
+pub fn getMeaningOfEntityNameReference(entityName: *anyopaque) *anyopaque {
+    _ = entityName;
+    return undefined;
+}
+
+pub fn noopAddVisibleAlias(declaration: *anyopaque, aliasingStatement: *anyopaque) void {
+    _ = declaration;
+    _ = aliasingStatement;
+}
+
+pub fn hasVisibleDeclarations(r: *anyopaque, symbol_: *anyopaque, shouldComputeAliasToMakeVisible: *anyopaque) i32 {
+    _ = r;
+    _ = symbol_;
+    _ = shouldComputeAliasToMakeVisible;
+    return 0;
+}
+
+pub fn requiresAddingImplicitUndefinedWorker(r: *anyopaque, parameter: *anyopaque, enclosingDeclaration: *anyopaque) bool {
+    _ = r;
+    _ = parameter;
+    _ = enclosingDeclaration;
+    return false;
+}
+
+pub fn declaredParameterTypeContainsUndefined(r: *anyopaque, parameter: *anyopaque) bool {
+    _ = r;
+    _ = parameter;
+    return false;
+}
+
+pub fn isOptionalUninitializedParameterProperty(r: *anyopaque, parameter: *anyopaque) bool {
+    _ = r;
+    _ = parameter;
+    return false;
+}
+
+pub fn isRequiredInitializedParameter(r: *anyopaque, parameter: *anyopaque, enclosingDeclaration: *anyopaque) bool {
+    _ = r;
+    _ = parameter;
+    _ = enclosingDeclaration;
+    return false;
+}

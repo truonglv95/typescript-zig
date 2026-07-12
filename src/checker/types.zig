@@ -1075,3 +1075,398 @@ pub const ExternalEmitHelpers = struct {
     pub const AsyncGeneratorIncludes = Await | AsyncGenerator;
     pub const AsyncDelegatorIncludes = Await | AsyncDelegator | AsyncValues;
 };
+
+pub fn formatTypeFlags(flags_: *anyopaque) *anyopaque {
+    _ = flags_;
+    return undefined;
+}
+
+pub fn string() *anyopaque {
+    return undefined;
+}
+
+pub fn symbol() *anyopaque {
+    return undefined;
+}
+
+pub fn typeArguments() *anyopaque {
+    return undefined;
+}
+
+pub fn id(c: *const @import("checker.zig").Checker, t: TypeIndex) u32 {
+    return c.typesList.items[t].id;
+}
+
+pub fn flags(c: *const @import("checker.zig").Checker, t: TypeIndex) u32 {
+    return c.typesList.items[t].flags;
+}
+
+pub fn objectFlags(c: *const @import("checker.zig").Checker, t: TypeIndex) u32 {
+    return c.typesList.items[t].objectFlags;
+}
+
+pub fn asIntrinsicType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asLiteralType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asUniqueESSymbolType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asTupleType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asInstantiationExpressionType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asMappedType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asReverseMappedType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asEvolvingArrayType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asTypeParameter(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asUnionType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asIntersectionType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asIndexType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asIndexedAccessType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asTemplateLiteralType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asStringMappingType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asSubstitutionType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asConditionalType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asConstrainedType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asStructuredType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asObjectType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asTypeReference(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asInterfaceType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn asUnionOrIntersectionType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn distributed(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn target(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn mapper(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn types(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn targetInterfaceType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn targetTupleType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn alias(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn isUnion(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isString(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isIntersection(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isStringLiteral(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isNumberLiteral(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isBigIntLiteral(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isEnumLiteral(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isBooleanLike(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isStringLike(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isClass(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isTypeParameter(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isIndex(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn isTupleType(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn asType(t: TypeIndex) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn intrinsicName() *anyopaque {
+    return undefined;
+}
+
+pub fn value() *anyopaque {
+    return undefined;
+}
+
+pub fn freshType() *anyopaque {
+    return undefined;
+}
+
+pub fn regularType() *anyopaque {
+    return undefined;
+}
+
+pub fn callSignatures() *anyopaque {
+    return undefined;
+}
+
+pub fn constructSignatures() *anyopaque {
+    return undefined;
+}
+
+pub fn properties() *anyopaque {
+    return undefined;
+}
+
+pub fn outerTypeParameters() *anyopaque {
+    return undefined;
+}
+
+pub fn localTypeParameters() *anyopaque {
+    return undefined;
+}
+
+pub fn typeParameters() *anyopaque {
+    return undefined;
+}
+
+pub fn tupleElementFlags() *anyopaque {
+    return undefined;
+}
+
+pub fn labeledDeclaration() *anyopaque {
+    return undefined;
+}
+
+pub fn fixedLength() i32 {
+    return 0;
+}
+
+pub fn isReadonly() bool {
+    return false;
+}
+
+pub fn elementFlags() *anyopaque {
+    return undefined;
+}
+
+pub fn elementInfos() *anyopaque {
+    return undefined;
+}
+
+pub fn isThisType(t: TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn objectType() *anyopaque {
+    return undefined;
+}
+
+pub fn indexType() *anyopaque {
+    return undefined;
+}
+
+pub fn texts() *anyopaque {
+    return undefined;
+}
+
+pub fn baseType() *anyopaque {
+    return undefined;
+}
+
+pub fn substConstraint() *anyopaque {
+    return undefined;
+}
+
+pub fn checkType() *anyopaque {
+    return undefined;
+}
+
+pub fn extendsType() *anyopaque {
+    return undefined;
+}
+
+pub fn declaration(s: *anyopaque) *anyopaque {
+    _ = s;
+    return undefined;
+}
+
+pub fn thisParameter(s: *anyopaque) *anyopaque {
+    _ = s;
+    return undefined;
+}
+
+pub fn parameters(s: *anyopaque) *anyopaque {
+    _ = s;
+    return undefined;
+}
+
+pub fn hasRestParameter(s: *anyopaque) bool {
+    _ = s;
+    return false;
+}
+
+pub fn minArgumentCount(s: *anyopaque) i32 {
+    _ = s;
+    return 0;
+}
+
+pub fn @"type"() *anyopaque {
+    return undefined;
+}
+
+pub fn kind() *anyopaque {
+    return undefined;
+}
+
+pub fn parameterIndex() i32 {
+    return 0;
+}
+
+pub fn parameterName() *anyopaque {
+    return undefined;
+}
+
+pub fn keyType() *anyopaque {
+    return undefined;
+}
+
+pub fn valueType() *anyopaque {
+    return undefined;
+}

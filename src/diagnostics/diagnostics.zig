@@ -8,4 +8,6 @@ pub const Diagnostic = struct {
     args: []const []const u8 = &[_][]const u8{},
     /// Byte offset used when `nodeIndex` is zero (parser recovery errors).
     pos: u32 = 0,
+    relatedInformation: []const Diagnostic = &[_]Diagnostic{},
+    messageChain: []const Diagnostic = &[_]Diagnostic{},
 };

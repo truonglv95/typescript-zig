@@ -254,3 +254,181 @@ pub const TracedTypeAdapter = struct {
         return "";
     }
 };
+
+pub fn newTracer(tr: *anyopaque, checkerIndex: *anyopaque) *anyopaque {
+    _ = tr;
+    _ = checkerIndex;
+    return undefined;
+}
+
+pub fn copyWithCheckerIndex(t: *anyopaque, args: *anyopaque) *anyopaque {
+    _ = t;
+    _ = args;
+    return undefined;
+}
+
+pub fn temporarilyAddCheckerIndex(t: *anyopaque, args: *anyopaque) *anyopaque {
+    _ = t;
+    _ = args;
+    return undefined;
+}
+
+pub fn id(a: *anyopaque) i32 {
+    _ = a;
+    return 0;
+}
+
+pub fn formatFlags(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn isConditional(a: *anyopaque) bool {
+    _ = a;
+    return false;
+}
+
+pub fn symbol(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn aliasSymbol(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn aliasTypeArguments(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn intrinsicName(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn unionTypes(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn intersectionTypes(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn indexType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn indexedAccessObjectType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn indexedAccessIndexType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn conditionalCheckType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn conditionalExtendsType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn conditionalTrueType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn conditionalFalseType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn substitutionBaseType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn substitutionConstraintType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn referenceTarget(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn referenceTypeArguments(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn referenceNode(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn reverseMappedSourceType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn reverseMappedMappedType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn reverseMappedConstraintType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn evolvingArrayElementType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn evolvingArrayFinalType(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn isTuple(a: *anyopaque) bool {
+    _ = a;
+    return false;
+}
+
+pub fn pattern(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn recursionIdentity(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn display(a: *anyopaque) *anyopaque {
+    _ = a;
+    return undefined;
+}
+
+pub fn wrapType(t: *anyopaque) *anyopaque {
+    _ = t;
+    return undefined;
+}
+
+pub fn wrapTypes(types_: *anyopaque) *anyopaque {
+    _ = types_;
+    return undefined;
+}

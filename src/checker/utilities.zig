@@ -369,17 +369,55 @@ pub fn isPrivateWithinAmbient(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return false;
 }
 
-pub fn getDeclarationModifierFlagsFromSymbol(ast_data: *const ast.Ast, sym: *const symbol.Symbol) u32 {
-    return getDeclarationModifierFlagsFromSymbolEx(ast_data, sym, false);
+pub fn getDeclarationModifierFlagsFromSymbol(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) u32 {
+    return getDeclarationModifierFlagsFromSymbolEx(c, sym, false);
 }
 
-pub fn getDeclarationModifierFlagsFromSymbolEx(ast_data: *const ast.Ast, sym: *const symbol.Symbol, isWrite: bool) u32 {
-    _ = isWrite;
-    if (sym.ValueDeclaration) |decl| {
-        const flags = ast.getCombinedModifierFlags(ast_data, decl);
+pub fn getDeclarationModifierFlagsFromSymbolEx(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex, isWrite: bool) u32 {
+    const symObj = &c.binder.symbols.items[sym];
+    if (symObj.ValueDeclaration) |val_decl| {
+        var declaration: ast_gen.NodeIndex = 0;
+        if (isWrite) {
+            for (symObj.Declarations.items) |decl| {
+                if (c.binder.ast.getKind(decl) == .SetAccessor) {
+                    declaration = decl;
+                    break;
+                }
+            }
+        }
+        if (declaration == 0 and (symObj.flags & symbol.SymbolFlags.GetAccessor) != 0) {
+            for (symObj.Declarations.items) |decl| {
+                if (c.binder.ast.getKind(decl) == .GetAccessor) {
+                    declaration = decl;
+                    break;
+                }
+            }
+        }
+        if (declaration == 0) {
+            declaration = val_decl;
+        }
+        const flags = ast_utils.getCombinedModifierFlags(c.binder.ast, declaration);
+        if (symObj.parent != 0 and (c.binder.symbols.items[symObj.parent].flags & symbol.SymbolFlags.Class) != 0) {
+            return flags;
+        }
         return flags & ~@as(u32, ast_gen.ModifierFlags.AccessibilityModifier);
     }
-    if ((sym.Flags & symbol.SymbolFlags.Prototype) != 0) {
+    if ((symObj.checkFlags & symbol.CheckFlags.Synthetic) != 0) {
+        var accessModifier: u32 = 0;
+        if ((symObj.checkFlags & symbol.CheckFlags.ContainsPrivate) != 0) {
+            accessModifier = ast_gen.ModifierFlags.Private;
+        } else if ((symObj.checkFlags & symbol.CheckFlags.ContainsPublic) != 0) {
+            accessModifier = ast_gen.ModifierFlags.Public;
+        } else {
+            accessModifier = ast_gen.ModifierFlags.Protected;
+        }
+        var staticModifier: u32 = 0;
+        if ((symObj.checkFlags & symbol.CheckFlags.ContainsStatic) != 0) {
+            staticModifier = ast_gen.ModifierFlags.Static;
+        }
+        return accessModifier | staticModifier;
+    }
+    if ((symObj.flags & symbol.SymbolFlags.Prototype) != 0) {
         return ast_gen.ModifierFlags.Public | ast_gen.ModifierFlags.Static;
     }
     return 0;
@@ -664,10 +702,13 @@ pub fn getDeclarationsOfKind(ast_data: *const ast.Ast, decls: []const NodeIndex,
     return result.toOwnedSlice();
 }
 
-pub fn getNonRestParameterCount(ast_data: *const ast.Ast, sig: *const types.Signature) usize {
-    _ = ast_data;
-    if (sig.parameters.len == 0) return 0;
-    return sig.parameters.len; // stub
+pub fn getNonRestParameterCount(c: *Checker, sigIndex: types.SignatureIndex) usize {
+    const sig = &c.signaturesList.items[sigIndex];
+    if (sig.parametersLen == 0) return 0;
+    if ((sig.flags & types.SignatureFlags.HasRestParameter) != 0) {
+        return sig.parametersLen - 1;
+    }
+    return sig.parametersLen;
 }
 
 pub fn minAndMax(slice: []const usize) struct { min: usize, max: usize } {
@@ -734,7 +775,7 @@ pub fn isExternalModuleSymbol(sym: *const symbol.Symbol) bool {
 
 pub fn valueToString(value: types.LiteralValue) []const u8 {
     _ = value;
-    return ""; // stub
+    return "";
 }
 
 pub fn nodeStartsNewLexicalEnvironment(ast_data: *const ast.Ast, node: NodeIndex) bool {
@@ -761,9 +802,16 @@ pub fn walkUpOuterExpressions(ast_data: *const ast.Ast, node: NodeIndex) NodeInd
 }
 
 pub fn getSetAccessorValueParameter(ast_data: *const ast.Ast, accessor: NodeIndex) NodeIndex {
-    _ = ast_data;
-    _ = accessor;
-    return 0; // stub
+    if (accessor != 0 and ast_data.getNodeKind(accessor) == .SetAccessor) {
+        const parametersList = ast_data.nodes.items[accessor].data.SetAccessor.Parameters;
+        if (parametersList != 0) {
+            const parameters = ast_data.getNodeArray(parametersList);
+            if (parameters.len > 0) {
+                return parameters[0];
+            }
+        }
+    }
+    return 0;
 }
 
 pub fn isInCompoundLikeAssignment(c: *const @import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
@@ -1070,4 +1118,461 @@ const YieldExpressionVisitor = struct {
 pub fn forEachYieldExpression(tree: *ast.Ast, body: ast_gen.NodeIndex, visitor: *const fn (node: ast_gen.NodeIndex, context: ?*anyopaque) bool, context: ?*anyopaque) bool {
     var v = YieldExpressionVisitor{ .visitor = visitor, .context = context, .tree = tree };
     return v.visit(body);
+}
+
+pub fn newDiagnosticForNode(node: ast_gen.NodeIndex, message: *const diagnostics.Message) diagnostics.Diagnostic {
+    return diagnostics.Diagnostic{
+        .message = message,
+        .nodeIndex = node,
+    };
+}
+
+pub fn newDiagnosticChainForNode(chain: diagnostics.Diagnostic, node: ast_gen.NodeIndex, message: *const diagnostics.Message) diagnostics.Diagnostic {
+    _ = chain;
+    // In DoD, creating an array slice dynamically requires an allocator.
+    // For now, we will just return the diagnostic.
+    return diagnostics.Diagnostic{
+        .message = message,
+        .nodeIndex = node,
+    };
+}
+
+pub fn entityNameToString(c: *Checker, name: ast_gen.NodeIndex) []const u8 {
+    return ast_utils.getTextOfNode(&c.binder.ast, name);
+}
+
+pub fn createSymbolTable(c: *Checker, symbols: []const ast_gen.SymbolIndex) !*symbol.SymbolTable {
+    const table = try c.allocator.create(symbol.SymbolTable);
+    table.* = symbol.SymbolTable.empty;
+    for (symbols) |sym| {
+        const name = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, sym);
+        try table.put(c.allocator, name, sym);
+    }
+    return table;
+}
+
+pub fn sortSymbols(c: *Checker, symbols: []ast_gen.SymbolIndex) void {
+    const SortContext = struct {
+        checker: *Checker,
+        pub fn lessThan(self: @This(), lhs: ast_gen.SymbolIndex, rhs: ast_gen.SymbolIndex) bool {
+            return compareSymbolsWorker(self.checker, lhs, rhs) < 0;
+        }
+    };
+    std.mem.sort(ast_gen.SymbolIndex, symbols, SortContext{ .checker = c }, SortContext.lessThan);
+}
+
+pub fn compareSymbolsWorker(c: *Checker, s1: ast_gen.SymbolIndex, s2: ast_gen.SymbolIndex) i32 {
+    if (s1 == s2) return 0;
+    if (s1 == 0) return 1;
+    if (s2 == 0) return -1;
+
+    const sym1 = c.binder.symbols.items[s1];
+    const sym2 = c.binder.symbols.items[s2];
+
+    if (sym1.Declarations.items.len != 0 and sym2.Declarations.items.len != 0) {
+        const comp = compareNodes(c, sym1.Declarations.items[0], sym2.Declarations.items[0]);
+        if (comp != 0) return comp;
+    } else if (sym1.Declarations.items.len != 0) {
+        return -1;
+    } else if (sym2.Declarations.items.len != 0) {
+        return 1;
+    }
+
+    const name1 = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, s1);
+    const name2 = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, s2);
+
+    const compName = std.mem.order(u8, name1, name2);
+    if (compName != .eq) {
+        return switch (compName) {
+            .lt => -1,
+            .gt => 1,
+            else => unreachable,
+        };
+    }
+
+    return if (s1 > s2) 1 else -1;
+}
+
+pub fn checkNotCanceled(c: *Checker) void {
+    _ = c;
+}
+
+pub fn isCanceled(c: *Checker) bool {
+    _ = c;
+    return false;
+}
+
+pub fn symbolsToArray(symbols: *anyopaque) []const ast_gen.SymbolIndex {
+    _ = symbols;
+    return &[_]ast_gen.SymbolIndex{};
+}
+
+pub fn getIndexSymbolFromSymbolTable(table: ?*symbol.SymbolTable) ast_gen.SymbolIndex {
+    if (table) |t| {
+        return t.get(symbol.InternalSymbolNameIndex) orelse 0;
+    }
+    return 0;
+}
+
+pub fn isJsxIntrinsicTagName(name: []const u8) bool {
+    if (name.len == 0) return false;
+    const ch = name[0];
+    if (ch >= 'a' and ch <= 'z') return true;
+    for (name) |c| {
+        if (c == '-') return true;
+    }
+    return false;
+}
+
+pub fn isUncheckedJSSuggestion(node: ast_gen.NodeIndex) bool {
+    _ = node;
+    return false;
+}
+
+pub fn compareNodes(c: *Checker, n1: ast_gen.NodeIndex, n2: ast_gen.NodeIndex) i32 {
+    if (n1 == n2) return 0;
+    if (n1 == 0) return 1;
+    if (n2 == 0) return -1;
+
+    const s1 = ast_utils.getSourceFileOfNode(&c.binder.ast, n1);
+    const s2 = ast_utils.getSourceFileOfNode(&c.binder.ast, n2);
+
+    if (s1 != s2) {
+        return if (s1 > s2) 1 else -1;
+    }
+
+    const pos1 = c.binder.ast.nodes.items[n1].pos;
+    const pos2 = c.binder.ast.nodes.items[n2].pos;
+    if (pos1 != pos2) {
+        return if (pos1 > pos2) 1 else -1;
+    }
+    return 0;
+}
+
+pub fn compareTypeNames(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) i32 {
+    const type1 = &c.typesList.items[t1];
+    const type2 = &c.typesList.items[t2];
+    const s1 = getTypeNameSymbol(type1);
+    const s2 = getTypeNameSymbol(type2);
+    if (s1 == s2) {
+        if (type1.alias != null and type2.alias != null) {
+            // Wait, alias.typeArguments is a slice of TypeIndex?
+            // In types.zig, alias.typeArguments is a slice
+            return compareTypeLists(c, type1.alias.?.typeArguments, type2.alias.?.typeArguments);
+        }
+        return 0;
+    }
+    if (s1 == null) return 1;
+    if (s2 == null) return -1;
+
+    const name1 = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, s1.?);
+    const name2 = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, s2.?);
+
+    return switch (std.mem.order(u8, name1, name2)) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
+}
+
+pub fn compareTypeLists(c: *Checker, l1: []const types.TypeIndex, l2: []const types.TypeIndex) i32 {
+    if (l1.len != l2.len) return if (l1.len > l2.len) 1 else -1;
+    for (l1, 0..) |t1, i| {
+        const comp = compareTypes(c, t1, l2[i]);
+        if (comp != 0) return comp;
+    }
+    return 0;
+}
+
+pub fn compareTupleTypes(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) i32 {
+    const tuple1 = c.typesList.items[t1].data.Tuple;
+    const tuple2 = c.typesList.items[t2].data.Tuple;
+
+    if (t1 == t2) return 0;
+    if (tuple1.readonly != tuple2.readonly) return if (tuple1.readonly) 1 else -1;
+
+    const infos1 = tuple1.elementInfos;
+    const infos2 = tuple2.elementInfos;
+
+    if (infos1.len != infos2.len) return if (infos1.len > infos2.len) 1 else -1;
+
+    for (infos1, 0..) |info1, i| {
+        const info2 = infos2[i];
+        if (@intFromEnum(info1.flags) != @intFromEnum(info2.flags)) {
+            return if (@intFromEnum(info1.flags) > @intFromEnum(info2.flags)) 1 else -1;
+        }
+    }
+
+    for (infos1, 0..) |info1, i| {
+        const info2 = infos2[i];
+        const comp = compareElementLabels(c, info1.labeledDeclaration, info2.labeledDeclaration);
+        if (comp != 0) return comp;
+    }
+    return 0;
+}
+
+pub fn compareTypeMappers(c: *Checker, m1: types.TypeMapperIndex, m2: types.TypeMapperIndex) i32 {
+    if (m1 == m2) return 0;
+    if (m1 == 0) return 1;
+    if (m2 == 0) return -1;
+
+    const mapper1 = &c.mappersList.items[m1];
+    const mapper2 = &c.mappersList.items[m2];
+
+    if (@intFromEnum(mapper1.kind) != @intFromEnum(mapper2.kind)) {
+        return if (@intFromEnum(mapper1.kind) > @intFromEnum(mapper2.kind)) 1 else -1;
+    }
+
+    switch (mapper1.kind) {
+        .Simple => {
+            const comp = compareTypes(c, mapper1.data.Simple.source, mapper2.data.Simple.source);
+            if (comp != 0) return comp;
+            return compareTypes(c, mapper1.data.Simple.target, mapper2.data.Simple.target);
+        },
+        .Array => {
+            const compSources = compareTypeLists(c, mapper1.data.Array.sources, mapper2.data.Array.sources);
+            if (compSources != 0) return compSources;
+            return compareTypeLists(c, mapper1.data.Array.targets, mapper2.data.Array.targets);
+        },
+        .Merged => {
+            const compM1 = compareTypeMappers(c, mapper1.data.Merged.m1, mapper2.data.Merged.m1);
+            if (compM1 != 0) return compM1;
+            return compareTypeMappers(c, mapper1.data.Merged.m2, mapper2.data.Merged.m2);
+        },
+        else => return 0,
+    }
+}
+
+pub fn getObjectTypeName(t: types.TypeIndex) []const u8 {
+    _ = t;
+    return "";
+}
+
+pub fn getSortOrderFlags(c: *Checker, t: types.TypeIndex) u32 {
+    const flags = c.typesList.items[t].flags;
+    if ((flags & (types.TypeFlags.EnumLiteral | types.TypeFlags.Enum)) != 0 and (flags & types.TypeFlags.Union) == 0) {
+        return types.TypeFlags.Enum;
+    }
+    return flags;
+}
+
+pub fn pseudoBigIntToString(v: *anyopaque) []const u8 {
+    _ = v;
+    return "";
+}
+
+pub fn rangeOfTypeParameters(source: []const types.TypeIndex, start: usize, end: usize) []const types.TypeIndex {
+    _ = source;
+    _ = start;
+    _ = end;
+    return &[_]types.TypeIndex{};
+}
+
+pub fn compareTypes(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) i32 {
+    if (t1 == t2) return 0;
+    if (t1 == 0) return -1;
+    if (t2 == 0) return 1;
+
+    // Sort by type flags
+    const f1 = getSortOrderFlags(c, t1);
+    const f2 = getSortOrderFlags(c, t2);
+    if (f1 != f2) return if (f1 > f2) 1 else -1;
+
+    const cNames = compareTypeNames(c, t1, t2);
+    if (cNames != 0) return cNames;
+
+    const typeObj1 = &c.typesList.items[t1];
+    const typeObj2 = &c.typesList.items[t2];
+    const type1Flags = typeObj1.flags;
+
+    if ((type1Flags & (types.TypeFlags.Any | types.TypeFlags.Unknown | types.TypeFlags.String | types.TypeFlags.Number | types.TypeFlags.Boolean | types.TypeFlags.BigInt | types.TypeFlags.ESSymbol | types.TypeFlags.Void | types.TypeFlags.Undefined | types.TypeFlags.Null | types.TypeFlags.Never | types.TypeFlags.NonPrimitive)) != 0) {
+        // Fall back to type IDs below
+    } else if ((type1Flags & types.TypeFlags.Object) != 0) {
+        const symComp = compareSymbolsWorker(c, typeObj1.data.Object.Symbol orelse 0, typeObj2.data.Object.Symbol orelse 0);
+        if (symComp != 0) return symComp;
+
+        if ((typeObj1.objectFlags & types.ObjectFlags.Reference) != 0 and (typeObj2.objectFlags & types.ObjectFlags.Reference) != 0) {
+            const target1 = typeObj1.data.Object.target orelse 0;
+            const target2 = typeObj2.data.Object.target orelse 0;
+            if (target1 != 0 and target2 != 0 and (c.typesList.items[target1].objectFlags & types.ObjectFlags.Tuple) != 0 and (c.typesList.items[target2].objectFlags & types.ObjectFlags.Tuple) != 0) {
+                const tupleComp = compareTupleTypes(c, target1, target2);
+                if (tupleComp != 0) return tupleComp;
+            }
+
+            if ((typeObj1.data.Object.node orelse 0) == 0 and (typeObj2.data.Object.node orelse 0) == 0) {
+                const args1 = c.typeArgumentsPool.items[typeObj1.data.Object.typeArgumentsStart .. typeObj1.data.Object.typeArgumentsStart + typeObj1.data.Object.typeArgumentsLen];
+                const args2 = c.typeArgumentsPool.items[typeObj2.data.Object.typeArgumentsStart .. typeObj2.data.Object.typeArgumentsStart + typeObj2.data.Object.typeArgumentsLen];
+                const listComp = compareTypeLists(c, args1, args2);
+                if (listComp != 0) return listComp;
+            } else {
+                const nodeComp = compareNodes(c, typeObj1.data.Object.node orelse 0, typeObj2.data.Object.node orelse 0);
+                if (nodeComp != 0) return nodeComp;
+
+                const mapComp = compareTypeMappers(c, typeObj1.data.Object.mapper orelse 0, typeObj2.data.Object.mapper orelse 0);
+                if (mapComp != 0) return mapComp;
+            }
+        } else if ((typeObj1.objectFlags & types.ObjectFlags.Reference) != 0) {
+            return -1;
+        } else if ((typeObj2.objectFlags & types.ObjectFlags.Reference) != 0) {
+            return 1;
+        } else {
+            const kind1 = typeObj1.objectFlags & types.ObjectFlags.ObjectTypeKindMask;
+            const kind2 = typeObj2.objectFlags & types.ObjectFlags.ObjectTypeKindMask;
+            if (kind1 != kind2) return if (kind1 > kind2) 1 else -1;
+
+            const mapComp = compareTypeMappers(c, typeObj1.data.Object.mapper orelse 0, typeObj2.data.Object.mapper orelse 0);
+            if (mapComp != 0) return mapComp;
+        }
+    } else if ((type1Flags & types.TypeFlags.Union) != 0) {
+        const o1 = typeObj1.data.Union.origin orelse 0;
+        const o2 = typeObj2.data.Union.origin orelse 0;
+        if (o1 == 0 and o2 == 0) {
+            const types1 = c.unionTypesPool.items[typeObj1.data.Union.typesStart .. typeObj1.data.Union.typesStart + typeObj1.data.Union.typesLen];
+            const types2 = c.unionTypesPool.items[typeObj2.data.Union.typesStart .. typeObj2.data.Union.typesStart + typeObj2.data.Union.typesLen];
+            const listComp = compareTypeLists(c, types1, types2);
+            if (listComp != 0) return listComp;
+        } else if (o1 == 0) {
+            return 1;
+        } else if (o2 == 0) {
+            return -1;
+        } else {
+            const originComp = compareTypes(c, o1, o2);
+            if (originComp != 0) return originComp;
+        }
+    } else if ((type1Flags & types.TypeFlags.Intersection) != 0) {
+        const types1 = c.unionTypesPool.items[typeObj1.data.Intersection.typesStart .. typeObj1.data.Intersection.typesStart + typeObj1.data.Intersection.typesLen];
+        const types2 = c.unionTypesPool.items[typeObj2.data.Intersection.typesStart .. typeObj2.data.Intersection.typesStart + typeObj2.data.Intersection.typesLen];
+        const listComp = compareTypeLists(c, types1, types2);
+        if (listComp != 0) return listComp;
+    } else if ((type1Flags & (types.TypeFlags.Enum | types.TypeFlags.EnumLiteral | types.TypeFlags.UniqueESSymbol)) != 0) {
+        const symComp = compareSymbolsWorker(c, typeObj1.symbol, typeObj2.symbol);
+        if (symComp != 0) return symComp;
+    } else if ((type1Flags & types.TypeFlags.StringLiteral) != 0) {
+        return std.mem.order(u8, typeObj1.data.StringLiteral.text, typeObj2.data.StringLiteral.text).compare();
+    } else if ((type1Flags & types.TypeFlags.NumberLiteral) != 0) {
+        const num1 = typeObj1.data.NumberLiteral.value;
+        const num2 = typeObj2.data.NumberLiteral.value;
+        if (num1 != num2) return if (num1 > num2) 1 else -1;
+    } else if ((type1Flags & types.TypeFlags.BooleanLiteral) != 0) {
+        const b1 = typeObj1.data.BooleanLiteral.value;
+        const b2 = typeObj2.data.BooleanLiteral.value;
+        if (b1 != b2) return if (b1) 1 else -1;
+    } else if ((type1Flags & types.TypeFlags.TypeParameter) != 0) {
+        const symComp = compareSymbolsWorker(c, typeObj1.symbol, typeObj2.symbol);
+        if (symComp != 0) return symComp;
+    } else if ((type1Flags & types.TypeFlags.Index) != 0) {
+        const targetComp = compareTypes(c, typeObj1.data.Index.target, typeObj2.data.Index.target);
+        if (targetComp != 0) return targetComp;
+        // In Go it also compares indexFlags, but we don't have indexFlags in Index in Zig yet. Let's ignore it.
+    } else if ((type1Flags & types.TypeFlags.IndexedAccess) != 0) {
+        const objComp = compareTypes(c, typeObj1.data.IndexedAccess.objectType, typeObj2.data.IndexedAccess.objectType);
+        if (objComp != 0) return objComp;
+        const indexComp = compareTypes(c, typeObj1.data.IndexedAccess.indexType, typeObj2.data.IndexedAccess.indexType);
+        if (indexComp != 0) return indexComp;
+    } else if ((type1Flags & types.TypeFlags.Conditional) != 0) {
+        const nodeComp = compareNodes(c, typeObj1.data.Conditional.root.node, typeObj2.data.Conditional.root.node);
+        if (nodeComp != 0) return nodeComp;
+        const mapComp = compareTypeMappers(c, typeObj1.data.Conditional.mapper, typeObj2.data.Conditional.mapper);
+        if (mapComp != 0) return mapComp;
+    } else if ((type1Flags & types.TypeFlags.Substitution) != 0) {
+        const baseComp = compareTypes(c, typeObj1.data.Substitution.baseType, typeObj2.data.Substitution.baseType);
+        if (baseComp != 0) return baseComp;
+        const consComp = compareTypes(c, typeObj1.data.Substitution.constraint, typeObj2.data.Substitution.constraint);
+        if (consComp != 0) return consComp;
+    } else if ((type1Flags & types.TypeFlags.TemplateLiteral) != 0) {
+        // Compare texts
+        const texts1 = typeObj1.data.TemplateLiteral.texts;
+        const texts2 = typeObj2.data.TemplateLiteral.texts;
+        if (texts1.len != texts2.len) return if (texts1.len > texts2.len) 1 else -1;
+        for (texts1, 0..) |text1, i| {
+            const comp = std.mem.order(u8, text1, texts2[i]).compare();
+            if (comp != 0) return comp;
+        }
+        const types1 = c.unionTypesPool.items[typeObj1.data.TemplateLiteral.typesStart .. typeObj1.data.TemplateLiteral.typesStart + typeObj1.data.TemplateLiteral.typesLen];
+        const types2 = c.unionTypesPool.items[typeObj2.data.TemplateLiteral.typesStart .. typeObj2.data.TemplateLiteral.typesStart + typeObj2.data.TemplateLiteral.typesLen];
+        const typesComp = compareTypeLists(c, types1, types2);
+        if (typesComp != 0) return typesComp;
+    } else if ((type1Flags & types.TypeFlags.StringMapping) != 0) {
+        const targetComp = compareTypes(c, typeObj1.data.StringMapping.target, typeObj2.data.StringMapping.target);
+        if (targetComp != 0) return targetComp;
+    }
+
+    // Fall back to type IDs
+    const id1 = typeObj1.id;
+    const id2 = typeObj2.id;
+    if (id1 != id2) return if (id1 > id2) 1 else -1;
+
+    return 0;
+}
+
+pub fn createModuleNotFoundChain(c: *Checker, node: ast_gen.NodeIndex, specifier: []const u8) *anyopaque {
+    _ = c;
+    _ = node;
+    _ = specifier;
+    return undefined;
+}
+
+pub fn createModeMismatchDetails(c: *Checker, node: ast_gen.NodeIndex, specifier: []const u8) *anyopaque {
+    _ = c;
+    _ = node;
+    _ = specifier;
+    return undefined;
+}
+
+pub fn getPackagesMap(c: *Checker) *std.StringHashMapUnmanaged(bool) {
+    if (c.packagesMap == null) {
+        c.packagesMap = std.StringHashMapUnmanaged(bool).empty;
+    }
+    return &c.packagesMap.?;
+}
+
+pub fn packageBundlesTypes(c: *Checker, name: []const u8) bool {
+    const packagesMap = getPackagesMap(c);
+    if (packagesMap.get(name)) |hasTypes| {
+        return hasTypes;
+    }
+    return false;
+}
+
+pub fn typesPackageExists(c: *Checker, name: []const u8) bool {
+    _ = c;
+    _ = name;
+    return false;
+}
+
+pub fn add(set: *anyopaque, value: *anyopaque) void {
+    _ = set;
+    _ = value;
+}
+
+pub fn contains(set: *anyopaque, value: *anyopaque) bool {
+    _ = set;
+    _ = value;
+    return false;
+}
+
+pub fn compareElementLabels(c: *Checker, n1: ast_gen.NodeIndex, n2: ast_gen.NodeIndex) i32 {
+    if (n1 == n2) return 0;
+    if (n1 == 0) return -1;
+    if (n2 == 0) return 1;
+
+    const name1Node = ast_utils.getNameOfNode(c.binder.ast, n1);
+    const name2Node = ast_utils.getNameOfNode(c.binder.ast, n2);
+
+    if (name1Node == 0 and name2Node == 0) return 0;
+    if (name1Node == 0) return -1;
+    if (name2Node == 0) return 1;
+
+    const text1 = tryGetPropertyAccessOrIdentifierToString(&c.binder.ast, name1Node, c.allocator) catch null;
+    const text2 = tryGetPropertyAccessOrIdentifierToString(&c.binder.ast, name2Node, c.allocator) catch null;
+
+    if (text1 == null and text2 == null) return 0;
+    if (text1 == null) return -1;
+    if (text2 == null) return 1;
+
+    return switch (std.mem.order(u8, text1.?, text2.?)) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
 }

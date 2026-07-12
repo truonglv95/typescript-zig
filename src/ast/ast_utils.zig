@@ -156,16 +156,69 @@ pub fn getName(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeInd
     }
 }
 
+pub const JSDeclarationKind = enum {
+    None,
+    ModuleExports,
+    ExportsProperty,
+    ThisProperty,
+    PropertyAssignment,
+    PrototypeProperty,
+};
+
+pub fn getAssignmentDeclarationKind(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) JSDeclarationKind {
+    const node = tree.getNode(nodeIndex);
+    if (node != .BinaryExpression) return .None;
+    const bin = node.BinaryExpression;
+    if (tree.getNodeKind(bin.operatorToken) != .EqualsToken) return .None;
+
+    if (tree.getNodeKind(bin.left) == .PropertyAccessExpression) {
+        const pae = tree.getNode(bin.left).PropertyAccessExpression;
+        if (pae.expression != 0) {
+            const expKind = tree.getNodeKind(pae.expression);
+            if (expKind == .Identifier) {
+                const idText = tree.getIdentifierText(pae.expression);
+                if (std.mem.eql(u8, idText, "exports")) {
+                    return .ExportsProperty;
+                }
+            } else if (expKind == .PropertyAccessExpression) {
+                const inner = tree.getNode(pae.expression).PropertyAccessExpression;
+                if (inner.expression != 0 and tree.getNodeKind(inner.expression) == .Identifier) {
+                    const idText = tree.getIdentifierText(inner.expression);
+                    if (std.mem.eql(u8, idText, "module")) {
+                        const nameText = tree.getIdentifierText(inner.name);
+                        if (std.mem.eql(u8, nameText, "exports")) {
+                            return .ExportsProperty;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return .None;
+}
+
 pub fn isAliasSymbolDeclaration(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const node = tree.getNode(nodeIndex);
     switch (node) {
         .ImportEqualsDeclaration, .NamespaceExportDeclaration, .NamespaceImport, .NamespaceExport, .ImportSpecifier, .ExportSpecifier => return true,
         .ImportClause => |n| return n.name != 0,
-        .ExportAssignment => return false, // TODO: expressionIsAlias
+        .ExportAssignment => |n| return expressionIsAlias(tree, n.expression),
         .VariableDeclaration => |n| return if (n.initializer != 0) isRequireCall(tree, n.initializer, true) else false,
         .BindingElement => |n| return if (n.initializer != 0) isRequireCall(tree, n.initializer, true) else false,
+        .BinaryExpression => |n| {
+            const assignmentKind = getAssignmentDeclarationKind(tree, nodeIndex);
+            if (assignmentKind == .ModuleExports or assignmentKind == .ExportsProperty) {
+                return expressionIsAlias(tree, n.right);
+            }
+            return false;
+        },
         else => return false,
     }
+}
+
+pub fn expressionIsAlias(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    return isEntityNameExpression(tree, nodeIndex) or tree.getNodeKind(nodeIndex) == .ClassExpression;
 }
 
 pub const ModifierFlags = struct {

@@ -127,3 +127,249 @@ pub fn typeToTypeNodeEx(c: *Checker, t: TypeIndex, enclosingDeclaration: NodeInd
     _ = internalFlags;
     return 0;
 }
+
+pub const SemicolonRemoverWriter = struct {
+    hasPendingSemicolon: bool,
+    inner: printer.EmitTextWriter,
+
+    pub fn init(inner: printer.EmitTextWriter) SemicolonRemoverWriter {
+        return .{
+            .hasPendingSemicolon = false,
+            .inner = inner,
+        };
+    }
+
+    pub fn commitSemicolon(self: *SemicolonRemoverWriter) void {
+        if (self.hasPendingSemicolon) {
+            self.inner.writeTrailingSemicolon(";");
+            self.hasPendingSemicolon = false;
+        }
+    }
+
+    pub fn clear(ptr: *anyopaque) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.inner.clear();
+    }
+
+    pub fn decreaseIndent(ptr: *anyopaque) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.decreaseIndent();
+    }
+
+    pub fn getColumn(ptr: *anyopaque) usize {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        return self.inner.getColumn();
+    }
+
+    pub fn getIndent(ptr: *anyopaque) usize {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        return self.inner.getIndent();
+    }
+
+    pub fn getLine(ptr: *anyopaque) usize {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        return self.inner.getLine();
+    }
+
+    pub fn getTextPos(ptr: *anyopaque) usize {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        return self.inner.getTextPos();
+    }
+
+    pub fn hasTrailingComment(ptr: *anyopaque) bool {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        return self.inner.hasTrailingComment();
+    }
+
+    pub fn hasTrailingWhitespace(ptr: *anyopaque) bool {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        return self.inner.hasTrailingWhitespace();
+    }
+
+    pub fn increaseIndent(ptr: *anyopaque) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.increaseIndent();
+    }
+
+    pub fn isAtStartOfLine(ptr: *anyopaque) bool {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        return self.inner.isAtStartOfLine();
+    }
+
+    pub fn rawWrite(ptr: *anyopaque, s: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.rawWrite(s);
+    }
+
+    pub fn string(ptr: *anyopaque) []const u8 {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        return self.inner.string();
+    }
+
+    pub fn write(ptr: *anyopaque, s: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.write(s);
+    }
+
+    pub fn writeComment(ptr: *anyopaque, text: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeComment(text);
+    }
+
+    pub fn writeKeyword(ptr: *anyopaque, text: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeKeyword(text);
+    }
+
+    pub fn writeLine(ptr: *anyopaque) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeLine();
+    }
+
+    pub fn writeLineForce(ptr: *anyopaque, force: bool) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeLineForce(force);
+    }
+
+    pub fn writeLiteral(ptr: *anyopaque, s: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeLiteral(s);
+    }
+
+    pub fn writeOperator(ptr: *anyopaque, text: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeOperator(text);
+    }
+
+    pub fn writeParameter(ptr: *anyopaque, text: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeParameter(text);
+    }
+
+    pub fn writeProperty(ptr: *anyopaque, text: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeProperty(text);
+    }
+
+    pub fn writePunctuation(ptr: *anyopaque, text: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writePunctuation(text);
+    }
+
+    pub fn writeSpace(ptr: *anyopaque, text: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeSpace(text);
+    }
+
+    pub fn writeStringLiteral(ptr: *anyopaque, text: []const u8) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeStringLiteral(text);
+    }
+
+    pub fn writeSymbol(ptr: *anyopaque, text: []const u8, symbol: ast_gen.SymbolIndex) void {
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.commitSemicolon();
+        self.inner.writeSymbol(text, symbol);
+    }
+
+    pub fn writeTrailingSemicolon(ptr: *anyopaque, text: []const u8) void {
+        _ = text;
+        const self: *SemicolonRemoverWriter = @ptrCast(@alignCast(ptr));
+        self.hasPendingSemicolon = true;
+    }
+
+    pub fn toEmitTextWriter(self: *SemicolonRemoverWriter) printer.EmitTextWriter {
+        const vtable = &printer.EmitTextWriter.VTable{
+            .write = write,
+            .writeTrailingSemicolon = writeTrailingSemicolon,
+            .writeComment = writeComment,
+            .writeKeyword = writeKeyword,
+            .writeOperator = writeOperator,
+            .writePunctuation = writePunctuation,
+            .writeSpace = writeSpace,
+            .writeStringLiteral = writeStringLiteral,
+            .writeParameter = writeParameter,
+            .writeProperty = writeProperty,
+            .writeSymbol = writeSymbol,
+            .writeLine = writeLine,
+            .writeLineForce = writeLineForce,
+            .increaseIndent = increaseIndent,
+            .decreaseIndent = decreaseIndent,
+            .clear = clear,
+            .string = string,
+            .rawWrite = rawWrite,
+            .writeLiteral = writeLiteral,
+            .getTextPos = getTextPos,
+            .getLine = getLine,
+            .getColumn = getColumn,
+            .getIndent = getIndent,
+            .isAtStartOfLine = isAtStartOfLine,
+            .hasTrailingComment = hasTrailingComment,
+            .hasTrailingWhitespace = hasTrailingWhitespace,
+        };
+        return .{
+            .ptr = self,
+            .vtable = vtable,
+        };
+    }
+};
+
+pub fn getTrailingSemicolonDeferringWriter(allocator: std.mem.Allocator, writer: printer.EmitTextWriter) !printer.EmitTextWriter {
+    const s = try allocator.create(SemicolonRemoverWriter);
+    s.* = SemicolonRemoverWriter.init(writer);
+    return s.toEmitTextWriter();
+}
+
+pub fn createPrinterWithDefaults(c: *Checker, emitContext: *anyopaque) *printer.Printer {
+    _ = c;
+    _ = emitContext;
+    return undefined; // stub for now
+}
+
+pub fn createPrinterWithRemoveComments(c: *Checker, emitContext: *anyopaque) *printer.Printer {
+    _ = c;
+    _ = emitContext;
+    return undefined; // stub for now
+}
+
+pub fn createPrinterWithRemoveCommentsNeverAsciiEscape(c: *Checker, emitContext: *anyopaque) *printer.Printer {
+    _ = c;
+    _ = emitContext;
+    return undefined; // stub for now
+}
+
+pub fn createPrinterWithRemoveCommentsOmitTrailingSemicolonNeverAsciiEscape(c: *Checker, emitContext: *anyopaque) *printer.Printer {
+    _ = c;
+    _ = emitContext;
+    return undefined; // stub for now
+}
+
+pub fn toNodeBuilderFlags(flags: u32) u32 {
+    // stub
+    return flags & 0x03FFFFFF; // example mask
+}
+
+pub fn typePredicateToTypePredicateNode(c: *Checker, t: *anyopaque, enclosingDeclaration: *anyopaque, flags: *anyopaque, idToSymbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = t;
+    _ = enclosingDeclaration;
+    _ = flags;
+    _ = idToSymbol;
+    return undefined;
+}

@@ -143,7 +143,7 @@ pub const LegacyDecoratorsTransformer = struct {
     fn visitPropertyNameOfClassElement(self: *LegacyDecoratorsTransformer, tx: *transformers.Transformer, member: ast.NodeIndex) ast.NodeIndex {
         _ = self;
         const name = ast_utils.name(tx.emitContext.tree, member);
-        if (ast_utils.isComputedPropertyName(name) and ast_utils.hasDecorators(tx.visitor.tree, member)) {
+        if (ast_utils.isComputedPropertyName(tx.visitor.tree, name) and ast_utils.hasDecorators(tx.visitor.tree, member)) {
             const expression = tx.visitor.visitNode(ast_utils.expression(tx.emitContext.tree, name));
             const innerExpression = ast_utils.skipPartiallyEmittedExpressions(tx.visitor.tree, expression);
             if (!ast_utils.isSimpleInlineableExpression(innerExpression)) {
@@ -843,7 +843,7 @@ pub const LegacyDecoratorsTransformer = struct {
         const name = ast_utils.name(tx.emitContext.tree, member);
         if (ast_utils.isPrivateIdentifier(name)) {
             return tx.factory.newIdentifier("");
-        } else if (ast_utils.isComputedPropertyName(name)) {
+        } else if (ast_utils.isComputedPropertyName(tx.visitor.tree, name)) {
             if (generateNameForComputedPropertyName and !ast_utils.isSimpleInlineableExpression(ast_utils.expression(tx.emitContext.tree, name))) {
                 return tx.factory.newGeneratedNameForNode(name);
             }

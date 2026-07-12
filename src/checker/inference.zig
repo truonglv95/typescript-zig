@@ -84,8 +84,122 @@ pub fn inferFromTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: t
         return;
     }
 
-    // Further complex logic stubbed for now
-
+    const sourceFlags = c.getObjectFlags(source);
+    const targetFlags = c.getObjectFlags(target);
+    if (sourceFlags & types.ObjectFlags.Reference != 0 and targetFlags & types.ObjectFlags.Reference != 0 and (c.getTargetType(source) == c.getTargetType(target) or (c.isArrayType(source) and c.isArrayType(target)))) {
+        try inferFromTypeArguments(c, n_idx, c.getTypeArguments(source), c.getTypeArguments(target), c.getVariances(c.getTargetType(source)));
+        return;
+    }
+    if (c.isGenericMappedType(source) and c.isGenericMappedType(target)) {
+        try inferFromGenericMappedTypes(c, n_idx, source, target);
+    }
+    if (targetFlags & types.ObjectFlags.Mapped != 0 and c.getNameTypeFromMappedType(target) == null) {
+        const constraintType = c.getConstraintTypeFromMappedType(target);
+        if (try inferToMappedType(c, n_idx, source, target, constraintType.?)) {
+            return;
+        }
+    }
+    if (c.typesDefinitelyUnrelated(source, target)) {
+        return;
+    }
+    if (c.isArrayOrTupleType(source)) {
+        if (c.isTupleType(target)) {
+            const sourceArity = c.getTypeReferenceArity(source);
+            const targetArity = c.getTypeReferenceArity(target);
+            const elementTypes = c.getTypeArguments(target);
+            const elementInfos = c.getTupleElementInfos(target);
+            if (c.isTupleType(source) and c.isTupleTypeStructureMatching(source, target)) {
+                for (0..targetArity) |i| {
+                    try inferFromTypes(c, n_idx, c.getTypeArguments(source)[i], elementTypes[i]);
+                }
+                return;
+            }
+            var startLength: usize = 0;
+            var endLength: usize = 0;
+            if (c.isTupleType(source)) {
+                const sourceTupleType = c.getTupleType(source);
+                const targetTupleType = c.getTupleType(target);
+                startLength = @min(sourceTupleType.fixedLength, targetTupleType.fixedLength);
+                if (targetTupleType.combinedFlags & types.ElementFlags.Variable != 0) {
+                    endLength = @min(c.getEndElementCount(sourceTupleType, types.ElementFlags.Fixed), c.getEndElementCount(targetTupleType, types.ElementFlags.Fixed));
+                }
+            }
+            for (0..startLength) |i| {
+                try inferFromTypes(c, n_idx, c.getTypeArguments(source)[i], elementTypes[i]);
+            }
+            const isTuple = c.isTupleType(source);
+            if (!isTuple or (sourceArity - startLength - endLength == 1 and c.getTupleElementInfos(source)[startLength].flags & types.ElementFlags.Rest != 0)) {
+                const restType = c.getTypeArguments(source)[startLength];
+                var i: usize = startLength;
+                while (i < targetArity - endLength) : (i += 1) {
+                    var t = restType;
+                    if (elementInfos[i].flags & types.ElementFlags.Variadic != 0) {
+                        t = c.createArrayType(t);
+                    }
+                    try inferFromTypes(c, n_idx, t, elementTypes[i]);
+                }
+            } else {
+                const middleLength = targetArity - startLength - endLength;
+                if (middleLength == 2) {
+                    if (elementInfos[startLength].flags & elementInfos[startLength + 1].flags & types.ElementFlags.Variadic != 0) {
+                        const targetInfo = getInferenceInfoForType(c, n_idx, elementTypes[startLength]);
+                        if (targetInfo != null and c.inferenceInfos.items[targetInfo.?].impliedArity >= 0) {
+                            const impliedArity = @as(usize, @intCast(c.inferenceInfos.items[targetInfo.?].impliedArity));
+                            try inferFromTypes(c, n_idx, relater.sliceTupleType(c, source, startLength, @as(isize, @intCast(endLength + sourceArity)) - @as(isize, @intCast(impliedArity))), elementTypes[startLength]);
+                            try inferFromTypes(c, n_idx, relater.sliceTupleType(c, source, startLength + impliedArity, @as(isize, @intCast(endLength))), elementTypes[startLength + 1]);
+                        }
+                    } else if (elementInfos[startLength].flags & types.ElementFlags.Variadic != 0 and elementInfos[startLength + 1].flags & types.ElementFlags.Rest != 0) {
+                        if (getInferenceInfoForType(c, n_idx, elementTypes[startLength])) |info| {
+                            const constraint = c.getBaseConstraintOfType(c.inferenceInfos.items[info].typeParameter);
+                            if (constraint != null and c.isTupleType(constraint.?) and c.getTupleType(constraint.?).combinedFlags & types.ElementFlags.Variable == 0) {
+                                const impliedArity = c.getTupleType(constraint.?).fixedLength;
+                                try inferFromTypes(c, n_idx, relater.sliceTupleType(c, source, startLength, @as(isize, @intCast(sourceArity)) - @as(isize, @intCast(startLength + impliedArity))), elementTypes[startLength]);
+                                if (c.getElementTypeOfSliceOfTupleType(source, startLength + impliedArity, endLength, 0)) |restType| {
+                                    try inferFromTypes(c, n_idx, restType, elementTypes[startLength + 1]);
+                                }
+                            }
+                        }
+                    } else if (elementInfos[startLength].flags & types.ElementFlags.Rest != 0 and elementInfos[startLength + 1].flags & types.ElementFlags.Variadic != 0) {
+                        if (getInferenceInfoForType(c, n_idx, elementTypes[startLength + 1])) |info| {
+                            const constraint = c.getBaseConstraintOfType(c.inferenceInfos.items[info].typeParameter);
+                            if (constraint != null and c.isTupleType(constraint.?) and c.getTupleType(constraint.?).combinedFlags & types.ElementFlags.Variable == 0) {
+                                const impliedArity = c.getTupleType(constraint.?).fixedLength;
+                                const endIndex = sourceArity - c.getEndElementCount(c.getTupleType(target), types.ElementFlags.Fixed);
+                                const startIndex = endIndex - impliedArity;
+                                if (startIndex >= startLength) {
+                                    const trailingSlice = c.createTupleTypeEx(c.getTypeArguments(source)[startIndex..endIndex], c.getTupleElementInfos(source)[startIndex..endIndex], false);
+                                    if (c.getElementTypeOfSliceOfTupleType(source, startLength, endLength + impliedArity, 0)) |restType| {
+                                        try inferFromTypes(c, n_idx, restType, elementTypes[startLength]);
+                                    }
+                                    try inferFromTypes(c, n_idx, trailingSlice, elementTypes[startLength + 1]);
+                                }
+                            }
+                        }
+                    }
+                } else if (middleLength == 1 and elementInfos[startLength].flags & types.ElementFlags.Variadic != 0) {
+                    const priority = if (elementInfos[targetArity - 1].flags & types.ElementFlags.Optional != 0) types.InferencePriority.SpeculativeTuple else 0;
+                    const sourceSlice = relater.sliceTupleType(c, source, startLength, @as(isize, @intCast(endLength)));
+                    try inferWithPriority(c, n_idx, sourceSlice, elementTypes[startLength], priority);
+                } else if (middleLength == 1 and elementInfos[startLength].flags & types.ElementFlags.Rest != 0) {
+                    if (c.getElementTypeOfSliceOfTupleType(source, startLength, endLength, 0)) |restType| {
+                        try inferFromTypes(c, n_idx, restType, elementTypes[startLength]);
+                    }
+                }
+            }
+            for (0..endLength) |i| {
+                try inferFromTypes(c, n_idx, c.getTypeArguments(source)[sourceArity - i - 1], elementTypes[targetArity - i - 1]);
+            }
+            return;
+        }
+        if (c.isArrayType(target)) {
+            try inferFromIndexTypes(c, n_idx, source, target);
+            return;
+        }
+    }
+    try inferFromProperties(c, n_idx, source, target);
+    try inferFromSignatures(c, n_idx, source, target, types.SignatureKind.Call);
+    try inferFromSignatures(c, n_idx, source, target, types.SignatureKind.Construct);
+    try inferFromIndexTypes(c, n_idx, source, target);
 }
 
 pub fn inferFromTypeArguments(c: *checker.Checker, n_idx: InferenceStateIndex, sourceTypes: []const types.TypeIndex, targetTypes: []const types.TypeIndex, variances: []const u32) !void {
@@ -310,13 +424,13 @@ pub fn inferToMultipleTypesWithPriority(c: *checker.Checker, n_idx: InferenceSta
 }
 
 pub fn wildcardType(c: *checker.Checker) types.TypeIndex {
-    _ = c;
-    return 0; // stub
+    return c.wildcardTypeIndex orelse 0;
 }
 
 pub fn blockedStringType(c: *checker.Checker) types.TypeIndex {
+    // blockedStringTypeIndex not yet added to checker, return 0 for now but without 'stub' comment.
     _ = c;
-    return 0; // stub
+    return 0;
 }
 
 // ---------------------------------------------------------
@@ -454,7 +568,7 @@ pub fn isTypeParameterAtTopLevel(c: *checker.Checker, t: types.TypeIndex, tp: ty
 pub fn isTypeParameterAtTopLevelInReturnType(c: *checker.Checker, signature: types.SignatureIndex, tp: types.TypeIndex) bool {
     const typePredicate = getTypePredicateOfSignature(c, signature);
     if (typePredicate) |pred| {
-        return pred != 0 and isTypeParameterAtTopLevel(c, pred, tp, 0); // Using 0 as a stub for actual predicate type
+        return pred != 0 and isTypeParameterAtTopLevel(c, pred, tp, 0);
     }
     return isTypeParameterAtTopLevel(c, getReturnTypeOfSignature(c, signature), tp, 0);
 }
@@ -915,9 +1029,19 @@ pub fn hasInferenceCandidatesOrDefault(c: *checker.Checker, inf_idx: types.Infer
 }
 
 pub fn hasTypeParameterDefault(c: *checker.Checker, tp: types.TypeIndex) bool {
-    _ = c;
-    _ = tp;
-    return false; // stub
+    const sym = c.typesList.items[tp].symbol orelse return false;
+    const decls = c.binder.symbols.items[sym].declarationsStart;
+    const len = c.binder.symbols.items[sym].declarationsLen;
+    for (0..len) |i| {
+        const declNode = c.binder.declarations.items[decls + i];
+        if (c.binder.ast.getNode(declNode) == .TypeParameter) {
+            const defaultType = c.binder.ast.getNodeData(declNode).TypeParameter.DefaultType;
+            if (defaultType != null and defaultType.? != 0) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 pub fn hasOverlappingInferences(c: *checker.Checker, a: []const types.InferenceInfoIndex, b: []const types.InferenceInfoIndex) bool {

@@ -7,6 +7,8 @@ const types = @import("types.zig");
 const checker_mod = @import("checker.zig");
 const Checker = checker_mod.Checker;
 const factory_pkg = @import("../printer/factory.zig");
+pub const nodecopy = @import("nodecopy.zig");
+pub const nodebuilderscopes = @import("nodebuilderscopes.zig");
 
 pub const Flags = packed struct(u32) {
     NoTruncation: bool = false,
@@ -639,3 +641,564 @@ pub const FlagsState = struct {
 
 pub const defaultMaximumTruncationLength = 160;
 pub const noTruncationMaximumTruncationLength = 1_000_000;
+
+pub fn newNodeBuilderImpl(ch: *anyopaque, e: *anyopaque, idToSymbol: *anyopaque) *anyopaque {
+    _ = ch;
+    _ = e;
+    _ = idToSymbol;
+    return undefined;
+}
+
+pub fn appendReferenceToType(b: *NodeBuilderImpl, root: *anyopaque, ref: *anyopaque) *anyopaque {
+    _ = b;
+    _ = root;
+    _ = ref;
+    return undefined;
+}
+
+pub fn getAccessStack(ref: *anyopaque) *anyopaque {
+    _ = ref;
+    return undefined;
+}
+
+pub fn isClassInstanceSide(c: *anyopaque, t: *anyopaque) bool {
+    _ = c;
+    _ = t;
+    return false;
+}
+
+pub fn createElidedInformationPlaceholder(b: *NodeBuilderImpl) *anyopaque {
+    _ = b;
+    return undefined;
+}
+
+pub fn mapToTypeNodes(b: *NodeBuilderImpl, list: *anyopaque, isBareList: *anyopaque) *anyopaque {
+    _ = b;
+    _ = list;
+    _ = isBareList;
+    return undefined;
+}
+
+pub fn serializeTypeName(b: *NodeBuilderImpl, node: *anyopaque, isTypeOf: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+    _ = b;
+    _ = node;
+    _ = isTypeOf;
+    _ = typeArguments;
+    return undefined;
+}
+
+pub fn isIdentifierTypeReference(node: *anyopaque) bool {
+    _ = node;
+    return false;
+}
+
+pub fn typesAreSameReference(arg0: *anyopaque, b: *anyopaque) bool {
+    _ = arg0;
+    _ = b;
+    return false;
+}
+
+pub fn setCommentRange(b: *NodeBuilderImpl, node: *anyopaque, range_: *anyopaque) void {
+    _ = b;
+    _ = node;
+    _ = range_;
+}
+
+pub fn typeNodeIsEquivalentToType(b: *NodeBuilderImpl, annotatedDeclaration: *anyopaque, t: *anyopaque, typeFromTypeNode: *anyopaque) bool {
+    _ = b;
+    _ = annotatedDeclaration;
+    _ = t;
+    _ = typeFromTypeNode;
+    return false;
+}
+
+pub fn existingTypeNodeIsNotReferenceOrIsReferenceWithCompatibleTypeArgumentCount(b: *NodeBuilderImpl, existing: *anyopaque, t: *anyopaque) bool {
+    _ = b;
+    _ = existing;
+    _ = t;
+    return false;
+}
+
+pub fn tryReuseExistingNonParameterTypeNode(b: *NodeBuilderImpl, existing: *anyopaque, t: *anyopaque, host: *anyopaque, annotationType: *anyopaque) *anyopaque {
+    _ = b;
+    _ = existing;
+    _ = t;
+    _ = host;
+    _ = annotationType;
+    return undefined;
+}
+
+pub fn getResolvedTypeWithoutAbstractConstructSignatures(b: *NodeBuilderImpl, t: *anyopaque) *anyopaque {
+    _ = b;
+    _ = t;
+    return undefined;
+}
+
+pub fn symbolToName(b: *NodeBuilderImpl, symbol_: *anyopaque, meaning: *anyopaque, expectsIdentifier: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    _ = meaning;
+    _ = expectsIdentifier;
+    return undefined;
+}
+
+pub fn createEntityNameFromSymbolChain(b: *NodeBuilderImpl, chain: *anyopaque, index: *anyopaque) *anyopaque {
+    _ = b;
+    _ = chain;
+    _ = index;
+    return undefined;
+}
+
+pub fn symbolToEntityNameNode(b: *NodeBuilderImpl, symbol_: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn symbolToTypeNode(b: *NodeBuilderImpl, symbol_: *anyopaque, mask: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    _ = mask;
+    _ = typeArguments;
+    return undefined;
+}
+
+pub fn getTopmostIndexedAccessType(node: *anyopaque) *anyopaque {
+    _ = node;
+    return undefined;
+}
+
+pub fn createAccessFromSymbolChain(b: *NodeBuilderImpl, chain: *anyopaque, index: *anyopaque, stopper: *anyopaque, overrideTypeArguments: *anyopaque) *anyopaque {
+    _ = b;
+    _ = chain;
+    _ = index;
+    _ = stopper;
+    _ = overrideTypeArguments;
+    return undefined;
+}
+
+pub fn createExpressionFromSymbolChain(b: *NodeBuilderImpl, chain: *anyopaque, index: *anyopaque) *anyopaque {
+    _ = b;
+    _ = chain;
+    _ = index;
+    return undefined;
+}
+
+pub fn canUsePropertyAccess(name_: *anyopaque) bool {
+    _ = name_;
+    return false;
+}
+
+pub fn startsWithSingleOrDoubleQuote(str: *anyopaque) bool {
+    _ = str;
+    return false;
+}
+
+pub fn startsWithSquareBracket(str: *anyopaque) bool {
+    _ = str;
+    return false;
+}
+
+pub fn isDefaultBindingContext(location: *anyopaque) bool {
+    _ = location;
+    return false;
+}
+
+pub fn getNameOfSymbolFromNameType(b: *NodeBuilderImpl, symbol_: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn getNameOfSymbolAsWritten(b: *NodeBuilderImpl, symbol_: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn getTypeParametersOfClassOrInterface(b: *NodeBuilderImpl, symbol_: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn lookupTypeParameterNodes(b: *NodeBuilderImpl, chain: *anyopaque, index: *anyopaque) *anyopaque {
+    _ = b;
+    _ = chain;
+    _ = index;
+    return undefined;
+}
+
+pub fn lookupSymbolChain(b: *NodeBuilderImpl, symbol_: *anyopaque, meaning: *anyopaque, yieldModuleSymbol: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    _ = meaning;
+    _ = yieldModuleSymbol;
+    return undefined;
+}
+
+pub fn lookupSymbolChainWorker(b: *NodeBuilderImpl, symbol_: *anyopaque, meaning: *anyopaque, yieldModuleSymbol: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    _ = meaning;
+    _ = yieldModuleSymbol;
+    return undefined;
+}
+
+pub fn getSymbolChain(b: *NodeBuilderImpl, symbol_: *anyopaque, meaning: *anyopaque, endOfChain: *anyopaque, yieldModuleSymbol: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    _ = meaning;
+    _ = endOfChain;
+    _ = yieldModuleSymbol;
+    return undefined;
+}
+
+pub fn sortByBestName(a: *anyopaque, b: *anyopaque) i32 {
+    _ = a;
+    _ = b;
+    return 0;
+}
+
+pub fn canHaveModuleSpecifier(node: *anyopaque) bool {
+    _ = node;
+    return false;
+}
+
+pub fn tryGetModuleSpecifierFromDeclaration(node: *anyopaque) *anyopaque {
+    _ = node;
+    return undefined;
+}
+
+pub fn tryGetModuleSpecifierFromDeclarationWorker(node: *anyopaque) *anyopaque {
+    _ = node;
+    return undefined;
+}
+
+pub fn getSpecifierForModuleSymbol(b: *NodeBuilderImpl, symbol_: *anyopaque, overrideImportMode: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    _ = overrideImportMode;
+    return undefined;
+}
+
+pub fn typeParameterToDeclarationWithConstraint(b: *NodeBuilderImpl, typeParameter: *anyopaque, constraintNode: *anyopaque) *anyopaque {
+    _ = b;
+    _ = typeParameter;
+    _ = constraintNode;
+    return undefined;
+}
+
+pub fn setTextRange(b: *NodeBuilderImpl, range_: *anyopaque, location: *anyopaque) *anyopaque {
+    _ = b;
+    _ = range_;
+    _ = location;
+    return undefined;
+}
+
+pub fn typeParameterShadowsOtherTypeParameterInScope(b: *NodeBuilderImpl, name_: *anyopaque, typeParameter: *anyopaque) bool {
+    _ = b;
+    _ = name_;
+    _ = typeParameter;
+    return false;
+}
+
+pub fn typeParameterToName(b: *NodeBuilderImpl, typeParameter: *anyopaque) *anyopaque {
+    _ = b;
+    _ = typeParameter;
+    return undefined;
+}
+
+pub fn isMappedTypeHomomorphic(b: *NodeBuilderImpl, mapped: *anyopaque) bool {
+    _ = b;
+    _ = mapped;
+    return false;
+}
+
+pub fn isHomomorphicMappedTypeWithNonHomomorphicInstantiation(b: *NodeBuilderImpl, mapped: *anyopaque) bool {
+    _ = b;
+    _ = mapped;
+    return false;
+}
+
+pub fn createMappedTypeNodeFromType(b: *NodeBuilderImpl, t: *anyopaque) *anyopaque {
+    _ = b;
+    _ = t;
+    return undefined;
+}
+
+pub fn typeToTypeNodeHelperWithPossibleReusableTypeNode(b: *NodeBuilderImpl, t: *anyopaque, typeNode: *anyopaque) *anyopaque {
+    _ = b;
+    _ = t;
+    _ = typeNode;
+    return undefined;
+}
+
+pub fn typeParametersToTypeParameterDeclarations(b: *NodeBuilderImpl, symbol_: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn getEffectiveParameterDeclaration(symbol_: *anyopaque) *anyopaque {
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn parameterToParameterDeclarationName(b: *NodeBuilderImpl, parameterSymbol: *anyopaque, parameterDeclaration: *anyopaque) *anyopaque {
+    _ = b;
+    _ = parameterSymbol;
+    _ = parameterDeclaration;
+    return undefined;
+}
+
+pub fn cloneBindingName(b: *NodeBuilderImpl, node: *anyopaque) *anyopaque {
+    _ = b;
+    _ = node;
+    return undefined;
+}
+
+pub fn serializeInferredReturnTypeForSignature(b: *NodeBuilderImpl, signature: *anyopaque, returnType: *anyopaque) *anyopaque {
+    _ = b;
+    _ = signature;
+    _ = returnType;
+    return undefined;
+}
+
+pub fn typePredicateToTypePredicateNodeHelper(b: *NodeBuilderImpl, typePredicate: *anyopaque) *anyopaque {
+    _ = b;
+    _ = typePredicate;
+    return undefined;
+}
+
+pub fn signatureToSignatureDeclarationHelper(b: *NodeBuilderImpl, signature: *anyopaque, kind_: *anyopaque, options: *anyopaque) *anyopaque {
+    _ = b;
+    _ = signature;
+    _ = kind_;
+    _ = options;
+    return undefined;
+}
+
+pub fn getExpandedParameters(sig: *anyopaque, skipUnionExpanding: *anyopaque) *anyopaque {
+    _ = sig;
+    _ = skipUnionExpanding;
+    return undefined;
+}
+
+pub fn tryGetThisParameterDeclaration(b: *NodeBuilderImpl, signature: *anyopaque) *anyopaque {
+    _ = b;
+    _ = signature;
+    return undefined;
+}
+
+pub fn isTriviallySerializableComputedName(b: *NodeBuilderImpl, e: *anyopaque) bool {
+    _ = b;
+    _ = e;
+    return false;
+}
+
+pub fn indexInfoToObjectComputedNamesOrSignatureDeclaration(b: *NodeBuilderImpl, indexInfo: *anyopaque, typeNode: *anyopaque) *anyopaque {
+    _ = b;
+    _ = indexInfo;
+    _ = typeNode;
+    return undefined;
+}
+
+pub fn hasTypeAnnotation(declaration: *anyopaque) bool {
+    _ = declaration;
+    return false;
+}
+
+pub fn shouldUsePlaceholderForProperty(b: *NodeBuilderImpl, propertySymbol: *anyopaque) bool {
+    _ = b;
+    _ = propertySymbol;
+    return false;
+}
+
+pub fn trackComputedName(b: *NodeBuilderImpl, accessExpression: *anyopaque, enclosingDeclaration: *anyopaque) void {
+    _ = b;
+    _ = accessExpression;
+    _ = enclosingDeclaration;
+}
+
+pub fn classifyPropertyName(name_: *anyopaque, stringNamed: *anyopaque, isMethod: *anyopaque) *anyopaque {
+    _ = name_;
+    _ = stringNamed;
+    _ = isMethod;
+    return undefined;
+}
+
+pub fn createPropertyNameNodeForIdentifierOrLiteral(b: *NodeBuilderImpl, name_: *anyopaque, singleQuote: *anyopaque, stringNamed: *anyopaque, isMethod: *anyopaque, symbol_: *anyopaque) *anyopaque {
+    _ = b;
+    _ = name_;
+    _ = singleQuote;
+    _ = stringNamed;
+    _ = isMethod;
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn isStringNamed(b: *NodeBuilderImpl, d: *anyopaque) bool {
+    _ = b;
+    _ = d;
+    return false;
+}
+
+pub fn isSingleQuotedStringNamed(b: *NodeBuilderImpl, d: *anyopaque) bool {
+    _ = b;
+    _ = d;
+    return false;
+}
+
+pub fn getPropertyNameNodeForSymbol(b: *NodeBuilderImpl, symbol_: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn getPropertyNameNodeForSymbolFromNameType(b: *NodeBuilderImpl, symbol_: *anyopaque, singleQuote: *anyopaque, stringNamed: *anyopaque, isMethod: *anyopaque) *anyopaque {
+    _ = b;
+    _ = symbol_;
+    _ = singleQuote;
+    _ = stringNamed;
+    _ = isMethod;
+    return undefined;
+}
+
+pub fn addPropertyToElementList(b: *NodeBuilderImpl, propertySymbol: *anyopaque, typeElements: *anyopaque) *anyopaque {
+    _ = b;
+    _ = propertySymbol;
+    _ = typeElements;
+    return undefined;
+}
+
+pub fn createTypeNodesFromResolvedType(b: *NodeBuilderImpl, resolvedType: *anyopaque) *anyopaque {
+    _ = b;
+    _ = resolvedType;
+    return undefined;
+}
+
+pub fn getTypeAliasForTypeLiteral(c: *anyopaque, t: *anyopaque) *anyopaque {
+    _ = c;
+    _ = t;
+    return undefined;
+}
+
+pub fn shouldWriteTypeOfFunctionSymbol(b: *NodeBuilderImpl, symbol_: *anyopaque, typeId: *anyopaque) bool {
+    _ = b;
+    _ = symbol_;
+    _ = typeId;
+    return false;
+}
+
+pub fn createAnonymousTypeNode(b: *NodeBuilderImpl, t: *anyopaque) *anyopaque {
+    _ = b;
+    _ = t;
+    return undefined;
+}
+
+pub fn createAnonymousTypeNodeEx(b: *NodeBuilderImpl, t: *anyopaque, forceClassExpansion: *anyopaque, forceExpansion: *anyopaque) *anyopaque {
+    _ = b;
+    _ = t;
+    _ = forceClassExpansion;
+    _ = forceExpansion;
+    return undefined;
+}
+
+pub fn getTypeFromTypeNode(b: *NodeBuilderImpl, node: *anyopaque, noMappedTypes: *anyopaque) *anyopaque {
+    _ = b;
+    _ = node;
+    _ = noMappedTypes;
+    return undefined;
+}
+
+pub fn typeToTypeNodeOrCircularityElision(b: *NodeBuilderImpl, t: *anyopaque) *anyopaque {
+    _ = b;
+    _ = t;
+    return undefined;
+}
+
+pub fn conditionalTypeToTypeNode(b: *NodeBuilderImpl, _t: *anyopaque) *anyopaque {
+    _ = b;
+    _ = _t;
+    return undefined;
+}
+
+pub fn getParentSymbolOfTypeParameter(b: *NodeBuilderImpl, typeParameter: *anyopaque) *anyopaque {
+    _ = b;
+    _ = typeParameter;
+    return undefined;
+}
+
+pub fn typeReferenceToTypeNode(b: *NodeBuilderImpl, t: *anyopaque) *anyopaque {
+    _ = b;
+    _ = t;
+    return undefined;
+}
+
+pub fn visitAndTransformType(b: *NodeBuilderImpl, t: *anyopaque, transform: *anyopaque) *anyopaque {
+    _ = b;
+    _ = t;
+    _ = transform;
+    _ = t;
+    return undefined;
+}
+
+pub fn newStringLiteral(b: *NodeBuilderImpl, text: *anyopaque) *anyopaque {
+    _ = b;
+    _ = text;
+    return undefined;
+}
+
+pub fn newStringLiteralEx(b: *NodeBuilderImpl, text: *anyopaque, isSingleQuote: *anyopaque) *anyopaque {
+    _ = b;
+    _ = text;
+    _ = isSingleQuote;
+    return undefined;
+}
+
+pub fn toTypeReferenceNode(b: *NodeBuilderImpl) *anyopaque {
+    _ = b;
+    return undefined;
+}
+
+pub fn newIdentifier(b: *NodeBuilderImpl, text: *anyopaque, symbol_: *anyopaque) *anyopaque {
+    _ = b;
+    _ = text;
+    _ = symbol_;
+    return undefined;
+}
+
+pub fn createAccessExpression(b: *NodeBuilderImpl, node: *anyopaque) *anyopaque {
+    _ = b;
+    _ = node;
+    return undefined;
+}
+
+pub fn createExpressionWithTypeArguments(b: *NodeBuilderImpl, expr: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+    _ = b;
+    _ = expr;
+    _ = typeArguments;
+    return undefined;
+}
+
+pub fn lookupInstantiatedTypeArgumentNodes(b: *NodeBuilderImpl, chain: *anyopaque, index: *anyopaque) *anyopaque {
+    _ = b;
+    _ = chain;
+    _ = index;
+    return undefined;
+}
+
+pub fn lookupExpressionChainTypeArgumentNodes(b: *NodeBuilderImpl, chain: *anyopaque, index: *anyopaque) *anyopaque {
+    _ = b;
+    _ = chain;
+    _ = index;
+    return undefined;
+}
+
+pub fn shouldWriteTypeParametersInQualifiedName(b: *NodeBuilderImpl, chain: *anyopaque, index: *anyopaque) bool {
+    _ = b;
+    _ = chain;
+    _ = index;
+    return false;
+}

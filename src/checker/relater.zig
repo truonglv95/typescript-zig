@@ -8,6 +8,7 @@ const Checker = checker_mod.Checker;
 const diagnostics = @import("../diagnostics/diagnostics.zig");
 const diagnostics_gen = @import("../diagnostics/diagnostics_generated.zig");
 const core = @import("../core/core.zig");
+const utilities = @import("utilities.zig");
 
 // types.CacheHashKey is u64
 const CacheHashKey = types.CacheHashKey;
@@ -120,6 +121,16 @@ pub const ErrorChain = struct {
     args: [][]const u8,
     next: ?*ErrorChain = null,
 };
+
+pub fn chainDepth(chain: ?*ErrorChain) usize {
+    var depth: usize = 0;
+    var current = chain;
+    while (current != null) {
+        depth += 1;
+        current = current.?.next;
+    }
+    return depth;
+}
 
 pub const ErrorState = struct {
     errorChain: ?*ErrorChain = null,
@@ -283,6 +294,20 @@ pub const Relater = struct {
         }
     };
 
+    pub fn getChainMessage(r: *Relater, index: usize) ?*const diagnostics.Message {
+        var e = r.errorChain;
+        var i = index;
+        while (true) {
+            if (e == null) {
+                return null;
+            }
+            if (i == 0) {
+                return e.?.message;
+            }
+            e = e.?.next;
+            i -= 1;
+        }
+    }
     pub fn typeRelatedToDiscriminatedType(r: *Relater, source: types.TypeIndex, target: types.TypeIndex) types.Ternary {
         const c = r.c;
         const sourceProperties = c.getPropertiesOfType(source);
@@ -1179,8 +1204,21 @@ pub const Relater = struct {
                     }
                 }
                 if (reportErrors) {
-                    originalErrorChain = r.errorChain;
-                    r.restoreErrorState(saveErrorState);
+                    if (originalErrorChain) |oec| {
+                        r.errorChain = oec;
+                    } else if (r.errorChain == null) {
+                        r.errorChain = saveErrorState.errorChain;
+                    }
+                }
+            }
+        }
+
+        if (c.getTypeFlags(source) & (types.TypeFlags.Object | types.TypeFlags.Intersection) != 0 and c.getTypeFlags(target) & types.TypeFlags.Union != 0) {
+            const objectOnlyTarget = c.extractTypesOfKind(target, types.TypeFlags.Object | types.TypeFlags.Intersection | types.TypeFlags.Substitution);
+            if (c.getTypeFlags(objectOnlyTarget) & types.TypeFlags.Union != 0) {
+                result = r.typeRelatedToDiscriminatedType(source, objectOnlyTarget);
+                if (result != .False) {
+                    return result;
                 }
             }
         }
@@ -1648,13 +1686,12 @@ pub fn checkTypeRelatedToEx(
         // id, _ := getRelationKey(...)
         // relation.set(id, RelationComparisonResultFailed | RelationComparisonResultComplexityOverflow)
         // message := ...
-        // c.reportDiagnostic(...)
+        c.reportDiagnostic(createDiagnosticChainFromErrorChain(r.errorChain, r.errorNode.?, r.relatedInfo.items), diagnosticOutput);
     } else if (r.errorChain != null) {
         // ...
     }
 
     putRelater(c, r);
-    _ = diagnosticOutput;
 
     return result != .False;
 }
@@ -2963,4 +3000,152 @@ pub fn isSimpleTypeRelatedTo(c: *Checker, source: types.TypeIndex, target: types
         }
     }
     return false;
+}
+
+pub fn createDiagnosticChainFromErrorChain(chain: ?*ErrorChain, errorNode: ast_gen.NodeIndex, relatedInfo: []const diagnostics.Diagnostic) ?diagnostics.Diagnostic {
+    var current: ?*ErrorChain = chain;
+    while (current != null and current.?.message.elidedInCompatabilityPyramid) {
+        current = current.?.next;
+    }
+    if (current == null) {
+        return null;
+    }
+    const next = createDiagnosticChainFromErrorChain(current.?.next, errorNode, relatedInfo);
+    if (next == null) {
+        return utilities.newDiagnosticForNode(errorNode, current.?.message); // TODO: SetRelatedInfo
+    }
+    return utilities.newDiagnosticChainForNode(next.?, errorNode, current.?.message);
+}
+
+pub fn isConversionOrInterfaceImplementationMessage(message: *const diagnostics.Message) bool {
+    return message == &diagnostics_gen.Class_0_incorrectly_implements_interface_1 or
+        message == &diagnostics_gen.Class_0_incorrectly_implements_class_1_Did_you_mean_to_extend_1_and_inherit_its_members_as_a_subclass or
+        message == &diagnostics_gen.Conversion_of_type_0_to_type_1_may_be_a_mistake_because_neither_type_sufficiently_overlaps_with_the_other_If_this_was_intentional_convert_the_expression_to_unknown_first or
+        message == &diagnostics_gen.Its_instance_type_0_is_not_a_valid_JSX_element or
+        message == &diagnostics_gen.Its_return_type_0_is_not_a_valid_JSX_element or
+        message == &diagnostics_gen.Its_element_type_0_is_not_a_valid_JSX_element;
+}
+
+pub fn getBestMatchIndexedAccessTypeOrUndefined(c: *Checker, source: types.TypeIndex, target: types.TypeIndex, nameType: types.TypeIndex) ?types.TypeIndex {
+    if (c.getIndexedAccessTypeOrUndefined(target, nameType, 0, null, null)) |idx| {
+        return idx;
+    }
+    if (c.getTypeFlags(target) & types.TypeFlags.Union != 0) {
+        if (c.getBestMatchingType(source, target, &compareTypesAssignableSimple)) |best| {
+            return c.getIndexedAccessTypeOrUndefined(best, nameType, 0, null, null);
+        }
+    }
+    return null;
+}
+
+pub fn checkExpressionForMutableLocationWithContextualType(c: *Checker, next: ast.NodeIndex, sourcePropType: types.TypeIndex) types.TypeIndex {
+    c.pushContextualType(next, sourcePropType, false);
+    const result = c.checkExpressionForMutableLocation(next, types.CheckMode.Contextual);
+    c.popContextualType();
+    return result;
+}
+
+pub fn elaborateArrowFunction(c: *Checker, node: ast.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: *Relation, diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic)) bool {
+    const ast_data = c.binder.ast;
+    const body = ast_data.getBody(node);
+    if (body != 0 and ast_data.nodes.items[body].tag == .Block) {
+        return false;
+    }
+    const params = ast_data.getParameters(node);
+    for (params) |param| {
+        if (utilities.hasType(ast_data, param)) {
+            return false;
+        }
+    }
+    const sourceSig = c.getSingleCallSignature(source);
+    if (sourceSig == null) {
+        return false;
+    }
+    const targetSignatures = c.getSignaturesOfType(target, types.SignatureKind.Call);
+    if (targetSignatures.len == 0) {
+        return false;
+    }
+    const returnExpression = body;
+    const sourceReturn = c.getReturnTypeOfSignature(sourceSig.?);
+
+    // getUnionType mapped from targetSignatures using getReturnTypeOfSignature
+    // Wait, let's just do it in a loop
+    // In DoD we need allocator for this mapping.
+    var targetReturns = std.ArrayList(types.TypeIndex).init(c.allocator);
+    defer targetReturns.deinit();
+    for (targetSignatures) |sig| {
+        targetReturns.append(c.getReturnTypeOfSignature(sig)) catch unreachable;
+    }
+    const targetReturn = c.getUnionType(targetReturns.items);
+
+    if (checkTypeRelatedTo(c, sourceReturn, targetReturn, relation, null)) {
+        return false;
+    }
+    if (returnExpression != 0 and elaborateError(c, returnExpression, sourceReturn, targetReturn, relation, null, diagnosticOutput)) {
+        return true;
+    }
+    return false;
+}
+
+pub fn compareTypePredicateRelatedTo(c: *Checker, source: *types.TypePredicate, target: *types.TypePredicate, reportErrors: bool, errorReporter: ErrorReporter, compareTypes: *const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool) types.Ternary) types.Ternary {
+    if (source.kind != target.kind) {
+        if (reportErrors) {
+            errorReporter.?(c, &diagnostics_gen.A_this_based_type_guard_is_not_compatible_with_a_parameter_based_type_guard, &[_][]const u8{});
+            errorReporter.?(c, &diagnostics_gen.Type_predicate_0_is_not_assignable_to_1, &[_][]const u8{ c.typePredicateToString(source), c.typePredicateToString(target) });
+        }
+        return types.Ternary.False;
+    }
+    if (source.kind == types.TypePredicateKind.Identifier or source.kind == types.TypePredicateKind.AssertsIdentifier) {
+        if (source.parameterIndex != target.parameterIndex) {
+            if (reportErrors) {
+                errorReporter.?(c, &diagnostics_gen.Parameter_0_is_not_in_the_same_position_as_parameter_1, &[_][]const u8{ source.parameterName, target.parameterName });
+                errorReporter.?(c, &diagnostics_gen.Type_predicate_0_is_not_assignable_to_1, &[_][]const u8{ c.typePredicateToString(source), c.typePredicateToString(target) });
+            }
+            return types.Ternary.False;
+        }
+    }
+    var related: types.Ternary = types.Ternary.False;
+    if (source.type == target.type) {
+        related = types.Ternary.True;
+    } else if (source.type != 0 and target.type != 0) {
+        related = compareTypes(c, source.type, target.type, reportErrors);
+    } else {
+        related = types.Ternary.False;
+    }
+    return related;
+}
+
+pub fn getRestArrayTypeOfTupleType(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
+    if (c.getRestTypeOfTupleType(t)) |restType| {
+        return c.createArrayType(restType);
+    }
+    return null;
+}
+
+pub fn newTypePredicate(c: *Checker, kind: types.TypePredicateKind, parameterName: []const u8, parameterIndex: u32, t: types.TypeIndex) *types.TypePredicate {
+    const pred = c.allocator.create(types.TypePredicate) catch unreachable;
+    pred.* = types.TypePredicate{
+        .kind = kind,
+        .parameterIndex = parameterIndex,
+        .parameterName = parameterName,
+        .type = t,
+    };
+    return pred;
+}
+
+pub fn visibilityToString(flags: u32) []const u8 {
+    if (flags & ast.ModifierFlags.Private != 0) {
+        return "private";
+    }
+    if (flags & ast.ModifierFlags.Protected != 0) {
+        return "protected";
+    }
+    return "public";
+}
+
+pub fn getPropertyNameArg(c: *Checker, arg: []const u8) []const u8 {
+    if (arg.len != 0 and (arg[0] == '"' or arg[0] == '\'' or arg[0] == '`')) {
+        return std.fmt.allocPrint(c.allocator, "[{s}]", .{arg}) catch unreachable;
+    }
+    return arg;
 }
