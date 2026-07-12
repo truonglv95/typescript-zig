@@ -7,7 +7,7 @@ pub fn rootPath(allocator: std.mem.Allocator) ![]const u8 {
 
 pub fn typeScriptSubmodulePath(allocator: std.mem.Allocator) ![]const u8 {
     _ = allocator;
-    return "./submodule/typescript-go";
+    return "./submodule/typescript-go/_submodules/TypeScript";
 }
 
 pub fn testDataPath(allocator: std.mem.Allocator) ![]const u8 {

@@ -286,6 +286,8 @@ pub const Checker = struct {
     flowLoopStack: std.ArrayListUnmanaged(flow.FlowLoopInfo) = .empty,
     flowLoopTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
     currentNode: ast_gen.NodeIndex = 0,
+    withinUnreachableCode: bool = false,
+    instantiationCount: u32 = 0,
     inlineLevel: u32 = 0,
     serializationLevel: u32 = 0,
 
@@ -343,6 +345,7 @@ pub const Checker = struct {
     enumRelation: std.AutoHashMapUnmanaged(EnumRelationKey, relater.RelationComparisonResult) = .empty,
     markedAssignmentSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.MarkedAssignmentSymbolLinks) = .empty,
     aliasSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.AliasSymbolLinks) = .empty,
+    sourceFileLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.SourceFileLinks) = .empty,
     nodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.NodeLinks) = .empty,
 
     inVarianceComputation: bool = false,
@@ -364,6 +367,7 @@ pub const Checker = struct {
     mergedSymbols: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, ast_gen.SymbolIndex) = .empty,
     assignmentReducedTypes: std.AutoHashMapUnmanaged(types.AssignmentReducedKey, types.TypeIndex) = .empty,
     restrictiveTypeParameterCache: std.AutoHashMapUnmanaged(types.TypeIndex, types.TypeIndex) = .empty,
+    contextFreeTypes: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.TypeIndex) = .empty,
 
     // Inference state pool
     inferenceStates: std.ArrayListUnmanaged(inference.InferenceState) = .empty,
@@ -499,6 +503,7 @@ pub const Checker = struct {
         self.mergedSymbols.deinit(self.allocator);
         self.assignmentReducedTypes.deinit(self.allocator);
         self.restrictiveTypeParameterCache.deinit(self.allocator);
+        self.contextFreeTypes.deinit(self.allocator);
 
         self.enumMemberLinks.deinit(self.allocator);
 
@@ -8017,17 +8022,35 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTypeOnlyAliasDeclaration(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn getTypeOnlyAliasDeclaration(c: *Checker, sym_idx: ast_gen.SymbolIndex) ast_gen.NodeIndex {
+        const sym = c.getSymbolData(sym_idx);
+        if (sym.Flags & ast_gen.SymbolFlags.Alias != 0) {
+            _ = c.resolveAlias(sym_idx);
+            if (c.aliasSymbolLinks.get(sym_idx)) |links| {
+                if (links.typeOnlyDeclaration) |decl| {
+                    return decl;
+                }
+            }
+        }
+        return 0;
     }
 
-    pub fn getTypeOnlyAliasDeclarationEx(c: *Checker, symbol_: *anyopaque, meaning: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        _ = meaning;
-        return undefined;
+    pub fn getTypeOnlyAliasDeclarationEx(c: *Checker, sym_idx: ast_gen.SymbolIndex, meaning: u32) ast_gen.NodeIndex {
+        var current_symbol = sym_idx;
+        while (true) {
+            const sym = c.getSymbolData(current_symbol);
+            if (sym.Flags & ast_gen.SymbolFlags.Alias == 0 or sym.Flags & meaning != 0) {
+                break;
+            }
+            const resolved = c.resolveAlias(current_symbol);
+            if (c.aliasSymbolLinks.get(current_symbol)) |links| {
+                if (links.typeOnlyDeclaration) |decl| {
+                    return decl;
+                }
+            }
+            current_symbol = resolved;
+        }
+        return 0;
     }
 
     pub fn getImmediateAliasedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
@@ -8052,25 +8075,59 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkSourceFile(c: *Checker, ctx: *anyopaque, sourceFile: *anyopaque, checkUnused: *anyopaque) void {
-        _ = c;
+    pub fn checkSourceFile(c: *Checker, ctx: ?*anyopaque, sourceFile: ast_gen.NodeIndex, checkUnused: bool) void {
         _ = ctx;
-        _ = sourceFile;
-        _ = checkUnused;
+        var links = c.sourceFileLinks.get(sourceFile) orelse types.SourceFileLinks{};
+        if (!links.typeChecked) {
+            // c.saveDeferredDiagnostics = true;
+            // if (c.tracer) |tr| { ... }
+
+            // Grammar checking
+            // c.checkGrammarSourceFile(sourceFile);
+            // c.renamedBindingElementsInTypes = null;
+
+            if (c.ast.getNode(sourceFile)) |sf_node| {
+                if (sf_node.NodeData == .SourceFile) {
+                    const stmts = c.ast.getNodeList(sf_node.NodeData.SourceFile.Statements);
+                    c.checkSourceElements(stmts);
+                }
+            }
+
+            c.checkDeferredNodes(sourceFile);
+            if (utils.isExternalOrCommonJSModule(c.ast, sourceFile)) {
+                // c.checkExternalModuleExports(sourceFile);
+                // c.registerForUnusedIdentifiersCheck(sourceFile);
+            }
+            if (!utils.isDeclarationFile(c.ast, sourceFile)) { // && !c.isCanceled()
+                // c.checkUnusedRenamedBindingElements();
+            }
+            // c.saveDeferredDiagnostics = false;
+            // c.produceDeferredDiagnostics();
+            // c.reportedUnreachableNodes.clearRetainingCapacity();
+            links.typeChecked = true;
+        }
+        if (checkUnused and !links.unusedChecked) {
+            if (!utils.isDeclarationFile(c.ast, sourceFile)) { // && !c.isCanceled()
+                // c.checkUnusedIdentifiers(links.identifierCheckNodes);
+            }
+            links.unusedChecked = true;
+        }
+        c.sourceFileLinks.put(c.allocator, sourceFile, links) catch {};
     }
 
-    pub fn checkSourceElements(c: *Checker, nodes: *anyopaque) void {
-        _ = c;
-        _ = nodes;
+    pub fn checkSourceElements(c: *Checker, nodes: []const ast_gen.NodeIndex) void {
+        for (nodes) |node| {
+            c.checkSourceElement(node);
+        }
     }
 
-    pub fn checkSourceElementUnreachable(c: *Checker, node: *anyopaque) bool {
+    pub fn checkSourceElementUnreachable(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn isSourceElementUnreachable(c: *Checker, node: *anyopaque) bool {
+    pub fn isSourceElementUnreachable(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -8242,25 +8299,25 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkTestingKnownTruthyCallableOrAwaitableOrEnumMemberType(c: *Checker, condExpr: *anyopaque, condType: *anyopaque, body: *anyopaque) void {
-        _ = c;
-        _ = condExpr;
-        _ = condType;
-        _ = body;
+    pub fn checkTestingKnownTruthyCallableOrAwaitableOrEnumMemberType(c: *Checker, condExpr: ast_gen.NodeIndex, condType: types.TypeIndex, body: ast_gen.NodeIndex) void {
+        if (!c.strictNullChecks) return;
+        c.checkTestingKnownTruthyTypes(condExpr, condType, body);
     }
 
-    pub fn checkTestingKnownTruthyTypes(c: *Checker, condExpr: *anyopaque, condType: *anyopaque, body: *anyopaque) void {
+    pub fn checkTestingKnownTruthyTypes(c: *Checker, condExpr: ast_gen.NodeIndex, condType: types.TypeIndex, body: ast_gen.NodeIndex) void {
         _ = c;
         _ = condExpr;
         _ = condType;
         _ = body;
+        // TODO: Implement
     }
 
-    pub fn checkTestingKnownTruthyType(c: *Checker, condExpr: *anyopaque, condType: *anyopaque, body: *anyopaque) void {
+    pub fn checkTestingKnownTruthyType(c: *Checker, condExpr: ast_gen.NodeIndex, condType: types.TypeIndex, body: ast_gen.NodeIndex) void {
         _ = c;
         _ = condExpr;
         _ = condType;
         _ = body;
+        // TODO: Implement
     }
 
     pub fn isSymbolUsedInBinaryExpressionChain(c: *Checker, node: *anyopaque, testedSymbol: *anyopaque) bool {
@@ -9022,37 +9079,43 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkExpressionCached(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn checkExpressionCached(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return c.checkExpressionCachedEx(node_idx, CheckMode.Normal);
     }
 
-    pub fn checkExpressionCachedEx(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return undefined;
+    pub fn checkExpressionCachedEx(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
+        if (checkMode != CheckMode.Normal) {
+            return checkExpressionEx(c, node_idx, checkMode);
+        }
+        var linksPtr = c.typeNodeLinks.getPtr(node_idx);
+        if (linksPtr == null) {
+            c.typeNodeLinks.put(c.allocator, node_idx, .{}) catch {};
+            linksPtr = c.typeNodeLinks.getPtr(node_idx);
+        }
+        if (linksPtr.?.resolvedType == null) {
+            const saveFlowLoopStack = c.flowLoopStack;
+            c.flowLoopStack = .empty;
+            linksPtr.?.resolvedType = checkExpressionEx(c, node_idx, checkMode);
+            c.flowLoopStack = saveFlowLoopStack;
+        }
+        return linksPtr.?.resolvedType.?;
     }
 
-    pub fn getContextFreeTypeOfExpression(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getContextFreeTypeOfExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        if (c.contextFreeTypes.get(node_idx)) |cached| {
+            return cached;
+        }
+        c.pushContextualType(node_idx, c.anyTypeIndex orelse 0, false);
+        const t = checkExpressionEx(c, node_idx, CheckMode.SkipContextSensitive);
+        c.contextFreeTypes.put(c.allocator, node_idx, t) catch {};
+        c.popContextualType();
+        return t;
     }
 
-    pub fn checkConstEnumAccess(c: *Checker, node: *anyopaque, t: *anyopaque) void {
+    pub fn checkConstEnumAccess(c: *Checker, node_idx: ast_gen.NodeIndex, t: types.TypeIndex) void {
         _ = c;
-        _ = node;
+        _ = node_idx;
         _ = t;
-    }
-
-    pub fn instantiateTypeWithSingleGenericCallSignature(c: *Checker, node: *anyopaque, t: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = t;
-        _ = checkMode;
-        return undefined;
     }
 
     pub fn getOuterInferenceTypeParameters(c: *Checker) *anyopaque {
@@ -9791,11 +9854,9 @@ pub const Checker = struct {
         _ = symbol_;
     }
 
-    pub fn checkTruthinessExpression(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return undefined;
+    pub fn checkTruthinessExpression(c: *Checker, node: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
+        const t = checkExpressionEx(c, node, checkMode);
+        return checkTruthinessOfType(c, t, node);
     }
 
     pub fn getYieldedTypeOfYieldExpression(c: *Checker, node: *anyopaque, expressionType: *anyopaque, sentType: *anyopaque, isAsync: *anyopaque) *anyopaque {
@@ -10314,17 +10375,33 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkTruthinessOfType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = node;
-        return undefined;
+    pub const PredicateSemantics = enum(u32) {
+        None = 0,
+        Always = 1,
+        Never = 2,
+        Sometimes = 3,
+    };
+
+    pub fn checkTruthinessOfType(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {
+        if ((c.types.items[t].flags & types.TypeFlags.Void) != 0) {
+            c.reportError(node, &diagnostics_gen.An_expression_of_type_void_cannot_be_tested_for_truthiness);
+            return t;
+        }
+        const semantics = getSyntacticTruthySemantics(c, node);
+        if (semantics != .Sometimes) {
+            if (semantics == .Always) {
+                c.reportError(node, &diagnostics_gen.This_kind_of_expression_is_always_truthy);
+            } else {
+                c.reportError(node, &diagnostics_gen.This_kind_of_expression_is_always_falsy);
+            }
+        }
+        return t;
     }
 
-    pub fn getSyntacticTruthySemantics(c: *Checker, node: *anyopaque) *anyopaque {
+    pub fn getSyntacticTruthySemantics(c: *Checker, node: ast_gen.NodeIndex) PredicateSemantics {
         _ = c;
         _ = node;
-        return undefined;
+        return .Sometimes; // TODO: Implement getSyntacticTruthySemantics fully
     }
 
     pub fn checkNullishCoalesceOperands(c: *Checker, left: *anyopaque, right: *anyopaque) void {
@@ -10985,10 +11062,16 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getExternalModuleFileFromDeclaration(c: *Checker, declaration: *anyopaque) *anyopaque {
+    pub fn getExternalModuleFileFromDeclaration(c: *Checker, declaration: ast_gen.NodeIndex) ast_gen.NodeIndex {
         _ = c;
         _ = declaration;
-        return undefined;
+        return 0;
+    }
+
+    pub fn getConstantValue(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        _ = c;
+        _ = node;
+        return 0; // Stub
     }
 
     pub fn resolveExternalModule(c: *Checker, location: *anyopaque, moduleReference: *anyopaque, moduleNotFoundError: *anyopaque, errorNode: *anyopaque, isForAugmentation: *anyopaque) *anyopaque {
@@ -11203,16 +11286,16 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getExportsOfModule(c: *Checker, moduleSymbol: *anyopaque) *anyopaque {
+    pub fn getExportsOfModule(c: *Checker, moduleSymbol: ast_gen.SymbolIndex) types.SymbolTableIndex {
         _ = c;
         _ = moduleSymbol;
-        return undefined;
+        return 0; // Stub
     }
 
-    pub fn getExportsOfModuleWorker(c: *Checker, moduleSymbol: *anyopaque) *anyopaque {
+    pub fn getExportsOfModuleWorker(c: *Checker, moduleSymbol: ast_gen.SymbolIndex) types.SymbolTableIndex {
         _ = c;
         _ = moduleSymbol;
-        return undefined;
+        return 0; // Stub
     }
 
     pub fn extendExportSymbols(c: *Checker, target: *anyopaque, source: *anyopaque, lookupTable: *anyopaque, exportNode: *anyopaque) void {
@@ -11243,12 +11326,41 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSymbolFlagsEx(c: *Checker, symbol_: *anyopaque, excludeTypeOnlyMeanings: *anyopaque, excludeLocalMeanings: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        _ = excludeTypeOnlyMeanings;
-        _ = excludeLocalMeanings;
-        return undefined;
+    pub fn getSymbolFlagsEx(c: *Checker, initialSymbol: ast_gen.SymbolIndex, excludeTypeOnlyMeanings: bool, excludeLocalMeanings: bool) u32 {
+        var flags: u32 = 0;
+        var currentSymbol = initialSymbol;
+
+        if (!excludeLocalMeanings) {
+            flags = c.getSymbolFlags(currentSymbol);
+        }
+
+        // seenSymbols set could be optimized out by simply relying on maximum resolution depth or similar,
+        // but for safety let's use AutoHashMapUnmanaged. We only allocate if there's an alias loop.
+        var seenSymbols: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, void) = .empty;
+        defer seenSymbols.deinit(c.allocator);
+
+        while ((c.getSymbolFlags(currentSymbol) & ast_gen.SymbolFlags.Alias) != 0) {
+            if (excludeTypeOnlyMeanings and c.getTypeOnlyAliasDeclaration(currentSymbol) != 0) {
+                break;
+            }
+            const target = getExportSymbolOfValueSymbolIfExported(c, c.resolveAlias(currentSymbol));
+            if (target == c.unknownSymbol) {
+                return ast_gen.SymbolFlags.All;
+            }
+            if ((c.getSymbolFlags(target) & ast_gen.SymbolFlags.Alias) != 0) {
+                if (target == currentSymbol or seenSymbols.contains(target)) {
+                    break;
+                }
+                if (seenSymbols.count() == 0) {
+                    seenSymbols.put(c.allocator, currentSymbol, {}) catch unreachable;
+                }
+                seenSymbols.put(c.allocator, target, {}) catch unreachable;
+            }
+            flags |= c.getSymbolFlags(target);
+            currentSymbol = target;
+        }
+
+        return flags;
     }
 
     pub fn getDeclarationOfAliasSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
@@ -14005,7 +14117,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn markLinkedReferences(c: *Checker, location: *anyopaque, hint: *anyopaque, propSymbol: *anyopaque, parentType: *anyopaque) void {
+    pub fn markLinkedReferences(c: *Checker, location: ast_gen.NodeIndex, hint: u32, propSymbol: ast_gen.SymbolIndex, parentType: types.TypeIndex) void {
         _ = c;
         _ = location;
         _ = hint;
@@ -14714,14 +14826,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn pushCachedContextualType(c: *Checker, node: *anyopaque) void {
+    pub fn pushCachedContextualType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
         _ = c;
-        _ = node;
+        _ = node_idx;
     }
 
-    pub fn pushContextualType(c: *Checker, node: *anyopaque, t: *anyopaque, isCache: *anyopaque) void {
+    pub fn pushContextualType(c: *Checker, node_idx: ast_gen.NodeIndex, t: types.TypeIndex, isCache: bool) void {
         _ = c;
-        _ = node;
+        _ = node_idx;
         _ = t;
         _ = isCache;
     }
@@ -15398,7 +15510,15 @@ pub fn resolveTypeParameterConstraint(c: *Checker, t: types.TypeIndex) void {
     }
 }
 pub fn checkSourceElementWorker(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    const node = c.binder.ast.getNode(node_idx);
+    // TODO: JSDoc comments
+
+    if (!c.withinUnreachableCode) { // && c.compilerOptions.allowUnreachableCode != true
+        if (c.checkSourceElementUnreachable(node_idx)) {
+            c.withinUnreachableCode = true;
+        }
+    }
+
+    const node = c.ast.getNode(node_idx) orelse return;
     switch (node) {
         .TypeParameter => checkTypeParameter(c, node_idx),
         .Parameter => checkParameter(c, node_idx),
@@ -15453,6 +15573,7 @@ pub fn checkSourceElementWorker(c: *Checker, node_idx: ast_gen.NodeIndex) void {
         .TryStatement => checkTryStatement(c, node_idx),
         .PropertyAssignment => checkPropertyAssignment(c, node_idx),
         .ShorthandPropertyAssignment => checkShorthandPropertyAssignment(c, node_idx),
+        .SpreadAssignment => checkSpreadAssignment(c, node_idx),
         .VariableDeclaration => checkVariableDeclaration(c, node_idx),
         .VariableDeclarationList => checkVariableDeclarationList(c, node_idx),
         .BindingElement => checkBindingElement(c, node_idx),
@@ -15532,6 +15653,15 @@ pub fn checkBreakOrContinueStatement(c: *Checker, node_idx: ast_gen.NodeIndex) v
 }
 pub fn checkClassDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const cd = c.binder.ast.nodes.get(node_idx).ClassDeclaration;
+
+    if (cd.TypeParameters) |tps| {
+        c.checkSourceElement(tps); // Type parameters might be a list, or maybe we just check the wrapper node. In AST, TypeParameters is often a list. If it is, we should iterate it. But wait, in Go, checkTypeParameters iterates over it. Let's just pass the TypeParameter list node to checkSourceElement if it exists.
+    }
+
+    if (cd.HeritageClauses) |hc| {
+        c.checkSourceElement(hc);
+    }
+
     if (cd.Members != 0) {
         const members = c.binder.ast.getNodeList(cd.Members);
         for (members) |mem| {
@@ -15552,15 +15682,22 @@ pub fn checkConditionalType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
 }
 pub fn checkConstructorDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const ctor = c.binder.ast.nodes.get(node_idx).Constructor;
+    if (ctor.TypeParameters) |tps| checkTypeParameters(c, tps);
     if (ctor.Parameters != 0) checkFunctionParameters(c, ctor.Parameters);
+    if (ctor.Type) |t| c.checkSourceElement(t);
     if (ctor.Body != 0) {
         c.checkSourceElement(ctor.Body);
     }
 }
+pub fn checkSpreadAssignment(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    const node = c.binder.ast.nodes.get(node_idx).SpreadAssignment;
+    _ = checkExpression(c, node.Expression);
+}
 pub fn checkDoStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    checkGrammarStatementInAmbientContext(c, node_idx);
     const node = c.binder.ast.getNode(node_idx).DoStatement;
-    c.checkStatement(node.Statement);
-    _ = checkExpression(c, node.Condition);
+    c.checkSourceElement(node.Statement);
+    _ = c.checkTruthinessExpression(node.Condition, CheckMode.Normal);
 }
 pub fn checkEnumDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const node = c.binder.ast.getNode(node_idx).EnumDeclaration;
@@ -15589,10 +15726,16 @@ pub fn checkExportDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkExpressionStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    checkGrammarStatementInAmbientContext(c, node_idx);
     const expr = c.binder.ast.nodes.get(node_idx).ExpressionStatement.Expression;
     _ = c.checkExpression(expr);
 }
 pub fn checkForInStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    if (!c.grammar.checkGrammarStatementInAmbientContext(node_idx)) {
+        // if (init := node.Initializer(); init != nil && init.Kind == ast.KindVariableDeclarationList) {
+        //     c.checkGrammarVariableDeclarationList(init.AsVariableDeclarationList())
+        // }
+    }
     const node = c.binder.ast.getNode(node_idx).ForInStatement;
     if (c.binder.ast.getKind(node.Initializer) == .VariableDeclarationList) {
         checkVariableDeclarationList(c, node.Initializer);
@@ -15600,9 +15743,14 @@ pub fn checkForInStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
         _ = checkExpression(c, node.Initializer);
     }
     _ = checkExpression(c, node.Expression);
-    c.checkStatement(node.Statement);
+    c.checkSourceElement(node.Statement);
 }
 pub fn checkForOfStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    if (!c.grammar.checkGrammarStatementInAmbientContext(node_idx)) {
+        // if (init := node.Initializer(); init != nil && init.Kind == ast.KindVariableDeclarationList) {
+        //     c.checkGrammarVariableDeclarationList(init.AsVariableDeclarationList())
+        // }
+    }
     const node = c.binder.ast.getNode(node_idx).ForOfStatement;
     if (c.binder.ast.getKind(node.Initializer) == .VariableDeclarationList) {
         checkVariableDeclarationList(c, node.Initializer);
@@ -15610,9 +15758,14 @@ pub fn checkForOfStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
         _ = checkExpression(c, node.Initializer);
     }
     _ = checkExpression(c, node.Expression);
-    c.checkStatement(node.Statement);
+    c.checkSourceElement(node.Statement);
 }
 pub fn checkForStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    if (!c.grammar.checkGrammarStatementInAmbientContext(node_idx)) {
+        // if (init := node.Initializer(); init != nil && init.Kind == ast.KindVariableDeclarationList) {
+        //     c.checkGrammarVariableDeclarationList(init.AsVariableDeclarationList())
+        // }
+    }
     const node = c.binder.ast.getNode(node_idx).ForStatement;
     if (node.Initializer) |init| {
         if (c.binder.ast.getKind(init) == .VariableDeclarationList) {
@@ -15622,12 +15775,12 @@ pub fn checkForStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
         }
     }
     if (node.Condition) |cond| {
-        _ = checkExpression(c, cond);
+        _ = c.checkTruthinessExpression(cond, CheckMode.Normal);
     }
     if (node.Incrementor) |incr| {
         _ = checkExpression(c, incr);
     }
-    c.checkStatement(node.Statement);
+    c.checkSourceElement(node.Statement);
 }
 fn isDeclarationFilePath(path: []const u8) bool {
     return std.mem.endsWith(u8, path, ".d.ts") or
@@ -15644,10 +15797,12 @@ fn isEsModuleTarget(module_kind: core.ModuleKind) bool {
 
 pub fn checkFunctionDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const f = c.binder.ast.nodes.get(node_idx).FunctionDeclaration;
+    if (f.TypeParameters) |tps| checkTypeParameters(c, tps);
+    if (f.Parameters != 0) checkFunctionParameters(c, f.Parameters);
+    if (f.Type) |t| c.checkSourceElement(t);
     if (f.Body != 0) {
         c.checkSourceElement(f.Body);
     }
-    if (f.Parameters != 0) checkFunctionParameters(c, f.Parameters);
     if ((f.Body == null or f.Body == 0) and (f.Type == null or f.Type == 0)) {
         if (isDeclarationFilePath(c.binder.ast.fileName) or c.noImplicitAny) {
             if (f.name) |name_idx| {
@@ -15667,10 +15822,15 @@ pub fn checkGrammarStatementInAmbientContext(c: *Checker, node_idx: ast_gen.Node
 }
 pub fn checkIfStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const node = c.binder.ast.getNode(node_idx).IfStatement;
-    _ = checkExpression(c, node.Expression);
-    c.checkStatement(node.ThenStatement);
+    c.grammar.checkGrammarStatementInAmbientContext(node_idx);
+    const t = c.checkTruthinessExpression(node.Expression, CheckMode.Normal);
+    c.checkTestingKnownTruthyCallableOrAwaitableOrEnumMemberType(node.Expression, t, node.ThenStatement);
+    c.checkSourceElement(node.ThenStatement);
+    if (c.binder.ast.getKind(node.ThenStatement) == .EmptyStatement) {
+        c.reportError(node.ThenStatement, &diagnostics_gen.The_body_of_an_if_statement_cannot_be_the_empty_statement);
+    }
     if (node.ElseStatement) |else_stmt| {
-        c.checkStatement(else_stmt);
+        c.checkSourceElement(else_stmt);
     }
 }
 pub fn checkImportDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
@@ -15708,6 +15868,9 @@ pub fn checkInterfaceDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void 
     if (node.TypeParameters) |tps| {
         checkTypeParameters(c, tps);
     }
+    if (node.HeritageClauses) |hc| {
+        c.checkSourceElement(hc);
+    }
     const members = c.binder.ast.getNode(node.Members).NodeList;
     var iter = c.binder.ast.nodeListIter(members);
     while (iter.next()) |mem_idx| {
@@ -15734,7 +15897,9 @@ pub fn checkMappedType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
 }
 pub fn checkMethodDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const method = c.binder.ast.nodes.get(node_idx).MethodDeclaration;
+    if (method.TypeParameters) |tps| checkTypeParameters(c, tps);
     if (method.Parameters != 0) checkFunctionParameters(c, method.Parameters);
+    if (method.Type) |t| c.checkSourceElement(t);
     if (method.Body != 0) {
         c.checkSourceElement(method.Body);
     }
@@ -15949,6 +16114,9 @@ pub fn checkTryStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
 }
 pub fn checkCatchClause(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const node = c.binder.ast.getNode(node_idx).CatchClause;
+    if (node.VariableDeclaration != 0) {
+        checkVariableLikeDeclaration(c, node.VariableDeclaration);
+    }
     checkBlock(c, node.Block);
 }
 pub fn checkTupleType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
@@ -16023,14 +16191,56 @@ pub fn checkUnionOrIntersectionType(c: *Checker, node_idx: ast_gen.NodeIndex) vo
     }
 }
 pub fn checkVariableDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    const decl = c.binder.ast.nodes.get(node_idx).VariableDeclaration;
-    if (decl.Initializer != 0) {
-        _ = c.checkExpression(decl.Initializer);
-        if (decl.Type) |typeNode| {
-            const declaredType = type_resolution_pkg.getTypeFromTypeNode(c, typeNode);
-            if (declaredType != 0) {
-                _ = c.reportExcessPropertyForObjectLiteralUnionAssignment(decl.Initializer, declaredType);
+    // checkGrammarVariableDeclaration
+    checkVariableLikeDeclaration(c, node_idx);
+}
+
+pub fn checkVariableLikeDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    // We only need to traverse children to maintain traversal order.
+    // In DoD, we don't need to do complex type checking yet if we are just traversing, but checking types is what the checker does.
+    // So let's implement the AST traversal parts.
+    const name_idx = ast_utils.getName(c.binder.ast, node_idx);
+    if (name_idx == 0) return; // Missing array binding elements have no name
+
+    const type_idx = ast_utils.getType(c.binder.ast, node_idx);
+    const initializer_idx = ast_utils.getInitializer(c.binder.ast, node_idx);
+
+    if (!ast_utils.isBindingElement(c.binder.ast, node_idx)) {
+        c.checkSourceElement(type_idx);
+    }
+
+    if (ast_utils.isComputedPropertyName(c.binder.ast, name_idx)) {
+        c.checkComputedPropertyName(name_idx);
+        if (initializer_idx != 0) {
+            _ = c.checkExpression(initializer_idx);
+        }
+    }
+
+    if (ast_utils.isBindingElement(c.binder.ast, node_idx)) {
+        const propName = ast_utils.getPropertyName(c.binder.ast, node_idx);
+        if (propName != 0 and ast_utils.isComputedPropertyName(c.binder.ast, propName)) {
+            c.checkComputedPropertyName(propName);
+        }
+    }
+
+    if (ast_utils.isBindingPattern(c.binder.ast, name_idx)) {
+        // c.checkSourceElements(name.Elements())
+        const elements = ast_utils.getElements(c.binder.ast, name_idx);
+        if (elements != 0) {
+            const list = c.binder.ast.nodes.get(elements).NodeList;
+            var iter = c.binder.ast.nodeListIter(list);
+            while (iter.next()) |el_idx| {
+                c.checkSourceElement(el_idx);
             }
+        }
+    }
+
+    if (ast_utils.isBindingPattern(c.binder.ast, name_idx)) {
+        // check the binding pattern with empty elements
+        // This is skipped for now as we just do the traversal.
+    } else {
+        if (initializer_idx != 0) {
+            _ = c.checkExpression(initializer_idx);
         }
     }
 }
@@ -16049,9 +16259,10 @@ pub fn checkVariableDeclarationList(c: *Checker, node_idx: ast_gen.NodeIndex) vo
     }
 }
 pub fn checkWhileStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    checkGrammarStatementInAmbientContext(c, node_idx);
     const node = c.binder.ast.getNode(node_idx).WhileStatement;
-    _ = checkExpression(c, node.Condition);
-    c.checkStatement(node.Statement);
+    _ = c.checkTruthinessExpression(node.Condition, CheckMode.Normal);
+    c.checkSourceElement(node.Statement);
 }
 pub fn checkPropertyAssignment(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const pa = c.binder.ast.nodes.get(node_idx).PropertyAssignment;
@@ -16068,20 +16279,44 @@ pub fn checkShorthandPropertyAssignment(c: *Checker, node_idx: ast_gen.NodeIndex
 pub fn checkWithStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const node = c.binder.ast.getNode(node_idx).WithStatement;
     _ = checkExpression(c, node.Expression);
-    c.checkStatement(node.Statement);
+    c.checkSourceElement(node.Statement);
 }
 
 pub fn checkExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     return checkExpressionEx(c, node_idx, CheckMode.Normal);
 }
 
+pub fn instantiateTypeWithSingleGenericCallSignature(c: *Checker, node_idx: ast_gen.NodeIndex, uninstantiatedType: types.TypeIndex, checkMode: CheckMode) types.TypeIndex {
+    _ = c;
+    _ = node_idx;
+    _ = checkMode;
+    return uninstantiatedType;
+}
+
 pub fn checkExpressionEx(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
-    return checkExpressionWorker(c, node_idx, checkMode);
+    const saveCurrentNode = c.currentNode;
+    c.currentNode = node_idx;
+    c.instantiationCount = 0;
+    const uninstantiatedType = checkExpressionWorker(c, node_idx, checkMode);
+    const t = instantiateTypeWithSingleGenericCallSignature(c, node_idx, uninstantiatedType, checkMode);
+
+    // In Go: if isConstEnumObjectType(t) { c.checkConstEnumAccess(node, t) }
+    // As stub, we do nothing or just pass it to checkConstEnumAccess
+    c.checkConstEnumAccess(node_idx, t);
+
+    c.currentNode = saveCurrentNode;
+    return t;
 }
 
 pub fn checkSourceElement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     if (node_idx != 0) {
+        const saveCurrentNode = c.currentNode;
+        const saveWithinUnreachableCode = c.withinUnreachableCode;
+        c.currentNode = node_idx;
+        c.instantiationCount = 0;
         checkSourceElementWorker(c, node_idx);
+        c.currentNode = saveCurrentNode;
+        c.withinUnreachableCode = saveWithinUnreachableCode;
     }
 }
 pub fn checkExpressionWorker(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
@@ -16335,9 +16570,14 @@ pub fn checkExpressionWorker(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode
 
 // Stubs
 pub fn checkArrayLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode, arg4: ?ast_gen.NodeIndex) types.TypeIndex {
-    _ = node_idx;
     _ = checkMode;
     _ = arg4;
+    const elements = c.binder.ast.nodes.get(node_idx).ArrayLiteralExpression.Elements;
+    const elem_list = c.binder.ast.nodes.get(elements).NodeList;
+    var iter = c.binder.ast.nodeListIter(elem_list);
+    while (iter.next()) |elem_idx| {
+        c.checkSourceElement(elem_idx);
+    }
     return c.anyTypeIndex orelse 0;
 }
 pub fn checkAssertion(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
@@ -16441,8 +16681,7 @@ pub fn checkMetaProperty(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeInd
     return c.anyTypeIndex orelse 0;
 }
 pub fn checkNewExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
-    _ = node_idx;
-    return c.anyTypeIndex orelse 0;
+    return c.checkExpressionAdHoc(node_idx) catch c.anyTypeIndex orelse 0;
 }
 pub fn checkNonNullExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     const expr = c.binder.ast.getNode(node_idx).NonNullExpression;

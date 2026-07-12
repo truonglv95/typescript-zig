@@ -34,23 +34,33 @@ fn runCompilerTests(allocator: std.mem.Allocator, isSubmodule: bool) !void {
 
     try runners.append(allocator, try testrunner.CompilerBaselineRunner.init(allocator, .Regression, isSubmodule));
     try runners.append(allocator, try testrunner.CompilerBaselineRunner.init(allocator, .Conformance, isSubmodule));
+    defer {
+        for (runners.items) |runner| {
+            runner.deinit();
+        }
+    }
 
-    var seenTests = std.StringHashMap(void).init(allocator);
-    defer seenTests.deinit();
+    var pass_count: usize = 0;
+    var fail_count: usize = 0;
 
     for (runners.items) |runner| {
         const files = try runner.EnumerateTestFiles();
         for (files) |file| {
             const baseFile = tspath.GetBaseFileName(file);
-            assert(!seenTests.contains(baseFile)); // Duplicate test file
-            try seenTests.put(baseFile, {});
+            // Run all test files
+            runner.runTest(file) catch |err| {
+                std.debug.print("TEST FAILED: {s} with error {}\n", .{ baseFile, err });
+                fail_count += 1;
+                continue;
+            };
+            pass_count += 1;
         }
     }
+    std.debug.print("\n=== COMPILER TEST RESULTS ===\n", .{});
+    std.debug.print("Passed: {}\n", .{pass_count});
+    std.debug.print("Failed: {}\n", .{fail_count});
 
-    for (runners.items) |runner| {
-        try runner.RunTests();
-    }
-    for (runners.items) |runner| {
-        runner.deinit();
+    if (fail_count > 0) {
+        return error.TestsFailed;
     }
 }

@@ -321,6 +321,10 @@ pub const NodeCheckFlags = struct {
     pub const InitializerIsUndefinedComputed: u32 = 1 << 25;
 };
 
+pub const SourceFileLinks = struct {
+    typeChecked: bool = false,
+    unusedChecked: bool = false,
+};
 pub const NodeLinks = struct {
     flags: u32 = 0,
     // declarationRequiresScopeChange

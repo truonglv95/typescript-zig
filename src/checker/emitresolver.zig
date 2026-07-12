@@ -8,6 +8,7 @@ const checker_utils = @import("utilities.zig");
 const relater = @import("relater.zig");
 const binder = @import("../binder/binder.zig");
 const core = @import("../core/core.zig");
+const jsx = @import("jsx.zig");
 
 // Links for jsx
 pub const JSXLinks = struct {
@@ -71,15 +72,11 @@ pub const EmitResolver = struct {
     }
 
     pub fn getJsxFactoryEntity(self: *EmitResolver, location: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = self;
-        _ = location;
-        return 0; // Stub
+        return jsx.getJsxFactoryEntity(self.chk, location);
     }
 
     pub fn getJsxFragmentFactoryEntity(self: *EmitResolver, location: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = self;
-        _ = location;
-        return 0; // Stub
+        return jsx.getJsxFragmentFactoryEntity(self.chk, location);
     }
 
     pub fn isOptionalParameter(self: *EmitResolver, node: ast_gen.NodeIndex) bool {
@@ -96,9 +93,15 @@ pub const EmitResolver = struct {
     }
 
     pub fn getEnumMemberValue(self: *EmitResolver, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = self;
-        _ = node;
-        return 0; // Stub returning NodeIndex instead of evaluator.Result
+        if (!ast_utils.isParseTreeNode(self.chk.tree, node)) return 0;
+
+        const parent = self.chk.tree.nodes.items(.parent)[node];
+        self.chk.computeEnumMemberValues(parent);
+
+        if (self.chk.enumMemberLinks.get(node)) |links| {
+            return links.value;
+        }
+        return 0;
     }
 
     pub fn isDeclarationVisible(self: *EmitResolver, node: ast_gen.NodeIndex) bool {
@@ -202,11 +205,48 @@ pub const EmitResolver = struct {
         _ = file;
     }
 
-    pub fn isEntityNameVisible(self: *EmitResolver, entityName: ast_gen.NodeIndex, enclosingDeclaration: ast_gen.NodeIndex) SymbolAccessibilityResult {
-        _ = self;
-        _ = entityName;
-        _ = enclosingDeclaration;
-        return .{ .accessibility = 0 }; // Stub
+    pub fn isEntityNameVisible(self: *EmitResolver, entityName: ast_gen.NodeIndex, enclosingDeclaration: ast_gen.NodeIndex, shouldComputeAliasToMakeVisible: bool) SymbolAccessibilityResult {
+        if (!ast_utils.isParseTreeNode(self.chk.tree, entityName)) {
+            return .{ .accessibility = 2 }; // NotAccessible
+        }
+
+        const meaning = self.getMeaningOfEntityNameReference(entityName);
+        const firstIdentifier = ast_utils.getFirstIdentifier(self.chk.tree, entityName);
+
+        const symbolText = ast_utils.getTextOfNode(self.chk.tree, firstIdentifier);
+        const symbol = self.chk.resolveName(enclosingDeclaration, symbolText, meaning, 0, false, false);
+
+        if (symbol != 0) {
+            const symData = self.chk.getSymbolData(symbol);
+            if ((symData.flags & ast_gen.SymbolFlags.TypeParameter) != 0 and (meaning & ast_gen.SymbolFlags.Type) != 0) {
+                return .{ .accessibility = 0 }; // Accessible
+            }
+        }
+
+        if (symbol == 0 and ast_utils.isThisIdentifier(self.chk.tree, firstIdentifier)) {
+            const sym = self.chk.getSymbolOfDeclaration(self.chk.getThisContainer(firstIdentifier, false, false));
+            if (self.isSymbolAccessible(sym orelse 0, enclosingDeclaration, meaning, false).accessibility == 0) {
+                return .{ .accessibility = 0 };
+            }
+        }
+
+        if (symbol == 0) {
+            return .{
+                .accessibility = 1, // NotResolved
+                .errorSymbolName = symbolText,
+                .errorNode = firstIdentifier,
+            };
+        }
+
+        if (self.hasVisibleDeclarations(symbol, shouldComputeAliasToMakeVisible)) |visible| {
+            return visible;
+        }
+
+        return .{
+            .accessibility = 2, // NotAccessible
+            .errorSymbolName = symbolText,
+            .errorNode = firstIdentifier,
+        };
     }
 
     pub fn isImplementationOfOverload(self: *EmitResolver, node: ast_gen.NodeIndex) bool {
@@ -214,31 +254,135 @@ pub const EmitResolver = struct {
     }
 
     pub fn isImportRequiredByAugmentation(self: *EmitResolver, decl: ast_gen.NodeIndex) bool {
-        _ = self;
-        _ = decl;
-        return false; // Stub
+        if (!ast_utils.isParseTreeNode(self.chk.tree, decl)) return false;
+
+        const file = ast_utils.getSourceFileOfNode(self.chk.tree, decl);
+        const fileSym = self.chk.tree.nodes.items(.symbol)[file];
+        if (fileSym == 0) return false;
+
+        const importTarget = self.getExternalModuleFileFromDeclaration(decl);
+        if (importTarget == 0) return false;
+        if (importTarget == file) return false;
+
+        const exports = self.chk.getExportsOfModule(fileSym);
+        if (exports == 0) return false;
+
+        var it = self.chk.symbolsList.items[exports].symbols.iterator();
+        while (it.next()) |entry| {
+            const s = entry.value_ptr.*;
+            const merged = self.chk.getMergedSymbol(s);
+            if (merged != s) {
+                const mergedData = self.chk.getSymbolData(merged);
+                for (mergedData.declarations.items) |d| {
+                    const declFile = ast_utils.getSourceFileOfNode(self.chk.tree, d);
+                    if (declFile == importTarget) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     pub fn isDefinitelyReferenceToGlobalSymbolObject(self: *EmitResolver, node: ast_gen.NodeIndex) bool {
-        _ = self;
-        _ = node;
-        return false; // Stub
+        const tree = self.chk.tree;
+        const kind = tree.nodes.items(.tag)[node];
+        if (kind != .PropertyAccessExpression) return false;
+
+        const propNode = ast_gen.data(tree, ast_gen.PropertyAccessExpressionNode, node);
+        // Let's rely on standard AST layout.
+        if (tree.nodes.items(.tag)[ast_utils.getName(tree, node)] != .Identifier) return false;
+
+        const exprKind = tree.nodes.items(.tag)[propNode.Expression];
+        if (exprKind != .PropertyAccessExpression and exprKind != .Identifier) return false;
+
+        if (exprKind == .Identifier) {
+            const text = ast_utils.getTextOfNode(tree, propNode.Expression);
+            if (!std.mem.eql(u8, text, "Symbol")) return false;
+
+            const resolvedSymbol = self.chk.getResolvedSymbol(propNode.Expression);
+            const globalSymbol = self.chk.getGlobalSymbol("Symbol", ast_gen.SymbolFlags.Value | ast_gen.SymbolFlags.ExportValue, null);
+            return resolvedSymbol == globalSymbol;
+        }
+
+        const innerExprKind = tree.nodes.items(.tag)[ast_gen.data(tree, ast_gen.PropertyAccessExpressionNode, propNode.Expression).Expression];
+        if (innerExprKind != .Identifier) return false;
+
+        const innerText = ast_utils.getTextOfNode(tree, ast_gen.data(tree, ast_gen.PropertyAccessExpressionNode, propNode.Expression).Expression);
+        if (!std.mem.eql(u8, innerText, "globalThis")) return false;
+
+        const nameText = ast_utils.getTextOfNode(tree, ast_utils.getName(tree, propNode.Expression));
+        if (!std.mem.eql(u8, nameText, "Symbol")) return false;
+
+        const resolvedGlobal = self.chk.getResolvedSymbol(ast_gen.data(tree, ast_gen.PropertyAccessExpressionNode, propNode.Expression).Expression);
+        const globalThisSymbol = self.chk.getGlobalSymbol("globalThis", ast_gen.SymbolFlags.Value | ast_gen.SymbolFlags.ExportValue, null);
+        return resolvedGlobal == globalThisSymbol;
     }
 
-    pub fn requiresAddingImplicitUndefined(self: *EmitResolver, declaration: ast_gen.NodeIndex, symbol: ast_gen.SymbolIndex, enclosingDeclaration: ast_gen.NodeIndex) bool {
-        _ = self;
-        _ = declaration;
-        _ = symbol;
-        _ = enclosingDeclaration;
-        return false; // Stub
+    pub fn requiresAddingImplicitUndefined(self: *EmitResolver, declaration: ast_gen.NodeIndex, symbol: ?ast_gen.SymbolIndex, enclosingDeclaration: ast_gen.NodeIndex) bool {
+        if (!ast_utils.isParseTreeNode(self.chk.tree, declaration)) return false;
+
+        const tree = self.chk.tree;
+        const kind = tree.nodes.items(.tag)[declaration];
+
+        switch (kind) {
+            .PropertyDeclaration, .PropertySignature, .JSDocPropertyTag => {
+                var sym = symbol;
+                if (sym == null or sym.? == 0) {
+                    sym = self.chk.getSymbolOfDeclaration(declaration);
+                }
+                if (sym == null or sym.? == 0) return false;
+
+                const t = self.chk.getTypeOfSymbol(sym.?);
+                const symData = self.chk.getSymbolData(sym.?);
+
+                return (symData.flags & ast_gen.SymbolFlags.Property) != 0 and
+                    (symData.flags & ast_gen.SymbolFlags.Optional) != 0 and
+                    checker_utils.isOptionalDeclaration(tree, declaration) and
+                    self.chk.reverseMappedSymbolLinks.contains(sym.?) and
+                    self.chk.reverseMappedSymbolLinks.get(sym.?).?.mappedType != 0 and
+                    checker_utils.containsNonMissingUndefinedType(self.chk, self.chk.getTypeData(t));
+            },
+            .Parameter, .JSDocParameterTag => {
+                return self.requiresAddingImplicitUndefinedWorker(declaration, enclosingDeclaration);
+            },
+            else => unreachable,
+        }
     }
 
-    pub fn requiresAddingImplicitUndefinedUnsafe(self: *EmitResolver, declaration: ast_gen.NodeIndex, symbol: ast_gen.SymbolIndex, enclosingDeclaration: ast_gen.NodeIndex) bool {
-        _ = self;
-        _ = declaration;
-        _ = symbol;
-        _ = enclosingDeclaration;
-        return false; // Stub
+    fn requiresAddingImplicitUndefinedWorker(self: *EmitResolver, parameter: ast_gen.NodeIndex, enclosingDeclaration: ast_gen.NodeIndex) bool {
+        return (self.isRequiredInitializedParameter(parameter, enclosingDeclaration) or self.isOptionalUninitializedParameterProperty(parameter)) and !self.declaredParameterTypeContainsUndefined(parameter);
+    }
+
+    fn declaredParameterTypeContainsUndefined(self: *EmitResolver, parameter: ast_gen.NodeIndex) bool {
+        const typeNode = ast_utils.getType(self.chk.tree, parameter);
+        if (typeNode == 0) return false;
+
+        const t = self.chk.getTypeFromTypeNode(typeNode);
+        return self.chk.isErrorType(t) or self.chk.containsUndefinedType(t);
+    }
+
+    fn isOptionalUninitializedParameterProperty(self: *EmitResolver, parameter: ast_gen.NodeIndex) bool {
+        const tree = self.chk.tree;
+        return self.chk.strictNullChecks and
+            self.chk.isOptionalParameter(parameter) and
+            ast_utils.getInitializer(tree, parameter) == 0 and
+            ast_utils.hasSyntacticModifier(tree, parameter, ast_gen.ModifierFlags.ParameterPropertyModifier);
+    }
+
+    fn isRequiredInitializedParameter(self: *EmitResolver, parameter: ast_gen.NodeIndex, enclosingDeclaration: ast_gen.NodeIndex) bool {
+        const tree = self.chk.tree;
+        if (!self.chk.strictNullChecks or self.chk.isOptionalParameter(parameter) or ast_utils.getInitializer(tree, parameter) == 0) {
+            return false;
+        }
+        if (ast_utils.hasSyntacticModifier(tree, parameter, ast_gen.ModifierFlags.ParameterPropertyModifier)) {
+            return enclosingDeclaration != 0 and ast_utils.isFunctionLikeDeclaration(tree, enclosingDeclaration);
+        }
+        return true;
+    }
+
+    pub fn requiresAddingImplicitUndefinedUnsafe(self: *EmitResolver, declaration: ast_gen.NodeIndex, symbol: ?ast_gen.SymbolIndex, enclosingDeclaration: ast_gen.NodeIndex) bool {
+        return self.requiresAddingImplicitUndefined(declaration, symbol, enclosingDeclaration);
     }
 
     pub fn isLiteralConstDeclaration(self: *EmitResolver, node: ast_gen.NodeIndex) bool {
@@ -280,12 +424,7 @@ pub const EmitResolver = struct {
     }
 
     pub fn isSymbolAccessible(self: *EmitResolver, symbol: ast_gen.SymbolIndex, enclosingDeclaration: ast_gen.NodeIndex, meaning: u32, shouldComputeAliasToMarkVisible: bool) SymbolAccessibilityResult {
-        _ = self;
-        _ = symbol;
-        _ = enclosingDeclaration;
-        _ = meaning;
-        _ = shouldComputeAliasToMarkVisible;
-        return .{ .accessibility = 0 }; // Stub
+        return self.chk.isSymbolAccessible(symbol, enclosingDeclaration, meaning, shouldComputeAliasToMarkVisible);
     }
 
     fn isConstEnumOrConstEnumOnlyModule(c: *checker.Checker, symbol: ast_gen.SymbolIndex) bool {
@@ -297,22 +436,20 @@ pub const EmitResolver = struct {
 
     // Removed getTypeOnlyAliasDeclarationStub from here, moved down
 
-    fn getSymbolFlagsExStub(c: *checker.Checker, symbol: ast_gen.SymbolIndex, excludeTypeOnlyMeanings: bool, excludeLocalMeanings: bool) u32 {
-        _ = excludeTypeOnlyMeanings;
-        _ = excludeLocalMeanings;
-        return c.getSymbolFlags(symbol); // Stub
-    }
-
-    fn resolveExternalModuleSymbolStub(c: *checker.Checker, symbol: ast_gen.SymbolIndex, dontResolveAlias: bool) void {
-        _ = c;
-        _ = symbol;
-        _ = dontResolveAlias;
-    }
-
     fn isCommonJSModuleExports(tree: *ast_gen.Tree, node: ast_gen.NodeIndex) bool {
-        _ = tree;
-        _ = node;
-        return false; // Stub
+        if (tree.nodes.items(.tag)[node] == .BinaryExpression) {
+            const parent = ast_utils.getParent(tree, node);
+            if (parent != 0 and tree.nodes.items(.tag)[parent] == .ExpressionStatement) {
+                const pparent = ast_utils.getParent(tree, parent);
+                if (pparent != 0 and ast_utils.isSourceFile(tree, pparent)) {
+                    if (ast_gen.data(tree, ast_gen.SourceFileNode, pparent).CommonJSModuleIndicator != 0) {
+                        const declKind = ast_utils.getAssignmentDeclarationKind(tree, node);
+                        return declKind == ast_gen.JSDeclarationKind.ModuleExports or declKind == ast_gen.JSDeclarationKind.ExportsProperty;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     pub fn isReferencedAliasDeclaration(self: *EmitResolver, node: ast_gen.NodeIndex) bool {
@@ -343,7 +480,7 @@ pub const EmitResolver = struct {
     }
 
     pub fn isAliasResolvedToValue(self: *EmitResolver, symbol: ast_gen.SymbolIndex, excludeTypeOnlyValues: bool) bool {
-        const c = self.checker;
+        const c = self.chk;
         if (symbol == 0) return false;
 
         const decl = c.getSymbolValueDeclaration(symbol);
@@ -351,21 +488,21 @@ pub const EmitResolver = struct {
             const container = ast_utils.getSourceFileOfNode(c.binder.ast, decl);
             if (container != 0) {
                 const fileSymbol = c.getSymbolOfDeclaration(container);
-                resolveExternalModuleSymbolStub(c, fileSymbol, false);
+                _ = c.resolveExternalModuleSymbol(fileSymbol, false);
             }
         }
 
-        const target = checker.Checker.getExportSymbolOfValueSymbolIfExported(c, resolveAliasStub(c, symbol));
+        const target = checker.Checker.getExportSymbolOfValueSymbolIfExported(c, c.resolveAlias(symbol));
         if (target == c.unknownSymbol) {
-            return !excludeTypeOnlyValues or getTypeOnlyAliasDeclarationStub(c, symbol) == 0;
+            return !excludeTypeOnlyValues or c.getTypeOnlyAliasDeclaration(symbol) == 0;
         }
 
-        const flags = getSymbolFlagsExStub(c, symbol, excludeTypeOnlyValues, true);
+        const flags = self.chk.getSymbolFlagsEx(symbol, excludeTypeOnlyValues, true);
         return (flags & ast_gen.SymbolFlags.Value) != 0 and !isConstEnumOrConstEnumOnlyModule(c, target);
     }
 
     pub fn isValueAliasDeclarationWorker(self: *EmitResolver, node: ast_gen.NodeIndex) bool {
-        const c = self.checker;
+        const c = self.chk;
         const tree = c.binder.ast;
 
         switch (tree.nodes.items[node].tag) {
@@ -445,7 +582,7 @@ pub const EmitResolver = struct {
             return; // likewise, these are ultimately what get marked by calls on other nodes - we want to skip them
         }
 
-        // c.markLinkedReferences(node, ReferenceHintUnspecified, 0, 0); // Stub
+        c.markLinkedReferences(node, 0, 0, 0);
 
         ast_utils.forEachChild(tree, node, c, markLinkedReferencesRecursivelyVisitorCb);
     }
@@ -462,9 +599,7 @@ pub const EmitResolver = struct {
     }
 
     pub fn getExternalModuleFileFromDeclaration(self: *EmitResolver, declaration: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = self;
-        _ = declaration;
-        return 0; // Stub
+        return self.chk.getExternalModuleFileFromDeclaration(declaration);
     }
 
     pub fn getReferenceResolver(self: *EmitResolver) *binder.ReferenceResolver {
@@ -557,12 +692,51 @@ pub const EmitResolver = struct {
         return b.serializeTypeForDeclaration(original, symbol, enclosingDeclaration, @bitCast(flags), @bitCast(internalFlags));
     }
 
-    pub fn createLiteralConstValue(self: *EmitResolver, emitContext: anytype, node: ast_gen.NodeIndex, tracker: anytype) ast_gen.NodeIndex {
-        _ = self;
-        _ = emitContext;
-        _ = node;
-        _ = tracker;
-        return 0; // Stub
+    pub fn createLiteralConstValue(self: *EmitResolver, emitContext: anytype, node_in: ast_gen.NodeIndex, tracker: anytype) ast_gen.NodeIndex {
+        const node = emitContext.parseNode(node_in);
+        const symbol = self.chk.getSymbolOfDeclaration(node) orelse 0;
+        const t = self.chk.getTypeOfSymbol(symbol);
+        if (t == 0) {
+            return 0; // TODO: panic?
+        }
+
+        const t_flags = self.chk.types.items[t].flags;
+        var enumResult: ast_gen.NodeIndex = 0;
+
+        if ((t_flags & types.TypeFlags.EnumLike) != 0) {
+            var requestNodeBuilder = self.chk.getNodeBuilderEx();
+            enumResult = requestNodeBuilder.symbolToExpression(self.chk.types.items[t].symbol, ast_gen.SymbolFlags.Value, node, 0, 0, tracker);
+        } else if (t == self.chk.trueType) {
+            enumResult = emitContext.factory.newKeywordExpression(ast_gen.SyntaxKind.TrueKeyword);
+        } else if (t == self.chk.falseType) {
+            enumResult = emitContext.factory.newKeywordExpression(ast_gen.SyntaxKind.FalseKeyword);
+        }
+
+        if (enumResult != 0) {
+            return enumResult;
+        }
+
+        if ((t_flags & types.TypeFlags.Literal) == 0) {
+            return 0; // non-literal type
+        }
+
+        const type_obj = &self.chk.types.items[t];
+        switch (type_obj.tag) {
+            .StringLiteralType => {
+                const value = self.chk.typeIdToString(t);
+                return emitContext.factory.newStringLiteral(value, ast_gen.TokenFlags.None);
+            },
+            .NumberLiteralType => {
+                // Simplified string generation for number
+                const value = self.chk.typeIdToString(t);
+                return emitContext.factory.newNumericLiteral(value, ast_gen.TokenFlags.None);
+            },
+            .BigIntLiteralType => {
+                const value = self.chk.typeIdToString(t);
+                return emitContext.factory.newBigIntLiteral(value, ast_gen.TokenFlags.None);
+            },
+            else => return 0,
+        }
     }
 
     pub fn createTypeOfExpression(self: *EmitResolver, emitContext: anytype, expression: ast_gen.NodeIndex, enclosingDeclaration: ast_gen.NodeIndex, flags: u32, internalFlags: u32, tracker: anytype) ast_gen.NodeIndex {
@@ -600,20 +774,6 @@ pub const EmitResolver = struct {
 
     fn isTypeOnlyImportOrExportDeclaration(tree: *ast_gen.Tree, node: ast_gen.NodeIndex) bool {
         return ast_utils.isTypeOnlyImportOrExportDeclaration(tree, node);
-    }
-
-    fn resolveAliasStub(c: *checker.Checker, symbol: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        if (c.aliasSymbolLinks.get(symbol)) |links| {
-            if (links.aliasTarget) |target| return target;
-        }
-        return symbol; // Stub
-    }
-
-    fn getTypeOnlyAliasDeclarationStub(c: *checker.Checker, symbol: ast_gen.SymbolIndex) ast_gen.NodeIndex {
-        if (c.aliasSymbolLinks.get(symbol)) |links| {
-            if (links.typeOnlyDeclaration) |decl| return decl;
-        }
-        return 0; // Stub
     }
 
     fn getFirstIdentifier(tree: *ast_gen.Tree, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -658,18 +818,18 @@ pub const EmitResolver = struct {
         const valueSymbol = checker.Checker.resolveEntityName(c, typeName, ast_gen.SymbolFlags.Value, true, true, location);
         var resolvedValueSymbol = valueSymbol;
         if (valueSymbol != 0 and (c.getSymbolFlags(valueSymbol) & ast_gen.SymbolFlags.Alias) != 0) {
-            resolvedValueSymbol = resolveAliasStub(c, valueSymbol);
+            resolvedValueSymbol = c.resolveAlias(valueSymbol);
         }
 
-        isTypeOnly = isTypeOnly or (valueSymbol != 0 and getTypeOnlyAliasDeclarationStub(c, valueSymbol) != 0);
+        isTypeOnly = isTypeOnly or (valueSymbol != 0 and c.getTypeOnlyAliasDeclaration(valueSymbol) != 0);
 
         const typeSymbol = checker.Checker.resolveEntityName(c, typeName, ast_gen.SymbolFlags.Type, true, true, location);
         var resolvedTypeSymbol = typeSymbol;
         if (typeSymbol != 0 and (c.getSymbolFlags(typeSymbol) & ast_gen.SymbolFlags.Alias) != 0) {
-            resolvedTypeSymbol = resolveAliasStub(c, typeSymbol);
+            resolvedTypeSymbol = c.resolveAlias(typeSymbol);
         }
 
-        isTypeOnly = isTypeOnly or (typeSymbol != 0 and getTypeOnlyAliasDeclarationStub(c, typeSymbol) != 0);
+        isTypeOnly = isTypeOnly or (typeSymbol != 0 and c.getTypeOnlyAliasDeclaration(typeSymbol) != 0);
 
         if (resolvedValueSymbol != 0 and resolvedValueSymbol == resolvedTypeSymbol) {
             const globalPromiseSymbol = c.getGlobalPromiseConstructorSymbol() catch 0;
@@ -784,9 +944,31 @@ pub fn markLinkedAliases(r: *anyopaque, node: *anyopaque) void {
     _ = node;
 }
 
-pub fn getMeaningOfEntityNameReference(entityName: *anyopaque) *anyopaque {
-    _ = entityName;
-    return undefined;
+pub fn getMeaningOfEntityNameReference(self: *EmitResolver, entityName: ast_gen.NodeIndex) u32 {
+    const tree = self.chk.tree;
+    const parent = ast_utils.getParent(tree, entityName);
+    if (parent != 0) {
+        const parent_kind = tree.nodes.items(.tag)[parent];
+        if (parent_kind == .TypeQuery or
+            (parent_kind == .ExpressionWithTypeArguments and !ast_utils.isPartOfTypeNode(tree, parent)) or
+            parent_kind == .ComputedPropertyName or
+            (parent_kind == .TypePredicateNode and ast_gen.data(tree, ast_gen.TypePredicateNodeNode, parent).ParameterName == entityName) or
+            parent_kind == .BinaryExpression)
+        {
+            return ast_gen.SymbolFlags.Value | ast_gen.SymbolFlags.ExportValue;
+        }
+
+        const kind = tree.nodes.items(.tag)[entityName];
+        if (kind == .QualifiedName or kind == .PropertyAccessExpression or
+            parent_kind == .ImportEqualsDeclaration or
+            (parent_kind == .QualifiedName and ast_gen.data(tree, ast_gen.QualifiedNameNode, parent).Left == entityName) or
+            (parent_kind == .PropertyAccessExpression and ast_gen.data(tree, ast_gen.PropertyAccessExpressionNode, parent).Expression == entityName) or
+            (parent_kind == .ElementAccessExpression and ast_gen.data(tree, ast_gen.ElementAccessExpressionNode, parent).Expression == entityName))
+        {
+            return ast_gen.SymbolFlags.Namespace;
+        }
+    }
+    return ast_gen.SymbolFlags.Type;
 }
 
 pub fn noopAddVisibleAlias(declaration: *anyopaque, aliasingStatement: *anyopaque) void {

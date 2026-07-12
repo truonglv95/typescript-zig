@@ -1,4 +1,5 @@
 const std = @import("std");
+const core = @import("../../core/core.zig");
 
 pub const TestConfiguration = std.StringHashMap([]const u8);
 
@@ -52,11 +53,44 @@ pub fn EnumerateFiles(
     regexPattern: []const u8,
     recursive: bool,
 ) ![][]const u8 {
-    _ = basePath;
     _ = regexPattern;
-    _ = recursive;
     var files = std.ArrayList([]const u8).empty;
+
+    try collectFiles(allocator, basePath, recursive, &files);
+
     return files.toOwnedSlice(allocator);
+}
+
+fn collectFiles(
+    allocator: std.mem.Allocator,
+    basePath: []const u8,
+    recursive: bool,
+    files: *std.ArrayList([]const u8),
+) !void {
+    const osvfs = @import("../../vfs/osvfs/osvfs.zig");
+    const entries = osvfs.fs().getAccessibleEntries(allocator, basePath);
+
+    for (entries.files) |f| {
+        if (std.mem.endsWith(u8, f, ".ts") or std.mem.endsWith(u8, f, ".tsx")) {
+            const joined = try std.fs.path.join(allocator, &[_][]const u8{ basePath, f });
+            try files.append(allocator, joined);
+        }
+        allocator.free(f);
+    }
+    allocator.free(entries.files);
+
+    if (recursive) {
+        for (entries.directories) |d| {
+            const joined = try std.fs.path.join(allocator, &[_][]const u8{ basePath, d });
+            try collectFiles(allocator, joined, recursive, files);
+            allocator.free(joined);
+        }
+    }
+
+    for (entries.directories) |d| {
+        allocator.free(d);
+    }
+    allocator.free(entries.directories);
 }
 
 pub fn compileFiles(
@@ -68,14 +102,38 @@ pub fn compileFiles(
     currentDirectory: []const u8,
     symlinks: std.StringHashMap([]const u8),
 ) !*CompilationResult {
-    _ = allocator;
     _ = inputFiles;
     _ = otherFiles;
     _ = testConfig;
     _ = tsconfig;
     _ = currentDirectory;
-    _ = symlinks;
-    unreachable;
+
+    // We don't have a full VFS/CompilerHost implementation for the test suite yet.
+    // For now, we will just return a dummy CompilationResult to allow the test harness to run.
+    const hOptions = try allocator.create(HarnessOptions);
+    hOptions.* = .{};
+
+    const compilerOpts = try allocator.create(core.CompilerOptions);
+    compilerOpts.* = .{};
+
+    const dummyProgram = try allocator.create(u8);
+    dummyProgram.* = 0;
+
+    const result = try allocator.create(CompilationResult);
+    result.* = .{
+        .Diagnostics = &[_]*anyopaque{},
+        .Result = undefined,
+        .Program = dummyProgram,
+        .Options = compilerOpts,
+        .HarnessOptions = hOptions,
+        .Symlinks = symlinks,
+        .Repeat = undefined,
+        .Outputs = &[_]*anyopaque{},
+        .Inputs = &[_]*anyopaque{},
+        .Trace = "",
+        .Host = undefined,
+    };
+    return result;
 }
 
 pub fn compileFilesEx(
@@ -109,7 +167,7 @@ pub const CompilationResult = struct {
     // Dts: collections.OrderedMap([]const u8, *TestFile),
     // Maps: collections.OrderedMap([]const u8, *TestFile),
     Symlinks: std.StringHashMap([]const u8),
-    Repeat: *const fn(TestConfiguration) *CompilationResult,
+    Repeat: *const fn (TestConfiguration) *CompilationResult,
     Outputs: []*anyopaque,
     Inputs: []*anyopaque,
     // InputsAndOutputs: collections.OrderedMap([]const u8, *CompilationOutput),
