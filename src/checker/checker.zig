@@ -12735,22 +12735,16 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromTypeNodeWorker(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromTypeNodeWorker(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromTypeNodeWorker(c, node_idx);
     }
 
-    pub fn getTypeFromThisTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromThisTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromThisTypeNode(c, node_idx);
     }
 
     pub fn getThisType(c: *Checker, node: *anyopaque) *anyopaque {
@@ -12759,28 +12753,20 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromLiteralTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromLiteralTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromLiteralTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromIndexedAccessTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromIndexedAccessTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromIndexedAccessTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromTypeOperatorNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromTypeOperatorNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromTypeOperatorNode(c, node_idx);
     }
 
     pub fn getESSymbolLikeTypeForNode(c: *Checker, node: *anyopaque) *anyopaque {
@@ -12789,10 +12775,8 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromTypeReference(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromTypeReference(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromTypeReference(c, node_idx);
     }
 
     pub fn getIntendedTypeFromJSDocTypeReference(c: *Checker, node: *anyopaque) *anyopaque {
@@ -12833,11 +12817,8 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromClassOrInterfaceReference(c: *Checker, node: *anyopaque, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = symbol_;
-        return undefined;
+    pub fn getTypeFromClassOrInterfaceReference(c: *Checker, node_idx: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromClassOrInterfaceReference(c, node_idx, symbol_);
     }
 
     pub fn getTypeArgumentsFromNode(c: *Checker, node: *anyopaque) *anyopaque {
@@ -12914,11 +12895,8 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromTypeAliasReference(c: *Checker, node: *anyopaque, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = symbol_;
-        return undefined;
+    pub fn getTypeFromTypeAliasReference(c: *Checker, node_idx: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromTypeAliasReference(c, node_idx, symbol_);
     }
 
     pub fn isLocalTypeAlias(symbol_: *anyopaque) bool {
@@ -13016,16 +12994,12 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromTypeQueryNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromTypeQueryNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromTypeQueryNode(c, node_idx);
     }
 
-    pub fn getTypeFromArrayOrTupleTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromArrayOrTupleTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromArrayOrTupleTypeNode(c, node_idx);
     }
 
     pub fn isVariadicTupleElement(c: *Checker, node: *anyopaque) bool {
@@ -13046,16 +13020,12 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTypeFromNamedTupleTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromNamedTupleTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromNamedTupleTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromRestTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromRestTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromRestTypeNode(c, node_idx);
     }
 
     pub fn getArrayElementTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
@@ -13064,40 +13034,28 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromOptionalTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromOptionalTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromOptionalTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromUnionTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromUnionTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromUnionTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromIntersectionTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromIntersectionTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromIntersectionTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromTemplateTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromTemplateTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromTemplateTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromMappedTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromMappedTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromMappedTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromConditionalTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromConditionalTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromConditionalTypeNode(c, node_idx);
     }
 
     pub fn restrictiveMapperWorker(c: *Checker, t: *anyopaque) *anyopaque {
@@ -13112,16 +13070,12 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromInferTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromInferTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromInferTypeNode(c, node_idx);
     }
 
-    pub fn getTypeFromImportTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypeFromImportTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+        return type_resolution_pkg.getTypeFromImportTypeNode(c, node_idx);
     }
 
     pub fn getIdentifierChain(c: *Checker, node: *anyopaque) *anyopaque {

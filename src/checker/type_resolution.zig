@@ -18,7 +18,7 @@ pub fn getTypeFromTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
     return getConditionalFlowTypeOfType(c, getTypeFromTypeNodeWorker(c, node), node);
 }
 
-fn getTypeFromTypeNodeWorker(c: *Checker, node: NodeIndex) TypeIndex {
+pub fn getTypeFromTypeNodeWorker(c: *Checker, node: NodeIndex) TypeIndex {
     const kind = c.binder.ast.getKind(node);
     switch (kind) {
         .AnyKeyword, .JSDocAllType => return c.getAnyType() catch c.unknownTypeIndex orelse 0,
@@ -432,7 +432,7 @@ fn getTypeReferenceType(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolInde
     return c.errorTypeIndex orelse 0;
 }
 
-fn getTypeFromClassOrInterfaceReference(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
+pub fn getTypeFromClassOrInterfaceReference(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
     const t = getDeclaredTypeOfClassOrInterface(c, checker_mod.getMergedSymbol(c, symbol));
     if (t == 0) return c.errorTypeIndex orelse 0; // safeguard
 
@@ -694,7 +694,7 @@ fn tryGetRecordInstantiation(c: *Checker, node: NodeIndex, symbol: ast_gen.Symbo
     return tryGetRecordTypeFromNode(c, node);
 }
 
-fn getTypeFromTypeAliasReference(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
+pub fn getTypeFromTypeAliasReference(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
     if (tryGetRecordInstantiation(c, node, symbol)) |recordType| {
         return recordType;
     }
