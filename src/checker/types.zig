@@ -347,6 +347,11 @@ pub const TupleType = struct {
     minLength: u32 = 0,
     fixedLength: u32 = 0,
     hasRestElement: bool = false,
+    instantiations: ?std.AutoHashMapUnmanaged(CacheHashKey, TypeIndex) = null,
+    target: ?TypeIndex = null,
+    thisType: ?TypeIndex = null,
+    typeParametersStart: u32 = 0,
+    typeParametersLen: u32 = 0,
 };
 
 pub const ConditionalRoot = struct {
