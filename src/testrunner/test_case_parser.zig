@@ -188,7 +188,11 @@ pub fn parseTestFilesAndSymlinks(comptime T: type, allocator: std.mem.Allocator,
     return parseTestFilesAndSymlinksWithOptions(T, allocator, code, fileName, parseFile, ParseTestFilesOptions{});
 }
 
-pub fn parseTestFilesAndSymlinksWithOptions(comptime T: type, allocator: std.mem.Allocator, code: []const u8, fileName: []const u8, parseFile: *const fn (std.mem.Allocator, []const u8, []const u8, std.StringHashMap([]const u8)) anyerror!T, options: ParseTestFilesOptions) !ParseTestFilesResultType(T) {
+pub fn parseTestFilesAndSymlinksWithOptions(comptime T: type, allocator: std.mem.Allocator, code_in: []const u8, fileName: []const u8, parseFile: *const fn (std.mem.Allocator, []const u8, []const u8, std.StringHashMap([]const u8)) anyerror!T, options: ParseTestFilesOptions) !ParseTestFilesResultType(T) {
+    var code = code_in;
+    if (code.len >= 3 and code[0] == 0xef and code[1] == 0xbb and code[2] == 0xbf) {
+        code = code[3..];
+    }
     var testUnits = std.ArrayList(T).empty;
 
     var currentFileContent = std.ArrayList(u8).empty;
@@ -272,7 +276,8 @@ pub fn parseTestFilesAndSymlinksWithOptions(comptime T: type, allocator: std.mem
             } else {
                 const hasContentBeforeFirstFilename = currentFileContent.items.len != 0 and scanner.skipTrivia(currentFileContent.items, 0) != currentFileContent.items.len;
                 if (hasContentBeforeFirstFilename and !options.allowImplicitFirstFile) {
-                    @panic("Non-comment test content appears before the first '// @Filename' directive");
+                    std.debug.print("ParseError! filename: {s}, content: '{s}'\n", .{ currentFileName, currentFileContent.items });
+                    return error.ParseError;
                 }
 
                 if (hasContentBeforeFirstFilename and options.allowImplicitFirstFile and currentFileName.len > 0) {
@@ -320,7 +325,11 @@ pub fn parseTestFilesAndSymlinksWithOptions(comptime T: type, allocator: std.mem
     };
 }
 
-pub fn extractCompilerSettings(allocator: std.mem.Allocator, content: []const u8) !RawCompilerSettings {
+pub fn extractCompilerSettings(allocator: std.mem.Allocator, content_in: []const u8) !RawCompilerSettings {
+    var content = content_in;
+    if (content.len >= 3 and content[0] == 0xef and content[1] == 0xbb and content[2] == 0xbf) {
+        content = content[3..];
+    }
     var opts = RawCompilerSettings.init(allocator);
     var line_start: usize = 0;
     while (line_start < content.len) {

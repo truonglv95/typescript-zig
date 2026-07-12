@@ -162,26 +162,30 @@ pub const CompilerBaselineRunner = struct {
 
     pub fn runTest(self: *CompilerBaselineRunner, filename: []const u8) !void {
         std.debug.print("Running test: {s}\n", .{filename});
-        const test_case = try getCompilerFileBasedTest(self.allocator, filename);
+
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        const test_case = try getCompilerFileBasedTest(arena_allocator, filename);
         const basename = tspath.GetBaseFileName(filename);
         if (test_case.configurations.len > 0) {
             for (test_case.configurations) |config| {
-                var testName = try self.allocator.dupe(u8, basename);
+                var testName = try arena_allocator.dupe(u8, basename);
                 if (config.Name.len > 0) {
-                    const extra = try std.fmt.allocPrint(self.allocator, " {s}", .{config.Name});
-                    defer self.allocator.free(extra);
-                    testName = try std.mem.concat(self.allocator, u8, &[_][]const u8{ testName, extra });
+                    const extra = try std.fmt.allocPrint(arena_allocator, " {s}", .{config.Name});
+                    testName = try std.mem.concat(arena_allocator, u8, &[_][]const u8{ testName, extra });
                 }
-                try self.runSingleConfigTest(testName, test_case, config);
+                try self.runSingleConfigTest(arena_allocator, testName, test_case, config);
             }
         } else {
-            try self.runSingleConfigTest(basename, test_case, null);
+            try self.runSingleConfigTest(arena_allocator, basename, test_case, null);
         }
     }
 
-    pub fn runSingleConfigTest(self: *CompilerBaselineRunner, testName: []const u8, test_case: *compilerFileBasedTest, config: ?*harnessutil.NamedTestConfiguration) !void {
-        var payload = try testrunner.makeUnitsFromTest(self.allocator, test_case.content, test_case.filename);
-        var compTest = try newCompilerTest(self.allocator, testName, test_case.filename, &payload, config);
+    pub fn runSingleConfigTest(self: *CompilerBaselineRunner, allocator: std.mem.Allocator, testName: []const u8, test_case: *compilerFileBasedTest, config: ?*harnessutil.NamedTestConfiguration) !void {
+        var payload = try testrunner.makeUnitsFromTest(allocator, test_case.content, test_case.filename);
+        var compTest = try newCompilerTest(allocator, testName, test_case.filename, &payload, config);
 
         try harnessutil.SkipUnsupportedCompilerOptions(compTest.options);
 
@@ -284,7 +288,7 @@ pub const compilerTest = struct {
 
         const testDataPath = try repo.TestDataPath(self.allocator);
         var headerComponents = try tspath.GetPathComponentsRelativeTo(self.allocator, testDataPath, self.filename, .{});
-        if (isSubmodule) {
+        if (isSubmodule and headerComponents.len >= 4) {
             headerComponents = headerComponents[4..]; // Strip "./../_submodules/TypeScript" prefix
         }
         const header = try tspath.GetPathFromPathComponents(self.allocator, headerComponents);
@@ -297,7 +301,7 @@ pub const compilerTest = struct {
     pub fn verifySourceMapOutput(self: *compilerTest, suiteName: []const u8, isSubmodule: bool) !void {
         const testDataPath = try repo.TestDataPath(self.allocator);
         var headerComponents = try tspath.GetPathComponentsRelativeTo(self.allocator, testDataPath, self.filename, .{});
-        if (isSubmodule) {
+        if (isSubmodule and headerComponents.len >= 4) {
             headerComponents = headerComponents[4..];
         }
         const header = try tspath.GetPathFromPathComponents(self.allocator, headerComponents);
@@ -310,7 +314,7 @@ pub const compilerTest = struct {
     pub fn verifySourceMapRecord(self: *compilerTest, suiteName: []const u8, isSubmodule: bool) !void {
         const testDataPath = try repo.TestDataPath(self.allocator);
         var headerComponents = try tspath.GetPathComponentsRelativeTo(self.allocator, testDataPath, self.filename, .{});
-        if (isSubmodule) {
+        if (isSubmodule and headerComponents.len >= 4) {
             headerComponents = headerComponents[4..];
         }
         const header = try tspath.GetPathFromPathComponents(self.allocator, headerComponents);
@@ -325,6 +329,7 @@ pub const compilerTest = struct {
             return;
         }
         const MockProgram = struct {
+            dummy: u8 = 0,
             pub fn GetSourceFile(_self: *@This(), name: []const u8) ?*anyopaque {
                 _ = _self;
                 _ = name;
@@ -342,7 +347,7 @@ pub const compilerTest = struct {
 
         const testDataPath = try repo.TestDataPath(self.allocator);
         var headerComponents = try tspath.GetPathComponentsRelativeTo(self.allocator, testDataPath, self.filename, .{});
-        if (isSubmodule) {
+        if (isSubmodule and headerComponents.len >= 4) {
             headerComponents = headerComponents[4..];
         }
         const header = try tspath.GetPathFromPathComponents(self.allocator, headerComponents);
@@ -407,8 +412,6 @@ pub fn newCompilerTest(
     const units = tcContentConfig.testCaseContent.testUnitData;
     var toBeCompiled = std.ArrayList(*harnessutil.TestFile).empty;
     var otherFiles = std.ArrayList(*harnessutil.TestFile).empty;
-    defer toBeCompiled.deinit(allocator);
-    defer otherFiles.deinit(allocator);
     var tsConfig: ?*tsoptions.commandlineparser.ParsedCommandLine = null;
 
     var hasNonDtsFiles = false;
@@ -420,7 +423,6 @@ pub fn newCompilerTest(
     }
 
     var tsConfigFiles = std.ArrayList(*harnessutil.TestFile).empty;
-    defer tsConfigFiles.deinit(allocator);
 
     if (tcContentConfig.testCaseContent.tsConfig) |tsc| {
         tsConfig = tsc;
@@ -476,9 +478,9 @@ pub fn newCompilerTest(
         .options = @ptrCast(@alignCast(result.Options)),
         .harnessOptions = result.HarnessOptions,
         .result = result,
-        .tsConfigFiles = tsConfigFiles.items,
-        .toBeCompiled = toBeCompiled.items,
-        .otherFiles = otherFiles.items,
+        .tsConfigFiles = try tsConfigFiles.toOwnedSlice(allocator),
+        .toBeCompiled = try toBeCompiled.toOwnedSlice(allocator),
+        .otherFiles = try otherFiles.toOwnedSlice(allocator),
         .hasNonDtsFiles = hasNonDtsFiles,
     };
     return compTest;
