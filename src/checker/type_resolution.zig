@@ -7,6 +7,7 @@ const types = @import("types.zig");
 const TypeIndex = types.TypeIndex;
 const checker_mod = @import("checker.zig");
 const Checker = checker_mod.Checker;
+const diagnostics_gen = @import("../diagnostics/diagnostics_generated.zig");
 
 export fn dummy_force_typecheck() void {
     var c: Checker = undefined;
@@ -29,7 +30,7 @@ fn getTypeFromTypeNodeWorker(c: *Checker, node: NodeIndex) TypeIndex {
             const typeNode = c.binder.ast.getNode(node).JSDocNullableType.Type;
             const t = getTypeFromTypeNode(c, typeNode);
             if (c.strictNullChecks) {
-                return t; // TODO: c.getNullableType(t, types.TypeFlags.Null);
+                return c.getNullableType(t, @import("types.zig").TypeFlags.Null);
             } else {
                 return t;
             }
@@ -87,15 +88,106 @@ fn getTypeFromTypeNodeWorker(c: *Checker, node: NodeIndex) TypeIndex {
 }
 
 pub fn getConditionalFlowTypeOfType(c: *Checker, t: TypeIndex, node: NodeIndex) TypeIndex {
-    _ = c;
-    _ = node;
-    // return c.getFlowTypeOfType(t, node);
-    return t; // Stub
+    var constraints: std.ArrayListUnmanaged(TypeIndex) = .empty;
+    defer constraints.deinit(c.allocator);
+
+    var covariant = true;
+    var current = node;
+
+    while (current != 0 and !ast_utils.isStatement(c.binder.ast, current) and c.binder.ast.getKind(current) != .JSDoc) {
+        const parent = c.binder.ast.getNodeParent(current);
+        if (parent == 0) break;
+
+        if (ast_utils.isParameterDeclaration(c.binder.ast, parent)) {
+            covariant = !covariant;
+        }
+
+        const tFlags = c.typesList.items[t].flags;
+        const parentKind = c.binder.ast.getKind(parent);
+
+        if ((covariant or (tFlags & types.TypeFlags.TypeVariable) != 0) and parentKind == .ConditionalType and current == c.binder.ast.getNode(parent).ConditionalType.TrueType) {
+            const condNode = c.binder.ast.getNode(parent).ConditionalType;
+            if (getImpliedConstraint(c, t, condNode.CheckType, condNode.ExtendsType)) |constraint| {
+                constraints.append(c.allocator, constraint) catch @panic("OOM");
+            }
+        } else if ((tFlags & types.TypeFlags.TypeParameter) != 0 and parentKind == .MappedType) {
+            const mappedNode = c.binder.ast.getNode(parent).MappedType;
+            if (mappedNode.NameType == null and current == (mappedNode.Type orelse 0)) {
+                const mappedType = getTypeFromTypeNode(c, parent);
+                if (c.getTypeParameterFromMappedType(mappedType) == c.getActualTypeVariable(t)) {
+                    const typeParameter = c.getHomomorphicTypeVariable(mappedType);
+                    if (typeParameter != 0) {
+                        if (c.getConstraintOfTypeParameter(typeParameter)) |cType| {
+                            var every = true;
+                            if ((c.typesList.items[cType].flags & types.TypeFlags.Union) != 0) {
+                                for (c.getTypesFromUnion(cType)) |uType| {
+                                    if (!c.isArrayOrTupleType(uType)) {
+                                        every = false;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                every = c.isArrayOrTupleType(cType);
+                            }
+
+                            if (every) {
+                                var numTypes = [_]TypeIndex{ c.numberTypeIndex orelse 0, c.numericStringTypeIndex orelse 0 };
+                                const unionType = c.getUnionTypeFromArray(&numTypes);
+                                constraints.append(c.allocator, unionType) catch @panic("OOM");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        current = parent;
+    }
+
+    if (constraints.items.len != 0) {
+        return c.getSubstitutionType(t, c.getIntersectionType(constraints.items));
+    }
+    return t;
+}
+
+fn getImpliedConstraint(c: *Checker, t: TypeIndex, checkNode: NodeIndex, extendsNode: NodeIndex) ?TypeIndex {
+    if (isUnaryTupleTypeNode(c, checkNode) and isUnaryTupleTypeNode(c, extendsNode)) {
+        const checkElement = c.binder.ast.getNodeList(c.binder.ast.getNode(checkNode).TupleType.Elements)[0];
+        const extendsElement = c.binder.ast.getNodeList(c.binder.ast.getNode(extendsNode).TupleType.Elements)[0];
+        return getImpliedConstraint(c, t, checkElement, extendsElement);
+    }
+    if (c.getActualTypeVariable(getTypeFromTypeNode(c, checkNode)) == c.getActualTypeVariable(t)) {
+        return getTypeFromTypeNode(c, extendsNode);
+    }
+    return null;
+}
+
+fn isUnaryTupleTypeNode(c: *Checker, node: NodeIndex) bool {
+    const kind = c.binder.ast.getKind(node);
+    if (kind == .TupleType) {
+        return c.binder.ast.getNodeList(c.binder.ast.getNode(node).TupleType.Elements).len == 1;
+    }
+    return false;
 }
 
 fn getThisType(c: *Checker, node: NodeIndex) TypeIndex {
-    _ = node;
-    // TODO: implement getThisType
+    const container = ast_utils.getThisContainer(c.binder.ast, node, false, false);
+    if (container != 0) {
+        const parent = c.binder.ast.getNodeParent(container);
+        if (parent != 0 and (ast_utils.isClassLike(c.binder.ast, parent) or ast_utils.isInterfaceDeclaration(c.binder.ast, parent))) {
+            const isConstructor = ast_utils.isConstructorDeclaration(c.binder.ast, container);
+            const containerBody = if (isConstructor) c.binder.ast.getNode(container).Constructor.Body orelse 0 else 0;
+            if (!ast_utils.isStatic(c.binder.ast, container) and (!isConstructor or ast_utils.isNodeDescendantOf(c.binder.ast, node, containerBody))) {
+                const parentSymbol = c.getSymbolOfDeclaration(parent);
+                const declaredType = getDeclaredTypeOfClassOrInterface(c, parentSymbol);
+                if (declaredType != 0) {
+                    const thisType = c.typesList.items[declaredType].data.Object.thisType orelse 0;
+                    return if (thisType != 0) thisType else c.errorTypeIndex orelse 0;
+                }
+                return c.errorTypeIndex orelse 0;
+            }
+        }
+    }
+    c.reportError(node, &diagnostics_gen.A_this_type_is_available_only_in_a_non_static_member_of_a_class_or_interface);
     return c.errorTypeIndex orelse 0;
 }
 
@@ -197,11 +289,14 @@ fn getIntendedTypeFromJSDocTypeReference(c: *Checker, node: NodeIndex) TypeIndex
             switch (c.binder.ast.getKind(grandParent)) {
                 .JSDocReturnTag => {
                     // TODO: return c.getTypeFromJSDocReturnTag(grandParent)
-                    return 0;
+                    return c.errorTypeIndex orelse 0;
                 },
                 .JSDocParameterTag, .JSDocPropertyTag, .JSDocTypeTag, .JSDocTypedefTag, .JSDocCallbackTag => {
-                    // TODO: return c.getTypeOfSymbol(c.getSymbolOfDeclaration(grandParent))
-                    return 0;
+                    const sym = c.getSymbolOfDeclaration(grandParent);
+                    if (sym != 0) {
+                        return c.getTypeOfSymbol(sym) catch c.errorTypeIndex orelse 0;
+                    }
+                    return c.errorTypeIndex orelse 0;
                 },
                 else => {},
             }
@@ -257,9 +352,62 @@ fn resolveTypeReferenceName(c: *Checker, typeReference: NodeIndex, meaning: u32,
     return getUnresolvedSymbolForEntityName(c, nameNode.?);
 }
 
+fn getSymbolPath(c: *Checker, symbol: ast_gen.SymbolIndex) []const u8 {
+    const parent = c.binder.symbols.items[symbol].Parent;
+    const name = c.binder.symbols.items[symbol].Name;
+    if (parent != null and parent.? != 0) {
+        const parentPath = getSymbolPath(c, parent.?);
+        return std.fmt.allocPrint(c.allocator, "{s}.{s}", .{ parentPath, name }) catch unreachable;
+    }
+    return c.allocator.dupe(u8, name) catch unreachable;
+}
+
 fn getUnresolvedSymbolForEntityName(c: *Checker, name: NodeIndex) ast_gen.SymbolIndex {
-    _ = name;
-    // TODO: implement UnresolvedSymbol resolution and creation
+    var identifier: NodeIndex = name;
+    switch (c.binder.ast.getKind(name)) {
+        .QualifiedName => {
+            identifier = c.binder.ast.getNode(name).QualifiedName.Right;
+        },
+        .PropertyAccessExpression => {
+            identifier = c.binder.ast.getNode(name).PropertyAccessExpression.name;
+        },
+        else => {},
+    }
+    const text = if (identifier != 0) ast_utils.getTextOfNode(c.binder.ast, identifier) else "";
+    if (text.len > 0) {
+        var parentSymbol: ast_gen.SymbolIndex = 0;
+        switch (c.binder.ast.getKind(name)) {
+            .QualifiedName => {
+                parentSymbol = getUnresolvedSymbolForEntityName(c, c.binder.ast.getNode(name).QualifiedName.Left);
+            },
+            .PropertyAccessExpression => {
+                parentSymbol = getUnresolvedSymbolForEntityName(c, c.binder.ast.getNode(name).PropertyAccessExpression.Expression);
+            },
+            else => {},
+        }
+        var path: []const u8 = undefined;
+        if (parentSymbol != 0) {
+            const pPath = getSymbolPath(c, parentSymbol);
+            path = std.fmt.allocPrint(c.allocator, "{s}.{s}", .{ pPath, text }) catch unreachable;
+        } else {
+            path = text;
+        }
+
+        if (c.unresolvedSymbols.get(path)) |result| {
+            return result;
+        }
+
+        const result = c.createSymbol(@import("../ast/symbol.zig").SymbolFlags.TypeAlias, text, @import("types.zig").CheckFlags.Unresolved);
+        const dupedPath = c.allocator.dupe(u8, path) catch unreachable;
+        c.unresolvedSymbols.put(c.allocator, dupedPath, result) catch unreachable;
+        c.binder.symbols.items[result].Parent = parentSymbol;
+
+        const entry = c.typeAliasLinks.getOrPut(c.allocator, result) catch unreachable;
+        if (!entry.found_existing) entry.value_ptr.* = .{};
+        entry.value_ptr.declaredType = c.errorTypeIndex orelse 0;
+
+        return result;
+    }
     return c.unknownSymbol;
 }
 
@@ -285,7 +433,7 @@ fn getTypeReferenceType(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolInde
 }
 
 fn getTypeFromClassOrInterfaceReference(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolIndex) TypeIndex {
-    const t = getDeclaredTypeOfClassOrInterface(c, getMergedSymbol(c, symbol));
+    const t = getDeclaredTypeOfClassOrInterface(c, checker_mod.getMergedSymbol(c, symbol));
     if (t == 0) return c.errorTypeIndex orelse 0; // safeguard
 
     // d := t.AsInterfaceType()
@@ -296,7 +444,7 @@ fn getTypeFromClassOrInterfaceReference(c: *Checker, node: NodeIndex, symbol: as
         const typeArgsLen = getTypeArgumentsLength(c, node);
         const minTypeArgumentCount = getMinTypeArgumentCount(c, typeParameters);
         const isJs = ast_utils.isInJSFile(c.binder.ast, node);
-        const isJsImplicitAny = isJs; // TODO: handle noImplicitAny
+        const isJsImplicitAny = isJs and !c.noImplicitAny;
 
         if (!isJsImplicitAny and (typeArgsLen < minTypeArgumentCount or typeArgsLen > typeParameters.len)) {
             // Diagnostics omitted for stub
@@ -325,11 +473,6 @@ fn getTypeFromClassOrInterfaceReference(c: *Checker, node: NodeIndex, symbol: as
     return c.errorTypeIndex orelse 0;
 }
 
-fn getMergedSymbol(c: *Checker, symbol: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-    _ = c;
-    _ = symbol;
-    return 0;
-}
 fn getDeclaredTypeOfClassOrInterface(c: *Checker, symbol: ast_gen.SymbolIndex) TypeIndex {
     const flags = c.getSymbolFlags(symbol);
     const sym = @import("../ast/symbol.zig");
@@ -349,9 +492,18 @@ fn getTypeArgumentsLength(c: *Checker, node: NodeIndex) usize {
 }
 
 fn hasDefaultTypeParameter(c: *Checker, t: TypeIndex) bool {
-    _ = c;
-    _ = t;
-    // TODO: implement hasDefaultTypeParameter
+    const symbol = c.getSymbolOfType(t);
+    if (symbol != 0) {
+        const symbolObj = c.binder.symbols.items[symbol];
+        for (symbolObj.Declarations.items) |decl| {
+            if (c.binder.ast.getKind(decl) == .TypeParameter) {
+                const node = c.binder.ast.getNode(decl).TypeParameter;
+                if (node.DefaultType != null and node.DefaultType.? != 0) {
+                    return true;
+                }
+            }
+        }
+    }
     return false;
 }
 
@@ -418,14 +570,61 @@ fn checkNoTypeArguments(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolInde
     return true;
 }
 
-fn fillMissingTypeArguments(c: *Checker, typeArgumentsFromNode: []const TypeIndex, typeParameters: []const TypeIndex, minTypeArgumentCount: usize, isJs: bool) []const TypeIndex {
-    const numTypeArguments = typeArgumentsFromNode.len;
+fn getDefaultFromTypeParameter(c: *Checker, t: TypeIndex) ?TypeIndex {
+    if ((c.typesList.items[t].flags & types.TypeFlags.TypeParameter) == 0) {
+        return null;
+    }
+    const defaultType = getResolvedTypeParameterDefault(c, t);
+    if (defaultType != (c.noConstraintTypeIndex orelse 0) and defaultType != (c.circularConstraintTypeIndex orelse 0)) {
+        return defaultType;
+    }
+    return null;
+}
+
+fn getResolvedTypeParameterDefault(c: *Checker, t: TypeIndex) TypeIndex {
+    const tp = &c.typesList.items[t].data.TypeParameter;
+    if (tp.resolvedDefaultType == null) {
+        if (tp.target != null and tp.target.? != 0) {
+            const targetDefault = getResolvedTypeParameterDefault(c, tp.target.?);
+            if (targetDefault != (c.noConstraintTypeIndex orelse 0)) {
+                tp.resolvedDefaultType = c.instantiateType(targetDefault, tp.mapper);
+            } else {
+                tp.resolvedDefaultType = c.noConstraintTypeIndex orelse 0;
+            }
+        } else {
+            tp.resolvedDefaultType = c.resolvingDefaultTypeIndex orelse 0;
+            var defaultType = c.noConstraintTypeIndex orelse 0;
+            const symbol = c.typesList.items[t].symbol;
+            if (symbol != null and symbol.? != 0) {
+                const symObj = c.binder.symbols.items[symbol.?];
+                for (symObj.Declarations.items) |decl| {
+                    if (c.binder.ast.getKind(decl) == .TypeParameter) {
+                        const node = c.binder.ast.getNode(decl).TypeParameter;
+                        if (node.DefaultType != null and node.DefaultType.? != 0) {
+                            defaultType = getTypeFromTypeNode(c, node.DefaultType.?);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (tp.resolvedDefaultType == (c.resolvingDefaultTypeIndex orelse 0)) {
+                tp.resolvedDefaultType = defaultType;
+            }
+        }
+    } else if (tp.resolvedDefaultType == (c.resolvingDefaultTypeIndex orelse 0)) {
+        tp.resolvedDefaultType = c.circularConstraintTypeIndex orelse 0;
+    }
+    return tp.resolvedDefaultType.?;
+}
+
+fn fillMissingTypeArguments(c: *Checker, typeArguments: []const TypeIndex, typeParameters: []const TypeIndex, minTypeArgumentCount: usize, isJs: bool) []const TypeIndex {
+    const numTypeArguments = typeArguments.len;
     if (numTypeArguments == typeParameters.len) {
-        return typeArgumentsFromNode;
+        return typeArguments;
     }
 
     var result = c.allocator.alloc(TypeIndex, typeParameters.len) catch @panic("OOM");
-    @memcpy(result[0..numTypeArguments], typeArgumentsFromNode);
+    @memcpy(result[0..numTypeArguments], typeArguments);
 
     if (isJs) {
         for (numTypeArguments..typeParameters.len) |i| {
@@ -434,16 +633,31 @@ fn fillMissingTypeArguments(c: *Checker, typeArgumentsFromNode: []const TypeInde
         return result;
     }
 
+    var mapper: types.TypeMapperIndex = 0;
     for (numTypeArguments..typeParameters.len) |i| {
         if (i < minTypeArgumentCount) {
             result[i] = c.errorTypeIndex orelse 0;
         } else {
-            // TODO: c.getDefaultTypeArgumentType(isJs)(typeParameters[i])
-            result[i] = c.errorTypeIndex orelse 0;
+            const defaultType = getDefaultFromTypeParameter(c, typeParameters[i]);
+            if (defaultType != null) {
+                if (mapper == 0) {
+                    mapper = @import("checker.zig").makeArrayTypeMapper(c, typeParameters, result) catch 0;
+                }
+                result[i] = c.instantiateType(defaultType.?, mapper);
+            } else {
+                result[i] = getDefaultTypeArgumentType(c, isJs);
+            }
         }
     }
     return result;
 }
+fn getDefaultTypeArgumentType(c: *Checker, isInJavaScriptFile: bool) TypeIndex {
+    if (isInJavaScriptFile) {
+        return c.anyTypeIndex orelse 0;
+    }
+    return c.unknownTypeIndex orelse 0;
+}
+
 fn getOuterTypeParameters(c: *Checker, t: TypeIndex) []const TypeIndex {
     _ = c;
     _ = t;
@@ -610,6 +824,7 @@ pub fn getTypeFromUnionTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
         const nodes = c.binder.ast.getNodeList(typesNode);
 
         var mappedTypes = c.allocator.alloc(TypeIndex, nodes.len) catch @panic("OOM");
+        defer c.allocator.free(mappedTypes);
         for (nodes, 0..) |n, i| {
             mappedTypes[i] = getTypeFromTypeNode(c, n);
         }
@@ -627,6 +842,7 @@ pub fn getTypeFromIntersectionTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
         const nodes = c.binder.ast.getNodeList(typesNode);
 
         var mappedTypes = c.allocator.alloc(TypeIndex, nodes.len) catch @panic("OOM");
+        defer c.allocator.free(mappedTypes);
         for (nodes, 0..) |n, i| {
             mappedTypes[i] = getTypeFromTypeNode(c, n);
         }
@@ -772,7 +988,9 @@ pub fn getTypeFromTemplateTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
         const spans = c.binder.ast.getNodeList(spansNode);
 
         var texts = c.allocator.alloc([]const u8, spans.len + 1) catch @panic("OOM");
+        defer c.allocator.free(texts);
         var mappedTypes = c.allocator.alloc(TypeIndex, spans.len) catch @panic("OOM");
+        defer c.allocator.free(mappedTypes);
 
         texts[0] = ast_utils.getText(c.binder.ast, c.binder.ast.getNode(node).TemplateLiteralType.Head);
 
@@ -875,7 +1093,6 @@ fn resolveImportTypeNodeSymbol(c: *Checker, node: NodeIndex) ast_gen.SymbolIndex
 }
 
 pub fn resolveEntityName(c: *Checker, name: NodeIndex, meaning: u32, ignoreErrors: bool, dontResolveAlias: bool, location: ?NodeIndex) ast_gen.SymbolIndex {
-    _ = dontResolveAlias; // TODO: port dontResolveAlias
     if (name == 0) return 0;
 
     var symbol: ast_gen.SymbolIndex = 0;
@@ -886,15 +1103,15 @@ pub fn resolveEntityName(c: *Checker, name: NodeIndex, meaning: u32, ignoreError
         const resolveLocation = location orelse name;
 
         if (meaning == @import("../ast/symbol.zig").SymbolFlags.Namespace) {
-            symbol = getMergedSymbol(c, c.resolveName(resolveLocation, c.binder.ast.getText(name), meaning, null, true, false));
+            symbol = checker_mod.getMergedSymbol(c, c.resolveName(resolveLocation, c.binder.ast.getText(name), meaning, null, true, false));
             if (symbol == 0) {
-                const alias = getMergedSymbol(c, c.resolveName(resolveLocation, ast_utils.getText(c.binder.ast, name), @import("../ast/symbol.zig").SymbolFlags.Alias, null, true, false));
+                const alias = checker_mod.getMergedSymbol(c, c.resolveName(resolveLocation, ast_utils.getText(c.binder.ast, name), @import("../ast/symbol.zig").SymbolFlags.Alias, null, true, false));
                 if (alias != 0 and std.mem.eql(u8, c.binder.ast.getSymbolName(alias), "export=")) {
                     symbol = c.binder.ast.getSymbolParent(alias) orelse 0;
                 }
             }
         } else {
-            symbol = getMergedSymbol(c, c.resolveName(resolveLocation, c.binder.ast.getText(name), meaning, null, true, false));
+            symbol = checker_mod.getMergedSymbol(c, c.resolveName(resolveLocation, c.binder.ast.getText(name), meaning, null, true, false));
         }
     } else if (kind == .QualifiedName) {
         const qualified = c.binder.ast.getNode(name).QualifiedName;
@@ -907,11 +1124,49 @@ pub fn resolveEntityName(c: *Checker, name: NodeIndex, meaning: u32, ignoreError
     }
 
     if (symbol != 0 and symbol != c.unknownSymbol) {
-        // TODO: markSymbolOfAliasDeclarationIfTypeOnly
-        // TODO: resolveAlias loop
+        markSymbolOfAliasDeclarationIfTypeOnly(c, getAliasDeclarationFromName(c, name), 0);
+        while ((c.binder.symbols.items[symbol].flags & meaning) == 0 and !dontResolveAlias and (c.binder.symbols.items[symbol].flags & @import("../ast/symbol.zig").SymbolFlags.Alias) != 0) {
+            symbol = c.resolveAlias(symbol);
+        }
     }
 
     return symbol;
+}
+
+fn getAliasDeclarationFromName(c: *Checker, name: NodeIndex) NodeIndex {
+    var currentNode = name;
+    while (true) {
+        const parent = c.binder.ast.getNodeParent(currentNode);
+        if (parent == 0) return 0;
+        switch (c.binder.ast.getKind(parent)) {
+            .ImportClause, .ImportSpecifier, .NamespaceImport, .ExportSpecifier, .ExportAssignment, .ImportEqualsDeclaration, .NamespaceExport => {
+                return parent;
+            },
+            .QualifiedName => {
+                currentNode = parent;
+            },
+            else => return 0,
+        }
+    }
+}
+
+fn markSymbolOfAliasDeclarationIfTypeOnly(c: *Checker, aliasDeclaration: NodeIndex, exportStarDeclaration: NodeIndex) bool {
+    if (aliasDeclaration == 0 or !ast_utils.isDeclarationNode(c.binder.ast, aliasDeclaration)) {
+        return false;
+    }
+    const sourceSymbol = c.getSymbolOfDeclaration(aliasDeclaration);
+    if (sourceSymbol == 0) return false;
+
+    const links = c.aliasSymbolLinks.getOrPutValue(c.allocator, sourceSymbol, .{}) catch @panic("OOM");
+    if (links.value_ptr.typeOnlyDeclaration == null and ast_utils.isTypeOnlyImportOrExportDeclaration(c.binder.ast, aliasDeclaration)) {
+        links.value_ptr.typeOnlyDeclaration = aliasDeclaration;
+        return true;
+    }
+    if (links.value_ptr.typeOnlyDeclaration == null and exportStarDeclaration != 0) {
+        links.value_ptr.typeOnlyDeclaration = exportStarDeclaration;
+        return true;
+    }
+    return links.value_ptr.typeOnlyDeclaration != null;
 }
 
 fn resolveQualifiedName(c: *Checker, name: NodeIndex, left: NodeIndex, right: NodeIndex, meaning: u32, ignoreErrors: bool, location: ?NodeIndex) ast_gen.SymbolIndex {
@@ -924,12 +1179,53 @@ fn resolveQualifiedName(c: *Checker, name: NodeIndex, left: NodeIndex, right: No
         return namespace;
     }
 
-    // TODO: isCommonJSRequire logic
+    const valueDeclaration = c.getSymbolValueDeclaration(namespace);
+    if (valueDeclaration != 0 and ast_utils.isInJSFile(c.binder.ast, valueDeclaration) and
+        c.binder.ast.getKind(valueDeclaration) == .VariableDeclaration)
+    {
+        const initializer = c.binder.ast.getNodeInitializer(valueDeclaration);
+        if (initializer != 0 and ast_utils.isRequireCall(c.binder.ast, initializer, true)) {
+            // Check if require is not local
+            const requireName = c.binder.ast.getText(c.binder.ast.getNodeExpression(initializer));
+            const resolvedRequire = c.resolveName(c.binder.ast.getNodeExpression(initializer), requireName, @import("../ast/symbol.zig").SymbolFlags.Value, null, true, false);
+            // c.requireSymbol is unknownSymbol in typescript-go stub (usually), or we check if it is ambient.
+            // Simplified here to just check if ambient.
+            var targetDeclarationKind: ast_gen.NodeKind = .Unknown;
+            if (resolvedRequire != 0 and (c.binder.symbols.items[resolvedRequire].flags & @import("../ast/symbol.zig").SymbolFlags.Alias) == 0) {
+                if ((c.binder.symbols.items[resolvedRequire].flags & @import("../ast/symbol.zig").SymbolFlags.Function) != 0) {
+                    targetDeclarationKind = .FunctionDeclaration;
+                } else if ((c.binder.symbols.items[resolvedRequire].flags & @import("../ast/symbol.zig").SymbolFlags.Variable) != 0) {
+                    targetDeclarationKind = .VariableDeclaration;
+                }
+            }
+            var isAmbient = false;
+            if (targetDeclarationKind != .Unknown) {
+                const decl = c.getDeclarationOfKind(resolvedRequire, targetDeclarationKind);
+                if (decl != 0 and (c.binder.ast.getNodeFlags(decl) & ast_utils.NodeFlags.Ambient) != 0) {
+                    isAmbient = true;
+                }
+            }
+            if (resolvedRequire == c.requireSymbol or isAmbient) {
+                // It is a valid require.
+                const argsStart = c.binder.ast.getNodeArgumentsStart(initializer);
+                if (argsStart > 0) {
+                    const moduleName = c.binder.ast.nodes.items[argsStart];
+                    const moduleSym = @import("exports.zig").resolveExternalModuleName(c, moduleName);
+                    if (moduleSym != 0) {
+                        const resolvedModuleSymbol = @import("exports.zig").resolveExternalModuleSymbol(c, moduleSym);
+                        if (resolvedModuleSymbol != 0) {
+                            namespace = resolvedModuleSymbol;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     const text = c.binder.ast.getText(right);
-    var symbol = getMergedSymbol(c, c.getSymbol(c.getExportsOfSymbol(namespace), text, meaning));
+    var symbol = checker_mod.getMergedSymbol(c, c.getSymbol(c.getExportsOfSymbol(namespace), text, meaning));
     if (symbol == 0 and (c.binder.symbols.items[namespace].flags & @import("../ast/symbol.zig").SymbolFlags.Alias) != 0) {
-        symbol = getMergedSymbol(c, c.getSymbol(c.getExportsOfSymbol(c.resolveAlias(namespace)), text, meaning));
+        symbol = checker_mod.getMergedSymbol(c, c.getSymbol(c.getExportsOfSymbol(c.resolveAlias(namespace)), text, meaning));
     }
 
     if (symbol == 0) {

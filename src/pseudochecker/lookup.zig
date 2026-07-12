@@ -8,10 +8,7 @@ pub fn getReturnTypeOfSignature(ch: *PseudoChecker, a: *ast.Ast, signatureNode: 
     const nodeData = a.getNode(signatureNode);
     switch (nodeData) {
         .GetAccessor => return getTypeOfAccessor(ch, a, signatureNode),
-        .MethodDeclaration, .FunctionDeclaration, .Constructor,
-        .MethodSignature, .CallSignature, .ConstructSignature,
-        .SetAccessor, .IndexSignature, .FunctionType, .ConstructorType,
-        .FunctionExpression, .ArrowFunction, .JSDocSignature => return createReturnFromSignature(ch, a, signatureNode),
+        .MethodDeclaration, .FunctionDeclaration, .Constructor, .MethodSignature, .CallSignature, .ConstructSignature, .SetAccessor, .IndexSignature, .FunctionType, .ConstructorType, .FunctionExpression, .ArrowFunction, .JSDocSignature => return createReturnFromSignature(ch, a, signatureNode),
         else => @panic("Node needs to be an inferrable node"),
     }
 }
@@ -45,46 +42,46 @@ pub fn getTypeOfDeclaration(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex
 }
 
 fn typeFromParameter(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = node;
-    @panic("TODO: typeFromParameter");
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }
 
 fn typeFromVariable(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = node;
-    @panic("TODO: typeFromVariable");
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }
 
 fn typeFromProperty(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = node;
-    @panic("TODO: typeFromProperty");
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }
 
 fn typeFromExpandoProperty(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = node;
-    @panic("TODO: typeFromExpandoProperty");
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }
 
 fn typeFromPropertyAssignment(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = node;
-    @panic("TODO: typeFromPropertyAssignment");
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }
 
 fn typeFromAccessor(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = node;
-    @panic("TODO: typeFromAccessor");
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }
 
 fn inferAccessorType(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = node;
-    @panic("TODO: inferAccessorType");
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }
 
-fn createReturnFromSignature(ch: *PseudoChecker, a: *ast.Ast, fnNode: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = fnNode;
-    @panic("TODO: createReturnFromSignature");
+fn createReturnFromSignature(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }
 
 fn typeFromExpression(ch: *PseudoChecker, a: *ast.Ast, node: ast.NodeIndex) !ptype.PseudoTypeIndex {
-    _ = ch; _ = a; _ = node;
-    @panic("TODO: typeFromExpression");
+    _ = a;
+    return ch.createType(.{ .NoResult = .{ .declaration = node } });
 }

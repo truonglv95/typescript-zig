@@ -174,6 +174,20 @@ pub const Checker = struct {
         }
         return predicate(c, t, ctx);
     }
+
+    pub fn everyType(c: *Checker, t: types.TypeIndex, comptime predicate: anytype, ctx: anytype) bool {
+        const flags = c.getTypeFlags(t);
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const unionTypes = c.getTypesFromUnion(t);
+            for (unionTypes) |u| {
+                if (!predicate(c, u, ctx)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return predicate(c, t, ctx);
+    }
     pub const isTypeSymbolAccessible = symbolaccessibility.isTypeSymbolAccessible;
     pub const isValueSymbolAccessible = symbolaccessibility.isValueSymbolAccessible;
     pub const isSymbolAccessibleByFlags = symbolaccessibility.isSymbolAccessibleByFlags;
@@ -217,6 +231,7 @@ pub const Checker = struct {
 
     unionTypesPool: std.ArrayListUnmanaged(types.TypeIndex),
     tupleTypesPool: std.ArrayListUnmanaged(types.TypeIndex),
+    templateLiteralTypes: std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex) = .empty,
     typeArgumentsPool: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
 
     // Flow analysis state
@@ -253,6 +268,7 @@ pub const Checker = struct {
 
     numberLiteralTypes: std.AutoHashMapUnmanaged(f64, types.TypeIndex) = .empty,
     stringLiteralTypes: std.StringHashMapUnmanaged(types.TypeIndex) = .empty,
+    unresolvedSymbols: std.StringHashMapUnmanaged(ast_gen.SymbolIndex) = .empty,
 
     // Signatures
     signatures: std.ArrayListUnmanaged(types.Signature) = .empty,
@@ -267,6 +283,7 @@ pub const Checker = struct {
     flowLoopCache: std.AutoHashMapUnmanaged(flow.FlowLoopKey, types.TypeIndex) = .empty,
     flowLoopStack: std.ArrayListUnmanaged(flow.FlowLoopInfo) = .empty,
     flowLoopTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
+    currentNode: ast_gen.NodeIndex = 0,
     inlineLevel: u32 = 0,
     serializationLevel: u32 = 0,
 
@@ -296,6 +313,7 @@ pub const Checker = struct {
     nonPrimitiveTypeIndex: ?u32 = null,
     errorTypeIndex: ?u32 = null,
     circularConstraintTypeIndex: ?u32 = null,
+    resolvingDefaultTypeIndex: ?u32 = null,
     emptyTypeLiteralTypeIndex: ?u32 = null,
     emptyGenericTypeIndex: ?u32 = null,
     emptyObjectTypeIndex: ?u32 = null,
@@ -361,6 +379,9 @@ pub const Checker = struct {
 
     evolvingArrayTypes: std.AutoHashMapUnmanaged(types.TypeIndex, types.TypeIndex) = .empty,
 
+    typeResolutions: std.ArrayListUnmanaged(types.TypeResolution) = .empty,
+    resolutionStart: u32 = 0,
+
     discriminantPropertiesScratch: std.ArrayListUnmanaged(ast_gen.SymbolIndex) = .empty,
     distributedTypesScratch: [1]types.TypeIndex = .{0},
     bestMatchingRelater: ?*relater.Relater = null,
@@ -370,6 +391,21 @@ pub const Checker = struct {
         keyPropertyName: []const u8,
         constituentMap: ?std.AutoHashMapUnmanaged(types.TypeIndex, types.TypeIndex) = null,
     };
+
+    pub fn createSymbol(self: *Checker, flags: u32, name: []const u8, checkFlags: u32) ast_gen.SymbolIndex {
+        self.binder.symbols.append(self.allocator, .{
+            .Flags = flags,
+            .Name = name,
+            .Declarations = .empty,
+            .ValueDeclaration = null,
+            .Members = @import("../ast/symbol.zig").SymbolTable.empty,
+            .Exports = @import("../ast/symbol.zig").SymbolTable.empty,
+            .Parent = null,
+            .ExportSymbol = null,
+            .CheckFlags = checkFlags,
+        }) catch unreachable;
+        return @intCast(self.binder.symbols.items.len - 1);
+    }
 
     pub fn init(allocator: std.mem.Allocator, b: *binder.Binder) Checker {
         return .{
@@ -397,6 +433,7 @@ pub const Checker = struct {
         self.typesList.deinit(self.allocator);
         self.unionTypesPool.deinit(self.allocator);
         self.tupleTypesPool.deinit(self.allocator);
+        self.templateLiteralTypes.deinit(self.allocator);
         self.sharedFlows.deinit(self.allocator);
         self.antecedentTypes.deinit(self.allocator);
         self.nodeFlowNodes.deinit(self.allocator);
@@ -420,6 +457,60 @@ pub const Checker = struct {
             }
         }
         self.unionKeyPropertyCache.deinit(self.allocator);
+
+        self.typeArgumentsPool.deinit(self.allocator);
+        self.symbolContainerLinks.deinit(self.allocator);
+        self.typeAliasLinks.deinit(self.allocator);
+        self.symbolReferenceLinks.deinit(self.allocator);
+        self.valueSymbolLinks.deinit(self.allocator);
+        self.mappedSymbolLinks.deinit(self.allocator);
+        self.deferredSymbolLinks.deinit(self.allocator);
+        self.moduleSymbolLinks.deinit(self.allocator);
+        self.reverseMappedSymbolLinks.deinit(self.allocator);
+        self.lateBoundLinks.deinit(self.allocator);
+        self.exportTypeLinks.deinit(self.allocator);
+        self.declaredTypeLinks.deinit(self.allocator);
+        self.switchStatementLinks.deinit(self.allocator);
+        self.arrayLiteralLinks.deinit(self.allocator);
+        self.membersAndExportsLinks.deinit(self.allocator);
+        self.spreadLinks.deinit(self.allocator);
+        self.varianceLinks.deinit(self.allocator);
+        self.typeNodeLinks.deinit(self.allocator);
+
+        self.resolvedPropertiesPool.deinit(self.allocator);
+        self.resolvedSignaturesPool.deinit(self.allocator);
+        self.resolvedIndexInfosPool.deinit(self.allocator);
+
+        self.resolvedStructuredTypeMembers.deinit(self.allocator);
+        self.resolvedDeclaredMembers.deinit(self.allocator);
+        self.resolvedUnionOrIntersectionProperties.deinit(self.allocator);
+
+        self.numberLiteralTypes.deinit(self.allocator);
+
+        self.signatures.deinit(self.allocator);
+        self.signatureParameters.deinit(self.allocator);
+        self.signatureTypeParameters.deinit(self.allocator);
+        self.resolvedSignatureLinks.deinit(self.allocator);
+        self.mappersList.deinit(self.allocator);
+
+        self.symbolNodeLinks.deinit(self.allocator);
+        self.mergedSymbols.deinit(self.allocator);
+        self.assignmentReducedTypes.deinit(self.allocator);
+        self.restrictiveTypeParameterCache.deinit(self.allocator);
+
+        self.enumMemberLinks.deinit(self.allocator);
+
+        var currentRelater = self.freeRelater;
+        while (currentRelater) |r| {
+            const next = r.next;
+            r.relatedInfo.deinit(self.allocator);
+            r.maybeKeysSet.deinit(self.allocator);
+            r.maybeKeys.deinit(self.allocator);
+            r.sourceStack.deinit(self.allocator);
+            r.targetStack.deinit(self.allocator);
+            self.allocator.destroy(r);
+            currentRelater = next;
+        }
 
         var current = self.freeFlowState;
         while (current) |f| {
@@ -474,7 +565,9 @@ pub const Checker = struct {
         const flags = c.typesList.items[t].flags;
         if (flags & types.TypeFlags.Object != 0) {
             const objectFlags = c.typesList.items[t].objectFlags;
-            if (objectFlags & types.ObjectFlags.Reference != 0) {
+            if (objectFlags & types.ObjectFlags.Tuple != 0) {
+                c.resolveTupleTypeMembers(t, &members);
+            } else if (objectFlags & types.ObjectFlags.Reference != 0) {
                 c.resolveTypeReferenceMembers(t, &members);
             } else if (objectFlags & types.ObjectFlags.ClassOrInterface != 0) {
                 c.resolveClassOrInterfaceMembers(t, &members);
@@ -603,6 +696,13 @@ pub const Checker = struct {
 
     pub fn resolveClassOrInterfaceMembers(c: *Checker, t: types.TypeIndex, outMembers: *types.StructuredTypeMembers) void {
         c.resolveObjectTypeMembers(t, t, 0, 0, 0, 0, outMembers);
+    }
+
+    pub fn resolveTupleTypeMembers(c: *Checker, t: types.TypeIndex, outMembers: *types.StructuredTypeMembers) void {
+        _ = c;
+        _ = t;
+        _ = outMembers;
+        // TODO: Map Array properties and index signatures onto this Tuple type.
     }
 
     pub fn resolveTypeReferenceMembers(c: *Checker, t: types.TypeIndex, outMembers: *types.StructuredTypeMembers) void {
@@ -1014,6 +1114,32 @@ pub const Checker = struct {
         if (flags & 111551 != 0) return true;
         // Alias resolution requires a full recursive resolveAlias implementation, skipping for now
         return false;
+    }
+
+    pub fn resolveAlias(c: *Checker, symIdx: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Alias resolution requires a full recursive resolveAlias implementation.
+        // For now, return the symbol to avoid infinite loops or crashes.
+        _ = c;
+        return symIdx;
+    }
+
+    pub fn getActualTypeVariable(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Substitution) != 0) {
+            return c.getActualTypeVariable(c.typesList.items[t].data.Substitution.baseType);
+        }
+        if ((flags & types.TypeFlags.IndexedAccess) != 0) {
+            const objType = c.typesList.items[t].data.IndexedAccess.objectType;
+            const indexType = c.typesList.items[t].data.IndexedAccess.indexType;
+            if (objType != 0 and indexType != 0) {
+                const objFlags = c.typesList.items[objType].flags;
+                const indexFlags = c.typesList.items[indexType].flags;
+                if ((objFlags & types.TypeFlags.Substitution) != 0 or (indexFlags & types.TypeFlags.Substitution) != 0) {
+                    return c.getIndexedAccessType(c.getActualTypeVariable(objType), c.getActualTypeVariable(indexType));
+                }
+            }
+        }
+        return t;
     }
 
     pub fn getPropertiesOfType(c: *Checker, t: types.TypeIndex) []const ast_gen.SymbolIndex {
@@ -1802,7 +1928,7 @@ pub const Checker = struct {
     pub fn getTrueTypeFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         var target = &c.typesList.items[c.getTargetType(t)].data.Conditional;
         if (target.resolvedTrueType == null) {
-            const trueTypeNode = c.binder.ast.getNode(target.root).ConditionalType.TrueType;
+            const trueTypeNode = c.binder.ast.getNode(target.root.node).ConditionalType.TrueType;
             target.resolvedTrueType = c.instantiateType(c.getTypeOfNode(trueTypeNode) catch c.unknownTypeIndex orelse 0, target.mapper);
         }
         return target.resolvedTrueType.?;
@@ -1811,7 +1937,7 @@ pub const Checker = struct {
     pub fn getFalseTypeFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         var target = &c.typesList.items[c.getTargetType(t)].data.Conditional;
         if (target.resolvedFalseType == null) {
-            const falseTypeNode = c.binder.ast.getNode(target.root).ConditionalType.FalseType;
+            const falseTypeNode = c.binder.ast.getNode(target.root.node).ConditionalType.FalseType;
             target.resolvedFalseType = c.instantiateType(c.getTypeOfNode(falseTypeNode) catch c.unknownTypeIndex orelse 0, target.mapper);
         }
         return target.resolvedFalseType.?;
@@ -1825,9 +1951,32 @@ pub const Checker = struct {
         return c.getTargetTypeData(t).Substitution.constraint;
     }
 
+    pub fn getSubstitutionType(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) types.TypeIndex {
+        const constraintFlags = c.typesList.items[constraint].flags;
+        const baseFlags = c.typesList.items[baseType].flags;
+        if ((constraintFlags & (types.TypeFlags.Any | types.TypeFlags.Unknown)) != 0 or constraint == baseType or (baseFlags & types.TypeFlags.Any) != 0) {
+            return baseType;
+        }
+
+        const newType = types.Type{
+            .flags = types.TypeFlags.Substitution,
+            .symbol = 0,
+            .objectFlags = 0,
+            .data = .{
+                .Substitution = .{
+                    .baseType = baseType,
+                    .constraint = constraint,
+                },
+            },
+        };
+        const idx = @as(u32, @intCast(c.typesList.items.len));
+        c.typesList.append(c.allocator, newType) catch {};
+        return idx;
+    }
+
     pub fn getInferTypeParametersFromConditionalType(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
         const root = c.getTargetTypeData(t).Conditional.root;
-        return c.getTypeArray(root.inferTypeParametersStart, root.inferTypeParametersLen);
+        return c.unionTypesPool.items[root.inferTypeParametersStart .. root.inferTypeParametersStart + root.inferTypeParametersLen];
     }
 
     pub fn templateLiteralTextsEqual(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) bool {
@@ -1842,7 +1991,7 @@ pub const Checker = struct {
 
     pub fn getTypesFromTemplateLiteralType(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
         const tl = c.getTargetTypeData(t).TemplateLiteral;
-        return c.getTypeArray(tl.typesStart, tl.typesLen);
+        return c.unionTypesPool.items[tl.typesStart .. tl.typesStart + tl.typesLen];
     }
 
     pub fn getSymbolFromStringMappingType(c: *Checker, t: types.TypeIndex) ast.SymbolIndex {
@@ -2065,17 +2214,17 @@ pub const Checker = struct {
 
     pub fn getMappedTypeModifiers(c: *Checker, t: types.TypeIndex) types.MappedTypeModifiers {
         const declaration = c.getTargetTypeData(t).Mapped.declaration;
-        const mapped_node = c.ast.getNode(declaration).MappedType;
+        const mapped_node = c.binder.ast.getNode(declaration).MappedType;
         var modifiers = types.MappedTypeModifiers{};
         if (mapped_node.ReadonlyToken) |readonly_token| {
-            if (c.ast.getNode(readonly_token).tag == .MinusToken) {
+            if (c.binder.ast.getNodeKind(readonly_token) == .MinusToken) {
                 modifiers.value |= types.MappedTypeModifiers.ExcludeReadonly;
             } else {
                 modifiers.value |= types.MappedTypeModifiers.IncludeReadonly;
             }
         }
         if (mapped_node.QuestionToken) |question_token| {
-            if (c.ast.getNode(question_token).tag == .MinusToken) {
+            if (c.binder.ast.getNodeKind(question_token) == .MinusToken) {
                 modifiers.value |= types.MappedTypeModifiers.ExcludeOptional;
             } else {
                 modifiers.value |= types.MappedTypeModifiers.IncludeOptional;
@@ -2162,11 +2311,10 @@ pub const Checker = struct {
     }
 
     pub fn isMappedTypeWithKeyofConstraintDeclaration(c: *Checker, t: types.TypeIndex) bool {
-        const decl = c.getTargetTypeData(t).Mapped.declaration;
-        const mapped_node = c.ast.getNode(decl).MappedType;
-        if (mapped_node.Type) |type_node_idx| {
-            const type_node = c.ast.getNode(type_node_idx);
-            switch (type_node) {
+        const constraint_decl_opt = getConstraintDeclaration(c, t);
+        if (constraint_decl_opt) |constraint_decl| {
+            const constraint_node = c.binder.ast.getNode(constraint_decl);
+            switch (constraint_node) {
                 .TypeOperator => |op| return op.Operator == @intFromEnum(ast.SyntaxKind.KeyOfKeyword),
                 else => return false,
             }
@@ -2174,11 +2322,37 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getApparentMappedTypeKeys(c: *Checker, nameType: types.TypeIndex, mappedType: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = nameType;
-        _ = mappedType;
-        return undefined; // Skipped
+    pub fn getApparentMappedTypeKeys(c: *Checker, nameType: types.TypeIndex, targetType: types.TypeIndex) types.TypeIndex {
+        const modifiersType = c.getApparentType(c.getModifiersTypeFromMappedType(targetType));
+        var mappedKeys = std.ArrayList(types.TypeIndex).init(c.allocator);
+
+        const properties = c.getPropertiesOfType(modifiersType);
+        for (properties) |prop| {
+            mappedKeys.append(c.getLiteralTypeFromProperty(prop, types.TypeFlags.StringLiteral | types.TypeFlags.NumberLiteral | types.TypeFlags.UniqueESSymbol, false)) catch {};
+        }
+        if (c.getTypeFlags(modifiersType) & types.TypeFlags.Any != 0) {
+            mappedKeys.append(c.stringTypeIndex orelse 0) catch {};
+        } else {
+            const indexInfos = c.getIndexInfosOfType(modifiersType);
+            for (indexInfos) |info| {
+                mappedKeys.append(info.keyType) catch {};
+            }
+        }
+
+        var finalMappedKeys = std.ArrayList(types.TypeIndex).initCapacity(c.allocator, mappedKeys.items.len) catch return 0;
+        const targetMapper = c.getTargetTypeData(targetType).Mapped.mapper;
+        for (mappedKeys.items) |t_idx| {
+            const templateMapper = prependTypeMapping(c, c.getTypeParameterFromMappedType(targetType), t_idx, targetMapper) catch 0;
+            finalMappedKeys.appendAssumeCapacity(c.instantiateType(nameType, templateMapper));
+        }
+        return c.getUnionType(finalMappedKeys.items);
+    }
+
+    pub fn getNullableType(c: *Checker, t: types.TypeIndex, flags: u32) types.TypeIndex {
+        const missingType = if ((flags & types.TypeFlags.Undefined) != 0) c.undefinedTypeIndex else c.nullTypeIndex;
+        if (missingType == null) return t;
+        if (t == missingType.?) return t;
+        return c.getUnionTypeFromArray(&[_]types.TypeIndex{ t, missingType.? });
     }
 
     pub fn getUnionTypeFromArray(c: *Checker, typesArr: []const types.TypeIndex) types.TypeIndex {
@@ -2191,7 +2365,7 @@ pub const Checker = struct {
             return t;
         }
         // Skipped: implement caching using CachedTypeKey
-        const mapperIdx = c.getPermissiveMapper() catch return t;
+        const mapperIdx = getPermissiveMapper(c) catch return t;
         return c.instantiateType(t, mapperIdx);
     }
 
@@ -2201,7 +2375,7 @@ pub const Checker = struct {
             return t;
         }
         // Skipped: implement caching using CachedTypeKey
-        const mapperIdx = c.getRestrictiveMapper() catch return t;
+        const mapperIdx = getRestrictiveMapper(c) catch return t;
         return c.instantiateType(t, mapperIdx);
     }
 
@@ -2227,7 +2401,18 @@ pub const Checker = struct {
         if ((flags & types.TypeFlags.Object) != 0) {
             const objectFlags = c.typesList.items[t].objectFlags;
             if ((objectFlags & (types.ObjectFlags.Reference | types.ObjectFlags.Anonymous | types.ObjectFlags.Mapped)) != 0) {
-                // TODO: Object type instantiation is skipped for now
+                if ((objectFlags & types.ObjectFlags.Reference) != 0 and c.getTargetTypeData(t).Object.node == null) {
+                    const resolvedTypeArguments = c.getTypeArguments(t);
+                    const newTypeArguments = instantiateTypes(c, resolvedTypeArguments, mapperIdx) catch resolvedTypeArguments;
+                    if (std.mem.eql(types.TypeIndex, newTypeArguments, resolvedTypeArguments)) {
+                        return t;
+                    }
+                    return c.createNormalizedTypeReference(c.getTargetType(t), newTypeArguments);
+                }
+                if ((objectFlags & types.ObjectFlags.ReverseMapped) != 0) {
+                    return c.instantiateReverseMappedType(t, mapperIdx);
+                }
+                return c.getObjectTypeInstantiation(t, mapperIdx, null);
             }
             return t;
         }
@@ -2256,7 +2441,36 @@ pub const Checker = struct {
             const d = c.getTargetTypeData(t).IndexedAccess;
             return c.getIndexedAccessTypeOrUndefined(c.instantiateType(d.objectType, mapperIdx), c.instantiateType(d.indexType, mapperIdx), d.accessFlags, null, null) orelse c.getAnyType() catch 0;
         }
-        // TemplateLiteral, StringMapping, Substitution, Conditional are omitted for now
+        if ((flags & types.TypeFlags.TemplateLiteral) != 0) {
+            const tl = c.getTargetTypeData(t).TemplateLiteral;
+            const typesSlice = c.unionTypesPool.items[tl.typesStart .. tl.typesStart + tl.typesLen];
+            const newTypes = instantiateTypes(c, typesSlice, mapperIdx) catch typesSlice;
+            return c.getTemplateLiteralType(tl.texts, newTypes);
+        }
+        if ((flags & types.TypeFlags.StringMapping) != 0) {
+            return c.getStringMappingType(c.typesList.items[t].symbol orelse 0, c.instantiateType(c.getTargetTypeData(t).StringMapping.target, mapperIdx));
+        }
+        if ((flags & types.TypeFlags.Conditional) != 0) {
+            return c.getConditionalTypeInstantiation(t, mapper_pkg.combineTypeMappers(c, c.getTargetTypeData(t).Conditional.mapper, mapperIdx), false, null);
+        }
+        if ((flags & types.TypeFlags.Substitution) != 0) {
+            const newBaseType = c.instantiateType(c.getTargetTypeData(t).Substitution.baseType, mapperIdx);
+            if (inference.isNoInferType(c, t)) {
+                return c.getNoInferType(newBaseType);
+            }
+            const newConstraint = c.instantiateType(c.getTargetTypeData(t).Substitution.constraint, mapperIdx);
+            if ((c.typesList.items[newBaseType].flags & types.TypeFlags.TypeVariable) != 0 and relater.isGenericType(c, newConstraint)) {
+                return c.getSubstitutionType(newBaseType, newConstraint);
+            }
+            if ((c.typesList.items[newConstraint].flags & (types.TypeFlags.Any | types.TypeFlags.Unknown)) != 0 or c.isTypeAssignableTo(c.getRestrictiveInstantiation(newBaseType), c.getRestrictiveInstantiation(newConstraint))) {
+                return newBaseType;
+            }
+            if ((c.typesList.items[newBaseType].flags & types.TypeFlags.TypeVariable) != 0) {
+                return c.getSubstitutionType(newBaseType, newConstraint);
+            }
+            const ts = [_]types.TypeIndex{ newConstraint, newBaseType };
+            return c.getIntersectionType(&ts);
+        }
         return t;
     }
 
@@ -2429,19 +2643,25 @@ pub const Checker = struct {
     }
 
     pub fn newInferenceContext(c: *Checker, typeParameters: []const types.TypeIndex, signature: ?types.SignatureIndex, flags: types.InferenceFlags, compareTypes: types.CompareTypesKind) u32 {
-        var inferences = std.ArrayListUnmanaged(types.InferenceInfoIndex){};
-        inferences.ensureTotalCapacity(c.arena.allocator(), typeParameters.len) catch unreachable;
+        var inferences: std.ArrayListUnmanaged(types.InferenceInfoIndex) = .empty;
+        inferences.ensureTotalCapacity(c.allocator, typeParameters.len) catch unreachable;
         for (typeParameters) |tp| {
             inferences.appendAssumeCapacity(c.newInferenceInfo(tp));
         }
         return c.newInferenceContextWorker(inferences.items, signature, flags, compareTypes);
     }
 
-    pub fn newInferenceContextWorker(c: *Checker, inferences: []const types.InferenceInfoIndex, signature: ?types.SignatureIndex, flags: types.InferenceFlags, compareTypes: types.CompareTypesKind) u32 {
-        var inferences_list = std.ArrayListUnmanaged(types.InferenceInfoIndex){};
-        inferences_list.appendSlice(c.arena.allocator(), inferences) catch unreachable;
+    pub fn newInferenceInfo(c: *Checker, typeParameter: types.TypeIndex) types.InferenceInfoIndex {
+        const index = @as(types.InferenceInfoIndex, @intCast(c.inferenceInfos.items.len));
+        c.inferenceInfos.append(c.allocator, .{ .typeParameter = typeParameter }) catch unreachable;
+        return index;
+    }
 
-        c.inferenceContexts.append(c.arena.allocator(), types.InferenceContext{
+    pub fn newInferenceContextWorker(c: *Checker, inferences: []const types.InferenceInfoIndex, signature: ?types.SignatureIndex, flags: types.InferenceFlags, compareTypes: types.CompareTypesKind) u32 {
+        var inferences_list: std.ArrayListUnmanaged(types.InferenceInfoIndex) = .empty;
+        inferences_list.appendSlice(c.allocator, inferences) catch unreachable;
+
+        c.inferenceContexts.append(c.allocator, types.InferenceContext{
             .inferences = inferences_list,
             .signature = signature orelse 0,
             .flags = flags,
@@ -2449,13 +2669,13 @@ pub const Checker = struct {
         }) catch unreachable;
         const n = @as(u32, @intCast(c.inferenceContexts.items.len - 1));
 
-        c.inferenceContexts.items[n].mapper = c.createTypeMapper(types.TypeMapper{ .Inference = .{ .n = n, .fixing = true } }) catch unreachable;
-        c.inferenceContexts.items[n].nonFixingMapper = c.createTypeMapper(types.TypeMapper{ .Inference = .{ .n = n, .fixing = false } }) catch unreachable;
+        c.inferenceContexts.items[n].mapper = createTypeMapper(c, types.TypeMapper{ .kind = .Inference, .data = .{ .Inference = .{ .n = n, .fixing = true } } }) catch unreachable;
+        c.inferenceContexts.items[n].nonFixingMapper = createTypeMapper(c, types.TypeMapper{ .kind = .Inference, .data = .{ .Inference = .{ .n = n, .fixing = false } } }) catch unreachable;
 
         return n;
     }
 
-    pub fn inferTypes(c: *Checker, inferences: []types.InferenceInfoIndex, target: types.TypeIndex, source: types.TypeIndex, priority: types.InferencePriority, b: bool) void {
+    pub fn inferTypes(c: *Checker, inferences: []types.InferenceInfoIndex, target: types.TypeIndex, source: types.TypeIndex, priority: i32, b: bool) void {
         _ = c;
         _ = inferences;
         _ = target;
@@ -4376,14 +4596,14 @@ pub const Checker = struct {
 
     pub fn findApplicableIndexInfo(c: *Checker, indexInfos: []const types.IndexInfo, keyType: types.TypeIndex) ?types.IndexInfo {
         var stringIndexInfo: ?types.IndexInfo = null;
-        var applicableInfos = std.ArrayListUnmanaged(types.IndexInfo){};
-        defer applicableInfos.deinit(c.arena.allocator());
+        var applicableInfos: std.ArrayListUnmanaged(types.IndexInfo) = .empty;
+        defer applicableInfos.deinit(c.allocator);
 
         for (indexInfos) |info| {
             if (info.keyType == (c.stringTypeIndex orelse 0)) {
                 stringIndexInfo = info;
             } else if (c.isApplicableIndexType(keyType, info.keyType)) {
-                applicableInfos.append(c.arena.allocator(), info) catch {};
+                applicableInfos.append(c.allocator, info) catch {};
             }
         }
 
@@ -4399,16 +4619,21 @@ pub const Checker = struct {
             1 => return applicableInfos.items[0],
             else => {
                 var isReadonly = true;
-                var typesArr = std.ArrayListUnmanaged(types.TypeIndex){};
-                defer typesArr.deinit(c.arena.allocator());
+                var typesArr: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
+                defer typesArr.deinit(c.allocator);
 
                 for (applicableInfos.items) |info| {
-                    typesArr.append(c.arena.allocator(), info.valueType) catch {};
+                    typesArr.append(c.allocator, info.valueType) catch {};
                     if (!info.isReadonly) {
                         isReadonly = false;
                     }
                 }
-                return c.newIndexInfo(c.getUnknownType(), c.getIntersectionType(typesArr.items), isReadonly, 0, null);
+                return .{
+                    .keyType = c.getUnknownType() catch return null,
+                    .valueType = c.getIntersectionType(typesArr.items),
+                    .isReadonly = isReadonly,
+                    .declaration = null,
+                };
             },
         }
     }
@@ -5014,15 +5239,23 @@ pub const Checker = struct {
     }
 
     pub fn getGlobalTypeAliasSymbol(c: *Checker, name: []const u8, arity: u32, reportErrors: bool) ast_gen.SymbolIndex {
-        _ = reportErrors; // TODO: reportErrors
         const symId = c.getGlobalSymbol(name, symbol.SymbolFlags.TypeAlias, null);
-        if (symId == 0) return 0;
+        if (symId == 0) {
+            if (reportErrors) {
+                c.reportErrorWithArgs(c.currentNode, &diagnostics_gen.Cannot_find_global_type_0, &.{name});
+            }
+            return 0;
+        }
 
         _ = c.getDeclaredTypeOfSymbol(symId);
         const links = c.typeAliasLinks.getPtr(symId);
         if (links) |l| {
             if (l.typeParameters.len != arity) {
-                return 0; // TODO: report error
+                if (reportErrors) {
+                    const arityStr = std.fmt.allocPrint(c.allocator, "{d}", .{arity}) catch "0";
+                    c.reportErrorWithArgs(c.currentNode, &diagnostics_gen.Global_type_0_must_have_1_type_parameter_s, &.{ name, arityStr });
+                }
+                return 0;
             }
         }
         return symId;
@@ -5032,13 +5265,23 @@ pub const Checker = struct {
         return resolveName(c, 0, name, meaning, diagnostic, false, false);
     }
 
+    pub fn resolveSymbol(c: *Checker, symbolIdx: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        return c.resolveSymbolEx(symbolIdx, false);
+    }
+
+    pub fn resolveSymbolEx(c: *Checker, symbolIdx: ast_gen.SymbolIndex, dontResolveAlias: bool) ast_gen.SymbolIndex {
+        if (!dontResolveAlias and ast_utils.isNonLocalAlias(c.binder.ast, symbolIdx, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace)) {
+            return c.resolveAlias(symbolIdx);
+        }
+        return symbolIdx;
+    }
+
     pub fn resolveExternalModuleSymbol(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, dontResolveAlias: bool) ast_gen.SymbolIndex {
-        _ = dontResolveAlias;
         if (moduleSymbol != 0) {
             if (c.binder.symbols.items[moduleSymbol].exports) |exports| {
                 const id = c.binder.ast.stringPool.get("export=") orelse return moduleSymbol;
                 if (exports.get(id)) |exportEquals| {
-                    const resolved = c.resolveSymbol(exportEquals); // TODO: dontResolveAlias
+                    const resolved = c.resolveSymbolEx(exportEquals, dontResolveAlias);
                     if (resolved != 0) {
                         return c.getMergedSymbol(resolved);
                     }
@@ -5088,8 +5331,14 @@ pub const Checker = struct {
     pub fn getTypeAliasInstantiation(c: *Checker, sym: ast_gen.SymbolIndex, typeArguments: []const types.TypeIndex, alias: ?types.TypeAlias) types.TypeIndex {
         const t = c.getDeclaredTypeOfSymbol(sym);
         if (t == c.getIntrinsicMarkerType()) {
-            // TODO: intrinsicTypeKinds logic
-            return t; // fallback
+            const typeKind = c.getIntrinsicTypeKind(sym);
+
+            if (typeKind != .Unknown and typeArguments.len == 1) {
+                switch (typeKind) {
+                    .NoInfer => return c.getNoInferType(typeArguments[0]),
+                    else => return c.getStringMappingType(sym, typeArguments[0]),
+                }
+            }
         }
 
         const links = c.typeAliasLinks.getPtr(sym);
@@ -5119,6 +5368,1756 @@ pub const Checker = struct {
             }
         }
         return t;
+    }
+
+    pub fn getNoInferType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (c.isNoInferTargetType(t)) {
+            return c.getSubstitutionType(t, c.unknownTypeIndex orelse 0);
+        }
+        return t;
+    }
+
+    pub fn isNoInferTargetType(c: *Checker, t: types.TypeIndex) bool {
+        const flags = c.typesList.items[t].flags;
+        if ((flags & (types.TypeFlags.Union | types.TypeFlags.Intersection)) != 0) {
+            const typesArr = if ((flags & types.TypeFlags.Union) != 0)
+                c.getTypesFromUnion(t)
+            else
+                c.getTypesFromIntersection(t);
+            for (typesArr) |unionElem| {
+                if (c.isNoInferTargetType(unionElem)) return true;
+            }
+        }
+        if ((flags & types.TypeFlags.Substitution) != 0 and !inference.isNoInferType(c, t) and c.isNoInferTargetType(c.getTargetTypeData(t).Substitution.baseType)) {
+            return true;
+        }
+        if ((flags & types.TypeFlags.Object) != 0 and !c.isEmptyAnonymousObjectType(t)) {
+            return true;
+        }
+        if ((flags & (types.TypeFlags.Instantiable & ~types.TypeFlags.Substitution)) != 0 and !c.isPatternLiteralType(t)) {
+            return true;
+        }
+        return false;
+    }
+
+    pub fn getIntrinsicTypeKind(c: *Checker, sym: ast_gen.SymbolIndex) types.IntrinsicTypeKind {
+        const name = c.binder.symbols.items[sym].Name;
+        if (std.mem.eql(u8, name, "Uppercase")) return .Uppercase;
+        if (std.mem.eql(u8, name, "Lowercase")) return .Lowercase;
+        if (std.mem.eql(u8, name, "Capitalize")) return .Capitalize;
+        if (std.mem.eql(u8, name, "Uncapitalize")) return .Uncapitalize;
+        if (std.mem.eql(u8, name, "NoInfer")) return .NoInfer;
+        return .Unknown;
+    }
+
+    pub fn applyStringMapping(c: *Checker, sym: ast_gen.SymbolIndex, str: []const u8) []const u8 {
+        const intrinsicKind = c.getIntrinsicTypeKind(sym);
+        if (str.len == 0) return str;
+        var buf: []u8 = undefined;
+        switch (intrinsicKind) {
+            .Uppercase => {
+                buf = c.allocator.alloc(u8, str.len) catch return str;
+                for (str, 0..) |char, i| buf[i] = std.ascii.toUpper(char);
+                return buf;
+            },
+            .Lowercase => {
+                buf = c.allocator.alloc(u8, str.len) catch return str;
+                for (str, 0..) |char, i| buf[i] = std.ascii.toLower(char);
+                return buf;
+            },
+            .Capitalize => {
+                buf = c.allocator.alloc(u8, str.len) catch return str;
+                @memcpy(buf, str);
+                buf[0] = std.ascii.toUpper(buf[0]);
+                return buf;
+            },
+            .Uncapitalize => {
+                buf = c.allocator.alloc(u8, str.len) catch return str;
+                @memcpy(buf, str);
+                buf[0] = std.ascii.toLower(buf[0]);
+                return buf;
+            },
+            else => return str,
+        }
+    }
+
+    pub fn applyTemplateStringMapping(c: *Checker, sym: ast_gen.SymbolIndex, texts: [][]const u8, typeArray: []const types.TypeIndex) [][]const u8 {
+        var newTexts = c.allocator.alloc([]const u8, texts.len) catch return texts;
+        newTexts[0] = c.applyStringMapping(sym, texts[0]);
+        var i: usize = 0;
+        while (i < typeArray.len) : (i += 1) {
+            newTexts[i + 1] = if (c.isPatternLiteralPlaceholderType(typeArray[i])) texts[i + 1] else c.applyStringMapping(sym, texts[i + 1]);
+        }
+        return newTexts;
+    }
+
+    pub fn getStringMappingTypeForGenericType(c: *Checker, sym: ast_gen.SymbolIndex, t: types.TypeIndex) types.TypeIndex {
+        // TODO: implement caching if needed
+        return c.newStringMappingType(sym, t);
+    }
+
+    pub fn newStringMappingType(c: *Checker, sym: ast_gen.SymbolIndex, t: types.TypeIndex) types.TypeIndex {
+        const tObj = c.createType(.{
+            .flags = types.TypeFlags.StringMapping,
+            .objectFlags = 0,
+            .symbol = sym,
+            .data = .{ .StringMapping = .{ .target = t } },
+        }) catch return 0;
+        return tObj;
+    }
+
+    pub fn getStringMappingType(c: *Checker, sym: ast_gen.SymbolIndex, t: types.TypeIndex) types.TypeIndex {
+        const flags = c.getTypeFlags(t);
+        if ((flags & (types.TypeFlags.Union | types.TypeFlags.Never)) != 0) {
+            const typesArr = c.getTypesOfUnionOrIntersectionType(t);
+            var newTypes = c.allocator.alloc(types.TypeIndex, typesArr.len) catch return t;
+            for (typesArr, 0..) |typeElem, i| {
+                newTypes[i] = c.getStringMappingType(sym, typeElem);
+            }
+            return c.getUnionTypeFromArray(newTypes);
+        } else if ((flags & types.TypeFlags.StringLiteral) != 0) {
+            return c.getStringLiteralType(c.applyStringMapping(sym, c.typesList.items[t].data.StringLiteral.text));
+        } else if ((flags & types.TypeFlags.TemplateLiteral) != 0) {
+            const tl = c.typesList.items[t].data.TemplateLiteral;
+            const newTexts = c.applyTemplateStringMapping(sym, tl.texts, c.unionTypesPool.items[tl.typesStart .. tl.typesStart + tl.typesLen]);
+            return c.getTemplateLiteralType(newTexts, c.unionTypesPool.items[tl.typesStart .. tl.typesStart + tl.typesLen]);
+        } else if ((flags & types.TypeFlags.StringMapping) != 0 and sym == c.typesList.items[t].symbol) {
+            return t;
+        } else if ((flags & (types.TypeFlags.Any | types.TypeFlags.String | types.TypeFlags.StringMapping)) != 0 or c.isGenericIndexType(t)) {
+            return c.getStringMappingTypeForGenericType(sym, t);
+        } else if (c.isPatternLiteralPlaceholderType(t)) {
+            var texts = [_][]const u8{ "", "" };
+            var typesArr = [_]types.TypeIndex{t};
+            const tlType = c.getTemplateLiteralType(&texts, &typesArr);
+            return c.getStringMappingTypeForGenericType(sym, tlType);
+        }
+        return t;
+    }
+
+    pub fn getPropagatingFlagsOfTypes(c: *Checker, types_arr: []const types.TypeIndex, excludeKinds: u32) u32 {
+        var result: u32 = types.ObjectFlags.None;
+        for (types_arr) |t| {
+            if (c.getTypeFlags(t) & excludeKinds == 0) {
+                result |= c.getObjectFlags(t);
+            }
+        }
+        return result & types.ObjectFlags.PropagatingFlags;
+    }
+
+    pub fn getTypeListKey(typeArguments: []const types.TypeIndex) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        for (typeArguments) |t| {
+            std.hash.autoHash(&hasher, t);
+        }
+        return hasher.final();
+    }
+
+    pub fn createTypeReferenceEx(c: *Checker, target: types.TypeIndex, typeArguments: []const types.TypeIndex, objectFlags: u32) !types.TypeIndex {
+        const id = getTypeListKey(typeArguments);
+        var targetData = &c.typesList.items[target].data.Object;
+
+        if (targetData.instantiations != null) {
+            if (targetData.instantiations.?.get(id)) |t| {
+                return t;
+            }
+        }
+
+        const newFlags = types.ObjectFlags.Reference | objectFlags | c.getPropagatingFlagsOfTypes(typeArguments, types.TypeFlags.None);
+        const t = try c.createType(.{ .flags = types.TypeFlags.Object, .objectFlags = newFlags, .symbol = c.typesList.items[target].symbol, .data = .{ .Object = .{
+            .target = target,
+        } } });
+
+        var d = &c.typesList.items[t].data.Object;
+
+        // Save type arguments into c.typeArgumentsPool
+        const typeArgsStart = @as(u32, @intCast(c.typeArgumentsPool.items.len));
+        try c.typeArgumentsPool.appendSlice(c.allocator, typeArguments);
+        d.typeArgumentsStart = typeArgsStart;
+        d.typeArgumentsLen = @as(u32, @intCast(typeArguments.len));
+
+        // Note: instantiations map should be updated on the original target, not targetData directly because targetData is a copy of the pointer, wait: targetData is a pointer to the element in array list.
+        // It's safer to re-fetch the pointer after any allocator calls!
+        var actualTargetData = &c.typesList.items[target].data.Object;
+        if (actualTargetData.instantiations == null) {
+            actualTargetData.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex){};
+        }
+        try actualTargetData.instantiations.?.put(c.allocator, id, t);
+
+        return t;
+    }
+
+    pub fn createTypeReference(c: *Checker, target: types.TypeIndex, typeArguments: []const types.TypeIndex) !types.TypeIndex {
+        return c.createTypeReferenceEx(target, typeArguments, types.ObjectFlags.None);
+    }
+
+    pub const TupleNormalizer = struct {
+        types: std.ArrayListUnmanaged(types.TypeIndex),
+        infos: std.ArrayListUnmanaged(types.TupleElementInfo),
+        lastRequiredIndex: isize,
+        firstRestIndex: isize,
+        lastOptionalOrRestIndex: isize,
+
+        pub fn init() TupleNormalizer {
+            return .{
+                .types = .empty,
+                .infos = .empty,
+                .lastRequiredIndex = -1,
+                .firstRestIndex = -1,
+                .lastOptionalOrRestIndex = -1,
+            };
+        }
+
+        pub fn deinit(self: *TupleNormalizer, allocator: std.mem.Allocator) void {
+            self.types.deinit(allocator);
+            self.infos.deinit(allocator);
+        }
+
+        pub fn normalize(self: *TupleNormalizer, c: *Checker, elementTypes: []const types.TypeIndex, elementInfos: []const types.TupleElementInfo) bool {
+            self.lastRequiredIndex = -1;
+            self.firstRestIndex = -1;
+            self.lastOptionalOrRestIndex = -1;
+
+            for (elementTypes, 0..) |t, i| {
+                const info = elementInfos[i];
+                if (info.flags & types.ElementFlags.Variadic != 0) {
+                    if (c.getTypeFlags(t) & types.TypeFlags.Any != 0) {
+                        self.add(c, t, .{ .flags = types.ElementFlags.Rest, .labeledDeclaration = info.labeledDeclaration }) catch return false;
+                    } else if (c.getTypeFlags(t) & types.TypeFlags.InstantiableNonPrimitive != 0 or c.isGenericMappedType(t)) {
+                        self.add(c, t, info) catch return false;
+                    } else if (c.isTupleType(t)) {
+                        const spreadTypes = c.getTypeArguments(t);
+                        if (spreadTypes.len + self.types.items.len >= 10000) {
+                            const message = &diagnostics_gen.Expression_produces_a_tuple_type_that_is_too_large_to_represent;
+                            c.reportError(0, message);
+                            return false;
+                        }
+                        const spreadInfos = c.getTupleElementInfos(t);
+                        for (spreadTypes, 0..) |s, j| {
+                            self.add(c, s, spreadInfos[j]) catch return false;
+                        }
+                    } else {
+                        var s: types.TypeIndex = 0;
+                        if (c.isArrayLikeType(t)) {
+                            s = c.getIndexTypeOfType(t, c.numberTypeIndex orelse 0) orelse 0;
+                        }
+                        if (s == 0) {
+                            s = c.errorTypeIndex orelse 0;
+                        }
+                        self.add(c, s, .{ .flags = types.ElementFlags.Rest, .labeledDeclaration = info.labeledDeclaration }) catch return false;
+                    }
+                } else {
+                    self.add(c, t, info) catch return false;
+                }
+            }
+
+            var i: usize = 0;
+            while (i < @as(usize, @intCast(@max(0, self.lastRequiredIndex)))) : (i += 1) {
+                if (self.infos.items[i].flags & types.ElementFlags.Optional != 0) {
+                    self.infos.items[i].flags = types.ElementFlags.Required;
+                }
+            }
+
+            if (self.firstRestIndex >= 0 and self.firstRestIndex < self.lastOptionalOrRestIndex) {
+                var types_to_union: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
+                defer types_to_union.deinit(c.allocator);
+
+                i = @intCast(self.firstRestIndex);
+                while (i <= @as(usize, @intCast(self.lastOptionalOrRestIndex))) : (i += 1) {
+                    var t = self.types.items[i];
+                    if (self.infos.items[i].flags & types.ElementFlags.Variadic != 0) {
+                        t = c.getIndexedAccessType(t, c.numberTypeIndex orelse 0);
+                    }
+                    types_to_union.append(c.allocator, t) catch return false;
+                }
+
+                self.types.items[@intCast(self.firstRestIndex)] = c.getUnionTypeFromArray(types_to_union.items);
+
+                // Delete
+                const start = @as(usize, @intCast(self.firstRestIndex + 1));
+                const end = @as(usize, @intCast(self.lastOptionalOrRestIndex + 1));
+
+                const types_len = self.types.items.len;
+                if (end < types_len) {
+                    std.mem.copyForwards(types.TypeIndex, self.types.items[start..], self.types.items[end..]);
+                    std.mem.copyForwards(types.TupleElementInfo, self.infos.items[start..], self.infos.items[end..]);
+                }
+                self.types.shrinkRetainingCapacity(types_len - (end - start));
+                self.infos.shrinkRetainingCapacity(types_len - (end - start));
+            }
+
+            return true;
+        }
+
+        pub fn add(self: *TupleNormalizer, c: *Checker, t: types.TypeIndex, info: types.TupleElementInfo) !void {
+            if (info.flags & types.ElementFlags.Required != 0) {
+                self.lastRequiredIndex = @intCast(self.types.items.len);
+            }
+            if (info.flags & types.ElementFlags.Rest != 0 and self.firstRestIndex < 0) {
+                self.firstRestIndex = @intCast(self.types.items.len);
+            }
+            if (info.flags & (types.ElementFlags.Optional | types.ElementFlags.Rest) != 0) {
+                self.lastOptionalOrRestIndex = @intCast(self.types.items.len);
+            }
+            try self.types.append(c.allocator, c.addOptionalityEx(t, true, info.flags & types.ElementFlags.Optional != 0));
+            try self.infos.append(c.allocator, info);
+        }
+    };
+
+    pub fn getCrossProductUnionSize(c: *Checker, types_arr: []const types.TypeIndex) usize {
+        var size: usize = 1;
+        for (types_arr) |t| {
+            if (c.getTypeFlags(t) & types.TypeFlags.Union != 0) {
+                const n = c.getTypesFromUnion(t).len;
+                if (n > 0 and size > std.math.maxInt(usize) / n) {
+                    return std.math.maxInt(usize);
+                }
+                size *= n;
+            } else if (c.getTypeFlags(t) & types.TypeFlags.Never != 0) {
+                return 0;
+            }
+        }
+        return size;
+    }
+
+    pub fn checkCrossProductUnion(c: *Checker, types_arr: []const types.TypeIndex) bool {
+        const size = c.getCrossProductUnionSize(types_arr);
+        if (size >= 100000) {
+            c.reportError(0, &diagnostics_gen.Expression_produces_a_union_type_that_is_too_complex_to_represent);
+            return false;
+        }
+        return true;
+    }
+
+    pub fn getTupleTargetType(c: *Checker, elementInfos: []const types.TupleElementInfo, readonly: bool) types.TypeIndex {
+        _ = c;
+        _ = elementInfos;
+        _ = readonly;
+        // TODO: implement
+        return 0; // c.emptyGenericTypeIndex once we expose it properly
+    }
+
+    pub const CreateTupleCtx = struct {
+        target: types.TypeIndex,
+        elementTypes: []const types.TypeIndex,
+        objectFlags: u32,
+        replaceIndex: usize,
+    };
+
+    pub fn createNormalizedTupleTypeExMapFn(c: *Checker, t: types.TypeIndex, ctx: CreateTupleCtx) types.TypeIndex {
+        var newElementTypes = std.ArrayListUnmanaged(types.TypeIndex).initCapacity(c.allocator, ctx.elementTypes.len) catch return c.errorTypeIndex orelse 0;
+        defer newElementTypes.deinit(c.allocator);
+        newElementTypes.appendSliceAssumeCapacity(ctx.elementTypes);
+        newElementTypes.items[ctx.replaceIndex] = t;
+        return c.createNormalizedTupleTypeEx(ctx.target, newElementTypes.items, ctx.objectFlags);
+    }
+
+    pub fn createNormalizedTupleTypeEx(c: *Checker, target: types.TypeIndex, elementTypes: []const types.TypeIndex, objectFlags: u32) types.TypeIndex {
+        const d = c.getTargetTypeData(target).Tuple;
+        if (d.combinedFlags & types.ElementFlags.NonRequired == 0) {
+            return c.createTypeReferenceEx(target, elementTypes, objectFlags) catch c.errorTypeIndex orelse 0;
+        }
+
+        const elementInfos = c.getTupleElementInfos(target);
+
+        if (d.combinedFlags & types.ElementFlags.Variadic != 0) {
+            for (elementTypes, 0..) |e, i| {
+                if (i < elementInfos.len and elementInfos[i].flags & types.ElementFlags.Variadic != 0 and c.getTypeFlags(e) & (types.TypeFlags.Never | types.TypeFlags.Union) != 0) {
+                    var checkTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
+                    for (elementTypes, 0..) |t, j| {
+                        if (j < elementInfos.len and elementInfos[j].flags & types.ElementFlags.Variadic != 0) {
+                            checkTypes.append(c.allocator, t) catch return c.errorTypeIndex orelse 0;
+                        } else {
+                            checkTypes.append(c.allocator, c.unknownTypeIndex orelse 0) catch return c.errorTypeIndex orelse 0;
+                        }
+                    }
+                    if (c.checkCrossProductUnion(checkTypes.items)) {
+                        checkTypes.deinit(c.allocator);
+                        return c.mapType(e, createNormalizedTupleTypeExMapFn, CreateTupleCtx{
+                            .target = target,
+                            .elementTypes = elementTypes,
+                            .objectFlags = objectFlags,
+                            .replaceIndex = i,
+                        });
+                    }
+                    checkTypes.deinit(c.allocator);
+                }
+            }
+        }
+
+        var n = TupleNormalizer.init();
+        defer n.deinit(c.allocator);
+
+        const infos_to_use = elementInfos;
+        if (!n.normalize(c, elementTypes[0..infos_to_use.len], infos_to_use)) {
+            return c.errorTypeIndex orelse 0;
+        }
+        if (elementTypes.len > infos_to_use.len) {
+            n.types.append(c.allocator, elementTypes[infos_to_use.len]) catch return c.errorTypeIndex orelse 0;
+        }
+
+        return c.createTupleTypeEx(n.types.items, n.infos.items, d.readonly);
+    }
+
+    pub fn createNormalizedTupleType(c: *Checker, target: types.TypeIndex, elementTypes: []const types.TypeIndex) types.TypeIndex {
+        return c.createNormalizedTupleTypeEx(target, elementTypes, types.ObjectFlags.None);
+    }
+
+    pub fn createNormalizedTypeReference(c: *Checker, target: types.TypeIndex, typeArguments: []const types.TypeIndex) types.TypeIndex {
+        if (c.isTupleType(target)) {
+            return c.createNormalizedTupleType(target, typeArguments);
+        }
+        return c.createTypeReference(target, typeArguments) catch c.errorTypeIndex orelse 0;
+    }
+
+    pub fn instantiateReverseMappedType(c: *Checker, t: types.TypeIndex, m: types.TypeMapperIndex) types.TypeIndex {
+        const r = c.getTargetTypeData(t).ReverseMapped;
+        const innerMappedType = c.instantiateType(r.mappedType, m);
+        if (c.getObjectFlags(innerMappedType) & types.ObjectFlags.Mapped == 0) {
+            return t;
+        }
+        const innerIndexType = c.instantiateType(r.constraintType, m);
+        if (c.getTypeFlags(innerIndexType) & types.TypeFlags.Index == 0) {
+            return t;
+        }
+        const instantiated = inference.inferTypeForHomomorphicMappedType(c, c.instantiateType(r.source, m), innerMappedType, innerIndexType);
+        if (instantiated) |inst| {
+            return inst;
+        }
+        return t;
+    }
+
+    pub fn getConditionalTypeKey(typeArguments: []const types.TypeIndex, alias: ?types.TypeAlias, forConstraint: bool) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        for (typeArguments) |t| {
+            hasher.update(std.mem.asBytes(&t));
+        }
+        if (alias) |a| {
+            hasher.update(std.mem.asBytes(&a.symbol));
+            hasher.update(std.mem.asBytes(&a.typeArgumentsStart));
+            hasher.update(std.mem.asBytes(&a.typeArgumentsLen));
+        }
+        hasher.update(std.mem.asBytes(&forConstraint));
+        return hasher.final();
+    }
+
+    pub fn skipTypeParentheses(c: *Checker, node_idx: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        var current = node_idx;
+        while (current != 0 and c.binder.ast.getNode(current) == .ParenthesizedType) {
+            current = c.binder.ast.getNode(current).ParenthesizedType.Type;
+        }
+        return current;
+    }
+
+    pub fn isSimpleTupleType(c: *Checker, node_idx: ast_gen.NodeIndex) bool {
+        if (node_idx == 0) return false;
+        const node = c.binder.ast.getNode(node_idx);
+        if (node != .TupleType) return false;
+
+        const elements = c.binder.ast.getNodeList(node.TupleType.Elements);
+        if (elements.len == 0) return false;
+
+        for (elements) |el_idx| {
+            if (el_idx == 0) continue;
+            const el = c.binder.ast.getNode(el_idx);
+            switch (el) {
+                .OptionalType, .RestType => return false,
+                .NamedTupleMember => |m| {
+                    if (m.QuestionToken != null or m.DotDotDotToken != null) return false;
+                },
+                else => {},
+            }
+        }
+        return true;
+    }
+
+    pub fn isDeferredType(c: *Checker, t: types.TypeIndex, checkTuples: bool) bool {
+        if (c.getGenericObjectFlags(t) != 0) return true;
+        if (checkTuples and c.isTupleType(t)) {
+            for (c.getTypeArguments(t)) |el| {
+                if (c.getGenericObjectFlags(el) != 0) return true;
+            }
+        }
+        return false;
+    }
+
+    pub const TailRecursionRootResult = struct {
+        root: ?*types.ConditionalRoot,
+        mapper: types.TypeMapperIndex,
+    };
+
+    pub fn getTailRecursionRoot(c: *Checker, newType: types.TypeIndex, newMapper: types.TypeMapperIndex) TailRecursionRootResult {
+        if (c.getTypeFlags(newType) & types.TypeFlags.Conditional != 0 and newMapper != 0) {
+            const condData = &c.typesList.items[newType].data.Conditional;
+            const newRoot = condData.root;
+            const outerTypeParameters = c.unionTypesPool.items[newRoot.outerTypeParametersStart .. newRoot.outerTypeParametersStart + newRoot.outerTypeParametersLen];
+            if (outerTypeParameters.len != 0) {
+                const typeParamMapper = mapper_pkg.combineTypeMappers(c, condData.mapper, newMapper);
+                const typeArguments = instantiateTypes(c, outerTypeParameters, typeParamMapper) catch return .{ .root = null, .mapper = 0 };
+                const newRootMapper = mapper_pkg.createTypeMapper(c, outerTypeParameters, typeArguments);
+                var newCheckType: types.TypeIndex = 0;
+                if (newRoot.isDistributive) {
+                    newCheckType = c.instantiateType(newRoot.checkType, newRootMapper);
+                }
+                if (newCheckType == 0 or newCheckType == newRoot.checkType or c.getTypeFlags(newCheckType) & (types.TypeFlags.Union | types.TypeFlags.Never) == 0) {
+                    return .{ .root = newRoot, .mapper = newRootMapper };
+                }
+            }
+        }
+        return .{ .root = null, .mapper = 0 };
+    }
+
+    pub fn getConditionalType(c: *Checker, root_ptr: *types.ConditionalRoot, mapper_idx: types.TypeMapperIndex, forConstraint: bool, alias: ?types.TypeAlias) types.TypeIndex {
+        var result: types.TypeIndex = 0;
+        var extraTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
+        defer extraTypes.deinit(c.allocator);
+
+        var tailCount: u32 = 0;
+        _ = forConstraint;
+        var root = root_ptr;
+        var mapper = mapper_idx;
+        var current_alias = alias;
+
+        while (true) {
+            if (tailCount == 1000) {
+                c.reportError(0, &diagnostics_gen.Type_instantiation_is_excessively_deep_and_possibly_infinite);
+                return c.errorTypeIndex orelse 0;
+            }
+
+            const checkType = c.instantiateType(c.getActualTypeVariable(root.checkType), mapper);
+            const extendsType = c.instantiateType(root.extendsType, mapper);
+
+            if (checkType == (c.errorTypeIndex orelse 0) or extendsType == (c.errorTypeIndex orelse 0)) {
+                return c.errorTypeIndex orelse 0;
+            }
+
+            if (checkType == (c.wildcardTypeIndex orelse 0) or extendsType == (c.wildcardTypeIndex orelse 0)) {
+                return c.wildcardTypeIndex orelse 0;
+            }
+
+            const root_node = c.binder.ast.getNode(root.node).ConditionalType;
+            const checkTypeNode = c.skipTypeParentheses(root_node.CheckType);
+            const extendsTypeNode = c.skipTypeParentheses(root_node.ExtendsType);
+
+            const checkTuples = c.isSimpleTupleType(checkTypeNode) and c.isSimpleTupleType(extendsTypeNode) and c.binder.ast.getNodeList(c.binder.ast.getNode(checkTypeNode).TupleType.Elements).len == c.binder.ast.getNodeList(c.binder.ast.getNode(extendsTypeNode).TupleType.Elements).len;
+
+            const checkTypeDeferred = c.isDeferredType(checkType, checkTuples);
+
+            var combinedMapper: types.TypeMapperIndex = 0;
+
+            if (root.inferTypeParametersLen != 0) {
+                const inferTypeParameters = c.unionTypesPool.items[root.inferTypeParametersStart .. root.inferTypeParametersStart + root.inferTypeParametersLen];
+                const contextId = c.newInferenceContext(inferTypeParameters, null, types.InferenceFlags.None, .Assignable);
+                var context = &c.inferenceContexts.items[contextId];
+                if (mapper != 0) {
+                    context.nonFixingMapper = mapper_pkg.combineTypeMappers(c, context.nonFixingMapper, mapper);
+                }
+                if (!checkTypeDeferred) {
+                    c.inferTypes(context.inferences.items, checkType, extendsType, types.InferencePriority.NoConstraints | types.InferencePriority.AlwaysStrict, false);
+                }
+                if (mapper != 0) {
+                    combinedMapper = mapper_pkg.combineTypeMappers(c, context.mapper, mapper);
+                } else {
+                    combinedMapper = context.mapper;
+                }
+            }
+
+            var inferredExtendsType: types.TypeIndex = 0;
+            if (combinedMapper != 0) {
+                inferredExtendsType = c.instantiateType(root.extendsType, combinedMapper);
+            } else {
+                inferredExtendsType = extendsType;
+            }
+
+            if (!checkTypeDeferred and !c.isDeferredType(inferredExtendsType, checkTuples)) {
+                if (c.getTypeFlags(inferredExtendsType) & (types.TypeFlags.Any | types.TypeFlags.Unknown) == 0 and (c.getTypeFlags(checkType) & types.TypeFlags.Any != 0 or !c.isTypeAssignableTo(c.getPermissiveInstantiation(checkType), c.getPermissiveInstantiation(inferredExtendsType)))) {
+                    const some_type_condition = false;
+
+                    if (c.getTypeFlags(checkType) & types.TypeFlags.Any != 0 or some_type_condition) {
+                        const trueTypeIdx = type_resolution_pkg.getTypeFromTypeNode(c, root_node.TrueType);
+                        extraTypes.append(c.allocator, c.instantiateType(trueTypeIdx, if (combinedMapper != 0) combinedMapper else mapper)) catch return c.errorTypeIndex orelse 0;
+                    }
+
+                    const falseType = type_resolution_pkg.getTypeFromTypeNode(c, root_node.FalseType);
+                    if (c.getTypeFlags(falseType) & types.TypeFlags.Conditional != 0) {
+                        const newRoot = c.typesList.items[falseType].data.Conditional.root;
+
+                        // wait, newRoot.node.Parent ? We don't have Parent in AST! In Zig we skip this or use something else.
+                        // I will skip parent check for now.
+                        if (!newRoot.isDistributive or newRoot.checkType == root.checkType) {
+                            root = newRoot;
+                            continue;
+                        }
+                        const tailRec = c.getTailRecursionRoot(falseType, mapper);
+                        if (tailRec.root != null) {
+                            root = tailRec.root.?;
+                            mapper = tailRec.mapper;
+                            current_alias = null;
+                            if (root.alias != null) {
+                                tailCount += 1;
+                            }
+                            continue;
+                        }
+                    }
+                    result = c.instantiateType(falseType, mapper);
+                    break;
+                }
+
+                if (c.getTypeFlags(inferredExtendsType) & (types.TypeFlags.Any | types.TypeFlags.Unknown) != 0 or c.isTypeAssignableTo(c.getRestrictiveInstantiation(checkType), c.getRestrictiveInstantiation(inferredExtendsType))) {
+                    const trueTypeIdx = type_resolution_pkg.getTypeFromTypeNode(c, root_node.TrueType);
+                    const trueMapper = if (combinedMapper != 0) combinedMapper else mapper;
+                    const tailRec = c.getTailRecursionRoot(trueTypeIdx, trueMapper);
+                    if (tailRec.root != null) {
+                        root = tailRec.root.?;
+                        mapper = tailRec.mapper;
+                        current_alias = null;
+                        if (root.alias != null) {
+                            tailCount += 1;
+                        }
+                        continue;
+                    }
+                    result = c.instantiateType(trueTypeIdx, trueMapper);
+                    break;
+                }
+            }
+
+            result = c.newConditionalType(root, mapper, combinedMapper);
+            if (current_alias != null) {
+                // We should update alias on result, but wait, type data is immutable after creation usually.
+                // Or maybe createType handles alias?
+                // I will ignore for now or add a setAlias method.
+            } else {
+                // c.instantiateTypeAlias
+            }
+            break;
+        }
+
+        if (extraTypes.items.len > 0) {
+            extraTypes.append(c.allocator, result) catch return c.errorTypeIndex orelse 0;
+            return c.getUnionTypeFromArray(extraTypes.items);
+        }
+        return result;
+    }
+
+    pub fn getConditionalTypeInstantiation(c: *Checker, t: types.TypeIndex, mapperIdx: types.TypeMapperIndex, forConstraint: bool, alias: ?types.TypeAlias) types.TypeIndex {
+        var root = c.getTargetTypeData(t).Conditional.root;
+        const outerTypeParameters = c.unionTypesPool.items[root.outerTypeParametersStart .. root.outerTypeParametersStart + root.outerTypeParametersLen];
+        if (outerTypeParameters.len != 0) {
+            const typeArguments = instantiateTypes(c, outerTypeParameters, mapperIdx) catch return c.unknownTypeIndex orelse 0;
+            const key = getConditionalTypeKey(typeArguments, alias, forConstraint);
+            if (root.instantiations == null) {
+                root.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex).empty;
+            }
+            if (root.instantiations.?.get(key)) |result| {
+                return result;
+            }
+            const newMapper = mapper_pkg.createTypeMapper(c, outerTypeParameters, typeArguments);
+            const checkType = root.checkType;
+            var distributionType: types.TypeIndex = 0;
+            if (root.isDistributive) {
+                distributionType = c.getReducedType(c.instantiateType(checkType, newMapper));
+            }
+            var result: types.TypeIndex = 0;
+            if (distributionType != 0 and checkType != distributionType and (c.typesList.items[distributionType].flags & (types.TypeFlags.Union | types.TypeFlags.Never)) != 0) {
+                const CtxStruct = struct {
+                    root: *types.ConditionalRoot,
+                    checkType: types.TypeIndex,
+                    newMapper: types.TypeMapperIndex,
+                    forConstraint: bool,
+                };
+                const S = struct {
+                    pub fn mapFn(inner_c: *Checker, t2: types.TypeIndex, ctx: *const CtxStruct) types.TypeIndex {
+                        const prepended = prependTypeMapping(inner_c, ctx.checkType, t2, ctx.newMapper) catch 0;
+                        return inner_c.getConditionalType(ctx.root, prepended, ctx.forConstraint, null);
+                    }
+                };
+                const mapCtx = CtxStruct{ .root = root, .checkType = checkType, .newMapper = newMapper, .forConstraint = forConstraint };
+                result = c.mapType(distributionType, S.mapFn, &mapCtx);
+            } else {
+                result = c.getConditionalType(root, newMapper, forConstraint, alias);
+            }
+            root.instantiations.?.put(c.allocator, key, result) catch {};
+            return result;
+        }
+        return t;
+    }
+
+    pub fn getTemplateStringForType(c: *Checker, t: types.TypeIndex) []const u8 {
+        const flags = c.getTypeFlags(t);
+        if ((flags & types.TypeFlags.StringLiteral) != 0) {
+            return c.getTargetTypeData(t).StringLiteral.text;
+        } else if ((flags & types.TypeFlags.NumberLiteral) != 0) {
+            const v = c.getTargetTypeData(t).NumberLiteral.value;
+            var buf: [64]u8 = undefined;
+            const slice = std.fmt.bufPrint(&buf, "{d}", .{v}) catch "";
+            return c.allocator.dupe(u8, slice) catch "";
+        } else if ((flags & types.TypeFlags.BooleanLiteral) != 0) {
+            const v = c.getTargetTypeData(t).BooleanLiteral.value;
+            return if (v) "true" else "false";
+        } else if ((flags & types.TypeFlags.BigIntLiteral) != 0) {
+            return c.getTargetTypeData(t).BigIntLiteral.text;
+        } else if ((flags & types.TypeFlags.Nullable) != 0) {
+            if ((flags & types.TypeFlags.Null) != 0) return "null";
+            if ((flags & types.TypeFlags.Undefined) != 0) return "undefined";
+        }
+        return "";
+    }
+
+    pub fn getTemplateTypeKey(texts: [][]const u8, typesArr: []const types.TypeIndex) types.CacheHashKey {
+        var hasher = std.hash.Wyhash.init(0);
+        for (typesArr) |t| std.hash.autoHash(&hasher, t);
+        std.hash.autoHash(&hasher, @as(u8, '|'));
+        for (texts) |s| std.hash.autoHash(&hasher, s.len);
+        std.hash.autoHash(&hasher, @as(u8, '|'));
+        for (texts) |s| hasher.update(s);
+        return hasher.final();
+    }
+
+    pub fn newTemplateLiteralType(c: *Checker, texts: [][]const u8, typesArr: []const types.TypeIndex) types.TypeIndex {
+        const typesStart: u32 = @intCast(c.tupleTypesPool.items.len);
+        c.tupleTypesPool.appendSlice(c.allocator, typesArr) catch unreachable;
+
+        // Ensure texts are duplicated using allocator so they persist
+        const dupedTexts = c.allocator.dupe([]const u8, texts) catch unreachable;
+        for (dupedTexts, 0..) |s, i| {
+            dupedTexts[i] = c.allocator.dupe(u8, s) catch unreachable;
+        }
+
+        return c.createType(.{
+            .flags = types.TypeFlags.TemplateLiteral,
+            .objectFlags = 0,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .TemplateLiteral = .{
+                .texts = dupedTexts,
+                .typesStart = typesStart,
+                .typesLen = @intCast(typesArr.len),
+            } },
+        }) catch c.errorTypeIndex orelse 0;
+    }
+
+    pub const GetTemplateCtx = struct {
+        texts: [][]const u8,
+        typesArr: []const types.TypeIndex,
+        unionIndex: usize,
+    };
+
+    pub fn getTemplateLiteralTypeMapFn(c: *Checker, t: types.TypeIndex, ctx: GetTemplateCtx) types.TypeIndex {
+        var newTypes = std.ArrayListUnmanaged(types.TypeIndex).initCapacity(c.allocator, ctx.typesArr.len) catch return c.errorTypeIndex orelse 0;
+        defer newTypes.deinit(c.allocator);
+        newTypes.appendSliceAssumeCapacity(ctx.typesArr);
+        newTypes.items[ctx.unionIndex] = t;
+        return c.getTemplateLiteralType(ctx.texts, newTypes.items);
+    }
+
+    pub fn addSpansForTemplateLiteral(c: *Checker, texts: [][]const u8, typesArr: []const types.TypeIndex, newTexts: *std.ArrayListUnmanaged([]const u8), newTypes: *std.ArrayListUnmanaged(types.TypeIndex), sb: *std.ArrayListUnmanaged(u8)) bool {
+        for (typesArr, 0..) |t, i| {
+            const flags = c.getTypeFlags(t);
+            if (flags & types.TypeFlags.StringLiteral != 0) {
+                sb.appendSlice(c.allocator, c.typesList.items[t].data.StringLiteral.text) catch {};
+                sb.appendSlice(c.allocator, texts[i + 1]) catch {};
+            } else if (flags & types.TypeFlags.NumberLiteral != 0) {
+                var buf: [64]u8 = undefined;
+                const slice = std.fmt.bufPrint(&buf, "{d}", .{c.typesList.items[t].data.NumberLiteral.value}) catch "";
+                sb.appendSlice(c.allocator, slice) catch {};
+                sb.appendSlice(c.allocator, texts[i + 1]) catch {};
+            } else if (flags & types.TypeFlags.BigIntLiteral != 0) {
+                sb.appendSlice(c.allocator, c.typesList.items[t].data.BigIntLiteral.text) catch {};
+                sb.appendSlice(c.allocator, texts[i + 1]) catch {};
+            } else if (flags & types.TypeFlags.BooleanLiteral != 0) {
+                if (t == (c.trueTypeIndex orelse 0)) {
+                    sb.appendSlice(c.allocator, "true") catch {};
+                } else {
+                    sb.appendSlice(c.allocator, "false") catch {};
+                }
+                sb.appendSlice(c.allocator, texts[i + 1]) catch {};
+            } else if (t == (c.nullTypeIndex orelse 0)) {
+                sb.appendSlice(c.allocator, "null") catch {};
+                sb.appendSlice(c.allocator, texts[i + 1]) catch {};
+            } else if (t == (c.undefinedTypeIndex orelse 0)) {
+                sb.appendSlice(c.allocator, "undefined") catch {};
+                sb.appendSlice(c.allocator, texts[i + 1]) catch {};
+            } else if (flags & types.TypeFlags.TemplateLiteral != 0) {
+                const tData = c.typesList.items[t].data.TemplateLiteral;
+                const tTexts = tData.texts;
+                const tTypesSlice = c.tupleTypesPool.items[tData.typesStart .. tData.typesStart + tData.typesLen];
+
+                sb.appendSlice(c.allocator, tTexts[0]) catch {};
+                if (!c.addSpansForTemplateLiteral(tTexts, tTypesSlice, newTexts, newTypes, sb)) {
+                    return false;
+                }
+                sb.appendSlice(c.allocator, texts[i + 1]) catch {};
+            } else {
+                if (flags & (types.TypeFlags.Any | types.TypeFlags.Unknown) != 0) {
+                    return false;
+                }
+                newTypes.append(c.allocator, t) catch {};
+                newTexts.append(c.allocator, sb.toOwnedSlice(c.allocator) catch "") catch {};
+                sb.* = std.ArrayListUnmanaged(u8).empty;
+                sb.appendSlice(c.allocator, texts[i + 1]) catch {};
+            }
+        }
+        return true;
+    }
+
+    pub fn getTemplateLiteralType(c: *Checker, texts: [][]const u8, typesArr: []const types.TypeIndex) types.TypeIndex {
+        var unionIndex: ?usize = null;
+        for (typesArr, 0..) |t, i| {
+            if (c.getTypeFlags(t) & (types.TypeFlags.Never | types.TypeFlags.Union) != 0) {
+                unionIndex = i;
+                break;
+            }
+        }
+        if (unionIndex) |idx| {
+            if (!c.checkCrossProductUnion(typesArr)) {
+                return c.errorTypeIndex orelse 0;
+            }
+            return c.mapType(typesArr[idx], getTemplateLiteralTypeMapFn, GetTemplateCtx{
+                .texts = texts,
+                .typesArr = typesArr,
+                .unionIndex = idx,
+            });
+        }
+
+        for (typesArr) |t| {
+            if (t == (c.wildcardTypeIndex orelse 0)) return t;
+        }
+
+        var newTypes = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer newTypes.deinit(c.allocator);
+        var newTexts = std.ArrayListUnmanaged([]const u8).empty;
+        defer newTexts.deinit(c.allocator);
+
+        var sb = std.ArrayListUnmanaged(u8).empty;
+        defer sb.deinit(c.allocator);
+        sb.appendSlice(c.allocator, texts[0]) catch {};
+
+        if (!c.addSpansForTemplateLiteral(texts, typesArr, &newTexts, &newTypes, &sb)) {
+            return c.stringTypeIndex orelse 0;
+        }
+
+        newTexts.append(c.allocator, sb.toOwnedSlice(c.allocator) catch "") catch {};
+        if (newTypes.items.len == 0) {
+            return c.getStringLiteralType(newTexts.items[0]);
+        }
+
+        const key = getTemplateTypeKey(newTexts.items, newTypes.items);
+        if (c.templateLiteralTypes.get(key)) |t| {
+            return t;
+        }
+        const t = c.newTemplateLiteralType(newTexts.items, newTypes.items);
+        c.templateLiteralTypes.put(c.allocator, key, t) catch {};
+        return t;
+    }
+
+    fn isContextSensitiveVisitor(node: ast_gen.NodeIndex, context: ?*anyopaque) bool {
+        const c: *Checker = @ptrCast(@alignCast(context));
+        return c.isContextSensitive(node);
+    }
+
+    fn hasContextSensitiveReturnVisitor(node: ast_gen.NodeIndex, context: ?*anyopaque) bool {
+        const c: *Checker = @ptrCast(@alignCast(context));
+        const expr = c.binder.ast.getNode(node).ReturnStatement.Expression;
+        if (expr) |e| {
+            if (e != 0) return c.isContextSensitive(e);
+        }
+        return false;
+    }
+
+    fn hasContextSensitiveReturnExpression(c: *Checker, node: ast_gen.NodeIndex) bool {
+        const tree = c.binder.ast;
+        if (ast_utils.getTypeParametersOfNode(tree, node).len != 0 or ast_utils.getTypeOfNode(tree, node) != 0) {
+            return false;
+        }
+        var bodyNode: u32 = 0;
+        const nodeKind = tree.getKind(node);
+        switch (nodeKind) {
+            .FunctionDeclaration => {
+                if (tree.getNode(node).FunctionDeclaration.Body) |b| bodyNode = b;
+            },
+            .FunctionExpression => {
+                if (tree.getNode(node).FunctionExpression.Body) |b| bodyNode = b;
+            },
+            .ArrowFunction => {
+                if (tree.getNode(node).ArrowFunction.Body) |b| bodyNode = b;
+            },
+            .MethodDeclaration => {
+                if (tree.getNode(node).MethodDeclaration.Body) |b| bodyNode = b;
+            },
+            else => return false,
+        }
+
+        if (bodyNode == 0) return false;
+        if (tree.getKind(bodyNode) != .Block) {
+            return c.isContextSensitive(bodyNode);
+        }
+        return ast_utils.forEachReturnStatement(tree, bodyNode, hasContextSensitiveReturnVisitor, c);
+    }
+
+    fn hasContextSensitiveYieldExpression(c: *Checker, node: ast_gen.NodeIndex) bool {
+        const tree = c.binder.ast;
+        const nodeKind = tree.getKind(node);
+        var isGenerator = false;
+        var bodyNode: u32 = 0;
+
+        switch (nodeKind) {
+            .FunctionDeclaration => {
+                const n = tree.getNode(node).FunctionDeclaration;
+                if (n.AsteriskToken) |t| {
+                    if (t != 0) isGenerator = true;
+                }
+                if (n.Body) |b| {
+                    bodyNode = b;
+                }
+            },
+            .FunctionExpression => {
+                const n = tree.getNode(node).FunctionExpression;
+                if (n.AsteriskToken) |t| {
+                    if (t != 0) isGenerator = true;
+                }
+                if (n.Body) |b| {
+                    bodyNode = b;
+                }
+            },
+            .MethodDeclaration => {
+                const n = tree.getNode(node).MethodDeclaration;
+                if (n.AsteriskToken) |t| {
+                    if (t != 0) isGenerator = true;
+                }
+                if (n.Body) |b| {
+                    bodyNode = b;
+                }
+            },
+            else => {},
+        }
+
+        if (isGenerator and bodyNode != 0) {
+            return utils.forEachYieldExpression(tree, bodyNode, isContextSensitiveVisitor, c);
+        }
+        return false;
+    }
+
+    pub fn isContextSensitiveFunctionLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
+        return ast_utils.hasContextSensitiveParameters(c.binder.ast, node) or
+            c.hasContextSensitiveReturnExpression(node) or
+            c.hasContextSensitiveYieldExpression(node);
+    }
+
+    pub fn isContextSensitive(c: *Checker, node: ast_gen.NodeIndex) bool {
+        const tree = c.binder.ast;
+        const nodeKind = tree.getKind(node);
+        switch (nodeKind) {
+            .FunctionExpression, .ArrowFunction, .MethodDeclaration, .FunctionDeclaration => {
+                return c.isContextSensitiveFunctionLikeDeclaration(node);
+            },
+            .ObjectLiteralExpression => {
+                const props = tree.getNodeList(tree.getNode(node).ObjectLiteralExpression.Properties);
+                for (props) |prop| {
+                    if (c.isContextSensitive(prop)) return true;
+                }
+            },
+            .ArrayLiteralExpression => {
+                const elements = tree.getNodeList(tree.getNode(node).ArrayLiteralExpression.Elements);
+                for (elements) |element| {
+                    if (c.isContextSensitive(element)) return true;
+                }
+            },
+            .ConditionalExpression => {
+                const condNode = tree.getNode(node).ConditionalExpression;
+                return c.isContextSensitive(condNode.WhenTrue) or c.isContextSensitive(condNode.WhenFalse);
+            },
+            .BinaryExpression => {
+                const binNode = tree.getNode(node).BinaryExpression;
+                const operator = binNode.OperatorToken;
+                const opKind = tree.getKind(operator);
+                if (opKind == .BarBarToken or opKind == .QuestionQuestionToken) {
+                    return c.isContextSensitive(binNode.Left) or c.isContextSensitive(binNode.Right);
+                }
+            },
+            .PropertyAssignment => {
+                const initializer_node = tree.getNode(node).PropertyAssignment.Initializer;
+                return c.isContextSensitive(initializer_node);
+            },
+            .ParenthesizedExpression => {
+                const expr = tree.getNode(node).ParenthesizedExpression.Expression;
+                return c.isContextSensitive(expr);
+            },
+            .JsxAttributes => {
+                const props = tree.getNodeList(tree.getNode(node).JsxAttributes.Properties);
+                for (props) |prop| {
+                    if (c.isContextSensitive(prop)) return true;
+                }
+                const parent = tree.getNodeParent(node);
+                if (parent != 0 and tree.getKind(parent) == .JsxOpeningElement) {
+                    const parentParent = tree.getNodeParent(parent);
+                    if (parentParent != 0) {
+                        const childrenNode = tree.getNode(parentParent).JsxElement.Children;
+                        const childrenList = tree.getNodeList(childrenNode);
+                        for (childrenList) |child| {
+                            if (c.isContextSensitive(child)) return true;
+                        }
+                    }
+                }
+            },
+            .JsxAttribute => {
+                const initializer = tree.getNode(node).JsxAttribute.Initializer;
+                if (initializer) |init_node| {
+                    if (init_node != 0) return c.isContextSensitive(init_node);
+                }
+            },
+            .JsxExpression => {
+                const expr = tree.getNode(node).JsxExpression.Expression;
+                if (expr) |e| {
+                    if (e != 0) return c.isContextSensitive(e);
+                }
+            },
+            .YieldExpression => {
+                const expr = tree.getNode(node).YieldExpression.Expression;
+                if (expr) |e| {
+                    if (e != 0) return c.isContextSensitive(e);
+                }
+            },
+            else => return false,
+        }
+        return false;
+    }
+
+    pub fn getOuterTypeParameters(c: *Checker, declaration: ast_gen.NodeIndex, includeThisTypes: bool) ?[]const types.TypeIndex {
+        var nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        defer nodes.deinit(c.allocator);
+
+        var current = c.binder.ast.getNodeParent(declaration);
+        while (current != 0) {
+            const nodeKind = c.binder.ast.getNodeKind(current);
+            switch (nodeKind) {
+                .ClassDeclaration, .ClassExpression, .InterfaceDeclaration, .CallSignature, .ConstructSignature, .MethodSignature, .FunctionType, .ConstructorType, .FunctionDeclaration, .MethodDeclaration, .FunctionExpression, .ArrowFunction, .TypeAliasDeclaration, .JSTypeAliasDeclaration, .MappedType, .ConditionalType => {
+                    nodes.append(c.allocator, current) catch return null;
+                },
+                .ModuleDeclaration => {
+                    if (c.binder.ast.getNodeFlags(current) & ast_utils.NodeFlags.GlobalAugmentation != 0) {
+                        break;
+                    }
+                },
+                else => {},
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
+
+        if (nodes.items.len == 0) return null;
+
+        var result = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        var i: usize = nodes.items.len;
+        while (i > 0) {
+            i -= 1;
+            const node = nodes.items[i];
+            const nodeKind = c.binder.ast.getNodeKind(node);
+
+            if ((nodeKind == .FunctionExpression or nodeKind == .ArrowFunction or (nodeKind == .MethodDeclaration and c.binder.ast.getNodeKind(c.binder.ast.getNodeParent(node)) == .ObjectLiteralExpression)) and c.isContextSensitive(node)) {
+                const sym = c.getSymbolOfDeclaration(node);
+                if (sym != 0) {
+                    const sigs = c.getSignaturesOfType((c.getTypeOfSymbol(sym) catch 0), types.SignatureKind.Call);
+                    if (sigs.len > 0) {
+                        const sig = c.signatures.items[sigs.start];
+                        if (sig.typeParametersLen > 0) {
+                            result.appendSlice(c.allocator, c.signatureTypeParameters.items[sig.typeParametersStart .. sig.typeParametersStart + sig.typeParametersLen]) catch {};
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            if (nodeKind == .MappedType) {
+                const mappedNode = c.binder.ast.getNode(node).MappedType;
+                if (mappedNode.TypeParameter != 0) {
+                    const sym = c.getSymbolOfDeclaration(mappedNode.TypeParameter);
+                    const tpType = c.getDeclaredTypeOfTypeParameter(sym);
+                    if (tpType != 0) result.append(c.allocator, tpType) catch {};
+                }
+                continue;
+            }
+
+            if (nodeKind == .ConditionalType) {
+                const inferParams = c.getInferTypeParametersFromConditionalType(node);
+                result.appendSlice(c.allocator, inferParams) catch {};
+                continue;
+            }
+
+            const typeParams = ast_utils.getTypeParametersOfNode(c.binder.ast, node);
+            for (typeParams) |tpNode| {
+                const tpSym = c.binder.ast.getNodeSymbol(tpNode) orelse 0;
+                if (tpSym != 0) {
+                    const tpType = c.getDeclaredTypeOfTypeParameter(tpSym);
+                    if (tpType != 0) {
+                        var found = false;
+                        for (result.items) |existing| {
+                            if (existing == tpType) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) result.append(c.allocator, tpType) catch {};
+                    }
+                }
+            }
+
+            if (includeThisTypes and (nodeKind == .ClassDeclaration or nodeKind == .ClassExpression or nodeKind == .InterfaceDeclaration)) {
+                const sym = c.getSymbolOfDeclaration(node);
+                if (sym != 0) {
+                    const classType = c.getDeclaredTypeOfSymbol(sym);
+                    if (classType != 0 and c.typesList.items[classType].flags & types.TypeFlags.Object != 0) {
+                        const thisType = c.typesList.items[classType].data.Object.thisType orelse 0;
+                        if (thisType != 0) {
+                            var found = false;
+                            for (result.items) |existing| {
+                                if (existing == thisType) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) result.append(c.allocator, thisType) catch {};
+                        }
+                    }
+                }
+            }
+        }
+
+        if (result.items.len == 0) return null;
+        return result.toOwnedSlice(c.allocator) catch null;
+    }
+
+    pub fn cloneTypeParameter(c: *Checker, target: types.TypeIndex) types.TypeIndex {
+        const t = c.typesList.items[target];
+        var d = t.data.TypeParameter;
+        d.mapper = 0;
+
+        const newType = types.Type{
+            .flags = types.TypeFlags.TypeParameter,
+            .objectFlags = t.objectFlags,
+            .symbol = t.symbol,
+            .alias = t.alias,
+            .data = .{ .TypeParameter = d },
+        };
+
+        const idx = @as(u32, @intCast(c.typesList.items.len));
+        c.typesList.append(c.allocator, newType) catch unreachable;
+        return idx;
+    }
+
+    pub fn instantiateTypeAlias(c: *Checker, alias: ?types.TypeAlias, m: types.TypeMapperIndex) ?types.TypeAlias {
+        if (alias == null) return null;
+        const a = alias.?;
+
+        const oldArgs = if (a.typeArgumentsLen > 0) c.typeArgumentsPool.items[a.typeArgumentsStart .. a.typeArgumentsStart + a.typeArgumentsLen] else &[_]types.TypeIndex{};
+        const newArgs = instantiateTypes(c, oldArgs, m) catch oldArgs;
+
+        var newAlias = types.TypeAlias{
+            .symbol = a.symbol,
+            .typeArgumentsStart = 0,
+            .typeArgumentsLen = 0,
+        };
+
+        if (newArgs.len > 0) {
+            newAlias.typeArgumentsStart = @intCast(c.typeArgumentsPool.items.len);
+            newAlias.typeArgumentsLen = @intCast(newArgs.len);
+            c.typeArgumentsPool.appendSlice(c.allocator, newArgs) catch unreachable;
+        }
+        return newAlias;
+    }
+
+    pub fn getAliasSymbolForTypeNode(c: *Checker, typeNode: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        var host = c.binder.ast.getNodeParent(typeNode);
+        while (host != 0) {
+            const hostKind = c.binder.ast.getNodeKind(host);
+            if (hostKind == .ParenthesizedType) {
+                host = c.binder.ast.getNodeParent(host);
+                continue;
+            }
+            if (hostKind == .TypeOperator) {
+                const op = c.binder.ast.getNode(host).TypeOperator.Operator;
+                if (op == @intFromEnum(kind.Kind.ReadonlyKeyword)) {
+                    host = c.binder.ast.getNodeParent(host);
+                    continue;
+                }
+            }
+            break;
+        }
+
+        if (host != 0) {
+            const hostKind = c.binder.ast.getNodeKind(host);
+            if (hostKind == .TypeAliasDeclaration or hostKind == .JSTypeAliasDeclaration) {
+                return c.getSymbolOfDeclaration(host);
+            }
+        }
+        return 0;
+    }
+
+    pub fn getTypeArgumentsForAliasSymbol(c: *Checker, symIdx: ast_gen.SymbolIndex) []const types.TypeIndex {
+        if (symIdx == 0) return &[_]types.TypeIndex{};
+        const sym = c.binder.symbols.items[symIdx];
+
+        var typesArr = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer typesArr.deinit(c.allocator);
+        for (sym.Declarations.items) |node| {
+            const nodeKind = c.binder.ast.getNodeKind(node);
+            if (nodeKind == .InterfaceDeclaration or nodeKind == .ClassDeclaration or nodeKind == .ClassExpression or nodeKind == .TypeAliasDeclaration or nodeKind == .JSTypeAliasDeclaration) {
+                const typeParams = ast_utils.getTypeParametersOfNode(c.binder.ast, node);
+                for (typeParams) |tpNode| {
+                    const tpSym = c.binder.ast.getNodeSymbol(tpNode) orelse 0;
+                    if (tpSym != 0) {
+                        const tpType = c.getDeclaredTypeOfTypeParameter(tpSym);
+                        if (tpType != 0) {
+                            var found = false;
+                            for (typesArr.items) |existing| {
+                                if (existing == tpType) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                typesArr.append(c.allocator, tpType) catch {};
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (typesArr.items.len == 0) return &[_]types.TypeIndex{};
+        return c.allocator.dupe(types.TypeIndex, typesArr.items) catch &[_]types.TypeIndex{};
+    }
+
+    pub fn getAliasForTypeNode(c: *Checker, node: ast_gen.NodeIndex) ?types.TypeAlias {
+        const symIdx = c.getAliasSymbolForTypeNode(node);
+        if (symIdx != 0) {
+            const args = c.getTypeArgumentsForAliasSymbol(symIdx);
+            const start = @as(u32, @intCast(c.typeArgumentsPool.items.len));
+            c.typeArgumentsPool.appendSlice(c.allocator, args) catch return null;
+            return types.TypeAlias{
+                .symbol = symIdx,
+                .typeArgumentsStart = start,
+                .typeArgumentsLen = @as(u32, @intCast(args.len)),
+            };
+        }
+        return null;
+    }
+
+    pub fn createDeferredTypeReference(c: *Checker, target: types.TypeIndex, node: ast_gen.NodeIndex, m: types.TypeMapperIndex, alias: ?types.TypeAlias) types.TypeIndex {
+        var newAlias = alias;
+        if (newAlias == null) {
+            newAlias = c.getAliasForTypeNode(node);
+            if (newAlias != null and m != 0) {
+                newAlias = c.instantiateTypeAlias(newAlias, m);
+            }
+        }
+
+        const t = types.Type{
+            .flags = types.TypeFlags.Object,
+            .objectFlags = types.ObjectFlags.Reference,
+            .symbol = c.typesList.items[target].symbol,
+            .alias = newAlias,
+            .data = .{ .Object = .{
+                .target = target,
+                .mapper = m,
+                .node = node,
+            } },
+        };
+
+        const idx = @as(u32, @intCast(c.typesList.items.len));
+        c.typesList.append(c.allocator, t) catch unreachable;
+        return idx;
+    }
+
+    const InstantiateConstituentCtx = struct {
+        nameType: ?types.TypeIndex,
+        t: types.TypeIndex,
+        typeVariable: types.TypeIndex,
+        m: types.TypeMapperIndex,
+    };
+
+    fn instantiateConstituent(c: *Checker, s: types.TypeIndex, ctx: InstantiateConstituentCtx) types.TypeIndex {
+        const flags = c.getTypeFlags(s);
+        if (flags & (types.TypeFlags.Any | types.TypeFlags.Unknown | types.TypeFlags.InstantiableNonPrimitive | types.TypeFlags.Object | types.TypeFlags.Intersection) == 0 or s == (c.wildcardTypeIndex orelse 0) or c.isErrorType(s)) {
+            return s;
+        }
+        if (ctx.nameType == null) {
+            if (c.isArrayType(s) or (flags & types.TypeFlags.Any != 0 and c.findResolutionCycleStartIndex(types.TypeSystemEntity.initType(ctx.typeVariable), .ResolvedBaseConstraint) < 0 and c.hasArrayOrTypeTypeConstraint(ctx.typeVariable))) {
+                return c.instantiateMappedArrayType(s, ctx.t, prependTypeMapping(c, ctx.typeVariable, s, ctx.m) catch 0);
+            }
+            if (c.isTupleType(s)) {
+                return c.instantiateMappedTupleType(s, ctx.t, ctx.typeVariable, ctx.m);
+            }
+            if (c.isArrayOrTupleOrIntersection(s)) {
+                const typesArr = c.getTypesOfType(s);
+                var newTypes = std.ArrayList(types.TypeIndex).initCapacity(c.allocator, typesArr.len) catch return 0;
+                for (typesArr) |t_idx| {
+                    newTypes.appendAssumeCapacity(instantiateConstituent(c, t_idx, ctx));
+                }
+                return c.getIntersectionType(newTypes.items);
+            }
+        }
+        return c.instantiateAnonymousType(ctx.t, prependTypeMapping(c, ctx.typeVariable, s, ctx.m) catch 0, null);
+    }
+
+    pub fn mapTypeWithAlias(c: *Checker, t: types.TypeIndex, comptime mapFn: anytype, ctx: anytype, alias: ?types.TypeAlias) types.TypeIndex {
+        if (c.getTypeFlags(t) & types.TypeFlags.Union != 0 and alias != null) {
+            const typesArr = c.getTypesOfType(t);
+            var newTypes = std.ArrayList(types.TypeIndex).initCapacity(c.allocator, typesArr.len) catch return 0;
+            for (typesArr) |t_idx| {
+                newTypes.appendAssumeCapacity(mapFn(c, t_idx, ctx));
+            }
+            return c.getUnionTypeFromArray(newTypes.items);
+        }
+        return c.mapType(t, mapFn, ctx);
+    }
+
+    pub fn hasArrayOrTypeTypeConstraint(c: *Checker, typeVariable: types.TypeIndex) bool {
+        const constraint = c.getConstraintOfTypeParameter(typeVariable);
+        if (constraint) |constr| {
+            const S = struct {
+                pub fn f(inner_c: *Checker, t: types.TypeIndex, _: void) bool {
+                    return inner_c.isArrayOrTupleType(t);
+                }
+            };
+            return c.everyType(constr, S.f, {});
+        }
+        return false;
+    }
+
+    pub fn isArrayOrTupleOrIntersection(c: *Checker, typeIndex: types.TypeIndex) bool {
+        if ((c.getTypeFlags(typeIndex) & types.TypeFlags.Intersection) != 0) {
+            const S = struct {
+                pub fn f(inner_c: *Checker, t: types.TypeIndex, _: void) bool {
+                    return inner_c.isArrayOrTupleType(t);
+                }
+            };
+            return c.everyType(typeIndex, S.f, {});
+        }
+        return false;
+    }
+
+    pub fn findResolutionCycleStartIndex(c: *Checker, target: types.TypeSystemEntity, propertyName: types.TypeSystemPropertyName) i32 {
+        var i: i32 = @intCast(c.typeResolutions.items.len);
+        i -= 1;
+        while (i >= @as(i32, @intCast(c.resolutionStart))) : (i -= 1) {
+            const resolution = &c.typeResolutions.items[@intCast(i)];
+            if (c.typeResolutionHasProperty(resolution)) {
+                return -1;
+            }
+            if (resolution.target.eql(target) and resolution.propertyName == propertyName) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    fn typeResolutionHasProperty(c: *Checker, r: *const types.TypeResolution) bool {
+        switch (r.propertyName) {
+            .Type => {
+                if (r.target.kind != .Symbol) return false;
+                const link = c.valueSymbolLinks.get(r.target.index) orelse return false;
+                return link.resolvedType != 0;
+            },
+            .DeclaredType => {
+                if (r.target.kind != .Symbol) return false;
+                const link = c.typeAliasLinks.get(r.target.index) orelse return false;
+                return link.declaredType != 0;
+            },
+            .ResolvedTypeArguments => {
+                if (r.target.kind != .Type) return false;
+                const t = c.typesList.items[r.target.index];
+                if (std.meta.activeTag(t.data) != .Object) return false;
+                return t.data.Object.typeArgumentsLen > 0; // Approximate for now
+            },
+            .ResolvedType => {
+                if (r.target.kind != .Type) return false;
+                const t = c.typesList.items[r.target.index];
+                if (std.meta.activeTag(t.data) != .Object) return false;
+                return t.data.Object.target != null;
+            },
+            .ResolvedBaseConstraint => {
+                if (r.target.kind != .Type) return false;
+                const t = c.typesList.items[r.target.index];
+                if (std.meta.activeTag(t.data) != .TypeParameter) return false;
+                return t.data.TypeParameter.resolvedBaseConstraint != null;
+            },
+            .WriteType => {
+                return false;
+            },
+            .InitializerIsUndefined => {
+                return false;
+            },
+            .AliasTarget => {
+                if (r.target.kind != .Symbol) return false;
+                const link = c.aliasSymbolLinks.get(r.target.index) orelse return false;
+                return link.aliasTarget != null;
+            },
+        }
+    }
+
+    pub fn getModifiedReadonlyState(state: bool, modifiers: types.MappedTypeModifiers) bool {
+        if (modifiers.has(types.MappedTypeModifiers.IncludeReadonly)) return true;
+        if (modifiers.has(types.MappedTypeModifiers.ExcludeReadonly)) return false;
+        return state;
+    }
+
+    pub fn instantiateMappedArrayType(c: *Checker, arrayType: types.TypeIndex, mappedType: types.TypeIndex, m: types.TypeMapperIndex) types.TypeIndex {
+        const elementType = c.instantiateMappedTypeTemplate(mappedType, c.numberTypeIndex orelse 0, true, m);
+        if (c.isErrorType(elementType)) return c.errorTypeIndex orelse 0;
+        // In Zig version, array creation is simplified.
+        _ = arrayType;
+        return c.createArrayType(elementType);
+    }
+
+    pub fn instantiateMappedTupleType(c: *Checker, tupleType: types.TypeIndex, mappedType: types.TypeIndex, typeVariable: types.TypeIndex, m: types.TypeMapperIndex) types.TypeIndex {
+        const elementTypes = c.getTypesOfType(tupleType);
+        const elementInfos = c.getTupleElementInfos(tupleType);
+
+        var newElementTypes = std.ArrayList(types.TypeIndex).initCapacity(c.allocator, elementTypes.len) catch return 0;
+        var newElementInfos = std.ArrayList(types.TupleElementInfo).initCapacity(c.allocator, elementTypes.len) catch return 0;
+
+        for (elementTypes, 0..) |elementType, i| {
+            const info = elementInfos[i];
+            newElementInfos.appendAssumeCapacity(.{
+                .flags = info.flags,
+                .labeledDeclaration = info.labeledDeclaration,
+            });
+            var templateMapper: types.TypeMapperIndex = 0;
+            if (info.flags & types.ElementFlags.Variadic != 0) {
+                templateMapper = prependTypeMapping(c, typeVariable, elementType, m) catch 0;
+                const d = c.typesList.items[mappedType].data.Mapped;
+                const target = d.target orelse mappedType;
+                newElementTypes.appendAssumeCapacity(c.instantiateType(c.getTemplateTypeFromMappedType(target), templateMapper));
+            } else {
+                var buf: [16]u8 = undefined;
+                const i_str = std.fmt.bufPrint(&buf, "{d}", .{i}) catch "0";
+                const key = c.getStringLiteralType(i_str);
+
+                if (info.flags & types.ElementFlags.Rest != 0) {
+                    templateMapper = prependTypeMapping(c, typeVariable, c.createArrayType(elementType), m) catch 0;
+                    const d = c.typesList.items[mappedType].data.Mapped;
+                    const target = d.target orelse mappedType;
+                    newElementTypes.appendAssumeCapacity(c.getIndexType(c.instantiateType(c.getTemplateTypeFromMappedType(target), templateMapper)));
+                } else {
+                    newElementTypes.appendAssumeCapacity(c.instantiateMappedTypeTemplate(mappedType, key, (info.flags & types.ElementFlags.Optional) != 0, m));
+                }
+            }
+        }
+        const newReadonly = getModifiedReadonlyState(c.isReadonlyArrayType(tupleType), c.getMappedTypeModifiers(mappedType));
+        return c.createTupleTypeEx(newElementTypes.items, newElementInfos.items, newReadonly);
+    }
+
+    pub fn instantiateMappedTypeTemplate(c: *Checker, t: types.TypeIndex, key: types.TypeIndex, isOptional: bool, m: types.TypeMapperIndex) types.TypeIndex {
+        const templateMapper = prependTypeMapping(c, c.getTypeParameterFromMappedType(t), key, m) catch 0;
+        const d = c.typesList.items[t].data.Mapped;
+        const target = d.target orelse t;
+        const propType = c.instantiateType(c.getTemplateTypeFromMappedType(target), templateMapper);
+        const modifiers = c.getMappedTypeModifiers(t);
+
+        if (c.strictNullChecks and modifiers.has(types.MappedTypeModifiers.IncludeOptional) and !c.maybeTypeOfKind(propType, types.TypeFlags.Undefined | types.TypeFlags.Void)) {
+            return c.getOptionalType(propType, true);
+        } else if (c.strictNullChecks and modifiers.has(types.MappedTypeModifiers.ExcludeOptional) and isOptional) {
+            return c.getTypeWithFacts(propType, types.TypeFacts.NEUndefined);
+        }
+        return propType;
+    }
+
+    pub fn instantiateMappedType(c: *Checker, t: types.TypeIndex, m: types.TypeMapperIndex, alias: ?types.TypeAlias) types.TypeIndex {
+        const d = c.typesList.items[t].data.Mapped;
+        const typeVariable = c.getHomomorphicTypeVariable(t);
+        const ctx = InstantiateConstituentCtx{
+            .nameType = d.nameType,
+            .t = t,
+            .typeVariable = typeVariable,
+            .m = m,
+        };
+
+        if (typeVariable != 0) {
+            const mappedTypeVariable = c.instantiateType(typeVariable, m);
+            if (typeVariable != mappedTypeVariable) {
+                return c.mapTypeWithAlias(c.getReducedType(mappedTypeVariable), instantiateConstituent, ctx, alias);
+            }
+        }
+
+        if (c.instantiateType(c.getConstraintTypeFromMappedType(t), m) == (c.wildcardTypeIndex orelse 0)) {
+            return c.wildcardTypeIndex orelse 0;
+        }
+        return c.instantiateAnonymousType(t, m, alias);
+    }
+
+    pub fn instantiateAnonymousType(c: *Checker, target: types.TypeIndex, m: types.TypeMapperIndex, alias: ?types.TypeAlias) types.TypeIndex {
+        const t = c.typesList.items[target];
+        const newObjectFlags = (t.objectFlags & ~(types.ObjectFlags.CouldContainTypeVariablesComputed | types.ObjectFlags.CouldContainTypeVariables)) | types.ObjectFlags.Instantiated;
+
+        var newData: types.TypeData = undefined;
+        if (t.objectFlags & types.ObjectFlags.Mapped != 0) {
+            var newMapped = t.data.Mapped;
+
+            const origTypeParameter = c.getTypeParameterFromMappedType(target);
+            const freshTypeParameter = c.cloneTypeParameter(origTypeParameter);
+            newMapped.typeParameter = freshTypeParameter;
+
+            const newSimpleMapper = mapper_pkg.createSimpleTypeMapper(c, origTypeParameter, freshTypeParameter);
+            const combinedMapper = mapper_pkg.combineTypeMappers(c, newSimpleMapper, m);
+            newMapped.mapper = combinedMapper;
+
+            var freshData = &c.typesList.items[c.getTargetType(freshTypeParameter)].data.TypeParameter;
+            freshData.mapper = combinedMapper;
+
+            newMapped.target = target;
+            newData = .{ .Mapped = newMapped };
+        } else {
+            var newObj = t.data.Object;
+            newObj.target = target;
+            newObj.mapper = m;
+            newData = .{ .Object = newObj };
+        }
+
+        var newAlias = alias;
+        if (newAlias == null) {
+            newAlias = c.instantiateTypeAlias(t.alias, m);
+        }
+
+        var finalObjectFlags = newObjectFlags;
+        if (newAlias) |a| {
+            if (a.typeArgumentsLen != 0) {
+                const args = c.typeArgumentsPool.items[a.typeArgumentsStart .. a.typeArgumentsStart + a.typeArgumentsLen];
+                finalObjectFlags |= c.getPropagatingFlagsOfTypes(args, types.TypeFlags.None);
+            }
+        }
+
+        const newType = types.Type{
+            .flags = types.TypeFlags.Object,
+            .objectFlags = finalObjectFlags,
+            .symbol = t.symbol,
+            .alias = newAlias,
+            .data = newData,
+        };
+
+        const idx = @as(u32, @intCast(c.typesList.items.len));
+        c.typesList.append(c.allocator, newType) catch unreachable;
+        return idx;
+    }
+
+    pub fn isNonGenericTopLevelType(c: *Checker, t: types.TypeIndex) bool {
+        const typeNode = c.typesList.items[t];
+        if (typeNode.alias) |alias| {
+            if (alias.typeArgumentsLen == 0) {
+                var declaration = c.getDeclarationOfKind(alias.symbol, .TypeAliasDeclaration);
+                if (declaration == 0) {
+                    declaration = c.getDeclarationOfKind(alias.symbol, .JSTypeAliasDeclaration);
+                }
+                if (declaration != 0) {
+                    var current = ast_utils.getParent(c.binder.ast, declaration);
+                    var found = false;
+                    while (current != 0) {
+                        const nodeKind = c.binder.ast.getNodeKind(current);
+                        if (nodeKind == .SourceFile) {
+                            found = true;
+                            break;
+                        }
+                        if (nodeKind == .ModuleDeclaration) {
+                            break;
+                        }
+                        current = ast_utils.getParent(c.binder.ast, current);
+                    }
+                    return found;
+                }
+            }
+        }
+        return false;
+    }
+
+    pub fn getTypesOfType(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
+        const typeNode = c.typesList.items[t];
+        if (typeNode.flags & types.TypeFlags.Union != 0) {
+            const data = typeNode.data.Union;
+            return c.unionTypesPool.items[data.typesStart .. data.typesStart + data.typesLen];
+        }
+        if (typeNode.flags & types.TypeFlags.Intersection != 0) {
+            const data = typeNode.data.Intersection;
+            return c.unionTypesPool.items[data.typesStart .. data.typesStart + data.typesLen];
+        }
+        return &[_]types.TypeIndex{};
+    }
+
+    pub fn couldContainTypeVariables(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0) return false;
+        const typeNode = c.typesList.items[t];
+        if (typeNode.flags & types.TypeFlags.StructuredOrInstantiable == 0) {
+            return false;
+        }
+
+        const objectFlags = typeNode.objectFlags;
+        if (objectFlags & types.ObjectFlags.CouldContainTypeVariablesComputed != 0) {
+            return objectFlags & types.ObjectFlags.CouldContainTypeVariables != 0;
+        }
+
+        var result = false;
+        if (typeNode.flags & types.TypeFlags.Instantiable != 0) {
+            result = true;
+        } else if (typeNode.flags & types.TypeFlags.Object != 0 and !c.isNonGenericTopLevelType(t)) {
+            if (objectFlags & types.ObjectFlags.Reference != 0) {
+                if (std.meta.activeTag(typeNode.data) == .Object and typeNode.data.Object.node != null) {
+                    result = true;
+                } else {
+                    const args = c.getTypeArguments(t);
+                    for (args) |arg| {
+                        if (c.couldContainTypeVariables(arg)) {
+                            result = true;
+                            break;
+                        }
+                    }
+                }
+            } else if (objectFlags & types.ObjectFlags.Anonymous != 0 and typeNode.symbol != null) {
+                const sym = c.binder.symbols.items[typeNode.symbol.?];
+                if (sym.Flags & (symbol.SymbolFlags.Function | symbol.SymbolFlags.Method | symbol.SymbolFlags.Class | symbol.SymbolFlags.TypeLiteral | symbol.SymbolFlags.ObjectLiteral) != 0 and sym.Declarations.items.len != 0) {
+                    result = true;
+                }
+            } else if (objectFlags & (types.ObjectFlags.Mapped | types.ObjectFlags.ReverseMapped | types.ObjectFlags.ObjectRestType | types.ObjectFlags.InstantiationExpressionType) != 0) {
+                result = true;
+            }
+        } else if (typeNode.flags & types.TypeFlags.UnionOrIntersection != 0 and typeNode.flags & types.TypeFlags.EnumLiteral == 0 and !c.isNonGenericTopLevelType(t)) {
+            const typesArr = c.getTypesOfType(t);
+            for (typesArr) |type_idx| {
+                if (c.couldContainTypeVariables(type_idx)) {
+                    result = true;
+                    break;
+                }
+            }
+        }
+
+        c.typesList.items[t].objectFlags |= types.ObjectFlags.CouldContainTypeVariablesComputed | (if (result) types.ObjectFlags.CouldContainTypeVariables else 0);
+        return result;
+    }
+
+    pub fn getObjectTypeInstantiation(c: *Checker, t: types.TypeIndex, m: types.TypeMapperIndex, alias: ?types.TypeAlias) types.TypeIndex {
+        var declaration: ast_gen.NodeIndex = 0;
+        var target: types.TypeIndex = 0;
+        var typeParameters: ?[]const types.TypeIndex = null;
+
+        const objFlags = c.typesList.items[t].objectFlags;
+        if ((objFlags & types.ObjectFlags.Reference) != 0) {
+            declaration = c.getTargetTypeData(t).Object.node orelse 0;
+        } else if ((objFlags & types.ObjectFlags.InstantiationExpressionType) != 0) {
+            declaration = c.getTargetTypeData(t).Object.node orelse 0;
+        } else {
+            if (c.typesList.items[t].symbol) |sym| {
+                declaration = c.getFirstDeclarationOfSymbol(sym);
+            }
+        }
+
+        var linksPtr = c.typeNodeLinks.getPtr(declaration);
+        if (linksPtr == null) {
+            c.typeNodeLinks.put(c.allocator, declaration, .{}) catch {};
+            linksPtr = c.typeNodeLinks.getPtr(declaration);
+        }
+
+        if ((objFlags & types.ObjectFlags.Reference) != 0) {
+            target = linksPtr.?.resolvedType;
+        } else if ((objFlags & types.ObjectFlags.Instantiated) != 0) {
+            target = c.getTargetTypeData(t).Object.target orelse 0;
+        } else {
+            target = t;
+        }
+
+        typeParameters = linksPtr.?.outerTypeParameters;
+        if (typeParameters == null) {
+            typeParameters = c.getOuterTypeParameters(declaration, true);
+            const aliasArgsLen = if (c.typesList.items[target].alias) |a| a.typeArgumentsLen else 0;
+            if (aliasArgsLen == 0) {
+                if ((objFlags & (types.ObjectFlags.Reference | types.ObjectFlags.InstantiationExpressionType)) != 0) {
+                    var filtered = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                    if (typeParameters) |tps| {
+                        for (tps) |tp| {
+                            if (c.isTypeParameterPossiblyReferenced(tp, declaration)) {
+                                filtered.append(c.allocator, tp) catch {};
+                            }
+                        }
+                    }
+                    typeParameters = filtered.items;
+                } else if ((c.getSymbolFlags(c.typesList.items[target].symbol orelse 0) & (symbol.SymbolFlags.Method | symbol.SymbolFlags.TypeLiteral)) != 0) {
+                    var filtered = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                    if (typeParameters) |tps| {
+                        for (tps) |tp| {
+                            const sym = c.typesList.items[t].symbol.?;
+                            const declarations = c.binder.symbols.items[sym].Declarations.items;
+                            var isReferenced = false;
+                            for (declarations) |decl| {
+                                if (c.isTypeParameterPossiblyReferenced(tp, decl)) {
+                                    isReferenced = true;
+                                    break;
+                                }
+                            }
+                            if (isReferenced) {
+                                filtered.append(c.allocator, tp) catch {};
+                            }
+                        }
+                    }
+                    typeParameters = filtered.items;
+                }
+            }
+            if (typeParameters == null) {
+                typeParameters = &[_]types.TypeIndex{};
+            }
+            linksPtr.?.outerTypeParameters = typeParameters;
+        }
+        if (typeParameters == null or typeParameters.?.len == 0) return t;
+
+        const combinedMapper = mapper_pkg.combineTypeMappers(c, c.getTargetTypeData(t).Object.mapper orelse 0, m);
+        const typeArguments = instantiateTypes(c, typeParameters.?, combinedMapper) catch return t;
+
+        var newAlias = alias;
+        if (newAlias == null) {
+            newAlias = c.instantiateTypeAlias(c.typesList.items[t].alias, m);
+        }
+
+        const targetId = c.getTargetType(target);
+        var data = &c.typesList.items[targetId].data.Object;
+        const key = getTypeInstantiationKey(typeArguments, newAlias, (objFlags & types.ObjectFlags.SingleSignatureType) != 0);
+
+        if (data.instantiations == null) {
+            data.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex).empty;
+            const targetKey = getTypeInstantiationKey(typeParameters.?, c.typesList.items[target].alias, false);
+            data.instantiations.?.put(c.allocator, targetKey, target) catch {};
+        }
+
+        if (data.instantiations.?.get(key)) |result| {
+            return result;
+        }
+
+        var newMapper = mapper_pkg.createTypeMapper(c, typeParameters.?, typeArguments);
+        if ((c.typesList.items[target].objectFlags & types.ObjectFlags.SingleSignatureType) != 0 and m != 0) {
+            newMapper = mapper_pkg.combineTypeMappers(c, newMapper, m);
+        }
+
+        var result: types.TypeIndex = 0;
+        if ((c.typesList.items[target].objectFlags & types.ObjectFlags.Reference) != 0) {
+            result = c.createDeferredTypeReference(c.getTargetTypeData(t).Object.target orelse 0, c.getTargetTypeData(t).Object.node orelse 0, newMapper, newAlias);
+        } else if ((c.typesList.items[target].objectFlags & types.ObjectFlags.Mapped) != 0) {
+            result = c.instantiateMappedType(target, newMapper, newAlias);
+        } else {
+            result = c.instantiateAnonymousType(target, newMapper, newAlias);
+        }
+
+        data.instantiations.?.put(c.allocator, key, result) catch {};
+
+        if ((c.typesList.items[result].flags & types.TypeFlags.ObjectFlagsType) != 0 and (c.typesList.items[result].objectFlags & types.ObjectFlags.CouldContainTypeVariablesComputed) == 0) {
+            var resultCouldContainObjectFlags = false;
+            for (typeArguments) |ta| {
+                if (c.couldContainTypeVariables(ta)) {
+                    resultCouldContainObjectFlags = true;
+                    break;
+                }
+            }
+            if ((c.typesList.items[result].objectFlags & types.ObjectFlags.CouldContainTypeVariablesComputed) == 0) {
+                if ((c.typesList.items[result].objectFlags & (types.ObjectFlags.Mapped | types.ObjectFlags.Anonymous | types.ObjectFlags.Reference)) != 0) {
+                    c.typesList.items[result].objectFlags |= types.ObjectFlags.CouldContainTypeVariablesComputed | (if (resultCouldContainObjectFlags) types.ObjectFlags.CouldContainTypeVariables else 0);
+                } else {
+                    c.typesList.items[result].objectFlags |= if (!resultCouldContainObjectFlags) types.ObjectFlags.CouldContainTypeVariablesComputed else 0;
+                }
+            }
+        }
+        return result;
     }
 
     pub fn isTypeDerivedFrom(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
@@ -5192,11 +7191,57 @@ pub const Checker = struct {
         return null;
     }
 
+    pub fn getTupleTypeKey(elementTypes: []const types.TypeIndex, elementInfos: []const types.TupleElementInfo, readonly: bool) types.CacheHashKey {
+        var hasher = std.hash.Wyhash.init(0);
+        for (elementTypes) |t| std.hash.autoHash(&hasher, t);
+        for (elementInfos) |info| std.hash.autoHash(&hasher, info.flags);
+        std.hash.autoHash(&hasher, readonly);
+        return hasher.final();
+    }
+
     pub fn createTupleTypeEx(c: *Checker, elementTypes: []const types.TypeIndex, elementInfos: []const types.TupleElementInfo, readonly: bool) types.TypeIndex {
-        _ = elementTypes;
-        _ = elementInfos;
-        _ = readonly;
-        return c.anyType;
+        if (elementInfos.len == 1 and elementInfos[0].flags & types.ElementFlags.Rest != 0) {
+            // [...X[]] is equivalent to just X[]
+            // We ignore readonly for now as ArrayType in zig currently doesn't store it
+            return c.createArrayType(elementTypes[0]);
+        }
+
+        // We will store this in a cache if we want, but currently checker doesn't have tupleTypesCache
+        // We'll just create it.
+        const start: u32 = @intCast(c.tupleTypesPool.items.len);
+        c.tupleTypesPool.appendSlice(c.allocator, elementTypes) catch return c.errorTypeIndex orelse 0;
+
+        const infosStart: u32 = @intCast(c.tupleElementInfos.items.len);
+        c.tupleElementInfos.appendSlice(c.allocator, elementInfos) catch return c.errorTypeIndex orelse 0;
+
+        var minLength: u32 = 0;
+        var combinedFlags: u32 = 0;
+        for (elementInfos) |info| {
+            if (info.flags & (types.ElementFlags.Required | types.ElementFlags.Variadic) != 0) {
+                minLength += 1;
+            }
+            combinedFlags |= info.flags;
+        }
+
+        return c.createType(.{
+            .flags = types.TypeFlags.Object,
+            .objectFlags = types.ObjectFlags.Reference | types.ObjectFlags.Tuple,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{
+                .Tuple = .{
+                    .typesStart = start,
+                    .typesLen = @intCast(elementTypes.len),
+                    .elementInfosStart = infosStart,
+                    .readonly = readonly,
+                    .combinedFlags = combinedFlags,
+                    .minLength = minLength,
+                    .fixedLength = @intCast(elementInfos.len), // Approximation for flat tuple
+                    .hasRestElement = combinedFlags & types.ElementFlags.Rest != 0,
+                },
+            },
+        }) catch c.errorTypeIndex orelse 0;
     }
 
     pub fn typesDefinitelyUnrelated(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
@@ -5309,7 +7354,7 @@ pub const Checker = struct {
         return root.isDistributive and (c.isTypeParameterPossiblyReferenced(root.checkType, root.node.TrueType) or c.isTypeParameterPossiblyReferenced(root.checkType, root.node.FalseType));
     }
 
-    pub fn isTypeParameterPossiblyReferenced(c: *Checker, tp: types.TypeIndex, node: types.NodeIndex) bool {
+    pub fn isTypeParameterPossiblyReferenced(c: *Checker, tp: types.TypeIndex, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = tp;
         _ = node;
@@ -5471,6 +7516,20 @@ pub const Checker = struct {
         }
 
         return c.resolvedSignaturesPool.items[candidates.start];
+    }
+    pub fn newConditionalType(c: *Checker, root: *types.ConditionalRoot, mapper: types.TypeMapperIndex, combinedMapper: types.TypeMapperIndex) types.TypeIndex {
+        const data = types.TypeData{ .Conditional = .{
+            .root = root,
+            .checkType = c.instantiateType(root.checkType, mapper),
+            .extendsType = c.instantiateType(root.extendsType, mapper),
+            .mapper = mapper,
+            .combinedMapper = combinedMapper,
+        } };
+        return c.createType(.{
+            .flags = types.TypeFlags.Conditional,
+            .objectFlags = 0,
+            .data = data,
+        }) catch c.errorTypeIndex orelse 0;
     }
 };
 
@@ -5654,6 +7713,10 @@ pub fn createTypeMapper(self: *Checker, m: types.TypeMapper) !types.TypeMapperIn
     return idx;
 }
 
+pub fn addTypeMapper(self: *Checker, m: types.TypeMapper) types.TypeMapperIndex {
+    return createTypeMapper(self, m) catch @panic("OOM");
+}
+
 pub fn appendTypeMapping(self: *Checker, mapper: types.TypeMapperIndex, source: types.TypeIndex, target: types.TypeIndex) !types.TypeMapperIndex {
     return try createTypeMapper(self, .{
         .kind = .Deferred,
@@ -5755,7 +7818,7 @@ pub fn getWildcardType(self: *Checker) !u32 {
 
 pub fn getPermissiveMapper(self: *Checker) !types.TypeMapperIndex {
     if (self.permissiveMapperIndex) |idx| return idx;
-    const idx = try self.createTypeMapper(.{
+    const idx = try createTypeMapper(self, .{
         .kind = .Permissive,
         .data = .{ .Dummy = {} },
     });
@@ -5772,7 +7835,7 @@ pub fn prependTypeMapping(self: *Checker, source: types.TypeIndex, target: types
 
 pub fn getRestrictiveMapper(self: *Checker) !types.TypeMapperIndex {
     if (self.restrictiveMapperIndex) |idx| return idx;
-    const idx = try self.createTypeMapper(.{
+    const idx = try createTypeMapper(self, .{
         .kind = .Restrictive,
         .data = .{ .Dummy = {} },
     });
@@ -7037,4 +9100,109 @@ pub fn checkYieldExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.Type
         _ = checkExpression(c, expr);
     }
     return c.anyTypeIndex orelse 0;
+}
+
+pub fn instantiateIndexInfo(c: *Checker, info: types.IndexInfo, m: types.TypeMapperIndex) types.IndexInfo {
+    const newValueType = c.instantiateType(info.valueType, m);
+    if (newValueType == info.valueType) {
+        return info;
+    }
+    return .{
+        .keyType = info.keyType,
+        .valueType = newValueType,
+        .isReadonly = info.isReadonly,
+        .declaration = info.declaration,
+    };
+}
+
+pub fn instantiateSignatures(c: *Checker, signatures: []const types.SignatureIndex, m: types.TypeMapperIndex) ![]const types.SignatureIndex {
+    if (m == 0 or signatures.len == 0) return signatures;
+    var newSignatures = try c.allocator.alloc(types.SignatureIndex, signatures.len);
+    for (signatures, 0..) |sig, i| {
+        newSignatures[i] = c.instantiateSignature(sig, m);
+    }
+    return newSignatures;
+}
+
+pub fn instantiateIndexInfos(c: *Checker, infos: []const types.IndexInfo, m: types.TypeMapperIndex) ![]const types.IndexInfo {
+    if (m == 0 or infos.len == 0) return infos;
+    var newInfos = try c.allocator.alloc(types.IndexInfo, infos.len);
+    for (infos, 0..) |info, i| {
+        newInfos[i] = c.instantiateIndexInfo(info, m);
+    }
+    return newInfos;
+}
+
+pub fn instantiateSignature(c: *Checker, sig: types.SignatureIndex, m: types.TypeMapperIndex) types.SignatureIndex {
+    return c.instantiateSignatureEx(sig, m, m == c.permissiveMapper);
+}
+
+pub fn instantiateSignatureEx(c: *Checker, sigIdx: types.SignatureIndex, m: types.TypeMapperIndex, eraseTypeParameters: bool) types.SignatureIndex {
+    const sig = c.signatures.items[sigIdx];
+    var freshTypeParameters: []const types.TypeIndex = &[_]types.TypeIndex{};
+    var currentMapper = m;
+
+    const typeParameters = c.signatureTypeParameters.items[sig.typeParametersStart .. sig.typeParametersStart + sig.typeParametersLen];
+    if (typeParameters.len != 0 and !eraseTypeParameters) {
+        var freshArr = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        for (typeParameters) |tp| {
+            freshArr.append(c.allocator, c.cloneTypeParameter(tp)) catch {};
+        }
+        freshTypeParameters = freshArr.items;
+
+        const newMapper = mapper_pkg.createTypeMapper(c, typeParameters, freshTypeParameters);
+        currentMapper = mapper_pkg.combineTypeMappers(c, newMapper, currentMapper);
+
+        for (freshTypeParameters) |tp| {
+            var tpData = &c.getTargetTypeData(tp).TypeParameter;
+            tpData.mapper = currentMapper;
+        }
+    }
+
+    const sigParameters = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+    const newParameters = c.instantiateSymbols(sigParameters, currentMapper) catch sigParameters;
+    const newThisParameter = if (sig.thisParameter) |tp| c.instantiateSymbol(tp, currentMapper) else null;
+
+    const propagatingFlags = sig.flags & (types.SignatureFlags.HasRestParameter | types.SignatureFlags.HasLiteralTypes | types.SignatureFlags.Construct | types.SignatureFlags.Abstract | types.SignatureFlags.IsUntypedSignatureInJSFile | types.SignatureFlags.IsSignatureCandidateForOverloadFailure);
+
+    const resultIdx = c.newSignature(propagatingFlags, sig.declaration, freshTypeParameters, newThisParameter, newParameters, null, sig.minArgumentCount, (sig.flags & types.SignatureFlags.HasRestParameter) != 0, false);
+
+    var result = &c.signatures.items[resultIdx];
+    result.target = sig.target orelse sigIdx;
+
+    return resultIdx;
+}
+
+pub fn newSignature(c: *Checker, flags: u32, declaration: ast_gen.NodeIndex, typeParameters: []const types.TypeIndex, thisParameter: ?ast_gen.SymbolIndex, parameters: []const ast_gen.SymbolIndex, resolvedReturnType: ?types.TypeIndex, minArgumentCount: i32, hasRestParameter: bool, hasLiteralRestParameter: bool) types.SignatureIndex {
+    var sig = types.Signature{
+        .flags = flags,
+        .declaration = declaration,
+        .thisParameter = thisParameter,
+        .resolvedReturnType = resolvedReturnType,
+        .minArgumentCount = minArgumentCount,
+        .resolvedMinArgumentCount = -1,
+    };
+
+    if (typeParameters.len > 0) {
+        sig.typeParametersStart = @intCast(c.signatureTypeParameters.items.len);
+        sig.typeParametersLen = @intCast(typeParameters.len);
+        c.signatureTypeParameters.appendSlice(c.allocator, typeParameters) catch unreachable;
+    }
+
+    if (parameters.len > 0) {
+        sig.parametersStart = @intCast(c.signatureParameters.items.len);
+        sig.parametersLen = @intCast(parameters.len);
+        c.signatureParameters.appendSlice(c.allocator, parameters) catch unreachable;
+    }
+
+    if (hasRestParameter) {
+        sig.flags |= types.SignatureFlags.HasRestParameter;
+    }
+    if (hasLiteralRestParameter) {
+        sig.flags |= types.SignatureFlags.HasLiteralTypes; // Use HasLiteralTypes for now since HasLiteralRestParameter is not defined
+    }
+
+    const idx = @as(u32, @intCast(c.signatures.items.len));
+    c.signatures.append(c.allocator, sig) catch unreachable;
+    return idx;
 }

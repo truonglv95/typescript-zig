@@ -1,6 +1,50 @@
 const std = @import("std");
 const ast_gen = @import("../ast/ast_generated.zig");
+
+pub const TypeSystemPropertyName = enum {
+    ResolvedBaseConstraint,
+    Type,
+    DeclaredType,
+    ResolvedTypeArguments,
+    ResolvedType,
+    WriteType,
+    InitializerIsUndefined,
+    AliasTarget,
+    // Add others as needed
+};
+
+pub const TypeSystemEntityKind = enum(u2) {
+    Type = 0,
+    Symbol = 1,
+    Node = 2,
+};
+
+pub const TypeSystemEntity = struct {
+    kind: TypeSystemEntityKind,
+    index: u32,
+
+    pub fn initType(idx: u32) TypeSystemEntity {
+        return .{ .kind = .Type, .index = idx };
+    }
+    pub fn initSymbol(idx: u32) TypeSystemEntity {
+        return .{ .kind = .Symbol, .index = idx };
+    }
+    pub fn initNode(idx: u32) TypeSystemEntity {
+        return .{ .kind = .Node, .index = idx };
+    }
+
+    pub fn eql(self: TypeSystemEntity, other: TypeSystemEntity) bool {
+        return self.kind == other.kind and self.index == other.index;
+    }
+};
+
+pub const TypeResolution = struct {
+    target: TypeSystemEntity,
+    propertyName: TypeSystemPropertyName,
+    result: bool,
+};
 const ast = @import("../ast/ast.zig");
+const checker_mod = @import("checker.zig");
 
 pub const TypeIndex = u32;
 
@@ -99,6 +143,19 @@ pub const ObjectFlags = struct {
     pub const NonInferrableType: u32 = 1 << 19;
     pub const CouldContainTypeVariablesComputed: u32 = 1 << 20;
     pub const CouldContainTypeVariables: u32 = 1 << 21;
+    pub const ContainsSpread: u32 = 1 << 22;
+    pub const ObjectRestType: u32 = 1 << 23;
+    pub const InstantiationExpressionType: u32 = 1 << 24;
+    pub const SingleSignatureType: u32 = 1 << 25;
+    pub const IsClassInstanceClone: u32 = 1 << 26;
+
+    pub const IdenticalBaseTypeCalculated: u32 = 1 << 27;
+    pub const IdenticalBaseTypeExists: u32 = 1 << 28;
+
+    pub const PropagatingFlags = ContainsWideningType | ContainsObjectOrArrayLiteral | NonInferrableType;
+    pub const UnresolvedMembers: u32 = 1 << 29;
+    pub const FromTypeNode: u32 = 1 << 30;
+
     pub const IsGenericTypeComputed: u32 = 1 << 22;
     pub const IsGenericObjectType: u32 = 1 << 23;
     pub const IsGenericIndexType: u32 = 1 << 24;
@@ -106,6 +163,9 @@ pub const ObjectFlags = struct {
 
     // Union/Intersection flags
     pub const ContainsIntersections: u32 = 1 << 25;
+    pub const IsUnknownLikeUnionComputed: u32 = 1 << 26;
+    pub const IsUnknownLikeUnion: u32 = 1 << 27;
+
     pub const IsNeverIntersectionComputed: u32 = 1 << 25;
     pub const IsNeverIntersection: u32 = 1 << 26;
 
@@ -122,6 +182,12 @@ pub const TypeData = union(enum) {
 
     /// Object type (class, interface, object literal)
     Object: ObjectTypeData,
+
+    ReverseMapped: struct {
+        source: TypeIndex,
+        mappedType: TypeIndex,
+        constraintType: TypeIndex,
+    },
 
     /// Function type
     Function: FunctionTypeData,
@@ -151,7 +217,7 @@ pub const TypeData = union(enum) {
 
     /// Conditional type: T extends U ? X : Y
     Conditional: struct {
-        root: ast_gen.NodeIndex,
+        root: *ConditionalRoot,
         checkType: TypeIndex,
         extendsType: TypeIndex,
         resolvedTrueType: ?TypeIndex = null,
@@ -207,6 +273,7 @@ pub const TypeData = union(enum) {
         templateType: TypeIndex,
         modifiersType: ?TypeIndex = null,
         mapper: u32 = 0,
+        target: ?TypeIndex = null,
     },
 
     /// String literal type: "hello"
@@ -292,7 +359,7 @@ pub const ConditionalRoot = struct {
     outerTypeParametersStart: u32 = 0,
     outerTypeParametersLen: u32 = 0,
     alias: ?TypeAlias = null,
-    // instantiations: ...
+    instantiations: ?std.AutoHashMapUnmanaged(CacheHashKey, TypeIndex) = null,
 };
 
 /// MappedTypeModifiers - bitmask 1:1 với Go MappedTypeModifiers
@@ -407,6 +474,7 @@ pub const ObjectTypeData = struct {
     evolvingArrayElementType: ?TypeIndex = null,
     finalArrayType: ?TypeIndex = null,
     instantiations: ?std.AutoHashMapUnmanaged(CacheHashKey, TypeIndex) = null,
+    thisType: ?TypeIndex = null,
 };
 
 pub const FunctionTypeData = struct {
@@ -544,8 +612,12 @@ pub const InferenceContext = struct {
 };
 pub const InferenceContextInfo = struct {};
 pub const InferenceInfo = struct {
+    typeParameter: TypeIndex = 0,
     candidates: std.ArrayListUnmanaged(TypeIndex) = .empty,
     contraCandidates: std.ArrayListUnmanaged(TypeIndex) = .empty,
+    inferredType: TypeIndex = 0,
+    priority: i32 = 0,
+    isFixed: bool = false,
 };
 pub const InferenceInfoIndex = u32;
 
@@ -556,9 +628,9 @@ pub const EnumMemberLink = struct {
 };
 
 pub const ContainingSymbolLinks = struct {
-    extendedContainersByFile: ?std.AutoHashMapUnmanaged(@import("../ast/ast_generated.zig").NodeIndex, []const @import("../ast/ast_generated.zig").symbolIndex) = null,
-    extendedContainers: ?[]const @import("../ast/ast_generated.zig").symbolIndex = null,
-    accessibleChainCache: ?std.AutoArrayHashMapUnmanaged(CacheHashKey, []const @import("../ast/ast_generated.zig").symbolIndex) = null,
+    extendedContainersByFile: ?std.AutoHashMapUnmanaged(@import("../ast/ast_generated.zig").NodeIndex, []const @import("../ast/ast_generated.zig").SymbolIndex) = null,
+    extendedContainers: ?[]const @import("../ast/ast_generated.zig").SymbolIndex = null,
+    accessibleChainCache: ?std.AutoArrayHashMapUnmanaged(CacheHashKey, []const @import("../ast/ast_generated.zig").SymbolIndex) = null,
 };
 
 pub const TypeFacts = struct {
@@ -651,6 +723,17 @@ pub const NodeIndexPair = struct {
 
 pub const InferencePriority = struct {
     pub const None: i32 = 0;
+    pub const NakedTypeVariable: i32 = 1 << 0;
+    pub const SpeculativeTuple: i32 = 1 << 1;
+    pub const SubstituteSource: i32 = 1 << 2;
+    pub const HomomorphicMappedType: i32 = 1 << 3;
+    pub const PartialHomomorphicMappedType: i32 = 1 << 4;
+    pub const MappedTypeConstraint: i32 = 1 << 5;
+    pub const ContravariantConditional: i32 = 1 << 6;
+    pub const ReturnType: i32 = 1 << 7;
+    pub const LiteralKeyof: i32 = 1 << 8;
+    pub const NoConstraints: i32 = 1 << 9;
+    pub const AlwaysStrict: i32 = 1 << 10;
     pub const MaxValue: i32 = 0x7FFFFFFF;
 };
 
@@ -744,11 +827,26 @@ pub const CheckFlags = struct {
     pub const Late: u32 = 1 << 12;
     pub const IsDiscriminantComputed: u32 = 1 << 21;
     pub const IsDiscriminant: u32 = 1 << 22;
+    pub const Unresolved: u32 = 1 << 20;
     pub const NonUniformAndLiteral: u32 = HasNonUniformType | HasLiteralType;
     pub const Partial: u32 = ReadPartial | WritePartial;
 };
 
 pub const TypeMapperIndex = u32;
+
+pub const IndexKind = enum(u8) {
+    String,
+    Number,
+};
+
+pub const IntrinsicTypeKind = enum(u8) {
+    Unknown,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+    Uncapitalize,
+    NoInfer,
+};
 
 pub const TypeMapperKind = enum(u8) {
     Simple,
@@ -782,6 +880,22 @@ pub const TypeMapper = struct {
         Merged: struct {
             mapper1: TypeMapperIndex,
             mapper2: TypeMapperIndex,
+        },
+        Composite: struct {
+            m1: TypeMapperIndex,
+            m2: TypeMapperIndex,
+        },
+        Deferred: struct {
+            source: TypeIndex,
+            target: TypeIndex,
+            mapper: TypeMapperIndex,
+        },
+        Inference: struct {
+            n: u32,
+            fixing: bool,
+        },
+        Function: struct {
+            func: *const fn (*checker_mod.Checker, TypeIndex) TypeIndex,
         },
         // We will add more as needed
         Dummy: void,

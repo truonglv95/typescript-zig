@@ -49,9 +49,8 @@ pub const Evaluator = struct {
         var resolvedOtherFiles = false;
         var hasExternalReferences = false;
 
-        // TODO: SkipOuterExpressions is not implemented yet
-        // expr = ast.SkipOuterExpressions(expr, outerExpressionsToSkip | ast.OEKParentheses);
-        const skippedExpr = expr;
+        const ast_utils = @import("../ast/ast_utils.zig");
+        const skippedExpr = ast_utils.skipOuterExpressions(ast_tree, expr, self.outerExpressionsToSkip | ast_utils.OEKParentheses);
 
         const node = ast_tree.getNode(skippedExpr);
         const node_kind = std.meta.activeTag(node);
@@ -83,7 +82,7 @@ pub const Evaluator = struct {
                 const bin = node.BinaryExpression;
                 const left = self.evaluate(ast_tree, bin.Left, location);
                 const right = self.evaluate(ast_tree, bin.Right, location);
-                
+
                 const operator_node = ast_tree.getNode(bin.OperatorToken);
                 const operator_kind = std.meta.activeTag(operator_node);
 
@@ -125,22 +124,23 @@ pub const Evaluator = struct {
                 }
             },
             .StringLiteral, .NoSubstitutionTemplateLiteral => {
-                // TODO: get text from AST node
-                return newResult(.{ .String = "TODO_TEXT" }, true, false, false);
+                const text = ast_utils.getTextOfNode(ast_tree, skippedExpr);
+                return newResult(.{ .String = text }, true, false, false);
             },
             .TemplateExpression => {
                 return self.evaluateTemplateExpression(ast_tree, skippedExpr, location);
             },
             .NumericLiteral => {
-                // TODO: get text from AST node
-                return newResult(.{ .Number = jsnum.fromString("0") }, false, false, false);
+                const text = ast_utils.getTextOfNode(ast_tree, skippedExpr);
+                return newResult(.{ .Number = jsnum.fromString(text) }, false, false, false);
             },
             .Identifier => {
                 return self.evaluateEntity(self.ctx, ast_tree, skippedExpr, location);
             },
             .ElementAccessExpression, .PropertyAccessExpression => {
-                // TODO: ast.IsEntityNameExpression(expr.Expression())
-                return self.evaluateEntity(self.ctx, ast_tree, skippedExpr, location);
+                if (ast_utils.isEntityNameExpression(ast_tree, skippedExpr)) {
+                    return self.evaluateEntity(self.ctx, ast_tree, skippedExpr, location);
+                }
             },
             else => {},
         }
@@ -148,12 +148,36 @@ pub const Evaluator = struct {
     }
 
     fn evaluateTemplateExpression(self: *const Evaluator, ast_tree: *ast.Ast, expr: ast.NodeIndex, location: ast.NodeIndex) Result {
-        // TODO: implement template expression evaluate
-        _ = self;
-        _ = ast_tree;
-        _ = expr;
-        _ = location;
-        return newResult(.{ .String = "" }, true, false, false);
+        const node = ast_tree.getNode(expr).TemplateExpression;
+        const ast_utils = @import("../ast/ast_utils.zig");
+        const head_text = ast_utils.getTextOfNode(ast_tree, node.Head);
+
+        var res = std.ArrayList(u8).init(self.allocator);
+        res.appendSlice(head_text) catch {};
+
+        var hasExternalReferences = false;
+
+        const spansNode = node.TemplateSpans;
+        const spans = ast_tree.getNodeList(spansNode);
+        for (spans) |spanIndex| {
+            const span = ast_tree.getNode(spanIndex).TemplateSpan;
+            const exprRes = self.evaluate(ast_tree, span.Expression, location);
+            if (exprRes.value == .None) {
+                res.deinit();
+                return newResult(.{ .None = {} }, false, false, false);
+            }
+
+            const exprStr = anyToString(self.allocator, exprRes.value);
+            res.appendSlice(exprStr) catch {};
+
+            hasExternalReferences = hasExternalReferences or exprRes.hasExternalReferences;
+
+            const literalText = ast_utils.getTextOfNode(ast_tree, span.Literal);
+            res.appendSlice(literalText) catch {};
+        }
+
+        const finalStr = res.toOwnedSlice() catch "";
+        return newResult(.{ .String = finalStr }, true, false, hasExternalReferences);
     }
 };
 

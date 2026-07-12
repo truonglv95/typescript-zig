@@ -2017,7 +2017,7 @@ fn isLiteralType(c: *Checker, t: types.TypeIndex) bool {
     return (flags & (types.TypeFlags.Literal | types.TypeFlags.EnumLiteral)) != 0;
 }
 
-fn isGenericType(c: *Checker, t: types.TypeIndex) bool {
+pub fn isGenericType(c: *Checker, t: types.TypeIndex) bool {
     return c.getGenericObjectFlags(t) & types.ObjectFlags.IsGenericType != 0;
 }
 
@@ -2161,7 +2161,7 @@ fn mapTypesByKeyProperty(c: *Checker, typeList: []const types.TypeIndex, keyProp
 pub fn computeKeyPropertyNameAndMap(c: *Checker, t: types.TypeIndex) void {
     const typeList = c.getTypesFromUnion(t);
     const typeNode = &c.typesList.items[t];
-    var keyPropertyName = symbol.InternalSymbolNameMissing;
+    var keyPropertyName: []const u8 = symbol.InternalSymbolNameMissing;
     var constituentMap: ?std.AutoHashMapUnmanaged(types.TypeIndex, types.TypeIndex) = null;
 
     if (typeList.len >= 10 and (typeNode.objectFlags & types.ObjectFlags.PrimitiveUnion) == 0) {
@@ -2186,7 +2186,7 @@ pub fn computeKeyPropertyNameAndMap(c: *Checker, t: types.TypeIndex) void {
     }) catch {};
 }
 
-pub fn getKeyPropertyCandidateName(c: *Checker, typeList: []types.TypeIndex) []const u8 {
+pub fn getKeyPropertyCandidateName(c: *Checker, typeList: []const types.TypeIndex) []const u8 {
     for (typeList) |t| {
         if (isObjectOrInstantiableNonPrimitive(c, t)) {
             for (c.getPropertiesOfType(t)) |p| {
