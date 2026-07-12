@@ -848,6 +848,12 @@ pub const IndexKind = enum(u8) {
     Number,
 };
 
+pub const ContextualInfo = struct {
+    node: ast_gen.NodeIndex,
+    type_: TypeIndex,
+    isCache: bool,
+};
+
 pub const IntrinsicTypeKind = enum(u8) {
     Unknown,
     Uppercase,
