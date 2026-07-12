@@ -172,7 +172,40 @@ pub const NodeBuilder = struct {
         b.enterContext(enclosingDeclaration, flags, internalFlags);
         return b.exitContext(b.impl.tryJSTypeNodeToTypeNode(node));
     }
+    pub fn emitContext(b: *NodeBuilder) *anyopaque {
+        return b.impl.e;
+    }
 };
+
+pub fn getNodeBuilder(c: *Checker) *NodeBuilder {
+    _ = c;
+    return undefined; // stub
+}
+
+pub fn getNodeBuilderEx(c: *Checker, verbosity: ?*VerbosityContext) *NodeBuilder {
+    _ = c;
+    _ = verbosity;
+    return undefined; // stub
+}
+
+pub fn newNodeBuilderEx(c: *Checker, emitContext_: *anyopaque, idToSymbol_: *anyopaque) *NodeBuilder {
+    _ = c;
+    _ = emitContext_;
+    _ = idToSymbol_;
+    return undefined; // stub
+}
+
+pub fn simplifyModifiers(b: *NodeBuilder, modifiers: []const ast_gen.NodeIndex) []const ast_gen.NodeIndex {
+    _ = b;
+    _ = modifiers;
+    return &[_]ast_gen.NodeIndex{};
+}
+
+pub fn simplifyClassDeclaration(b: *NodeBuilder, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    _ = b;
+    _ = node;
+    return 0; // stub
+}
 
 pub fn newNodeBuilder(c: *Checker) *NodeBuilder {
     _ = c;

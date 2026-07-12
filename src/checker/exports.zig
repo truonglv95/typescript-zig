@@ -314,3 +314,22 @@ pub fn getWidenedType(c: *Checker, t: TypeIndex) TypeIndex {
     _ = c;
     return t;
 }
+
+pub fn getTypePredicateOfSignature(c: *Checker, sig: *anyopaque) *anyopaque {
+    _ = c;
+    _ = sig;
+    return undefined;
+}
+
+pub fn typePredicateToString(c: *Checker, t: *anyopaque) *anyopaque {
+    _ = c;
+    _ = t;
+    return undefined;
+}
+
+pub fn getUnionTypeEx(c: *Checker, types_: *anyopaque, unionReduction: *anyopaque) *anyopaque {
+    _ = c;
+    _ = types_;
+    _ = unionReduction;
+    return undefined;
+}

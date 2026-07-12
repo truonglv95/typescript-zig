@@ -60,47 +60,16 @@ pub const TypeMapper = union(enum) {
 pub const SimpleTypeMapper = struct {
     source: TypeIndex,
     target: TypeIndex,
-
-    pub fn mapType(self: *const SimpleTypeMapper, t: TypeIndex) TypeIndex {
-        if (t == self.source) return self.target;
-        return t;
-    }
-
-    pub fn mapsThisOnly(self: *const SimpleTypeMapper, c: *Checker) bool {
-        return c.isThisTypeParameter(self.source);
-    }
 };
 
 pub const ArrayTypeMapper = struct {
     sources: []const TypeIndex,
     targets: []const TypeIndex,
-
-    pub fn mapType(self: *const ArrayTypeMapper, t: TypeIndex) TypeIndex {
-        for (self.sources, 0..) |s, i| {
-            if (t == s) return self.targets[i];
-        }
-        return t;
-    }
-
-    pub fn mapsThisOnly(self: *const ArrayTypeMapper, c: *Checker) bool {
-        return self.sources.len == 1 and c.isThisTypeParameter(self.sources[0]);
-    }
 };
 
 pub const ArrayToSingleTypeMapper = struct {
     sources: []const TypeIndex,
     target: TypeIndex,
-
-    pub fn mapType(self: *const ArrayToSingleTypeMapper, t: TypeIndex) TypeIndex {
-        for (self.sources) |s| {
-            if (t == s) return self.target;
-        }
-        return t;
-    }
-
-    pub fn mapsThisOnly(self: *const ArrayToSingleTypeMapper, c: *Checker) bool {
-        return self.sources.len == 1 and c.isThisTypeParameter(self.sources[0]);
-    }
 };
 
 pub const LazyTypeTarget = enum(u8) {
@@ -110,19 +79,6 @@ pub const LazyTypeTarget = enum(u8) {
 pub const DeferredTypeMapper = struct {
     sources: []const TypeIndex,
     targets: []const LazyTypeTarget,
-
-    pub fn mapType(self: *const DeferredTypeMapper, c: *Checker, t: TypeIndex) TypeIndex {
-        for (self.sources, 0..) |s, i| {
-            if (t == s) {
-                return c.evaluateLazyTypeTarget(self.targets[i]);
-            }
-        }
-        return t;
-    }
-
-    pub fn mapsThisOnly(self: *const DeferredTypeMapper, c: *Checker) bool {
-        return self.sources.len == 1 and c.isThisTypeParameter(self.sources[0]);
-    }
 };
 
 pub const FunctionMapperContext = enum(u8) {
@@ -131,54 +87,21 @@ pub const FunctionMapperContext = enum(u8) {
 
 pub const FunctionTypeMapper = struct {
     context: FunctionMapperContext,
-
-    pub fn mapType(self: *const FunctionTypeMapper, c: *Checker, t: TypeIndex) TypeIndex {
-        return c.evaluateFunctionMapper(self.context, t);
-    }
 };
 
 pub const MergedTypeMapper = struct {
     m1: TypeMapperIndex,
     m2: TypeMapperIndex,
-
-    pub fn mapType(self: *const MergedTypeMapper, c: *Checker, t: TypeIndex) TypeIndex {
-        const mappedT1 = c.mapTypeWithMapper(self.m1, t);
-        return c.mapTypeWithMapper(self.m2, mappedT1);
-    }
 };
 
 pub const CompositeTypeMapper = struct {
     m1: TypeMapperIndex,
     m2: TypeMapperIndex,
-
-    pub fn mapType(self: *const CompositeTypeMapper, c: *Checker, t: TypeIndex) TypeIndex {
-        const t1 = c.mapTypeWithMapper(self.m1, t);
-        if (t1 != t) {
-            return c.instantiateType(t1, self.m2);
-        }
-        return c.mapTypeWithMapper(self.m2, t);
-    }
 };
 
 pub const InferenceTypeMapper = struct {
     n: u32, // InferenceContextIndex
     fixing: bool,
-
-    pub fn mapType(self: *const InferenceTypeMapper, c: *Checker, t: TypeIndex) TypeIndex {
-        const context = c.getInferenceContext(self.n);
-        for (context.inferences, 0..) |inferenceIndex, i| {
-            const inference = c.getInferenceInfo(inferenceIndex);
-            if (t == inference.typeParameter) {
-                if (self.fixing and !inference.isFixed) {
-                    c.inferFromIntraExpressionSites(self.n);
-                    c.clearCachedInferences(context.inferences);
-                    c.setInferenceFixed(inferenceIndex, true);
-                }
-                return c.getInferredType(self.n, @intCast(i));
-            }
-        }
-        return t;
-    }
 };
 
 // Factory functions
@@ -188,6 +111,22 @@ pub fn createSimpleTypeMapper(c: *Checker, source: TypeIndex, target: TypeIndex)
 
 pub fn createArrayTypeMapper(c: *Checker, sources: []const TypeIndex, targets: []const TypeIndex) TypeMapperIndex {
     return checker_mod.addTypeMapper(c, .{ .kind = .Array, .data = .{ .Array = .{ .sources = sources, .targets = targets } } });
+}
+
+pub fn createArrayToSingleTypeMapper(c: *Checker, sources: []const TypeIndex, target: TypeIndex) TypeMapperIndex {
+    return checker_mod.addTypeMapper(c, .{ .kind = .ArrayToSingle, .data = .{ .ArrayToSingle = .{ .sources = sources, .target = target } } });
+}
+
+pub fn createDeferredTypeMapper(c: *Checker, sources: []const TypeIndex, targets: []const LazyTypeTarget) TypeMapperIndex {
+    return checker_mod.addTypeMapper(c, .{ .kind = .Deferred, .data = .{ .Deferred = .{ .sources = sources, .targets = targets } } });
+}
+
+pub fn createFunctionTypeMapper(c: *Checker, context: FunctionMapperContext) TypeMapperIndex {
+    return checker_mod.addTypeMapper(c, .{ .kind = .Function, .data = .{ .Function = .{ .context = context } } });
+}
+
+pub fn createInferenceTypeMapper(c: *Checker, n: u32, fixing: bool) TypeMapperIndex {
+    return checker_mod.addTypeMapper(c, .{ .kind = .Inference, .data = .{ .Inference = .{ .n = n, .fixing = fixing } } });
 }
 
 pub fn createTypeMapper(c: *Checker, sources: []const TypeIndex, targets: []const TypeIndex) TypeMapperIndex {
@@ -233,4 +172,77 @@ pub fn createBackreferenceMapper(c: *Checker, contextIndex: u32, index: usize) T
         typeParameters[i] = c.getInferenceInfo(infIndex).typeParameter;
     }
     return checker_mod.addTypeMapper(c, .{ .kind = .ArrayToSingle, .data = .{ .ArrayToSingle = .{ .sources = typeParameters, .target = c.globalUnknownType() } } });
+}
+
+pub fn map(m: *anyopaque, t: *anyopaque) *anyopaque {
+    _ = m;
+    _ = t;
+    return undefined;
+}
+
+pub fn kind(m: *anyopaque) *anyopaque {
+    _ = m;
+    return undefined;
+}
+
+pub fn newTypeMapper(sources: *anyopaque, targets: *anyopaque) *anyopaque {
+    _ = sources;
+    _ = targets;
+    return undefined;
+}
+
+pub fn newBackreferenceMapper(c: *Checker, context: *anyopaque, index: *anyopaque) *anyopaque {
+    _ = c;
+    _ = context;
+    _ = index;
+    return undefined;
+}
+
+pub fn newSimpleTypeMapper(source: *anyopaque, target: *anyopaque) *anyopaque {
+    _ = source;
+    _ = target;
+    return undefined;
+}
+
+pub fn newArrayTypeMapper(sources: *anyopaque, targets: *anyopaque) *anyopaque {
+    _ = sources;
+    _ = targets;
+    return undefined;
+}
+
+pub fn newArrayToSingleTypeMapper(sources: *anyopaque, target: *anyopaque) *anyopaque {
+    _ = sources;
+    _ = target;
+    return undefined;
+}
+
+pub fn newDeferredTypeMapper(sources: *anyopaque, targets: *anyopaque) *anyopaque {
+    _ = sources;
+    _ = targets;
+    return undefined;
+}
+
+pub fn newFunctionTypeMapper(fn_: *anyopaque) *anyopaque {
+    _ = fn_;
+    return undefined;
+}
+
+pub fn newMergedTypeMapper(m1: *anyopaque, m2: *anyopaque) *anyopaque {
+    _ = m1;
+    _ = m2;
+    return undefined;
+}
+
+pub fn newCompositeTypeMapper(c: *anyopaque, m1: *anyopaque, m2: *anyopaque) *anyopaque {
+    _ = c;
+    _ = m1;
+    _ = m2;
+    return undefined;
+}
+
+pub fn newInferenceTypeMapper(c: *Checker, n: *anyopaque, fixing: *anyopaque) *anyopaque {
+    _ = c;
+    _ = n;
+    _ = fixing;
+    return undefined;
 }

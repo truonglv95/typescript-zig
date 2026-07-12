@@ -270,6 +270,7 @@ pub const Checker = struct {
     numberLiteralTypes: std.AutoHashMapUnmanaged(f64, types.TypeIndex) = .empty,
     stringLiteralTypes: std.StringHashMapUnmanaged(types.TypeIndex) = .empty,
     unresolvedSymbols: std.StringHashMapUnmanaged(ast_gen.SymbolIndex) = .empty,
+    packagesMap: ?std.StringHashMapUnmanaged(bool) = null,
 
     // Signatures
     signatures: std.ArrayListUnmanaged(types.Signature) = .empty,
@@ -4579,9 +4580,39 @@ pub const Checker = struct {
     }
 
     pub fn isObjectTypeWithInferableIndex(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false; // Skipped
+        if (c.getTypeFlags(t) & types.TypeFlags.Intersection != 0) {
+            for (c.getTypes(t)) |t_elem| {
+                if (!c.isObjectTypeWithInferableIndex(t_elem)) return false;
+            }
+            return true;
+        }
+
+        const sym = c.getSymbolOfType(t);
+        const has_valid_symbol = sym != 0 and
+            (c.getSymbolFlags(sym) & (ast.SymbolFlags.ObjectLiteral | ast.SymbolFlags.TypeLiteral | ast.SymbolFlags.Enum | ast.SymbolFlags.ValueModule) != 0) and
+            (c.getSymbolFlags(sym) & ast.SymbolFlags.Class == 0) and !c.typeHasCallOrConstructSignatures(t);
+
+        if (has_valid_symbol) return true;
+
+        if (c.getObjectFlags(t) & (types.ObjectFlags.JSLiteral | types.ObjectFlags.ObjectRestType) != 0) {
+            return true;
+        }
+
+        if (c.getObjectFlags(t) & types.ObjectFlags.ReverseMapped != 0) {
+            return c.isObjectTypeWithInferableIndex(c.getReverseMappedTypeSource(t));
+        }
+
+        return false;
+    }
+
+    pub fn reportDiagnostic(c: *Checker, diagnostic: ?diagnostics.Diagnostic, diagnosticOutput: ?*std.ArrayListUnmanaged(diagnostics.Diagnostic)) void {
+        if (diagnostic) |d| {
+            if (diagnosticOutput) |out| {
+                out.append(c.allocator, d) catch unreachable;
+            } else {
+                // c.diagnostics.append(c.allocator, d) catch unreachable;
+            }
+        }
     }
 
     pub fn getApplicableIndexInfo(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) ?types.IndexInfo {
@@ -5589,7 +5620,6 @@ pub const Checker = struct {
             self.types.deinit(allocator);
             self.infos.deinit(allocator);
         }
-
         pub fn normalize(self: *TupleNormalizer, c: *Checker, elementTypes: []const types.TypeIndex, elementInfos: []const types.TupleElementInfo) bool {
             self.lastRequiredIndex = -1;
             self.firstRestIndex = -1;
@@ -5995,9 +6025,9 @@ pub const Checker = struct {
         mapper: types.TypeMapperIndex,
     };
 
-    pub fn getTailRecursionRoot(c: *Checker, newType: types.TypeIndex, newMapper: types.TypeMapperIndex) TailRecursionRootResult {
-        if (c.getTypeFlags(newType) & types.TypeFlags.Conditional != 0 and newMapper != 0) {
-            const condData = &c.typesList.items[newType].data.Conditional;
+    pub fn getTailRecursionRoot(c: *Checker, newType_: types.TypeIndex, newMapper: types.TypeMapperIndex) TailRecursionRootResult {
+        if (c.getTypeFlags(newType_) & types.TypeFlags.Conditional != 0 and newMapper != 0) {
+            const condData = &c.typesList.items[newType_].data.Conditional;
             const newRoot = condData.root;
             const outerTypeParameters = c.unionTypesPool.items[newRoot.outerTypeParametersStart .. newRoot.outerTypeParametersStart + newRoot.outerTypeParametersLen];
             if (outerTypeParameters.len != 0) {
@@ -6836,8 +6866,8 @@ pub const Checker = struct {
     pub fn isArrayOrTupleOrIntersection(c: *Checker, typeIndex: types.TypeIndex) bool {
         if ((c.getTypeFlags(typeIndex) & types.TypeFlags.Intersection) != 0) {
             const S = struct {
-                pub fn f(inner_c: *Checker, t: types.TypeIndex, _: void) bool {
-                    return inner_c.isArrayOrTupleType(t);
+                pub fn f(checker: *Checker, t: types.TypeIndex, _: void) bool {
+                    return checker.isArrayOrTupleOrIntersection(t);
                 }
             };
             return c.everyType(typeIndex, S.f, {});
@@ -7548,7 +7578,7 @@ pub const Checker = struct {
     pub fn getEvolvingArrayType(c: *Checker, elementType: types.TypeIndex) types.TypeIndex {
         const entry = c.evolvingArrayTypes.getOrPut(c.allocator, elementType) catch @panic("OOM");
         if (!entry.found_existing) {
-            const new_type = types.Type{
+            const newType = types.Type{
                 .flags = types.TypeFlags.Object,
                 .objectFlags = types.ObjectFlags.EvolvingArray,
                 .data = .{
@@ -7557,7 +7587,7 @@ pub const Checker = struct {
                     },
                 },
             };
-            entry.value_ptr.* = c.createType(new_type) catch c.errorType;
+            entry.value_ptr.* = c.createType(newType) catch c.errorType;
         }
         return entry.value_ptr.*;
     }
@@ -7680,6 +7710,7349 @@ pub const Checker = struct {
             .objectFlags = 0,
             .data = data,
         }) catch c.errorTypeIndex orelse 0;
+    }
+    pub fn newChecker(program: *anyopaque, tracer: *anyopaque) *anyopaque {
+        _ = program;
+        _ = tracer;
+        return undefined;
+    }
+
+    pub fn createFileIndexMap(files: *anyopaque) i32 {
+        _ = files;
+        return 0;
+    }
+
+    pub fn countGlobalSymbols(files: *anyopaque) i32 {
+        _ = files;
+        return 0;
+    }
+
+    pub fn reportUnreliableWorker(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn reportUnmeasurableWorker(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getGlobalTypeResolver(c: *Checker, name_: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = arity;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getGlobalTypeAliasResolver(c: *Checker, name_: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = arity;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getGlobalValueSymbolResolver(c: *Checker, name_: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getGlobalTypeSymbolResolver(c: *Checker, name_: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getGlobalTypesResolver(c: *Checker, names: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = names;
+        _ = arity;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getTypeAliasTypeParameters(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getGlobalType(c: *Checker, name_: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = arity;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getGlobalTypeDeclaration(symbol_: *anyopaque) *anyopaque {
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn initializeClosures(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn initializeIterationResolvers(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn initializeChecker(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn mergeGlobalSymbol(c: *Checker, symbol_: *anyopaque) void {
+        _ = c;
+        _ = symbol_;
+    }
+
+    pub fn mergeModuleAugmentation(c: *Checker, moduleName: *anyopaque) void {
+        _ = c;
+        _ = moduleName;
+    }
+
+    pub fn addUndefinedToGlobalsOrErrorOnRedeclaration(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn createNameResolver(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn createNameResolverForSuggestion(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn symbolReferenced(c: *Checker, symbol_: *anyopaque, meaning: *anyopaque) void {
+        _ = c;
+        _ = symbol_;
+        _ = meaning;
+    }
+
+    pub fn getRequiresScopeChangeCache(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn setRequiresScopeChangeCache(c: *Checker, node: *anyopaque, value: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = value;
+    }
+
+    pub fn checkAndReportErrorForInvalidInitializer(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, propertyWithInvalidInitializer: *anyopaque, result: *anyopaque) bool {
+        _ = c;
+        _ = errorLocation;
+        _ = name_;
+        _ = propertyWithInvalidInitializer;
+        _ = result;
+        return false;
+    }
+
+    pub fn checkAndReportErrorForMissingPrefix(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque) bool {
+        _ = c;
+        _ = errorLocation;
+        _ = name_;
+        return false;
+    }
+
+    pub fn onFailedToResolveSymbol(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque, nameNotFoundMessage: *anyopaque) void {
+        _ = c;
+        _ = errorLocation;
+        _ = name_;
+        _ = meaning;
+        _ = nameNotFoundMessage;
+    }
+
+    pub fn checkAndReportErrorForUsingTypeAsNamespace(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
+        _ = c;
+        _ = errorLocation;
+        _ = name_;
+        _ = meaning;
+        return false;
+    }
+
+    pub fn checkAndReportErrorForExportingPrimitiveType(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque) bool {
+        _ = c;
+        _ = errorLocation;
+        _ = name_;
+        return false;
+    }
+
+    pub fn isPrimitiveTypeName(s: *anyopaque) bool {
+        _ = s;
+        return false;
+    }
+
+    pub fn checkAndReportErrorForUsingNamespaceAsTypeOrValue(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
+        _ = c;
+        _ = errorLocation;
+        _ = name_;
+        _ = meaning;
+        return false;
+    }
+
+    pub fn checkAndReportErrorForUsingTypeAsValue(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
+        _ = c;
+        _ = errorLocation;
+        _ = name_;
+        _ = meaning;
+        return false;
+    }
+
+    pub fn isES2015OrLaterConstructorName(s: *anyopaque) bool {
+        _ = s;
+        return false;
+    }
+
+    pub fn maybeMappedType(c: *Checker, node: *anyopaque, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn checkAndReportErrorForUsingValueAsType(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
+        _ = c;
+        _ = errorLocation;
+        _ = name_;
+        _ = meaning;
+        return false;
+    }
+
+    pub fn getSuggestedLibForNonExistentName(c: *Checker, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn getSuggestedSymbolForNonexistentSymbol(c: *Checker, location: *anyopaque, outerName: *anyopaque, meaning: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = outerName;
+        _ = meaning;
+        return undefined;
+    }
+
+    pub fn getPrimitiveTypeAliasSuggestions(symbols: *anyopaque) *anyopaque {
+        _ = symbols;
+        return undefined;
+    }
+
+    pub fn getSuggestionForSymbolNameLookup(c: *Checker, symbols: *anyopaque, name_: *anyopaque, meaning: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbols;
+        _ = name_;
+        _ = meaning;
+        return undefined;
+    }
+
+    pub fn getSpellingSuggestionForName(c: *Checker, name_: *anyopaque, symbols: *anyopaque, meaning: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = symbols;
+        _ = meaning;
+        return undefined;
+    }
+
+    pub fn onSuccessfullyResolvedSymbol(c: *Checker, errorLocation: *anyopaque, result: *anyopaque, meaning: *anyopaque, lastLocation: *anyopaque, associatedDeclarationForContainingInitializerOrBindingName: *anyopaque, withinDeferredContext: *anyopaque) void {
+        _ = c;
+        _ = errorLocation;
+        _ = result;
+        _ = meaning;
+        _ = lastLocation;
+        _ = associatedDeclarationForContainingInitializerOrBindingName;
+        _ = withinDeferredContext;
+    }
+
+    pub fn checkResolvedBlockScopedVariable(c: *Checker, result: *anyopaque, errorLocation: *anyopaque) void {
+        _ = c;
+        _ = result;
+        _ = errorLocation;
+    }
+
+    pub fn isBlockScopedNameDeclaredBeforeUse(c: *Checker, declaration: *anyopaque, usage: *anyopaque) bool {
+        _ = c;
+        _ = declaration;
+        _ = usage;
+        return false;
+    }
+
+    pub fn isUsedInFunctionOrInstanceProperty(c: *Checker, usage: *anyopaque, declaration: *anyopaque, declContainer: *anyopaque) bool {
+        _ = c;
+        _ = usage;
+        _ = declaration;
+        _ = declContainer;
+        return false;
+    }
+
+    pub fn isImmediatelyUsedInInitializerOfBlockScopedVariable(declaration: *anyopaque, usage: *anyopaque, declContainer: *anyopaque) bool {
+        _ = declaration;
+        _ = usage;
+        _ = declContainer;
+        return false;
+    }
+
+    pub fn isSameScopeDescendentOf(initial: *anyopaque, parent: *anyopaque, stopAt: *anyopaque) bool {
+        _ = initial;
+        _ = parent;
+        _ = stopAt;
+        return false;
+    }
+
+    pub fn isPropertyImmediatelyReferencedWithinDeclaration(declaration: *anyopaque, usage: *anyopaque, stopAtAnyPropertyDeclaration: *anyopaque) bool {
+        _ = declaration;
+        _ = usage;
+        _ = stopAtAnyPropertyDeclaration;
+        return false;
+    }
+
+    pub fn getTypeOnlyAliasDeclaration(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeOnlyAliasDeclarationEx(c: *Checker, symbol_: *anyopaque, meaning: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = meaning;
+        return undefined;
+    }
+
+    pub fn getImmediateAliasedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn addTypeOnlyDeclarationRelatedInfo(c: *Checker, diagnostic: *anyopaque, typeOnlyDeclaration: *anyopaque, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = diagnostic;
+        _ = typeOnlyDeclaration;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn getSymbol(c: *Checker, symbols: *anyopaque, name_: *anyopaque, meaning: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbols;
+        _ = name_;
+        _ = meaning;
+        return undefined;
+    }
+
+    pub fn checkSourceFile(c: *Checker, ctx: *anyopaque, sourceFile: *anyopaque, checkUnused: *anyopaque) void {
+        _ = c;
+        _ = ctx;
+        _ = sourceFile;
+        _ = checkUnused;
+    }
+
+    pub fn checkSourceElements(c: *Checker, nodes: *anyopaque) void {
+        _ = c;
+        _ = nodes;
+    }
+
+    pub fn checkSourceElementUnreachable(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isSourceElementUnreachable(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn checkDeferredNodes(c: *Checker, context: *anyopaque) void {
+        _ = c;
+        _ = context;
+    }
+
+    pub fn checkDeferredNode(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkJSDocComments(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkJSDocComment(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn resolveJSDocMemberName(c: *Checker, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn checkJSDocTypeIsInJsFile(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkTypeParameterDeferred(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn shouldCheckErasableSyntax(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn checkAsyncFunctionReturnType(c: *Checker, node: *anyopaque, returnTypeNode: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = returnTypeNode;
+    }
+
+    pub fn findFirstSuperCall(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isInstancePropertyWithInitializerOrPrivateIdentifierProperty(n: *anyopaque) bool {
+        _ = n;
+        return false;
+    }
+
+    pub fn superCallIsRootLevelInConstructor(superCall: *anyopaque, body: *anyopaque) bool {
+        _ = superCall;
+        _ = body;
+        return false;
+    }
+
+    pub fn nodeImmediatelyReferencesSuperOrThis(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn checkTypeReferenceOrImport(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkTypeArgumentConstraints(c: *Checker, node: *anyopaque, typeParameters: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = typeParameters;
+        return false;
+    }
+
+    pub fn getDeprecatedSuggestionNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypePredicateParent(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkIfTypePredicateVariableIsDeclaredInBindingPattern(c: *Checker, pattern: *anyopaque, predicateVariableNode: *anyopaque, predicateVariableName: *anyopaque) bool {
+        _ = c;
+        _ = pattern;
+        _ = predicateVariableNode;
+        _ = predicateVariableName;
+        return false;
+    }
+
+    pub fn checkObjectTypeForDuplicateDeclarations(c: *Checker, node: *anyopaque, checkPrivateNames: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = checkPrivateNames;
+    }
+
+    pub fn reportDuplicateMemberErrors(c: *Checker, node: *anyopaque, name_: *anyopaque, checkStatic: *anyopaque, isStatic: *anyopaque, message: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = name_;
+        _ = checkStatic;
+        _ = isStatic;
+        _ = message;
+    }
+
+    pub fn getResolutionModeOverride(c: *Checker, node: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn checkFunctionOrMethodDeclaration(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkFunctionOrConstructorSymbol(c: *Checker, symbol_: *anyopaque) void {
+        _ = c;
+        _ = symbol_;
+    }
+
+    pub fn checkFunctionOrConstructorSymbolWorker(c: *Checker, symbol_: *anyopaque) void {
+        _ = c;
+        _ = symbol_;
+    }
+
+    pub fn getEffectiveDeclarationFlags(c: *Checker, n: *anyopaque, flagsToCheck: *anyopaque) *anyopaque {
+        _ = c;
+        _ = n;
+        _ = flagsToCheck;
+        return undefined;
+    }
+
+    pub fn isImplementationCompatibleWithOverload(c: *Checker, implementation: *anyopaque, overload: *anyopaque) bool {
+        _ = c;
+        _ = implementation;
+        _ = overload;
+        return false;
+    }
+
+    pub fn checkAllCodePathsInNonVoidFunctionReturnOrThrow(c: *Checker, fn_: *anyopaque, returnType: *anyopaque) void {
+        _ = c;
+        _ = fn_;
+        _ = returnType;
+    }
+
+    pub fn isUnwrappedReturnTypeUndefinedVoidOrAny(c: *Checker, fn_: *anyopaque, returnType: *anyopaque) bool {
+        _ = c;
+        _ = fn_;
+        _ = returnType;
+        return false;
+    }
+
+    pub fn checkTestingKnownTruthyCallableOrAwaitableOrEnumMemberType(c: *Checker, condExpr: *anyopaque, condType: *anyopaque, body: *anyopaque) void {
+        _ = c;
+        _ = condExpr;
+        _ = condType;
+        _ = body;
+    }
+
+    pub fn checkTestingKnownTruthyTypes(c: *Checker, condExpr: *anyopaque, condType: *anyopaque, body: *anyopaque) void {
+        _ = c;
+        _ = condExpr;
+        _ = condType;
+        _ = body;
+    }
+
+    pub fn checkTestingKnownTruthyType(c: *Checker, condExpr: *anyopaque, condType: *anyopaque, body: *anyopaque) void {
+        _ = c;
+        _ = condExpr;
+        _ = condType;
+        _ = body;
+    }
+
+    pub fn isSymbolUsedInBinaryExpressionChain(c: *Checker, node: *anyopaque, testedSymbol: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = testedSymbol;
+        return false;
+    }
+
+    pub fn isSymbolUsedInConditionBody(c: *Checker, expr: *anyopaque, body: *anyopaque, testedNode: *anyopaque, testedSymbol: *anyopaque) bool {
+        _ = c;
+        _ = expr;
+        _ = body;
+        _ = testedNode;
+        _ = testedSymbol;
+        return false;
+    }
+
+    pub fn getIndexTypeOrString(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn checkReturnExpression(c: *Checker, container: *anyopaque, unwrappedReturnType: *anyopaque, node: *anyopaque, expr: *anyopaque, exprType: *anyopaque, inConditionalExpression: *anyopaque) void {
+        _ = c;
+        _ = container;
+        _ = unwrappedReturnType;
+        _ = node;
+        _ = expr;
+        _ = exprType;
+        _ = inConditionalExpression;
+    }
+
+    pub fn checkClassLikeDeclaration(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkClassForStaticPropertyNameConflicts(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkTypeParameterListsIdentical(c: *Checker, symbol_: *anyopaque) void {
+        _ = c;
+        _ = symbol_;
+    }
+
+    pub fn getClassOrInterfaceDeclarationsOfSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn areTypeParametersIdentical(c: *Checker, declarations: *anyopaque, targetParameters: *anyopaque, getTypeParameterDeclarations: *anyopaque) bool {
+        _ = c;
+        _ = declarations;
+        _ = targetParameters;
+        _ = getTypeParameterDeclarations;
+        return false;
+    }
+
+    pub fn checkBaseTypeAccessibility(c: *Checker, t: *anyopaque, node: *anyopaque) void {
+        _ = c;
+        _ = t;
+        _ = node;
+    }
+
+    pub fn issueMemberSpecificError(c: *Checker, node: *anyopaque, typeWithThis: *anyopaque, baseWithThis: *anyopaque, broadDiag: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = typeWithThis;
+        _ = baseWithThis;
+        _ = broadDiag;
+    }
+
+    pub fn getTypeWithoutSignatures(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn checkKindsOfPropertyMemberOverrides(c: *Checker, t: *anyopaque, baseType: *anyopaque) void {
+        _ = c;
+        _ = t;
+        _ = baseType;
+    }
+
+    pub fn arePropertiesAbstractOrInterface(c: *Checker, base: *anyopaque, baseDeclarationFlags: *anyopaque) bool {
+        _ = c;
+        _ = base;
+        _ = baseDeclarationFlags;
+        return false;
+    }
+
+    pub fn isPropertyAbstractOrInterface(c: *Checker, declaration: *anyopaque, baseDeclarationFlags: *anyopaque) bool {
+        _ = c;
+        _ = declaration;
+        _ = baseDeclarationFlags;
+        return false;
+    }
+
+    pub fn checkMembersForOverrideModifier(c: *Checker, node: *anyopaque, t: *anyopaque, typeWithThis: *anyopaque, staticType: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = t;
+        _ = typeWithThis;
+        _ = staticType;
+    }
+
+    pub fn checkMemberForOverrideModifier(c: *Checker, node: *anyopaque, staticType: *anyopaque, baseStaticType: *anyopaque, baseWithThis: *anyopaque, t: *anyopaque, typeWithThis: *anyopaque, member: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = staticType;
+        _ = baseStaticType;
+        _ = baseWithThis;
+        _ = t;
+        _ = typeWithThis;
+        _ = member;
+    }
+
+    pub fn getSuggestedSymbolForNonexistentClassMember(c: *Checker, name_: *anyopaque, baseType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = baseType;
+        return undefined;
+    }
+
+    pub fn checkIndexConstraints(c: *Checker, t: *anyopaque, symbol_: *anyopaque, isStaticIndex: *anyopaque) void {
+        _ = c;
+        _ = t;
+        _ = symbol_;
+        _ = isStaticIndex;
+    }
+
+    pub fn checkIndexConstraintForProperty(c: *Checker, t: *anyopaque, prop: *anyopaque, propNameType: *anyopaque, propType: *anyopaque) void {
+        _ = c;
+        _ = t;
+        _ = prop;
+        _ = propNameType;
+        _ = propType;
+    }
+
+    pub fn checkIndexConstraintForIndexSignature(c: *Checker, t: *anyopaque, checkInfo: *anyopaque) void {
+        _ = c;
+        _ = t;
+        _ = checkInfo;
+    }
+
+    pub fn checkClassOrInterfaceForDuplicateIndexSignatures(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkTypeForDuplicateIndexSignatures(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkPropertyInitialization(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn isPropertyWithoutInitializer(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isPropertyInitializedInStaticBlocks(c: *Checker, propName: *anyopaque, propType: *anyopaque, staticBlocks: *anyopaque, startPos: *anyopaque, endPos: *anyopaque) bool {
+        _ = c;
+        _ = propName;
+        _ = propType;
+        _ = staticBlocks;
+        _ = startPos;
+        _ = endPos;
+        return false;
+    }
+
+    pub fn isPropertyInitializedInConstructor(c: *Checker, propName: *anyopaque, propType: *anyopaque, constructor: *anyopaque) bool {
+        _ = c;
+        _ = propName;
+        _ = propType;
+        _ = constructor;
+        return false;
+    }
+
+    pub fn checkInheritedPropertiesAreIdentical(c: *Checker, t: *anyopaque, typeNode: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        _ = typeNode;
+        return false;
+    }
+
+    pub fn isPropertyIdenticalTo(c: *Checker, sourceProp: *anyopaque, targetProp: *anyopaque) bool {
+        _ = c;
+        _ = sourceProp;
+        _ = targetProp;
+        return false;
+    }
+
+    pub fn isInstantiatedModule(node: *anyopaque, preserveConstEnums: *anyopaque) bool {
+        _ = node;
+        _ = preserveConstEnums;
+        return false;
+    }
+
+    pub fn getFirstNonAmbientClassOrFunctionDeclaration(symbol_: *anyopaque) *anyopaque {
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getIsolatedModulesLikeFlagName(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn checkModuleAugmentationElement(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkExternalImportOrExportDeclaration(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn checkImportBinding(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkModuleExportName(c: *Checker, name_: *anyopaque, allowStringLiteral: *anyopaque) void {
+        _ = c;
+        _ = name_;
+        _ = allowStringLiteral;
+    }
+
+    pub fn hasTypeJsonImportAttribute(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn checkImportAttributes(c: *Checker, declaration: *anyopaque) void {
+        _ = c;
+        _ = declaration;
+    }
+
+    pub fn getTypeFromImportAttributes(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkExportSpecifier(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn getVerbatimModuleSyntaxErrorMessage(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkExternalModuleExports(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn hasExportedMembersOfKind(c: *Checker, moduleSymbol: *anyopaque, kind_: *anyopaque) bool {
+        _ = c;
+        _ = moduleSymbol;
+        _ = kind_;
+        return false;
+    }
+
+    pub fn hasShadowedNamespace(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn isNotOverload(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn checkVariableLikeDeclaration(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn errorNextVariableOrPropertyDeclarationMustHaveSameType(c: *Checker, firstDeclaration: *anyopaque, firstType: *anyopaque, nextDeclaration: *anyopaque, nextType: *anyopaque) void {
+        _ = c;
+        _ = firstDeclaration;
+        _ = firstType;
+        _ = nextDeclaration;
+        _ = nextType;
+    }
+
+    pub fn checkVarDeclaredNamesNotShadowed(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkDecorators(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkDecorator(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkIteratedTypeOrElementType(c: *Checker, use: *anyopaque, inputType: *anyopaque, sentType: *anyopaque, errorNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = use;
+        _ = inputType;
+        _ = sentType;
+        _ = errorNode;
+        return undefined;
+    }
+
+    pub fn getIteratedTypeOrElementType(c: *Checker, use: *anyopaque, inputType: *anyopaque, sentType: *anyopaque, errorNode: *anyopaque, checkAssignability: *anyopaque) *anyopaque {
+        _ = c;
+        _ = use;
+        _ = inputType;
+        _ = sentType;
+        _ = errorNode;
+        _ = checkAssignability;
+        return undefined;
+    }
+
+    pub fn getIterationTypeOfGeneratorFunctionReturnType(c: *Checker, typeKind: *anyopaque, returnType: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeKind;
+        _ = returnType;
+        _ = isAsyncGenerator;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfGeneratorFunctionReturnType(c: *Checker, t: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = isAsyncGenerator;
+        return undefined;
+    }
+
+    pub fn getIterationTypeOfIterable(c: *Checker, use: *anyopaque, typeKind: *anyopaque, inputType: *anyopaque, errorNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = use;
+        _ = typeKind;
+        _ = inputType;
+        _ = errorNode;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIterable(c: *Checker, t: *anyopaque, use: *anyopaque, errorNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = use;
+        _ = errorNode;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIterableWorker(c: *Checker, t: *anyopaque, use: *anyopaque, errorNode: *anyopaque, noCache: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = use;
+        _ = errorNode;
+        _ = noCache;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIterableFast(c: *Checker, t: *anyopaque, r: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = r;
+        return undefined;
+    }
+
+    pub fn getResolvedIterationTypes(r: *anyopaque, yieldType: *anyopaque, returnType: *anyopaque, nextType: *anyopaque) *anyopaque {
+        _ = r;
+        _ = yieldType;
+        _ = returnType;
+        _ = nextType;
+        return undefined;
+    }
+
+    pub fn isReferenceToType(c: *Checker, t: *anyopaque, target: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        _ = target;
+        return false;
+    }
+
+    pub fn isReferenceToSomeType(c: *Checker, t: *anyopaque, targets: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        _ = targets;
+        return false;
+    }
+
+    pub fn getBuiltinIteratorReturnType(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn hasTypes(iterationTypes: *anyopaque) bool {
+        _ = iterationTypes;
+        return false;
+    }
+
+    pub fn getType(iterationTypes: *anyopaque, typeKind: *anyopaque) *anyopaque {
+        _ = iterationTypes;
+        _ = typeKind;
+        return undefined;
+    }
+
+    pub fn combineIterationTypes(c: *Checker, iterationTypes: *anyopaque) *anyopaque {
+        _ = c;
+        _ = iterationTypes;
+        return undefined;
+    }
+
+    pub fn getIterationTypeUnion(c: *Checker, iterationTypes: *anyopaque, f: *anyopaque) *anyopaque {
+        _ = c;
+        _ = iterationTypes;
+        _ = f;
+        return undefined;
+    }
+
+    pub fn getAsyncFromSyncIterationTypes(c: *Checker, iterationTypes: *anyopaque, errorNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = iterationTypes;
+        _ = errorNode;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIterableSlow(c: *Checker, t: *anyopaque, r: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = r;
+        _ = errorNode;
+        _ = diagnosticOutput;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIterator(c: *Checker, t: *anyopaque, r: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = r;
+        _ = errorNode;
+        _ = diagnosticOutput;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIteratorWorker(c: *Checker, t: *anyopaque, r: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = r;
+        _ = errorNode;
+        _ = diagnosticOutput;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIteratorFast(c: *Checker, t: *anyopaque, r: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = r;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIteratorSlow(c: *Checker, t: *anyopaque, r: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = r;
+        _ = errorNode;
+        _ = diagnosticOutput;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfMethod(c: *Checker, t: *anyopaque, resolver: *anyopaque, methodName: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = resolver;
+        _ = methodName;
+        _ = errorNode;
+        _ = diagnosticOutput;
+        return undefined;
+    }
+
+    pub fn getIterationTypesOfIteratorResult(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn isYieldIteratorResult(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isReturnIteratorResult(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isIteratorResult(c: *Checker, t: *anyopaque, kind_: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        _ = kind_;
+        return false;
+    }
+
+    pub fn reportTypeNotIterableError(c: *Checker, errorNode: *anyopaque, t: *anyopaque, allowAsyncIterables: *anyopaque) *anyopaque {
+        _ = c;
+        _ = errorNode;
+        _ = t;
+        _ = allowAsyncIterables;
+        return undefined;
+    }
+
+    pub fn getIterationDiagnosticDetails(c: *Checker, use: *anyopaque, inputType: *anyopaque, allowsStrings: *anyopaque) bool {
+        _ = c;
+        _ = use;
+        _ = inputType;
+        _ = allowsStrings;
+        return false;
+    }
+
+    pub fn isES2015OrLaterIterable(n: *anyopaque) bool {
+        _ = n;
+        return false;
+    }
+
+    pub fn checkAliasSymbol(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn areDeclarationFlagsIdentical(c: *Checker, left: *anyopaque, right: *anyopaque) bool {
+        _ = c;
+        _ = left;
+        _ = right;
+        return false;
+    }
+
+    pub fn checkTypeNameIsReserved(c: *Checker, name_: *anyopaque, message: *anyopaque) void {
+        _ = c;
+        _ = name_;
+        _ = message;
+    }
+
+    pub fn checkExportsOnMergedDeclarations(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn getDeclarationSpaces(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkTypeParametersNotReferenced(c: *Checker, root: *anyopaque, typeParameters: *anyopaque, index: *anyopaque) void {
+        _ = c;
+        _ = root;
+        _ = typeParameters;
+        _ = index;
+    }
+
+    pub fn registerForUnusedIdentifiersCheck(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkUnusedIdentifiers(c: *Checker, potentiallyUnusedIdentifiers: *anyopaque) void {
+        _ = c;
+        _ = potentiallyUnusedIdentifiers;
+    }
+
+    pub fn isReferenced_stub(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn reportUnusedVariable(c: *Checker, location: *anyopaque, diagnostic: *anyopaque) void {
+        _ = c;
+        _ = location;
+        _ = diagnostic;
+    }
+
+    pub fn reportUnused(c: *Checker, location: *anyopaque, kind_: *anyopaque, diagnostic: *anyopaque) void {
+        _ = c;
+        _ = location;
+        _ = kind_;
+        _ = diagnostic;
+    }
+
+    pub fn unusedIsError(c: *Checker, kind_: *anyopaque) bool {
+        _ = c;
+        _ = kind_;
+        return false;
+    }
+
+    pub fn checkUnusedClassMembers(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkUnusedLocalsAndParameters(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn reportUnusedLocal(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = name_;
+    }
+
+    pub fn reportUnusedVariables(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn reportUnusedParameters(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn reportUnusedBindingElements(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn reportUnusedVariableDeclarations(c: *Checker, declarations: *anyopaque) void {
+        _ = c;
+        _ = declarations;
+    }
+
+    pub fn isUnreferencedVariableDeclaration(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn reportUnusedImports(c: *Checker, node: *anyopaque, unuseds: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = unuseds;
+    }
+
+    pub fn isIdentifierThatStartsWithUnderscore(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn importClauseFromImported(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkUnusedInferTypeParameter(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkUnusedTypeParameters(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn isUnreferencedTypeParameter(c: *Checker, typeParameter: *anyopaque) bool {
+        _ = c;
+        _ = typeParameter;
+        return false;
+    }
+
+    pub fn checkUnusedRenamedBindingElements(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn getTypeOfExpression(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getQuickTypeOfExpression(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getReturnTypeOfSingleNonGenericSignature(c: *Checker, funcType: *anyopaque, kind_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = funcType;
+        _ = kind_;
+        return undefined;
+    }
+
+    pub fn getReturnTypeOfSingleNonGenericSignatureOfCallChain(c: *Checker, expr: *anyopaque) *anyopaque {
+        _ = c;
+        _ = expr;
+        return undefined;
+    }
+
+    pub fn checkNonNullType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkNonNullTypeWithReporter(c: *Checker, t: *anyopaque, node1: *anyopaque, reportError_: *anyopaque, node2: *anyopaque, facts: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = node1;
+        _ = reportError_;
+        _ = node2;
+        _ = facts;
+        return undefined;
+    }
+
+    pub fn checkNonNullNonVoidType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn reportObjectPossiblyNullOrUndefinedError(c: *Checker, node: *anyopaque, facts: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = facts;
+    }
+
+    pub fn checkExpressionWithContextualType(c: *Checker, node: *anyopaque, contextualType: *anyopaque, inferenceContext: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextualType;
+        _ = inferenceContext;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getContextNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkExpressionCached(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkExpressionCachedEx(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getContextFreeTypeOfExpression(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkConstEnumAccess(c: *Checker, node: *anyopaque, t: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = t;
+    }
+
+    pub fn instantiateTypeWithSingleGenericCallSignature(c: *Checker, node: *anyopaque, t: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = t;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getOuterInferenceTypeParameters(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn getUniqueTypeParameters(c: *Checker, context: *anyopaque, typeParameters: *anyopaque) *anyopaque {
+        _ = c;
+        _ = context;
+        _ = typeParameters;
+        return undefined;
+    }
+
+    pub fn hasTypeParameterByName(typeParameters: *anyopaque, name_: *anyopaque) bool {
+        _ = typeParameters;
+        _ = name_;
+        return false;
+    }
+
+    pub fn getUniqueTypeParameterName(typeParameters: *anyopaque, baseName: *anyopaque) *anyopaque {
+        _ = typeParameters;
+        _ = baseName;
+        return undefined;
+    }
+
+    pub fn isInConstructorArgumentInitializer(c: *Checker, node: *anyopaque, constructorDecl: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = constructorDecl;
+        return false;
+    }
+
+    pub fn isTemplateLiteralContext(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isTemplateLiteralContextualType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn checkRegularExpressionLiteral(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn createArrayLiteralType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn isSpreadIntoCallOrNew(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn checkQualifiedName(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkIndexedAccess(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkElementAccessChain(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn isForInVariableForNumericPropertyNames(c: *Checker, expr: *anyopaque) bool {
+        _ = c;
+        _ = expr;
+        return false;
+    }
+
+    pub fn getForInVariableSymbol(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn hasNumericPropertyNames(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn checkIndexedAccessIndexType(c: *Checker, t: *anyopaque, accessNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = accessNode;
+        return undefined;
+    }
+
+    pub fn getConstituentProperty(c: *Checker, objectType: *anyopaque, propertyName: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectType;
+        _ = propertyName;
+        return undefined;
+    }
+
+    pub fn checkImportCallExpression(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkDeprecatedSignature(c: *Checker, sig: *anyopaque, node: *anyopaque) void {
+        _ = c;
+        _ = sig;
+        _ = node;
+    }
+
+    pub fn addDeprecatedSuggestionWithSignature(c: *Checker, location: *anyopaque, declaration: *anyopaque, deprecatedEntity: *anyopaque, signatureString: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = declaration;
+        _ = deprecatedEntity;
+        _ = signatureString;
+        return undefined;
+    }
+
+    pub fn isSymbolOrSymbolForCall(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn resolveSignature(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = candidatesOutArray;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn resolveCallExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = candidatesOutArray;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn resolveNewExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = candidatesOutArray;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn isConstructorAccessible(c: *Checker, node: *anyopaque, signature: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = signature;
+        return false;
+    }
+
+    pub fn typeHasProtectedAccessibleBase(c: *Checker, target: *anyopaque, t: *anyopaque) bool {
+        _ = c;
+        _ = target;
+        _ = t;
+        return false;
+    }
+
+    pub fn someSignature(signatures: *anyopaque, f: *anyopaque) bool {
+        _ = signatures;
+        _ = f;
+        return false;
+    }
+
+    pub fn resolveTaggedTemplateExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = candidatesOutArray;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn resolveDecorator(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = candidatesOutArray;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn isPotentiallyUncalledDecorator(c: *Checker, decorator: *anyopaque, signatures: *anyopaque) bool {
+        _ = c;
+        _ = decorator;
+        _ = signatures;
+        return false;
+    }
+
+    pub fn getDiagnosticHeadMessageForDecoratorResolution(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn resolveInstanceofExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = candidatesOutArray;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn resolveCall(c: *Checker, node: *anyopaque, signatures: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque, callChainFlags: *anyopaque, headMessage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = signatures;
+        _ = candidatesOutArray;
+        _ = checkMode;
+        _ = callChainFlags;
+        _ = headMessage;
+        return undefined;
+    }
+
+    pub fn reorderCandidates(c: *Checker, signatures: *anyopaque, callChainFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signatures;
+        _ = callChainFlags;
+        return undefined;
+    }
+
+    pub fn signatureHasLiteralTypes(s: *anyopaque) bool {
+        _ = s;
+        return false;
+    }
+
+    pub fn getOptionalCallSignature(c: *Checker, signature: *anyopaque, callChainFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        _ = callChainFlags;
+        return undefined;
+    }
+
+    pub fn chooseOverload(c: *Checker, s: *anyopaque, relation: *anyopaque) *anyopaque {
+        _ = c;
+        _ = s;
+        _ = relation;
+        return undefined;
+    }
+
+    pub fn hasCorrectArity(c: *Checker, node: *anyopaque, args: *anyopaque, signature: *anyopaque, signatureHelpTrailingComma: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = args;
+        _ = signature;
+        _ = signatureHelpTrailingComma;
+        return false;
+    }
+
+    pub fn acceptsVoid(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn getDecoratorArgumentCount(c: *Checker, node: *anyopaque, signature: *anyopaque) i32 {
+        _ = c;
+        _ = node;
+        _ = signature;
+        return 0;
+    }
+
+    pub fn getLegacyDecoratorArgumentCount(c: *Checker, node: *anyopaque, signature: *anyopaque) i32 {
+        _ = c;
+        _ = node;
+        _ = signature;
+        return 0;
+    }
+
+    pub fn hasCorrectTypeArgumentArity(c: *Checker, signature: *anyopaque, typeArguments: *anyopaque) bool {
+        _ = c;
+        _ = signature;
+        _ = typeArguments;
+        return false;
+    }
+
+    pub fn checkTypeArguments(c: *Checker, signature: *anyopaque, typeArgumentNodes: *anyopaque, reportErrors: *anyopaque, headMessage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        _ = typeArgumentNodes;
+        _ = reportErrors;
+        _ = headMessage;
+        return undefined;
+    }
+
+    pub fn isSignatureApplicable(c: *Checker, node: *anyopaque, args: *anyopaque, signature: *anyopaque, relation: *anyopaque, checkMode: *anyopaque, reportErrors: *anyopaque, diagnosticOutput: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = args;
+        _ = signature;
+        _ = relation;
+        _ = checkMode;
+        _ = reportErrors;
+        _ = diagnosticOutput;
+        return false;
+    }
+
+    pub fn maybeAddMissingAwaitInfo(c: *Checker, errorNode: *anyopaque, source: *anyopaque, target: *anyopaque, relation: *anyopaque, reportErrors: *anyopaque, diagnosticOutput: *anyopaque) void {
+        _ = c;
+        _ = errorNode;
+        _ = source;
+        _ = target;
+        _ = relation;
+        _ = reportErrors;
+        _ = diagnosticOutput;
+    }
+
+    pub fn getThisArgumentOfCall(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getThisArgumentType(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getEffectiveCheckNode(c: *Checker, argument: *anyopaque) *anyopaque {
+        _ = c;
+        _ = argument;
+        return undefined;
+    }
+
+    pub fn inferTypeArguments(c: *Checker, node: *anyopaque, signature: *anyopaque, args: *anyopaque, checkMode: *anyopaque, context: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = signature;
+        _ = args;
+        _ = checkMode;
+        _ = context;
+        return undefined;
+    }
+
+    pub fn getCandidateForOverloadFailure(c: *Checker, node: *anyopaque, candidates: *anyopaque, args: *anyopaque, hasCandidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = candidates;
+        _ = args;
+        _ = hasCandidatesOutArray;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn pickLongestCandidateSignature(c: *Checker, node: *anyopaque, candidates: *anyopaque, args: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = candidates;
+        _ = args;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getLongestCandidateIndex(c: *Checker, candidates: *anyopaque, argsCount: *anyopaque) i32 {
+        _ = c;
+        _ = candidates;
+        _ = argsCount;
+        return 0;
+    }
+
+    pub fn getTypeArgumentsFromNodes(c: *Checker, typeArgumentNodes: *anyopaque, typeParameters: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeArgumentNodes;
+        _ = typeParameters;
+        return undefined;
+    }
+
+    pub fn inferSignatureInstantiationForOverloadFailure(c: *Checker, node: *anyopaque, typeParameters: *anyopaque, candidate: *anyopaque, args: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = typeParameters;
+        _ = candidate;
+        _ = args;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn createUnionOfSignaturesForOverloadFailure(c: *Checker, candidates: *anyopaque) *anyopaque {
+        _ = c;
+        _ = candidates;
+        return undefined;
+    }
+
+    pub fn createCombinedSymbolFromTypes(c: *Checker, sources: *anyopaque, types_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sources;
+        _ = types_;
+        return undefined;
+    }
+
+    pub fn createCombinedSymbolForOverloadFailure(c: *Checker, sources: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sources;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getRestTypeOfSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        return undefined;
+    }
+
+    pub fn tryGetRestTypeOfSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        return undefined;
+    }
+
+    pub fn reportCallResolutionErrors(c: *Checker, node: *anyopaque, s: *anyopaque, signatures: *anyopaque, headMessage: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = s;
+        _ = signatures;
+        _ = headMessage;
+    }
+
+    pub fn addImplementationSuccessElaboration(c: *Checker, s: *anyopaque, failed: *anyopaque, diagnostic: *anyopaque) void {
+        _ = c;
+        _ = s;
+        _ = failed;
+        _ = diagnostic;
+    }
+
+    pub fn getArgumentArityError(c: *Checker, node: *anyopaque, signatures: *anyopaque, args: *anyopaque, headMessage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = signatures;
+        _ = args;
+        _ = headMessage;
+        return undefined;
+    }
+
+    pub fn isPromiseResolveArityError(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn getErrorNodeForCallNode(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeArgumentArityError(c: *Checker, node: *anyopaque, signatures: *anyopaque, typeArguments: *anyopaque, headMessage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = signatures;
+        _ = typeArguments;
+        _ = headMessage;
+        return undefined;
+    }
+
+    pub fn reportCannotInvokePossiblyNullOrUndefinedError(c: *Checker, node: *anyopaque, facts: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = facts;
+    }
+
+    pub fn resolveUntypedCall(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn resolveErrorCall(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isUntypedFunctionCall(c: *Checker, funcType: *anyopaque, apparentFuncType: *anyopaque, numCallSignatures: *anyopaque, numConstructSignatures: *anyopaque) bool {
+        _ = c;
+        _ = funcType;
+        _ = apparentFuncType;
+        _ = numCallSignatures;
+        _ = numConstructSignatures;
+        return false;
+    }
+
+    pub fn invocationErrorDetails(c: *Checker, errorTarget: *anyopaque, apparentType: *anyopaque, kind_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = errorTarget;
+        _ = apparentType;
+        _ = kind_;
+        return undefined;
+    }
+
+    pub fn invocationError(c: *Checker, errorTarget: *anyopaque, apparentType: *anyopaque, kind_: *anyopaque, relatedInformation: *anyopaque) void {
+        _ = c;
+        _ = errorTarget;
+        _ = apparentType;
+        _ = kind_;
+        _ = relatedInformation;
+    }
+
+    pub fn invocationErrorRecovery(c: *Checker, apparentType: *anyopaque, kind_: *anyopaque, diagnostic: *anyopaque) void {
+        _ = c;
+        _ = apparentType;
+        _ = kind_;
+        _ = diagnostic;
+    }
+
+    pub fn isGenericFunctionReturningFunction(c: *Checker, signature: *anyopaque) bool {
+        _ = c;
+        _ = signature;
+        return false;
+    }
+
+    pub fn skippedGenericFunction(c: *Checker, node: *anyopaque, checkMode: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+    }
+
+    pub fn getFirstTransformableStaticClassElement(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkClassExpressionExternalHelpers(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkClassExpressionDeferred(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn contextuallyCheckFunctionExpressionOrObjectLiteralMethod(c: *Checker, node: *anyopaque, checkMode: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+    }
+
+    pub fn checkFunctionExpressionOrObjectLiteralMethodDeferred(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn inferFromAnnotatedParametersAndReturn(c: *Checker, sig: *anyopaque, context: *anyopaque, inferenceContext: *anyopaque) void {
+        _ = c;
+        _ = sig;
+        _ = context;
+        _ = inferenceContext;
+    }
+
+    pub fn getContextualSignature(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn createUnionSignature(c: *Checker, sig: *anyopaque, unionSignatures: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        _ = unionSignatures;
+        return undefined;
+    }
+
+    pub fn getContextualCallSignature(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getIntersectedSignatures(c: *Checker, signatures: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signatures;
+        return undefined;
+    }
+
+    pub fn isAritySmaller(c: *Checker, signature: *anyopaque, target: *anyopaque) bool {
+        _ = c;
+        _ = signature;
+        _ = target;
+        return false;
+    }
+
+    pub fn assignContextualParameterTypes(c: *Checker, sig: *anyopaque, context: *anyopaque) void {
+        _ = c;
+        _ = sig;
+        _ = context;
+    }
+
+    pub fn assignNonContextualParameterTypes(c: *Checker, signature: *anyopaque) void {
+        _ = c;
+        _ = signature;
+    }
+
+    pub fn assignParameterType(c: *Checker, parameter: *anyopaque, contextualType: *anyopaque) void {
+        _ = c;
+        _ = parameter;
+        _ = contextualType;
+    }
+
+    pub fn assignBindingElementTypes(c: *Checker, pattern: *anyopaque, parentType: *anyopaque) void {
+        _ = c;
+        _ = pattern;
+        _ = parentType;
+    }
+
+    pub fn checkCollisionsForDeclarationName(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = name_;
+    }
+
+    pub fn checkCollisionWithRequireExportsInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = name_;
+    }
+
+    pub fn checkCollisionWithGlobalObjectInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = name_;
+    }
+
+    pub fn needCollisionCheckForIdentifier(c: *Checker, node: *anyopaque, identifier: *anyopaque, name_: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = identifier;
+        _ = name_;
+        return false;
+    }
+
+    pub fn setNodeLinksForPrivateIdentifierScope(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn recordPotentialCollisionWithWeakMapSetInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = name_;
+    }
+
+    pub fn checkWeakMapSetCollision(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkCollisionWithGlobalPromiseInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = name_;
+    }
+
+    pub fn recordPotentialCollisionWithReflectInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = name_;
+    }
+
+    pub fn checkReflectCollision(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkClassNameCollisionWithObject(c: *Checker, name_: *anyopaque) void {
+        _ = c;
+        _ = name_;
+    }
+
+    pub fn checkNonNullAssertion(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkNonNullChain(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkExpressionWithTypeArguments(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getInstantiationExpressionType(c: *Checker, exprType: *anyopaque, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = exprType;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkNewTargetMetaProperty(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkImportMetaProperty(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkMetaPropertyKeyword(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkDeleteExpressionMustBeOptional(c: *Checker, expr: *anyopaque, symbol_: *anyopaque) void {
+        _ = c;
+        _ = expr;
+        _ = symbol_;
+    }
+
+    pub fn checkTruthinessExpression(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getYieldedTypeOfYieldExpression(c: *Checker, node: *anyopaque, expressionType: *anyopaque, sentType: *anyopaque, isAsync: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = expressionType;
+        _ = sentType;
+        _ = isAsync;
+        return undefined;
+    }
+
+    pub fn isSameScopedBindingElement(c: *Checker, node: *anyopaque, declaration: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = declaration;
+        return false;
+    }
+
+    pub fn removeOptionalityFromDeclaredType(c: *Checker, declaredType: *anyopaque, declaration: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaredType;
+        _ = declaration;
+        return undefined;
+    }
+
+    pub fn parameterInitializerContainsUndefined(c: *Checker, declaration: *anyopaque) bool {
+        _ = c;
+        _ = declaration;
+        return false;
+    }
+
+    pub fn isInAmbientOrTypeNode(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn checkPropertyAccessChain(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkPropertyAccessExpressionOrQualifiedName(c: *Checker, node: *anyopaque, left: *anyopaque, leftType: *anyopaque, right: *anyopaque, checkMode: *anyopaque, writeOnly: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = left;
+        _ = leftType;
+        _ = right;
+        _ = checkMode;
+        _ = writeOnly;
+        return undefined;
+    }
+
+    pub fn getFlowTypeOfAccessExpression(c: *Checker, node: *anyopaque, prop: *anyopaque, propType: *anyopaque, errorNode: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = prop;
+        _ = propType;
+        _ = errorNode;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getControlFlowContainer(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getFlowTypeOfProperty(c: *Checker, reference: *anyopaque, prop: *anyopaque) *anyopaque {
+        _ = c;
+        _ = reference;
+        _ = prop;
+        return undefined;
+    }
+
+    pub fn getTypeOfPropertyInBaseClass(c: *Checker, property: *anyopaque) *anyopaque {
+        _ = c;
+        _ = property;
+        return undefined;
+    }
+
+    pub fn isMethodAccessForCall(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn lookupSymbolForPrivateIdentifierDeclaration(c: *Checker, propName: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = propName;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn getPrivateIdentifierPropertyOfType(c: *Checker, leftType: *anyopaque, lexicallyScopedIdentifier: *anyopaque) *anyopaque {
+        _ = c;
+        _ = leftType;
+        _ = lexicallyScopedIdentifier;
+        return undefined;
+    }
+
+    pub fn checkPrivateIdentifierPropertyAccess(c: *Checker, leftType: *anyopaque, right: *anyopaque, lexicallyScopedIdentifier: *anyopaque) bool {
+        _ = c;
+        _ = leftType;
+        _ = right;
+        _ = lexicallyScopedIdentifier;
+        return false;
+    }
+
+    pub fn reportNonexistentProperty(c: *Checker, propNode: *anyopaque, containingType: *anyopaque, isUncheckedJS: *anyopaque) void {
+        _ = c;
+        _ = propNode;
+        _ = containingType;
+        _ = isUncheckedJS;
+    }
+
+    pub fn getSuggestedLibForNonExistentProperty(c: *Checker, missingProperty: *anyopaque, containingType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = missingProperty;
+        _ = containingType;
+        return undefined;
+    }
+
+    pub fn getSuggestedSymbolForNonexistentProperty(c: *Checker, name_: *anyopaque, containingType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = containingType;
+        return undefined;
+    }
+
+    pub fn isValidPropertyAccessForCompletions(c: *Checker, node: *anyopaque, t: *anyopaque, property: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = t;
+        _ = property;
+        return false;
+    }
+
+    pub fn isPropertyAccessible(c: *Checker, node: *anyopaque, isSuper: *anyopaque, isWrite: *anyopaque, containingType: *anyopaque, property: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = isSuper;
+        _ = isWrite;
+        _ = containingType;
+        _ = property;
+        return false;
+    }
+
+    pub fn containerSeemsToBeEmptyDomElement(c: *Checker, containingType: *anyopaque) bool {
+        _ = c;
+        _ = containingType;
+        return false;
+    }
+
+    pub fn hasCommonDomTypeName(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn checkAndReportErrorForExtendingInterface(c: *Checker, errorLocation: *anyopaque) bool {
+        _ = c;
+        _ = errorLocation;
+        return false;
+    }
+
+    pub fn getEntityNameForExtendingInterface(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isUncalledFunctionReference(c: *Checker, node: *anyopaque, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn checkPropertyNotUsedBeforeDeclaration(c: *Checker, prop: *anyopaque, node: *anyopaque, right: *anyopaque) void {
+        _ = c;
+        _ = prop;
+        _ = node;
+        _ = right;
+    }
+
+    pub fn isOptionalPropertyDeclaration(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isPropertyDeclaredInAncestorClass(c: *Checker, prop: *anyopaque) bool {
+        _ = c;
+        _ = prop;
+        return false;
+    }
+
+    pub fn checkPropertyAccessibility(c: *Checker, node: *anyopaque, isSuper: *anyopaque, writing: *anyopaque, t: *anyopaque, prop: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = isSuper;
+        _ = writing;
+        _ = t;
+        _ = prop;
+        return false;
+    }
+
+    pub fn checkPropertyAccessibilityEx(c: *Checker, node: *anyopaque, isSuper: *anyopaque, writing: *anyopaque, t: *anyopaque, prop: *anyopaque, reportError_: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = isSuper;
+        _ = writing;
+        _ = t;
+        _ = prop;
+        _ = reportError_;
+        return false;
+    }
+
+    pub fn checkPropertyAccessibilityAtLocation(c: *Checker, location: *anyopaque, isSuper: *anyopaque, writing: *anyopaque, containingType: *anyopaque, prop: *anyopaque, errorNode: *anyopaque) bool {
+        _ = c;
+        _ = location;
+        _ = isSuper;
+        _ = writing;
+        _ = containingType;
+        _ = prop;
+        _ = errorNode;
+        return false;
+    }
+
+    pub fn symbolHasNonMethodDeclaration(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn forEachProperty(c: *Checker, prop: *anyopaque, callback: *anyopaque) bool {
+        _ = c;
+        _ = prop;
+        _ = callback;
+        return false;
+    }
+
+    pub fn getDeclaringClass(c: *Checker, prop: *anyopaque) *anyopaque {
+        _ = c;
+        _ = prop;
+        return undefined;
+    }
+
+    pub fn isValidOverrideOf(c: *Checker, sourceProp: *anyopaque, targetProp: *anyopaque) bool {
+        _ = c;
+        _ = sourceProp;
+        _ = targetProp;
+        return false;
+    }
+
+    pub fn isPropertyInClassDerivedFrom(c: *Checker, prop: *anyopaque, baseClass: *anyopaque) bool {
+        _ = c;
+        _ = prop;
+        _ = baseClass;
+        return false;
+    }
+
+    pub fn isNodeUsedDuringClassInitialization(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isNodeWithinClass(c: *Checker, node: *anyopaque, classDeclaration: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = classDeclaration;
+        return false;
+    }
+
+    pub fn forEachEnclosingClass(c: *Checker, node: *anyopaque, callback: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = callback;
+        return false;
+    }
+
+    pub fn isClassDerivedFromDeclaringClasses(c: *Checker, checkClass: *anyopaque, prop: *anyopaque, writing: *anyopaque) bool {
+        _ = c;
+        _ = checkClass;
+        _ = prop;
+        _ = writing;
+        return false;
+    }
+
+    pub fn getEnclosingClassFromThisParameter(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getThisParameterFromNodeContext(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getContextualThisParameterType(c: *Checker, fn_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = fn_;
+        return undefined;
+    }
+
+    pub fn tryGetThisTypeAt(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn tryGetThisTypeAtEx(c: *Checker, node: *anyopaque, includeGlobalThis: *anyopaque, container: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = includeGlobalThis;
+        _ = container;
+        return undefined;
+    }
+
+    pub fn getThisContainer(c: *Checker, node: *anyopaque, includeArrowFunctions: *anyopaque, includeClassComputedPropertyName: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = includeArrowFunctions;
+        _ = includeClassComputedPropertyName;
+        return undefined;
+    }
+
+    pub fn isInParameterInitializerBeforeContainingFunction(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn checkThisInStaticClassFieldInitializerInDecoratedClass(c: *Checker, thisExpression: *anyopaque, container: *anyopaque) void {
+        _ = c;
+        _ = thisExpression;
+        _ = container;
+    }
+
+    pub fn checkThisBeforeSuper(c: *Checker, node: *anyopaque, container: *anyopaque, diagnosticMessage: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = container;
+        _ = diagnosticMessage;
+    }
+
+    pub fn classDeclarationExtendsNull(c: *Checker, classDecl: *anyopaque) bool {
+        _ = c;
+        _ = classDecl;
+        return false;
+    }
+
+    pub fn checkAssertionDeferred(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn checkBinaryLikeExpression(c: *Checker, left: *anyopaque, operatorToken: *anyopaque, right: *anyopaque, checkMode: *anyopaque, errorNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = left;
+        _ = operatorToken;
+        _ = right;
+        _ = checkMode;
+        _ = errorNode;
+        return undefined;
+    }
+
+    pub fn checkDestructuringAssignment(c: *Checker, node: *anyopaque, sourceType: *anyopaque, checkMode: *anyopaque, rightIsThis: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = sourceType;
+        _ = checkMode;
+        _ = rightIsThis;
+        return undefined;
+    }
+
+    pub fn checkObjectLiteralAssignment(c: *Checker, node: *anyopaque, sourceType: *anyopaque, rightIsThis: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = sourceType;
+        _ = rightIsThis;
+        return undefined;
+    }
+
+    pub fn checkObjectLiteralDestructuringPropertyAssignment(c: *Checker, node: *anyopaque, objectLiteralType: *anyopaque, propertyIndex: *anyopaque, allProperties: *anyopaque, rightIsThis: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = objectLiteralType;
+        _ = propertyIndex;
+        _ = allProperties;
+        _ = rightIsThis;
+        return undefined;
+    }
+
+    pub fn checkArrayLiteralAssignment(c: *Checker, node: *anyopaque, sourceType: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = sourceType;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkArrayLiteralDestructuringElementAssignment(c: *Checker, node: *anyopaque, sourceType: *anyopaque, elementIndex: *anyopaque, elementType: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = sourceType;
+        _ = elementIndex;
+        _ = elementType;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkReferenceAssignment(c: *Checker, target: *anyopaque, sourceType: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = target;
+        _ = sourceType;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn reportOperatorError(c: *Checker, leftType: *anyopaque, operator: *anyopaque, rightType: *anyopaque, errorNode: *anyopaque, isRelated: *anyopaque, right: *anyopaque) bool {
+        _ = c;
+        _ = leftType;
+        _ = operator;
+        _ = rightType;
+        _ = errorNode;
+        _ = isRelated;
+        _ = right;
+        return false;
+    }
+
+    pub fn reportOperatorErrorUnless(c: *Checker, leftType: *anyopaque, operator: *anyopaque, rightType: *anyopaque, errorNode: *anyopaque, typesAreCompatible: *anyopaque, right: *anyopaque) bool {
+        _ = c;
+        _ = leftType;
+        _ = operator;
+        _ = rightType;
+        _ = errorNode;
+        _ = typesAreCompatible;
+        _ = right;
+        return false;
+    }
+
+    pub fn getBaseTypesIfUnrelated(c: *Checker, leftType: *anyopaque, rightType: *anyopaque, isRelated: *anyopaque, right: *anyopaque) bool {
+        _ = c;
+        _ = leftType;
+        _ = rightType;
+        _ = isRelated;
+        _ = right;
+        return false;
+    }
+
+    pub fn checkAssignmentOperator(c: *Checker, left: *anyopaque, operator: *anyopaque, right: *anyopaque, leftType: *anyopaque, rightType: *anyopaque) void {
+        _ = c;
+        _ = left;
+        _ = operator;
+        _ = right;
+        _ = leftType;
+        _ = rightType;
+    }
+
+    pub fn bothAreBigIntLike(c: *Checker, left: *anyopaque, right: *anyopaque) bool {
+        _ = c;
+        _ = left;
+        _ = right;
+        return false;
+    }
+
+    pub fn getSuggestedBooleanOperator(c: *Checker, operator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = operator;
+        return undefined;
+    }
+
+    pub fn checkArithmeticOperandType(c: *Checker, operand: *anyopaque, t: *anyopaque, diagnostic: *anyopaque, isAwaitValid: *anyopaque) bool {
+        _ = c;
+        _ = operand;
+        _ = t;
+        _ = diagnostic;
+        _ = isAwaitValid;
+        return false;
+    }
+
+    pub fn checkForDisallowedESSymbolOperand(c: *Checker, left: *anyopaque, right: *anyopaque, leftType: *anyopaque, rightType: *anyopaque, operator: *anyopaque) bool {
+        _ = c;
+        _ = left;
+        _ = right;
+        _ = leftType;
+        _ = rightType;
+        _ = operator;
+        return false;
+    }
+
+    pub fn checkNaNEquality(c: *Checker, errorNode: *anyopaque, operator: *anyopaque, left: *anyopaque, right: *anyopaque) void {
+        _ = c;
+        _ = errorNode;
+        _ = operator;
+        _ = left;
+        _ = right;
+    }
+
+    pub fn isGlobalNaN(c: *Checker, expr: *anyopaque) bool {
+        _ = c;
+        _ = expr;
+        return false;
+    }
+
+    pub fn isTypeEqualityComparableTo(c: *Checker, source: *anyopaque, target: *anyopaque) bool {
+        _ = c;
+        _ = source;
+        _ = target;
+        return false;
+    }
+
+    pub fn checkTruthinessOfType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getSyntacticTruthySemantics(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkNullishCoalesceOperands(c: *Checker, left: *anyopaque, right: *anyopaque) void {
+        _ = c;
+        _ = left;
+        _ = right;
+    }
+
+    pub fn checkNullishCoalesceOperandLeft(c: *Checker, left: *anyopaque) void {
+        _ = c;
+        _ = left;
+    }
+
+    pub fn getSyntacticNullishnessSemantics(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isSideEffectFree(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isIndirectCall(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn checkInstanceOfExpression(c: *Checker, left: *anyopaque, right: *anyopaque, leftType: *anyopaque, rightType: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = left;
+        _ = right;
+        _ = leftType;
+        _ = rightType;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkInExpression(c: *Checker, left: *anyopaque, right: *anyopaque, leftType: *anyopaque, rightType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = left;
+        _ = right;
+        _ = leftType;
+        _ = rightType;
+        return undefined;
+    }
+
+    pub fn hasEmptyObjectIntersection(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getExactOptionalUnassignableProperties(c: *Checker, source: *anyopaque, target: *anyopaque) *anyopaque {
+        _ = c;
+        _ = source;
+        _ = target;
+        return undefined;
+    }
+
+    pub fn isExactOptionalPropertyMismatch(c: *Checker, source: *anyopaque, target: *anyopaque) bool {
+        _ = c;
+        _ = source;
+        _ = target;
+        return false;
+    }
+
+    pub fn checkReferenceExpression(c: *Checker, expr: *anyopaque, invalidReferenceMessage: *anyopaque, invalidOptionalChainMessage: *anyopaque) bool {
+        _ = c;
+        _ = expr;
+        _ = invalidReferenceMessage;
+        _ = invalidOptionalChainMessage;
+        return false;
+    }
+
+    pub fn checkSpreadPropOverrides(c: *Checker, t: *anyopaque, props: *anyopaque, spread: *anyopaque) void {
+        _ = c;
+        _ = t;
+        _ = props;
+        _ = spread;
+    }
+
+    pub fn getSpreadType(c: *Checker, left: *anyopaque, right: *anyopaque, symbol_: *anyopaque, objectFlags: *anyopaque, readonly: *anyopaque) *anyopaque {
+        _ = c;
+        _ = left;
+        _ = right;
+        _ = symbol_;
+        _ = objectFlags;
+        _ = readonly;
+        return undefined;
+    }
+
+    pub fn getIndexInfoWithReadonly(c: *Checker, info: *anyopaque, readonly: *anyopaque) *anyopaque {
+        _ = c;
+        _ = info;
+        _ = readonly;
+        return undefined;
+    }
+
+    pub fn isValidSpreadType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn tryMergeUnionOfObjectTypeAndEmptyObject(c: *Checker, t: *anyopaque, readonly: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = readonly;
+        return undefined;
+    }
+
+    pub fn isSpreadableProperty(c: *Checker, prop: *anyopaque) bool {
+        _ = c;
+        _ = prop;
+        return false;
+    }
+
+    pub fn getSpreadSymbol(c: *Checker, prop: *anyopaque, readonly: *anyopaque) *anyopaque {
+        _ = c;
+        _ = prop;
+        _ = readonly;
+        return undefined;
+    }
+
+    pub fn isEmptyObjectTypeOrSpreadsIntoEmptyObject(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn hasDefaultValue(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isConstContext(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isValidConstAssertionArgument(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isInPropertyInitializerOrClassStaticBlock(c: *Checker, node: *anyopaque, ignoreArrowFunctions: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = ignoreArrowFunctions;
+        return false;
+    }
+
+    pub fn getNarrowedTypeOfSymbol(c: *Checker, symbol_: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn isReadonlyAssignmentDeclaration(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isReadonlySymbol(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn checkObjectLiteralMethod(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkExpressionForMutableLocation(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getReferencedValueOrAliasSymbol(c: *Checker, reference: *anyopaque) *anyopaque {
+        _ = c;
+        _ = reference;
+        return undefined;
+    }
+
+    pub fn getCannotFindNameDiagnosticForName(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getDiagnostics(c: *Checker, ctx: *anyopaque, sourceFile: *anyopaque) *anyopaque {
+        _ = c;
+        _ = ctx;
+        _ = sourceFile;
+        return undefined;
+    }
+
+    pub fn getSuggestionDiagnostics(c: *Checker, ctx: *anyopaque, sourceFile: *anyopaque) *anyopaque {
+        _ = c;
+        _ = ctx;
+        _ = sourceFile;
+        return undefined;
+    }
+
+    pub fn getGlobalDiagnostics(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn addDeferredDiagnostic(c: *Checker, callback: *anyopaque) *anyopaque {
+        _ = c;
+        _ = callback;
+        return undefined;
+    }
+
+    pub fn produceDeferredDiagnostics(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn addSuggestionDiagnostic(c: *Checker, diagnostic: *anyopaque) void {
+        _ = c;
+        _ = diagnostic;
+    }
+
+    pub fn @"error"(c: *Checker, location: *anyopaque, message: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = message;
+        return undefined;
+    }
+
+    pub fn errorSkippedOnNoEmit(c: *Checker, location: *anyopaque, message: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = message;
+        return undefined;
+    }
+
+    pub fn errorOrSuggestion(c: *Checker, isError: *anyopaque, location: *anyopaque, message: *anyopaque) void {
+        _ = c;
+        _ = isError;
+        _ = location;
+        _ = message;
+    }
+
+    pub fn errorAndMaybeSuggestAwait(c: *Checker, location: *anyopaque, maybeMissingAwait: *anyopaque, message: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = maybeMissingAwait;
+        _ = message;
+        return undefined;
+    }
+
+    pub fn addErrorOrSuggestion(c: *Checker, isError: *anyopaque, diagnostic: *anyopaque) void {
+        _ = c;
+        _ = isError;
+        _ = diagnostic;
+    }
+
+    pub fn isDeprecatedDeclaration(c: *Checker, declaration: *anyopaque) bool {
+        _ = c;
+        _ = declaration;
+        return false;
+    }
+
+    pub fn addDeprecatedSuggestion(c: *Checker, location: *anyopaque, declarations: *anyopaque, deprecatedEntity: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = declarations;
+        _ = deprecatedEntity;
+        return undefined;
+    }
+
+    pub fn addDeprecatedSuggestionWorker(c: *Checker, declarations: *anyopaque, diagnostic: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declarations;
+        _ = diagnostic;
+        return undefined;
+    }
+
+    pub fn isDeprecatedSymbol(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn newSymbol(c: *Checker, flags: *anyopaque, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = flags;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn newSymbolEx(c: *Checker, flags: *anyopaque, name_: *anyopaque, checkFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = flags;
+        _ = name_;
+        _ = checkFlags;
+        return undefined;
+    }
+
+    pub fn newParameter(c: *Checker, name_: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn newProperty(c: *Checker, name_: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn combineSymbolTables(c: *Checker, first: *anyopaque, second: *anyopaque) *anyopaque {
+        _ = c;
+        _ = first;
+        _ = second;
+        return undefined;
+    }
+
+    pub fn mergeSymbolTable(c: *Checker, target: *anyopaque, source: *anyopaque, unidirectional: *anyopaque, mergedParent: *anyopaque) void {
+        _ = c;
+        _ = target;
+        _ = source;
+        _ = unidirectional;
+        _ = mergedParent;
+    }
+
+    pub fn mergeSymbol(c: *Checker, target: *anyopaque, source: *anyopaque, unidirectional: *anyopaque) *anyopaque {
+        _ = c;
+        _ = target;
+        _ = source;
+        _ = unidirectional;
+        return undefined;
+    }
+
+    pub fn reportMergeSymbolError(c: *Checker, target: *anyopaque, source: *anyopaque) void {
+        _ = c;
+        _ = target;
+        _ = source;
+    }
+
+    pub fn addDuplicateDeclarationErrorsForSymbols(c: *Checker, target: *anyopaque, message: *anyopaque, symbolName: *anyopaque, source: *anyopaque) void {
+        _ = c;
+        _ = target;
+        _ = message;
+        _ = symbolName;
+        _ = source;
+    }
+
+    pub fn addDuplicateDeclarationError(c: *Checker, node: *anyopaque, message: *anyopaque, symbolName: *anyopaque, relatedNodes: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = message;
+        _ = symbolName;
+        _ = relatedNodes;
+    }
+
+    pub fn createDiagnosticForNode(node: *anyopaque, message: *anyopaque) *anyopaque {
+        _ = node;
+        _ = message;
+        return undefined;
+    }
+
+    pub fn getAdjustedNodeForError(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn lookupOrIssueError(c: *Checker, location: *anyopaque, message: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = message;
+        return undefined;
+    }
+
+    pub fn getFirstDeclaration(symbol_: *anyopaque) *anyopaque {
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getExcludedSymbolFlags(flags: *anyopaque) *anyopaque {
+        _ = flags;
+        return undefined;
+    }
+
+    pub fn cloneSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn recordMergedSymbol(c: *Checker, target: *anyopaque, source: *anyopaque) void {
+        _ = c;
+        _ = target;
+        _ = source;
+    }
+
+    pub fn getSymbolIfSameReference(c: *Checker, s1: *anyopaque, s2: *anyopaque) *anyopaque {
+        _ = c;
+        _ = s1;
+        _ = s2;
+        return undefined;
+    }
+
+    pub fn getLateBoundSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTargetOfImportEqualsDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn resolveExternalModuleTypeByLiteral(c: *Checker, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn getSymbolOfPartOfRightHandSideOfImportEquals(c: *Checker, entityName: *anyopaque) *anyopaque {
+        _ = c;
+        _ = entityName;
+        return undefined;
+    }
+
+    pub fn checkAndReportErrorForResolvingImportAliasToTypeOnlySymbol(c: *Checker, node: *anyopaque, resolved: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = resolved;
+    }
+
+    pub fn getTypeOnlyDeclarationOfEntityName(c: *Checker, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn getTargetOfImportClause(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTargetOfModuleDefault(c: *Checker, moduleSymbol: *anyopaque, node: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+        _ = c;
+        _ = moduleSymbol;
+        _ = node;
+        _ = dontResolveAlias;
+        return undefined;
+    }
+
+    pub fn reportNonDefaultExport(c: *Checker, moduleSymbol: *anyopaque, node: *anyopaque) void {
+        _ = c;
+        _ = moduleSymbol;
+        _ = node;
+    }
+
+    pub fn resolveExportByName(c: *Checker, moduleSymbol: *anyopaque, name_: *anyopaque, sourceNode: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+        _ = c;
+        _ = moduleSymbol;
+        _ = name_;
+        _ = sourceNode;
+        _ = dontResolveAlias;
+        return undefined;
+    }
+
+    pub fn getTargetOfNamespaceImport(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTargetOfNamespaceExport(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTargetOfImportSpecifier(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getExternalModuleMember(c: *Checker, node: *anyopaque, specifier: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = specifier;
+        _ = dontResolveAlias;
+        return undefined;
+    }
+
+    pub fn getPropertyOfVariable(c: *Checker, symbol_: *anyopaque, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn combineValueAndTypeSymbols(c: *Checker, valueSymbol: *anyopaque, typeSymbol: *anyopaque) *anyopaque {
+        _ = c;
+        _ = valueSymbol;
+        _ = typeSymbol;
+        return undefined;
+    }
+
+    pub fn getExportOfModule(c: *Checker, symbol_: *anyopaque, nameText: *anyopaque, specifier: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = nameText;
+        _ = specifier;
+        _ = dontResolveAlias;
+        return undefined;
+    }
+
+    pub fn isOnlyImportableAsDefault(c: *Checker, usage: *anyopaque, resolvedModule: *anyopaque) bool {
+        _ = c;
+        _ = usage;
+        _ = resolvedModule;
+        return false;
+    }
+
+    pub fn canHaveSyntheticDefault(c: *Checker, file: *anyopaque, moduleSymbol: *anyopaque, dontResolveAlias: *anyopaque, usage: *anyopaque) bool {
+        _ = c;
+        _ = file;
+        _ = moduleSymbol;
+        _ = dontResolveAlias;
+        _ = usage;
+        return false;
+    }
+
+    pub fn getEmitSyntaxForModuleSpecifierExpression(c: *Checker, usage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = usage;
+        return undefined;
+    }
+
+    pub fn errorNoModuleMemberSymbol(c: *Checker, moduleSymbol: *anyopaque, targetSymbol: *anyopaque, node: *anyopaque, name_: *anyopaque) void {
+        _ = c;
+        _ = moduleSymbol;
+        _ = targetSymbol;
+        _ = node;
+        _ = name_;
+    }
+
+    pub fn reportNonExportedMember(c: *Checker, name_: *anyopaque, declarationName: *anyopaque, moduleSymbol: *anyopaque, moduleName: *anyopaque) void {
+        _ = c;
+        _ = name_;
+        _ = declarationName;
+        _ = moduleSymbol;
+        _ = moduleName;
+    }
+
+    pub fn reportInvalidImportEqualsExportMember(c: *Checker, name_: *anyopaque, declarationName: *anyopaque, moduleName: *anyopaque) void {
+        _ = c;
+        _ = name_;
+        _ = declarationName;
+        _ = moduleName;
+    }
+
+    pub fn getTargetOfExportSpecifier(c: *Checker, node: *anyopaque, meaning: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = meaning;
+        _ = dontResolveAlias;
+        return undefined;
+    }
+
+    pub fn getTargetOfExportAssignment(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTargetOfBinaryExpression(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTargetOfAliasLikeExpression(c: *Checker, expression: *anyopaque) *anyopaque {
+        _ = c;
+        _ = expression;
+        return undefined;
+    }
+
+    pub fn getTargetOfNamespaceExportDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTargetOfAccessExpression(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getModuleSpecifierForImportOrExport(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getModuleSpecifierFromNode(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn markSymbolOfAliasDeclarationIfTypeOnly(c: *Checker, aliasDeclaration: *anyopaque, exportStarDeclaration: *anyopaque) bool {
+        _ = c;
+        _ = aliasDeclaration;
+        _ = exportStarDeclaration;
+        return false;
+    }
+
+    pub fn resolveExternalModuleName(c: *Checker, location: *anyopaque, moduleReferenceExpression: *anyopaque, ignoreErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = moduleReferenceExpression;
+        _ = ignoreErrors;
+        return undefined;
+    }
+
+    pub fn getCannotResolveModuleNameErrorForSpecificModule(c: *Checker, moduleName: *anyopaque) *anyopaque {
+        _ = c;
+        _ = moduleName;
+        return undefined;
+    }
+
+    pub fn resolveExternalModuleNameWorker(c: *Checker, location: *anyopaque, moduleReferenceExpression: *anyopaque, moduleNotFoundError: *anyopaque, ignoreErrors: *anyopaque, isForAugmentation: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = moduleReferenceExpression;
+        _ = moduleNotFoundError;
+        _ = ignoreErrors;
+        _ = isForAugmentation;
+        return undefined;
+    }
+
+    pub fn getExternalModuleFileFromDeclaration(c: *Checker, declaration: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        return undefined;
+    }
+
+    pub fn resolveExternalModule(c: *Checker, location: *anyopaque, moduleReference: *anyopaque, moduleNotFoundError: *anyopaque, errorNode: *anyopaque, isForAugmentation: *anyopaque) *anyopaque {
+        _ = c;
+        _ = location;
+        _ = moduleReference;
+        _ = moduleNotFoundError;
+        _ = errorNode;
+        _ = isForAugmentation;
+        return undefined;
+    }
+
+    pub fn resolutionExtensionIsTSOrJson(ext: *anyopaque) bool {
+        _ = ext;
+        return false;
+    }
+
+    pub fn getSuggestedImportSource(c: *Checker, moduleReference: *anyopaque, tsExtension: *anyopaque, mode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = moduleReference;
+        _ = tsExtension;
+        _ = mode;
+        return undefined;
+    }
+
+    pub fn getSuggestedImportExtension(c: *Checker, extensionlessImportPath: *anyopaque) *anyopaque {
+        _ = c;
+        _ = extensionlessImportPath;
+        return undefined;
+    }
+
+    pub fn errorOnImplicitAnyModule(c: *Checker, isError: *anyopaque, errorNode: *anyopaque, mode: *anyopaque, resolvedModule: *anyopaque, moduleReference: *anyopaque) void {
+        _ = c;
+        _ = isError;
+        _ = errorNode;
+        _ = mode;
+        _ = resolvedModule;
+        _ = moduleReference;
+    }
+
+    pub fn createModuleNotFoundChain(c: *Checker, resolvedModule: *anyopaque, errorNode: *anyopaque, moduleReference: *anyopaque, mode: *anyopaque, packageName: *anyopaque) *anyopaque {
+        _ = c;
+        _ = resolvedModule;
+        _ = errorNode;
+        _ = moduleReference;
+        _ = mode;
+        _ = packageName;
+        return undefined;
+    }
+
+    pub fn createModeMismatchDetails(c: *Checker, sourceFile: *anyopaque, errorNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sourceFile;
+        _ = errorNode;
+        return undefined;
+    }
+
+    pub fn tryFindAmbientModule(c: *Checker, moduleName: *anyopaque, withAugmentations: *anyopaque) *anyopaque {
+        _ = c;
+        _ = moduleName;
+        _ = withAugmentations;
+        return undefined;
+    }
+
+    pub fn getAmbientModules(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn resolveESModuleSymbol(c: *Checker, moduleSymbol: *anyopaque, node: *anyopaque, moduleSpecifier: *anyopaque) *anyopaque {
+        _ = c;
+        _ = moduleSymbol;
+        _ = node;
+        _ = moduleSpecifier;
+        return undefined;
+    }
+
+    pub fn hasSignatures(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isESMFormatImportImportingCommonjsFormatFile(usageMode: *anyopaque, targetMode: *anyopaque) bool {
+        _ = usageMode;
+        _ = targetMode;
+        return false;
+    }
+
+    pub fn getTypeWithSyntheticDefaultOnly(c: *Checker, t: *anyopaque, symbol_: *anyopaque, originalSymbol: *anyopaque, moduleSpecifier: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = symbol_;
+        _ = originalSymbol;
+        _ = moduleSpecifier;
+        return undefined;
+    }
+
+    pub fn getTypeWithSyntheticDefaultImportType(c: *Checker, t: *anyopaque, symbol_: *anyopaque, originalSymbol: *anyopaque, moduleSpecifier: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = symbol_;
+        _ = originalSymbol;
+        _ = moduleSpecifier;
+        return undefined;
+    }
+
+    pub fn isCommonJSRequire(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn createDefaultPropertyWrapperForModule(c: *Checker, symbol_: *anyopaque, originalSymbol: *anyopaque, anonymousSymbol: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = originalSymbol;
+        _ = anonymousSymbol;
+        return undefined;
+    }
+
+    pub fn cloneTypeAsModuleType(c: *Checker, symbol_: *anyopaque, moduleType: *anyopaque, referenceParent: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = moduleType;
+        _ = referenceParent;
+        return undefined;
+    }
+
+    pub fn getTargetOfAliasDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn resolveQualifiedName(c: *Checker, name_: *anyopaque, left: *anyopaque, right: *anyopaque, meaning: *anyopaque, ignoreErrors: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = left;
+        _ = right;
+        _ = meaning;
+        _ = ignoreErrors;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn tryGetQualifiedNameAsValue(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getSuggestedSymbolForNonexistentModule(c: *Checker, name_: *anyopaque, targetModule: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = targetModule;
+        return undefined;
+    }
+
+    pub fn getFullyQualifiedName(c: *Checker, symbol_: *anyopaque, containingLocation: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = containingLocation;
+        return undefined;
+    }
+
+    pub fn getExportsOfSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getResolvedMembersOrExportsOfSymbol(c: *Checker, symbol_: *anyopaque, resolutionKind: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = resolutionKind;
+        return undefined;
+    }
+
+    pub fn lateBindMember(c: *Checker, parent: *anyopaque, earlySymbols: *anyopaque, lateSymbols: *anyopaque, decl: *anyopaque) *anyopaque {
+        _ = c;
+        _ = parent;
+        _ = earlySymbols;
+        _ = lateSymbols;
+        _ = decl;
+        return undefined;
+    }
+
+    pub fn lateBindIndexSignature(c: *Checker, parent: *anyopaque, earlySymbols: *anyopaque, lateSymbols: *anyopaque, decl: *anyopaque) void {
+        _ = c;
+        _ = parent;
+        _ = earlySymbols;
+        _ = lateSymbols;
+        _ = decl;
+    }
+
+    pub fn isNotReplacableByMethod(decl: *anyopaque) bool {
+        _ = decl;
+        return false;
+    }
+
+    pub fn addDeclarationToLateBoundSymbol(c: *Checker, symbol_: *anyopaque, member: *anyopaque, symbolFlags: *anyopaque) void {
+        _ = c;
+        _ = symbol_;
+        _ = member;
+        _ = symbolFlags;
+    }
+
+    pub fn getMembersOfSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getExportsOfModule(c: *Checker, moduleSymbol: *anyopaque) *anyopaque {
+        _ = c;
+        _ = moduleSymbol;
+        return undefined;
+    }
+
+    pub fn getExportsOfModuleWorker(c: *Checker, moduleSymbol: *anyopaque) *anyopaque {
+        _ = c;
+        _ = moduleSymbol;
+        return undefined;
+    }
+
+    pub fn extendExportSymbols(c: *Checker, target: *anyopaque, source: *anyopaque, lookupTable: *anyopaque, exportNode: *anyopaque) void {
+        _ = c;
+        _ = target;
+        _ = source;
+        _ = lookupTable;
+        _ = exportNode;
+    }
+
+    pub fn resolveIndirectionAlias(c: *Checker, source: *anyopaque, target: *anyopaque) *anyopaque {
+        _ = c;
+        _ = source;
+        _ = target;
+        return undefined;
+    }
+
+    pub fn tryResolveAlias(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn resolveAliasWithDeprecationCheck(c: *Checker, symbol_: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn getSymbolFlagsEx(c: *Checker, symbol_: *anyopaque, excludeTypeOnlyMeanings: *anyopaque, excludeLocalMeanings: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = excludeTypeOnlyMeanings;
+        _ = excludeLocalMeanings;
+        return undefined;
+    }
+
+    pub fn getDeclarationOfAliasSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeOfSymbolWithDeferredType(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getWriteTypeOfSymbolWithDeferredType(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeOfSymbolAtLocation(c: *Checker, symbol_: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn getTypeOfInstantiatedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getWriteTypeOfInstantiatedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeOfVariableOrParameterOrProperty(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn isParameterOfContextSensitiveSignature(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn getTypeOfVariableOrParameterOrPropertyWorker(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getWidenedTypeForVariableLikeDeclaration(c: *Checker, declaration: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getTypeForVariableLikeDeclaration(c: *Checker, declaration: *anyopaque, includeOptionality: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = includeOptionality;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkDeclarationInitializer(c: *Checker, declaration: *anyopaque, checkMode: *anyopaque, contextualType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = checkMode;
+        _ = contextualType;
+        return undefined;
+    }
+
+    pub fn padObjectLiteralType(c: *Checker, t: *anyopaque, pattern: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = pattern;
+        return undefined;
+    }
+
+    pub fn getPropertyNameFromBindingElement(c: *Checker, e: *anyopaque) *anyopaque {
+        _ = c;
+        _ = e;
+        return undefined;
+    }
+
+    pub fn padTupleType(c: *Checker, t: *anyopaque, pattern: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = pattern;
+        return undefined;
+    }
+
+    pub fn widenTypeInferredFromInitializer(c: *Checker, declaration: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getWidenedLiteralTypeForInitializer(c: *Checker, declaration: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getTypeOfFuncClassEnumModule(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeOfFuncClassEnumModuleWorker(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getBaseTypeVariableOfClass(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getBaseConstructorTypeOfClass(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getConstraintFromTypeParameter(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getConstraintOrUnknownFromTypeParameter(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getInferredTypeParameterConstraint(c: *Checker, t: *anyopaque, omitTypeReferences: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = omitTypeReferences;
+        return undefined;
+    }
+
+    pub fn getTypeParametersForTypeReferenceOrImport(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeParametersForTypeAndSymbol(c: *Checker, t: *anyopaque, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getEffectiveTypeArgumentAtIndex(c: *Checker, node: *anyopaque, typeParameters: *anyopaque, index: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = typeParameters;
+        _ = index;
+        return undefined;
+    }
+
+    pub fn getConstraintFromIndexedAccess(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getConstraintFromConditionalType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getDeclaredTypeOfClassOrInterface(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn isThislessInterface(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn isZero_stub() bool {
+        return false;
+    }
+
+    pub fn hash(b: *anyopaque) *anyopaque {
+        _ = b;
+        return undefined;
+    }
+
+    pub fn writeByte(b: *anyopaque, c: *anyopaque) void {
+        _ = b;
+        _ = c;
+    }
+
+    pub fn writeString(b: *anyopaque, s: *anyopaque) void {
+        _ = b;
+        _ = s;
+    }
+
+    pub fn writeInt(b: *anyopaque, value: *anyopaque) void {
+        _ = b;
+        _ = value;
+    }
+
+    pub fn writeSymbol(b: *anyopaque, s: *anyopaque) void {
+        _ = b;
+        _ = s;
+    }
+
+    pub fn writeType(b: *anyopaque, t: *anyopaque) void {
+        _ = b;
+        _ = t;
+    }
+
+    pub fn writeTypes(b: *anyopaque, types_: *anyopaque) void {
+        _ = b;
+        _ = types_;
+    }
+
+    pub fn writeAlias(b: *anyopaque, alias: *anyopaque) void {
+        _ = b;
+        _ = alias;
+    }
+
+    pub fn writeGenericTypeReferences(b: *anyopaque, source: *anyopaque, target: *anyopaque, ignoreConstraints: *anyopaque) bool {
+        _ = b;
+        _ = source;
+        _ = target;
+        _ = ignoreConstraints;
+        return false;
+    }
+
+    pub fn writeNodeId(b: *anyopaque, id: *anyopaque) void {
+        _ = b;
+        _ = id;
+    }
+
+    pub fn writeNode(b: *anyopaque, node: *anyopaque) void {
+        _ = b;
+        _ = node;
+    }
+
+    pub fn getAliasKey(alias: *anyopaque) *anyopaque {
+        _ = alias;
+        return undefined;
+    }
+
+    pub fn getUnionKey(types_: *anyopaque, origin: *anyopaque, alias: *anyopaque) *anyopaque {
+        _ = types_;
+        _ = origin;
+        _ = alias;
+        return undefined;
+    }
+
+    pub fn getIntersectionKey(types_: *anyopaque, flags: *anyopaque, alias: *anyopaque) *anyopaque {
+        _ = types_;
+        _ = flags;
+        _ = alias;
+        return undefined;
+    }
+
+    pub fn getIndexedAccessKey(objectType: *anyopaque, indexType: *anyopaque, accessFlags: *anyopaque, alias: *anyopaque) *anyopaque {
+        _ = objectType;
+        _ = indexType;
+        _ = accessFlags;
+        _ = alias;
+        return undefined;
+    }
+
+    pub fn getRelationKey(source: *anyopaque, target: *anyopaque, intersectionState: *anyopaque, isIdentity: *anyopaque, ignoreConstraints: *anyopaque) bool {
+        _ = source;
+        _ = target;
+        _ = intersectionState;
+        _ = isIdentity;
+        _ = ignoreConstraints;
+        return false;
+    }
+
+    pub fn getNodeListKey(nodes: *anyopaque) *anyopaque {
+        _ = nodes;
+        return undefined;
+    }
+
+    pub fn isTypeReferenceWithGenericArguments(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isNonDeferredTypeReference(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isUnconstrainedTypeParameter(tp: *anyopaque) bool {
+        _ = tp;
+        return false;
+    }
+
+    pub fn isNullOrUndefined(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn checkRightHandSideOfForOf(c: *Checker, statement: *anyopaque) *anyopaque {
+        _ = c;
+        _ = statement;
+        return undefined;
+    }
+
+    pub fn getTypeForBindingElement(c: *Checker, declaration: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        return undefined;
+    }
+
+    pub fn getTypeForBindingElementParent(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getBindingElementTypeFromParentType(c: *Checker, declaration: *anyopaque, parentType: *anyopaque, noTupleBoundsCheck: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = parentType;
+        _ = noTupleBoundsCheck;
+        return undefined;
+    }
+
+    pub fn getRestType(c: *Checker, source: *anyopaque, properties: *anyopaque, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = source;
+        _ = properties;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getFlowTypeOfDestructuring(c: *Checker, node: *anyopaque, declaredType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = declaredType;
+        return undefined;
+    }
+
+    pub fn getSyntheticElementAccess(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getParentElementAccess(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = pattern;
+        _ = includePatternInType;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getTypeFromObjectBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = pattern;
+        _ = includePatternInType;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getTypeFromArrayBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = pattern;
+        _ = includePatternInType;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getTypeFromBindingElement(c: *Checker, element: *anyopaque, includePatternInType: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = element;
+        _ = includePatternInType;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn declarationBelongsToPrivateAmbientMember(c: *Checker, declaration: *anyopaque) bool {
+        _ = c;
+        _ = declaration;
+        return false;
+    }
+
+    pub fn getTypeOfPrototypeProperty(c: *Checker, prototype: *anyopaque) *anyopaque {
+        _ = c;
+        _ = prototype;
+        return undefined;
+    }
+
+    pub fn getWidenedTypeForAssignmentDeclaration(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getAssignmentDeclarationInitializerType(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn hasParentWithTypeAnnotation(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn containsSameNamedThisProperty(c: *Checker, thisProperty: *anyopaque, expression: *anyopaque) bool {
+        _ = c;
+        _ = thisProperty;
+        _ = expression;
+        return false;
+    }
+
+    pub fn getTypeFromPropertyDescriptor(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isConstructorDeclaredThisProperty(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn isGlobalSymbolConstructor(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn widenTypeForVariableLikeDeclaration(c: *Checker, t: *anyopaque, declaration: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = declaration;
+        _ = reportErrors;
+        return undefined;
+    }
+
+    pub fn getWidenedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getWidenedTypeWithContext(c: *Checker, t: *anyopaque, context: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = context;
+        return undefined;
+    }
+
+    pub fn getWidenedTypeOfObjectLiteral(c: *Checker, t: *anyopaque, context: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = context;
+        return undefined;
+    }
+
+    pub fn getWidenedProperty(c: *Checker, prop: *anyopaque, context: *anyopaque) *anyopaque {
+        _ = c;
+        _ = prop;
+        _ = context;
+        return undefined;
+    }
+
+    pub fn getChildContext(w: *anyopaque, propertyName: *anyopaque) *anyopaque {
+        _ = w;
+        _ = propertyName;
+        return undefined;
+    }
+
+    pub fn getPropertiesOfContext(c: *Checker, context: *anyopaque) *anyopaque {
+        _ = c;
+        _ = context;
+        return undefined;
+    }
+
+    pub fn getSiblingsOfContext(c: *Checker, context: *anyopaque) *anyopaque {
+        _ = c;
+        _ = context;
+        return undefined;
+    }
+
+    pub fn getUndefinedProperty(c: *Checker, prop: *anyopaque) *anyopaque {
+        _ = c;
+        _ = prop;
+        return undefined;
+    }
+
+    pub fn getTypeOfEnumMember(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeOfAccessors(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getWriteTypeOfAccessors(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeOfAlias(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn addOptionality(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getNonNullableType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn isNullableType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getNonNullableTypeIfNeeded(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getCombinedNodeFlagsCached(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isVarConstLike(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn getEffectivePropertyNameForPropertyNameNode(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn tryGetNameFromType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getCombinedModifierFlagsCached(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn pushTypeResolution(c: *Checker, target: *anyopaque, propertyName: *anyopaque) bool {
+        _ = c;
+        _ = target;
+        _ = propertyName;
+        return false;
+    }
+
+    pub fn popTypeResolution(c: *Checker) bool {
+        _ = c;
+        return false;
+    }
+
+    pub fn reportCircularityError(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getPropertyOfTypeEx(c: *Checker, t: *anyopaque, name_: *anyopaque, skipObjectFunctionPropertyAugment: *anyopaque, includeTypeOnlyMembers: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = name_;
+        _ = skipObjectFunctionPropertyAugment;
+        _ = includeTypeOnlyMembers;
+        return undefined;
+    }
+
+    pub fn getSignaturesOfStructuredType(c: *Checker, t: *anyopaque, kind_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = kind_;
+        return undefined;
+    }
+
+    pub fn getBaseTypes(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getTupleBaseType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn resolveBaseTypesOfClass(c: *Checker, t: *anyopaque) void {
+        _ = c;
+        _ = t;
+    }
+
+    pub fn getBaseTypeNodeOfClass(t: *anyopaque) *anyopaque {
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getInstantiatedConstructorsForTypeArguments(c: *Checker, t: *anyopaque, typeArgumentNodes: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = typeArgumentNodes;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn getConstructorsForTypeArguments(c: *Checker, t: *anyopaque, typeArgumentNodes: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = typeArgumentNodes;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn getSignatureInstantiation(c: *Checker, sig: *anyopaque, typeArguments: *anyopaque, isJavaScript: *anyopaque, inferredTypeParameters: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        _ = typeArguments;
+        _ = isJavaScript;
+        _ = inferredTypeParameters;
+        return undefined;
+    }
+
+    pub fn cloneSignature(c: *Checker, sig: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        return undefined;
+    }
+
+    pub fn getSignatureInstantiationWithoutFillingInTypeArguments(c: *Checker, sig: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        _ = typeArguments;
+        return undefined;
+    }
+
+    pub fn createSignatureInstantiation(c: *Checker, sig: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        _ = typeArguments;
+        return undefined;
+    }
+
+    pub fn createSignatureTypeMapper(c: *Checker, sig: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        _ = typeArguments;
+        return undefined;
+    }
+
+    pub fn getTypeParametersForMapper(c: *Checker, sig: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        return undefined;
+    }
+
+    pub fn getSingleCallSignature(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getSingleCallOrConstructSignature(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getSingleSignature(c: *Checker, t: *anyopaque, kind_: *anyopaque, allowMembers: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = kind_;
+        _ = allowMembers;
+        return undefined;
+    }
+
+    pub fn getOrCreateTypeFromSignature(c: *Checker, sig: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        return undefined;
+    }
+
+    pub fn getCanonicalSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        return undefined;
+    }
+
+    pub fn createCanonicalSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        return undefined;
+    }
+
+    pub fn getBaseSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        return undefined;
+    }
+
+    pub fn instantiateSignatureInContextOf(c: *Checker, signature: *anyopaque, contextualSignature: *anyopaque, inferenceContext: *anyopaque, compareTypes: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        _ = contextualSignature;
+        _ = inferenceContext;
+        _ = compareTypes;
+        return undefined;
+    }
+
+    pub fn resolveBaseTypesOfInterface(c: *Checker, t: *anyopaque) void {
+        _ = c;
+        _ = t;
+    }
+
+    pub fn areAllOuterTypeParametersApplied(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn reportCircularBaseType(c: *Checker, node: *anyopaque, t: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = t;
+    }
+
+    pub fn isValidBaseType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn addInheritedMembers(c: *Checker, symbols: *anyopaque, baseSymbols: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbols;
+        _ = baseSymbols;
+        return undefined;
+    }
+
+    pub fn getObjectLiteralIndexInfo(c: *Checker, isReadonly: *anyopaque, properties: *anyopaque, keyType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = isReadonly;
+        _ = properties;
+        _ = keyType;
+        return undefined;
+    }
+
+    pub fn isSymbolWithSymbolName(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn isSymbolWithNumericName(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn isSymbolWithComputedName(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn isNumericName(c: *Checker, name_: *anyopaque) bool {
+        _ = c;
+        _ = name_;
+        return false;
+    }
+
+    pub fn isNumericComputedName(c: *Checker, name_: *anyopaque) bool {
+        _ = c;
+        _ = name_;
+        return false;
+    }
+
+    pub fn isValidIndexKeyType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getIndexSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeParametersFromDeclaration(c: *Checker, declaration: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        return undefined;
+    }
+
+    pub fn getAnnotatedAccessorThisParameter(c: *Checker, accessor: *anyopaque) *anyopaque {
+        _ = c;
+        _ = accessor;
+        return undefined;
+    }
+
+    pub fn getAccessorThisParameter(c: *Checker, accessor: *anyopaque) *anyopaque {
+        _ = c;
+        _ = accessor;
+        return undefined;
+    }
+
+    pub fn hasBindableName(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn hasLateBindableName(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isLateBindableName(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn hasLateBindableIndexSignature(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isLateBindableIndexSignature(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn isTypeUsableAsIndexSignatureDeclaration(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isLateBindableAST(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn getNonCircularReturnTypeOfSignature(c: *Checker, sig: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sig;
+        return undefined;
+    }
+
+    pub fn getReturnTypeFromAnnotation(c: *Checker, declaration: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        return undefined;
+    }
+
+    pub fn getSignatureOfFullSignatureType(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getParameterTypeOfFullSignature(c: *Checker, node: *anyopaque, parameter: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = parameter;
+        return undefined;
+    }
+
+    pub fn getReturnTypeOfFullSignature(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getAnnotatedAccessorType(c: *Checker, accessor: *anyopaque) *anyopaque {
+        _ = c;
+        _ = accessor;
+        return undefined;
+    }
+
+    pub fn getAnnotatedAccessorTypeNode(c: *Checker, accessor: *anyopaque) *anyopaque {
+        _ = c;
+        _ = accessor;
+        return undefined;
+    }
+
+    pub fn getEffectiveSetAccessorTypeAnnotationNode(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getReturnTypeFromBody(c: *Checker, fn_: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = fn_;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn checkAndAggregateReturnExpressionTypes(c: *Checker, fn_: *anyopaque, checkMode: *anyopaque) bool {
+        _ = c;
+        _ = fn_;
+        _ = checkMode;
+        return false;
+    }
+
+    pub fn functionHasImplicitReturn(c: *Checker, fn_: *anyopaque) bool {
+        _ = c;
+        _ = fn_;
+        return false;
+    }
+
+    pub fn mayReturnNever(fn_: *anyopaque) bool {
+        _ = fn_;
+        return false;
+    }
+
+    pub fn checkAndAggregateYieldOperandTypes(c: *Checker, fn_: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = fn_;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn createPromiseType(c: *Checker, promisedType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = promisedType;
+        return undefined;
+    }
+
+    pub fn createPromiseLikeType(c: *Checker, promisedType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = promisedType;
+        return undefined;
+    }
+
+    pub fn createPromiseReturnType(c: *Checker, fn_: *anyopaque, promisedType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = fn_;
+        _ = promisedType;
+        return undefined;
+    }
+
+    pub fn unwrapReturnType(c: *Checker, returnType: *anyopaque, functionFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = returnType;
+        _ = functionFlags;
+        return undefined;
+    }
+
+    pub fn getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded(c: *Checker, t: *anyopaque, contextualSignatureReturnType: *anyopaque, isAsync: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = contextualSignatureReturnType;
+        _ = isAsync;
+        return undefined;
+    }
+
+    pub fn getWidenedLiteralLikeTypeForContextualIterationTypeIfNeeded(c: *Checker, t: *anyopaque, contextualSignatureReturnType: *anyopaque, kind_: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = contextualSignatureReturnType;
+        _ = kind_;
+        _ = isAsyncGenerator;
+        return undefined;
+    }
+
+    pub fn createGeneratorType(c: *Checker, yieldType: *anyopaque, returnType: *anyopaque, nextType: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = yieldType;
+        _ = returnType;
+        _ = nextType;
+        _ = isAsyncGenerator;
+        return undefined;
+    }
+
+    pub fn reportErrorsFromWidening(c: *Checker, declaration: *anyopaque, t: *anyopaque, wideningKind: *anyopaque) void {
+        _ = c;
+        _ = declaration;
+        _ = t;
+        _ = wideningKind;
+    }
+
+    pub fn shouldReportErrorsFromWideningWithContextualSignature(c: *Checker, declaration: *anyopaque, wideningKind: *anyopaque) bool {
+        _ = c;
+        _ = declaration;
+        _ = wideningKind;
+        return false;
+    }
+
+    pub fn reportWideningErrorsInType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getTypePredicateFromBody(c: *Checker, fn_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = fn_;
+        return undefined;
+    }
+
+    pub fn checkIfExpressionRefinesAnyParameter(c: *Checker, fn_: *anyopaque, expr: *anyopaque) *anyopaque {
+        _ = c;
+        _ = fn_;
+        _ = expr;
+        return undefined;
+    }
+
+    pub fn checkIfExpressionRefinesParameter(c: *Checker, fn_: *anyopaque, expr: *anyopaque, param: *anyopaque, initType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = fn_;
+        _ = expr;
+        _ = param;
+        _ = initType;
+        return undefined;
+    }
+
+    pub fn addOptionalTypeMarker(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn createInstantiatedSymbolTable(c: *Checker, symbols: *anyopaque, m: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbols;
+        _ = m;
+        return undefined;
+    }
+
+    pub fn instantiateSymbolTable(c: *Checker, symbols: *anyopaque, m: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbols;
+        _ = m;
+        return undefined;
+    }
+
+    pub fn instantiateSymbol(c: *Checker, symbol_: *anyopaque, m: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = m;
+        return undefined;
+    }
+
+    pub fn isThisless(symbol_: *anyopaque) bool {
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn isThislessVariableLikeDeclaration(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn isThislessType(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn isThislessFunctionLikeDeclaration(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn isThislessTypeParameter(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn getDefaultConstructSignatures(c: *Checker, classType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = classType;
+        return undefined;
+    }
+
+    pub fn getTypeOfMappedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getLowerBoundOfKeyType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getArrayMemberCallSignatures(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn isArrayOrTupleSymbol(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn isReadonlyArraySymbol(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn combineUnionOrIntersectionMemberSignatures(c: *Checker, left: *anyopaque, right: *anyopaque, isUnion: *anyopaque) *anyopaque {
+        _ = c;
+        _ = left;
+        _ = right;
+        _ = isUnion;
+        return undefined;
+    }
+
+    pub fn combineUnionOrIntersectionParameters(c: *Checker, left: *anyopaque, right: *anyopaque, mapper: *anyopaque, isUnion: *anyopaque) *anyopaque {
+        _ = c;
+        _ = left;
+        _ = right;
+        _ = mapper;
+        _ = isUnion;
+        return undefined;
+    }
+
+    pub fn combineUnionOrIntersectionThisParam(c: *Checker, left: *anyopaque, right: *anyopaque, mapper: *anyopaque, isUnion: *anyopaque) *anyopaque {
+        _ = c;
+        _ = left;
+        _ = right;
+        _ = mapper;
+        _ = isUnion;
+        return undefined;
+    }
+
+    pub fn findMixins(c: *Checker, types_: *anyopaque) i32 {
+        _ = c;
+        _ = types_;
+        return 0;
+    }
+
+    pub fn includeMixinType(c: *Checker, t: *anyopaque, types_: *anyopaque, mixinFlags: *anyopaque, index: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = types_;
+        _ = mixinFlags;
+        _ = index;
+        return undefined;
+    }
+
+    pub fn getTargetSymbol(c: *Checker, s: *anyopaque) *anyopaque {
+        _ = c;
+        _ = s;
+        return undefined;
+    }
+
+    pub fn isPrototypeProperty(symbol_: *anyopaque) bool {
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn hasCommonDeclaration(c: *Checker, symbols: *anyopaque) bool {
+        _ = c;
+        _ = symbols;
+        return false;
+    }
+
+    pub fn createSymbolWithType(c: *Checker, source: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = source;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getApparentTypeOfMappedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getResolvedApparentTypeOfMappedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getApparentTypeOfIntersectionType(c: *Checker, t: *anyopaque, thisArgument: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = thisArgument;
+        return undefined;
+    }
+
+    pub fn isNeverReducedProperty(c: *Checker, prop: *anyopaque) bool {
+        _ = c;
+        _ = prop;
+        return false;
+    }
+
+    pub fn elaborateNeverIntersection(c: *Checker, chain: *anyopaque, node: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = chain;
+        _ = node;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn isDiscriminantWithNeverType(c: *Checker, prop: *anyopaque) bool {
+        _ = c;
+        _ = prop;
+        return false;
+    }
+
+    pub fn isConflictingPrivateProperty(prop: *anyopaque) bool {
+        _ = prop;
+        return false;
+    }
+
+    pub fn getEffectiveTypeArguments(c: *Checker, node: *anyopaque, typeParameters: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = typeParameters;
+        return undefined;
+    }
+
+    pub fn getDefaultTypeArgumentType(c: *Checker, isInJavaScriptFile: *anyopaque) *anyopaque {
+        _ = c;
+        _ = isInJavaScriptFile;
+        return undefined;
+    }
+
+    pub fn getDefaultOrUnknownFromTypeParameter(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getNamedMembers(c: *Checker, members: *anyopaque, container: *anyopaque) *anyopaque {
+        _ = c;
+        _ = members;
+        _ = container;
+        return undefined;
+    }
+
+    pub fn isDeclarationContainedBy(c: *Checker, symbol_: *anyopaque, container: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        _ = container;
+        return false;
+    }
+
+    pub fn symbolIsValueEx(c: *Checker, symbol_: *anyopaque, includeTypeOnlyMembers: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        _ = includeTypeOnlyMembers;
+        return false;
+    }
+
+    pub fn pushActiveMapper(c: *Checker, mapper: *anyopaque) void {
+        _ = c;
+        _ = mapper;
+    }
+
+    pub fn popActiveMapper(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn findActiveMapper(c: *Checker, mapper: *anyopaque) i32 {
+        _ = c;
+        _ = mapper;
+        return 0;
+    }
+
+    pub fn clearActiveMapperCaches(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn couldContainTypeVariablesWorker(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getConstraintDeclarationForMappedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn forEachMappedTypePropertyKeyTypeAndIndexSignatureKeyType(c: *Checker, t: *anyopaque, include: *anyopaque, stringsOnly: *anyopaque, cb: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = include;
+        _ = stringsOnly;
+        _ = cb;
+        return undefined;
+    }
+
+    pub fn instantiateSymbols(c: *Checker, symbols: *anyopaque, m: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbols;
+        _ = m;
+        return undefined;
+    }
+
+    pub fn tryGetTypeFromTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromTypeNodeWorker(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromThisTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getThisType(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromLiteralTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromIndexedAccessTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromTypeOperatorNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getESSymbolLikeTypeForNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromTypeReference(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getIntendedTypeFromJSDocTypeReference(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getSymbolFromTypeReference(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn resolveTypeReferenceName(c: *Checker, typeReference: *anyopaque, meaning: *anyopaque, ignoreErrors: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeReference;
+        _ = meaning;
+        _ = ignoreErrors;
+        return undefined;
+    }
+
+    pub fn getUnresolvedSymbolForEntityName(c: *Checker, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn getSymbolPath(symbol_: *anyopaque) *anyopaque {
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeReferenceType(c: *Checker, node: *anyopaque, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeFromClassOrInterfaceReference(c: *Checker, node: *anyopaque, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeArgumentsFromNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn checkNoTypeArguments(c: *Checker, node: *anyopaque, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn isDeferredTypeReferenceNode(c: *Checker, node: *anyopaque, hasDefaultTypeArguments: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = hasDefaultTypeArguments;
+        return false;
+    }
+
+    pub fn isResolvedByTypeAlias(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn mayResolveTypeAlias(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn getTotalFixedElementCount(t: *anyopaque) i32 {
+        _ = t;
+        return 0;
+    }
+
+    pub fn getElementTypes(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getTypeReferenceArity(c: *Checker, t: *anyopaque) i32 {
+        _ = c;
+        _ = t;
+        return 0;
+    }
+
+    pub fn isEmptyLiteralType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isTupleLikeType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isArrayOrTupleLikeType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getTupleElementType(c: *Checker, t: *anyopaque, index: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = index;
+        return undefined;
+    }
+
+    pub fn getTypeFromTypeAliasReference(c: *Checker, node: *anyopaque, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn isLocalTypeAlias(symbol_: *anyopaque) bool {
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn getTypeReferenceName(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getOuterTypeParametersOfClassOrInterface(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getInferTypeParameters(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getLocalTypeParametersOfClassOrInterfaceOrTypeAlias(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias(c: *Checker, types_: *anyopaque, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn appendTypeParameters(c: *Checker, typeParameters: *anyopaque, declarations: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeParameters;
+        _ = declarations;
+        return undefined;
+    }
+
+    pub fn getDeclaredTypeOfEnum(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn createComputedEnumType(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getDeclaredTypeOfEnumMember(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn computeEnumMemberValue(c: *Checker, member: *anyopaque, autoValue: *anyopaque, previous: *anyopaque) *anyopaque {
+        _ = c;
+        _ = member;
+        _ = autoValue;
+        _ = previous;
+        return undefined;
+    }
+
+    pub fn computeConstantEnumMemberValue(c: *Checker, member: *anyopaque) *anyopaque {
+        _ = c;
+        _ = member;
+        return undefined;
+    }
+
+    pub fn evaluateEntity(c: *Checker, expr: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = expr;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn evaluateEnumMember(c: *Checker, expr: *anyopaque, symbol_: *anyopaque, location: *anyopaque) *anyopaque {
+        _ = c;
+        _ = expr;
+        _ = symbol_;
+        _ = location;
+        return undefined;
+    }
+
+    pub fn getDeclaredTypeOfAlias(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getTypeFromTypeQueryNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromArrayOrTupleTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isVariadicTupleElement(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn getArrayOrTupleTargetType(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isReadonlyTypeOperator(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn getTypeFromNamedTupleTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromRestTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getArrayElementTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromOptionalTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromUnionTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromIntersectionTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromTemplateTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromMappedTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromConditionalTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn restrictiveMapperWorker(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn permissiveMapperWorker(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getTypeFromInferTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTypeFromImportTypeNode(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getIdentifierChain(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn resolveImportSymbolType(c: *Checker, node: *anyopaque, symbol_: *anyopaque, meaning: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = symbol_;
+        _ = meaning;
+        return undefined;
+    }
+
+    pub fn createTypeFromGenericGlobalType(c: *Checker, genericGlobalType: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+        _ = c;
+        _ = genericGlobalType;
+        _ = typeArguments;
+        return undefined;
+    }
+
+    pub fn getGlobalStrictFunctionType(c: *Checker, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn getGlobalImportMetaExpressionType(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn createIterableType(c: *Checker, iteratedType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = iteratedType;
+        return undefined;
+    }
+
+    pub fn createArrayTypeEx(c: *Checker, elementType: *anyopaque, readonly: *anyopaque) *anyopaque {
+        _ = c;
+        _ = elementType;
+        _ = readonly;
+        return undefined;
+    }
+
+    pub fn getTupleElementFlags(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getTupleElementInfo(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn createTupleType(c: *Checker, elementTypes: *anyopaque) *anyopaque {
+        _ = c;
+        _ = elementTypes;
+        return undefined;
+    }
+
+    pub fn getRestTypeOfTupleType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getTupleElementTypeOutOfStartCount(c: *Checker, t: *anyopaque, index: *anyopaque, undefinedLikeType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = index;
+        _ = undefinedLikeType;
+        return undefined;
+    }
+
+    pub fn isGenericType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isGenericReducibleType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isReducibleIntersection(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getUniqueLiteralTypeForTypeParameter(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getConditionalFlowTypeOfType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getImpliedConstraint(c: *Checker, t: *anyopaque, checkNode: *anyopaque, extendsNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = checkNode;
+        _ = extendsNode;
+        return undefined;
+    }
+
+    pub fn isUnaryTupleTypeNode(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn newType_stub(c: *Checker, flags: *anyopaque, objectFlags: *anyopaque, data: *anyopaque) *anyopaque {
+        _ = c;
+        _ = flags;
+        _ = objectFlags;
+        _ = data;
+        return undefined;
+    }
+
+    pub fn newIntrinsicType(c: *Checker, flags: *anyopaque, intrinsicName: *anyopaque) *anyopaque {
+        _ = c;
+        _ = flags;
+        _ = intrinsicName;
+        return undefined;
+    }
+
+    pub fn newIntrinsicTypeEx(c: *Checker, flags: *anyopaque, intrinsicName: *anyopaque, objectFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = flags;
+        _ = intrinsicName;
+        _ = objectFlags;
+        return undefined;
+    }
+
+    pub fn createWideningType(c: *Checker, nonWideningType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = nonWideningType;
+        return undefined;
+    }
+
+    pub fn createUnknownUnionType(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn newLiteralType(c: *Checker, flags: *anyopaque, value: *anyopaque, regularType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = flags;
+        _ = value;
+        _ = regularType;
+        return undefined;
+    }
+
+    pub fn newUniqueESSymbolType(c: *Checker, symbol_: *anyopaque, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn newObjectType(c: *Checker, objectFlags: *anyopaque, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectFlags;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn newAnonymousType(c: *Checker, symbol_: *anyopaque, members: *anyopaque, callSignatures: *anyopaque, constructSignatures: *anyopaque, indexInfos: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        _ = members;
+        _ = callSignatures;
+        _ = constructSignatures;
+        _ = indexInfos;
+        return undefined;
+    }
+
+    pub fn tryCreateTypeReference(c: *Checker, target: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+        _ = c;
+        _ = target;
+        _ = typeArguments;
+        return undefined;
+    }
+
+    pub fn cloneTypeReference(c: *Checker, source: *anyopaque) *anyopaque {
+        _ = c;
+        _ = source;
+        return undefined;
+    }
+
+    pub fn setStructuredTypeMembers(c: *Checker, t: *anyopaque, members: *anyopaque, callSignatures: *anyopaque, constructSignatures: *anyopaque, indexInfos: *anyopaque) void {
+        _ = c;
+        _ = t;
+        _ = members;
+        _ = callSignatures;
+        _ = constructSignatures;
+        _ = indexInfos;
+    }
+
+    pub fn newTypeParameter(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn newUnionType(c: *Checker, objectFlags: *anyopaque, types_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectFlags;
+        _ = types_;
+        return undefined;
+    }
+
+    pub fn newIntersectionType(c: *Checker, objectFlags: *anyopaque, types_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectFlags;
+        _ = types_;
+        return undefined;
+    }
+
+    pub fn newIndexedAccessType(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, accessFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectType;
+        _ = indexType;
+        _ = accessFlags;
+        return undefined;
+    }
+
+    pub fn newIndexType(c: *Checker, target: *anyopaque, indexFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = target;
+        _ = indexFlags;
+        return undefined;
+    }
+
+    pub fn newSubstitutionType(c: *Checker, baseType: *anyopaque, constraint: *anyopaque) *anyopaque {
+        _ = c;
+        _ = baseType;
+        _ = constraint;
+        return undefined;
+    }
+
+    pub fn newIndexInfo(c: *Checker, keyType: *anyopaque, valueType: *anyopaque, isReadonly: *anyopaque, declaration: *anyopaque, components: *anyopaque) *anyopaque {
+        _ = c;
+        _ = keyType;
+        _ = valueType;
+        _ = isReadonly;
+        _ = declaration;
+        _ = components;
+        return undefined;
+    }
+
+    pub fn isFreshLiteralType(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn getBigIntLiteralType(c: *Checker, value: *anyopaque) *anyopaque {
+        _ = c;
+        _ = value;
+        return undefined;
+    }
+
+    pub fn parseBigIntLiteralType(c: *Checker, text: *anyopaque) *anyopaque {
+        _ = c;
+        _ = text;
+        return undefined;
+    }
+
+    pub fn getStringLiteralValue(t: *anyopaque) *anyopaque {
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getNumberLiteralValue(t: *anyopaque) *anyopaque {
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getBigIntLiteralValue(t: *anyopaque) *anyopaque {
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getBooleanLiteralValue(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn getEnumLiteralType(c: *Checker, value: *anyopaque, enumSymbol: *anyopaque, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = value;
+        _ = enumSymbol;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn isLiteralType(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isNeitherUnitTypeNorNever(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isUnitType(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isUnitLikeType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn extractUnitType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getBaseTypeOfLiteralTypeForComparison(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getBaseTypeOfLiteralTypeUnion(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getWidenedUniqueESSymbolType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getWidenedLiteralLikeTypeForContextualType(c: *Checker, t: *anyopaque, contextualType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = contextualType;
+        return undefined;
+    }
+
+    pub fn isLiteralOfContextualType(c: *Checker, candidateType: *anyopaque, contextualType: *anyopaque) bool {
+        _ = c;
+        _ = candidateType;
+        _ = contextualType;
+        return false;
+    }
+
+    pub fn mapTypeEx(c: *Checker, t: *anyopaque, f: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        _ = f;
+        return false;
+    }
+
+    pub fn getUnionOrIntersectionType(c: *Checker, types_: *anyopaque, isUnion: *anyopaque, unionReduction: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = isUnion;
+        _ = unionReduction;
+        return undefined;
+    }
+
+    pub fn getUnionTypeEx(c: *Checker, types_: *anyopaque, unionReduction: *anyopaque, alias: *anyopaque, origin: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = unionReduction;
+        _ = alias;
+        _ = origin;
+        return undefined;
+    }
+
+    pub fn getUnionTypeWorker(c: *Checker, types_: *anyopaque, unionReduction: *anyopaque, alias: *anyopaque, origin: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = unionReduction;
+        _ = alias;
+        _ = origin;
+        return undefined;
+    }
+
+    pub fn getUnionTypeFromSortedList(c: *Checker, types_: *anyopaque, precomputedObjectFlags: *anyopaque, alias: *anyopaque, origin: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = precomputedObjectFlags;
+        _ = alias;
+        _ = origin;
+        return undefined;
+    }
+
+    pub fn unionTypes_stub(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn addTypesToUnion(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, types_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeSet;
+        _ = includes;
+        _ = types_;
+        return undefined;
+    }
+
+    pub fn addTypeToUnion(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeSet;
+        _ = includes;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn addNamedUnions(c: *Checker, namedUnions: *anyopaque, types_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = namedUnions;
+        _ = types_;
+        return undefined;
+    }
+
+    pub fn removeRedundantLiteralTypes(c: *Checker, types_: *anyopaque, includes: *anyopaque, reduceVoidUndefined: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = includes;
+        _ = reduceVoidUndefined;
+        return undefined;
+    }
+
+    pub fn removeStringLiteralsMatchedByTemplateLiterals(c: *Checker, types_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        return undefined;
+    }
+
+    pub fn isTypeMatchedByTemplateLiteralOrStringMapping(c: *Checker, t: *anyopaque, template: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        _ = template;
+        return false;
+    }
+
+    pub fn removeConstrainedTypeVariables(c: *Checker, types_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        return undefined;
+    }
+
+    pub fn removeSubtypes(c: *Checker, types_: *anyopaque, hasObjectTypes: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = hasObjectTypes;
+        return undefined;
+    }
+
+    pub fn getIntersectionTypeEx(c: *Checker, types_: *anyopaque, flags: *anyopaque, alias: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = flags;
+        _ = alias;
+        return undefined;
+    }
+
+    pub fn isUnionWithUndefined(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isUnionWithNull(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isIntersectionType(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isPrimitiveUnion(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isNotUndefinedType(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isNotNullType(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn addTypesToIntersection(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, types_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeSet;
+        _ = includes;
+        _ = types_;
+        return undefined;
+    }
+
+    pub fn addTypeToIntersection(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeSet;
+        _ = includes;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn removeRedundantSupertypes(c: *Checker, types_: *anyopaque, includes: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = includes;
+        return undefined;
+    }
+
+    pub fn extractRedundantTemplateLiterals(c: *Checker, types_: *anyopaque) bool {
+        _ = c;
+        _ = types_;
+        return false;
+    }
+
+    pub fn intersectUnionsOfPrimitiveTypes(c: *Checker, types_: *anyopaque) bool {
+        _ = c;
+        _ = types_;
+        return false;
+    }
+
+    pub fn eachUnionContains(c: *Checker, unionTypes_: *anyopaque, t: *anyopaque) bool {
+        _ = c;
+        _ = unionTypes_;
+        _ = t;
+        return false;
+    }
+
+    pub fn getCrossProductIntersections(c: *Checker, types_: *anyopaque, flags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = flags;
+        return undefined;
+    }
+
+    pub fn getConstituentCount(t: *anyopaque) i32 {
+        _ = t;
+        return 0;
+    }
+
+    pub fn getConstituentCountOfTypes(types_: *anyopaque) i32 {
+        _ = types_;
+        return 0;
+    }
+
+    pub fn filterTypes(c: *Checker, types_: *anyopaque, predicate: *anyopaque) bool {
+        _ = c;
+        _ = types_;
+        _ = predicate;
+        return false;
+    }
+
+    pub fn isEmptyResolvedType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn forEachType(t: *anyopaque, f: *anyopaque) *anyopaque {
+        _ = t;
+        _ = f;
+        return undefined;
+    }
+
+    pub fn everyContainedType(t: *anyopaque, f: *anyopaque) bool {
+        _ = t;
+        _ = f;
+        return false;
+    }
+
+    pub fn insertType(types_: *anyopaque, t: *anyopaque) bool {
+        _ = types_;
+        _ = t;
+        return false;
+    }
+
+    pub fn compareTypeIds(arg0: *anyopaque, t2: *anyopaque) i32 {
+        _ = arg0;
+        _ = t2;
+        return 0;
+    }
+
+    pub fn getExtractStringType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getLiteralTypeFromProperties(c: *Checker, t: *anyopaque, include: *anyopaque, includeOrigin: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = include;
+        _ = includeOrigin;
+        return undefined;
+    }
+
+    pub fn getLiteralTypeFromPropertyName(c: *Checker, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn isKeyTypeIncluded(c: *Checker, keyType: *anyopaque, include: *anyopaque) bool {
+        _ = c;
+        _ = keyType;
+        _ = include;
+        return false;
+    }
+
+    pub fn checkComputedPropertyName(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isNoInferType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getSubstitutionIntersection(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getMappedTypeNameTypeKind(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getIndexTypeForGenericType(c: *Checker, t: *anyopaque, indexFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = indexFlags;
+        return undefined;
+    }
+
+    pub fn getIndexTypeForMappedType(c: *Checker, t: *anyopaque, indexFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = indexFlags;
+        return undefined;
+    }
+
+    pub fn getIndexedAccessTypeEx(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, accessFlags: *anyopaque, accessNode: *anyopaque, alias: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectType;
+        _ = indexType;
+        _ = accessFlags;
+        _ = accessNode;
+        _ = alias;
+        return undefined;
+    }
+
+    pub fn getPropertyTypeForIndexType(c: *Checker, originalObjectType: *anyopaque, objectType: *anyopaque, indexType: *anyopaque, fullIndexType: *anyopaque, accessNode: *anyopaque, accessFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = originalObjectType;
+        _ = objectType;
+        _ = indexType;
+        _ = fullIndexType;
+        _ = accessNode;
+        _ = accessFlags;
+        return undefined;
+    }
+
+    pub fn typeHasStaticProperty(c: *Checker, propName: *anyopaque, containingType: *anyopaque) bool {
+        _ = c;
+        _ = propName;
+        _ = containingType;
+        return false;
+    }
+
+    pub fn getSuggestionForNonexistentProperty(c: *Checker, name_: *anyopaque, containingType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        _ = containingType;
+        return undefined;
+    }
+
+    pub fn getSuggestionForNonexistentIndexSignature(c: *Checker, objectType: *anyopaque, expr: *anyopaque, keyedType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectType;
+        _ = expr;
+        _ = keyedType;
+        return undefined;
+    }
+
+    pub fn getSuggestedTypeForNonexistentStringLiteralType(c: *Checker, source: *anyopaque, target: *anyopaque) *anyopaque {
+        _ = c;
+        _ = source;
+        _ = target;
+        return undefined;
+    }
+
+    pub fn getIndexNodeForAccessExpression(accessNode: *anyopaque) *anyopaque {
+        _ = accessNode;
+        return undefined;
+    }
+
+    pub fn errorIfWritingToReadonlyIndex(c: *Checker, indexInfo: *anyopaque, objectType: *anyopaque, accessExpression: *anyopaque) void {
+        _ = c;
+        _ = indexInfo;
+        _ = objectType;
+        _ = accessExpression;
+    }
+
+    pub fn isSelfTypeAccess(c: *Checker, name_: *anyopaque, parent: *anyopaque) bool {
+        _ = c;
+        _ = name_;
+        _ = parent;
+        return false;
+    }
+
+    pub fn isAssignmentToReadonlyEntity(c: *Checker, expr: *anyopaque, symbol_: *anyopaque, assignmentKind: *anyopaque) bool {
+        _ = c;
+        _ = expr;
+        _ = symbol_;
+        _ = assignmentKind;
+        return false;
+    }
+
+    pub fn isThisPropertyAccessInConstructor(c: *Checker, node: *anyopaque, prop: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        _ = prop;
+        return false;
+    }
+
+    pub fn isAutoTypedProperty(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn getDeclaringConstructor(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
+    }
+
+    pub fn getPropertyNameFromIndex(c: *Checker, indexType: *anyopaque, accessNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = indexType;
+        _ = accessNode;
+        return undefined;
+    }
+
+    pub fn shouldDeferIndexedAccessType(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, accessNode: *anyopaque) bool {
+        _ = c;
+        _ = objectType;
+        _ = indexType;
+        _ = accessNode;
+        return false;
+    }
+
+    pub fn indexTypeLessThan(indexType: *anyopaque, limit: *anyopaque) bool {
+        _ = indexType;
+        _ = limit;
+        return false;
+    }
+
+    pub fn getOrCreateSubstitutionType(c: *Checker, baseType: *anyopaque, constraint: *anyopaque) *anyopaque {
+        _ = c;
+        _ = baseType;
+        _ = constraint;
+        return undefined;
+    }
+
+    pub fn getResolvedBaseConstraint(c: *Checker, t: *anyopaque, stack: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = stack;
+        return undefined;
+    }
+
+    pub fn computeBaseConstraint(c: *Checker, t: *anyopaque, stack: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = stack;
+        return undefined;
+    }
+
+    pub fn getNextBaseConstraint(c: *Checker, t: *anyopaque, stack: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = stack;
+        return undefined;
+    }
+
+    pub fn maybeTypeOfKindConsideringBaseConstraint(c: *Checker, t: *anyopaque, kind_: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        _ = kind_;
+        return false;
+    }
+
+    pub fn allTypesAssignableToKind(c: *Checker, source: *anyopaque, kind_: *anyopaque) bool {
+        _ = c;
+        _ = source;
+        _ = kind_;
+        return false;
+    }
+
+    pub fn allTypesAssignableToKindEx(c: *Checker, source: *anyopaque, kind_: *anyopaque, strict: *anyopaque) bool {
+        _ = c;
+        _ = source;
+        _ = kind_;
+        _ = strict;
+        return false;
+    }
+
+    pub fn isConstEnumObjectType(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn isConstEnumSymbol(symbol_: *anyopaque) bool {
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn compareProperties(c: *Checker, sourceProp: *anyopaque, targetProp: *anyopaque, compareTypes: *anyopaque, target: *anyopaque) *anyopaque {
+        _ = c;
+        _ = sourceProp;
+        _ = targetProp;
+        _ = compareTypes;
+        _ = target;
+        return undefined;
+    }
+
+    pub fn compareTypesEqual(s: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = s;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn markPropertyAsReferenced(c: *Checker, prop: *anyopaque, nodeForCheckWriteOnly: *anyopaque, isSelfTypeAccess_: *anyopaque) void {
+        _ = c;
+        _ = prop;
+        _ = nodeForCheckWriteOnly;
+        _ = isSelfTypeAccess_;
+    }
+
+    pub fn expandSignatureParametersWithTupleMembers(c: *Checker, signature: *anyopaque, restType: *anyopaque, restIndex: *anyopaque, restSymbol: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        _ = restType;
+        _ = restIndex;
+        _ = restSymbol;
+        return undefined;
+    }
+
+    pub fn getUniqAssociatedNamesFromTupleType(c: *Checker, t: *anyopaque, restSymbol: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = restSymbol;
+        return undefined;
+    }
+
+    pub fn hasRestParameter(signature: *anyopaque) bool {
+        _ = signature;
+        return false;
+    }
+
+    pub fn isRestParameter_stub(param: *anyopaque) bool {
+        _ = param;
+        return false;
+    }
+
+    pub fn getNameFromIndexInfo(info: *anyopaque) *anyopaque {
+        _ = info;
+        return undefined;
+    }
+
+    pub fn isUnknownLikeUnionType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn containsUndefinedType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn typeHasCallOrConstructSignatures(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getSimplifiedIndexedAccessType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = writing;
+        return undefined;
+    }
+
+    pub fn getSimplifiedIndexedAccessTypeWorker(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = writing;
+        return undefined;
+    }
+
+    pub fn distributeObjectOverIndexType(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, writing: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectType;
+        _ = indexType;
+        _ = writing;
+        return undefined;
+    }
+
+    pub fn distributeIndexOverObjectType(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, writing: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectType;
+        _ = indexType;
+        _ = writing;
+        return undefined;
+    }
+
+    pub fn getSimplifiedConditionalType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = writing;
+        return undefined;
+    }
+
+    pub fn isIntersectionEmpty(c: *Checker, type1: *anyopaque, type2: *anyopaque) bool {
+        _ = c;
+        _ = type1;
+        _ = type2;
+        return false;
+    }
+
+    pub fn getNormalizedUnionOrIntersectionType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = writing;
+        return undefined;
+    }
+
+    pub fn shouldNormalizeIntersection(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getNormalizedTupleType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = writing;
+        return undefined;
+    }
+
+    pub fn getSingleBaseForNonAugmentingSubtype(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn transformTypeOfMembers(c: *Checker, t: *anyopaque, f: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = f;
+        return undefined;
+    }
+
+    pub fn markLinkedReferences(c: *Checker, location: *anyopaque, hint: *anyopaque, propSymbol: *anyopaque, parentType: *anyopaque) void {
+        _ = c;
+        _ = location;
+        _ = hint;
+        _ = propSymbol;
+        _ = parentType;
+    }
+
+    pub fn isExportOrExportExpression(location: *anyopaque) bool {
+        _ = location;
+        return false;
+    }
+
+    pub fn shouldMarkIdentifierAliasReferenced(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn isInternalModuleImportEqualsDeclaration(node: *anyopaque) bool {
+        _ = node;
+        return false;
+    }
+
+    pub fn markIdentifierAliasReferenced(c: *Checker, location: *anyopaque) void {
+        _ = c;
+        _ = location;
+    }
+
+    pub fn markPropertyAliasReferenced(c: *Checker, location: *anyopaque, propSymbol: *anyopaque, parentType: *anyopaque) void {
+        _ = c;
+        _ = location;
+        _ = propSymbol;
+        _ = parentType;
+    }
+
+    pub fn isPartOfImportEqualsModuleReference(location: *anyopaque) bool {
+        _ = location;
+        return false;
+    }
+
+    pub fn markExportAssignmentAliasReferenced(c: *Checker, location: *anyopaque) void {
+        _ = c;
+        _ = location;
+    }
+
+    pub fn markJsxAliasReferenced(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn markImportEqualsAliasReferenced(c: *Checker, location: *anyopaque) void {
+        _ = c;
+        _ = location;
+    }
+
+    pub fn markExportSpecifierAliasReferenced(c: *Checker, location: *anyopaque) void {
+        _ = c;
+        _ = location;
+    }
+
+    pub fn checkExternalEmitHelpers(c: *Checker, location: *anyopaque, helpers: *anyopaque) void {
+        _ = c;
+        _ = location;
+        _ = helpers;
+    }
+
+    pub fn hasSignatureWithArityGreaterThan(c: *Checker, symbol_: *anyopaque, arity: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        _ = arity;
+        return false;
+    }
+
+    pub fn getHelperNames(c: *Checker, helper: *anyopaque) *anyopaque {
+        _ = c;
+        _ = helper;
+        return undefined;
+    }
+
+    pub fn resolveHelpersModule(c: *Checker, file: *anyopaque, errorNode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = file;
+        _ = errorNode;
+        return undefined;
+    }
+
+    pub fn markDecoratorAliasReferenced(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn getParameterTypeNodeForDecoratorCheck(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn markDecoratorMedataDataTypeNodeAsReferenced(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn getEntityNameForDecoratorMetadata(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getEntityNameForDecoratorMetadataFromTypeList(c: *Checker, typeNodes: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeNodes;
+        return undefined;
+    }
+
+    pub fn markAliasReferenced(c: *Checker, symbol_: *anyopaque, location: *anyopaque) void {
+        _ = c;
+        _ = symbol_;
+        _ = location;
+    }
+
+    pub fn markAliasSymbolAsReferenced(c: *Checker, symbol_: *anyopaque) void {
+        _ = c;
+        _ = symbol_;
+    }
+
+    pub fn markExportAsReferenced(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn markEntityNameOrEntityExpressionAsReference(c: *Checker, typeName: *anyopaque, forDecoratorMetadata: *anyopaque) void {
+        _ = c;
+        _ = typeName;
+        _ = forDecoratorMetadata;
+    }
+
+    pub fn getEntityNameFromTypeNode(node: *anyopaque) *anyopaque {
+        _ = node;
+        return undefined;
+    }
+
+    pub fn markTypeNodeAsReferenced(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn getPromisedTypeOfPromise(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getPromisedTypeOfPromiseEx(c: *Checker, t: *anyopaque, errorNode: *anyopaque, thisTypeForErrorOut: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = errorNode;
+        _ = thisTypeForErrorOut;
+        return undefined;
+    }
+
+    pub fn getTypeOfFirstParameterOfSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        return undefined;
+    }
+
+    pub fn getTypeOfFirstParameterOfSignatureWithFallback(c: *Checker, signature: *anyopaque, fallbackType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = signature;
+        _ = fallbackType;
+        return undefined;
+    }
+
+    pub fn getOptionalExpressionType(c: *Checker, exprType: *anyopaque, expression: *anyopaque) *anyopaque {
+        _ = c;
+        _ = exprType;
+        _ = expression;
+        return undefined;
+    }
+
+    pub fn removeOptionalTypeMarker(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn propagateOptionalTypeMarker(c: *Checker, t: *anyopaque, node: *anyopaque, wasOptional: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = node;
+        _ = wasOptional;
+        return undefined;
+    }
+
+    pub fn removeMissingOrUndefinedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn removeDefinitelyFalsyTypes(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn extractDefinitelyFalsyTypes(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getDefinitelyFalsyPartOfType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn substituteIndexedMappedType(c: *Checker, objectType: *anyopaque, index: *anyopaque) *anyopaque {
+        _ = c;
+        _ = objectType;
+        _ = index;
+        return undefined;
+    }
+
+    pub fn couldAccessOptionalProperty(c: *Checker, objectType: *anyopaque, indexType: *anyopaque) bool {
+        _ = c;
+        _ = objectType;
+        _ = indexType;
+        return false;
+    }
+
+    pub fn getContextualTypeForInitializerExpression(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForVariableLikeDeclaration(c: *Checker, declaration: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextuallyTypedParameterType(c: *Checker, parameter: *anyopaque) *anyopaque {
+        _ = c;
+        _ = parameter;
+        return undefined;
+    }
+
+    pub fn isContextSensitiveFunctionOrObjectLiteralMethod(c: *Checker, fn_: *anyopaque) bool {
+        _ = c;
+        _ = fn_;
+        return false;
+    }
+
+    pub fn getSpreadArgumentType(c: *Checker, args: *anyopaque, index: *anyopaque, argCount: *anyopaque, restType: *anyopaque, context: *anyopaque, checkMode: *anyopaque) *anyopaque {
+        _ = c;
+        _ = args;
+        _ = index;
+        _ = argCount;
+        _ = restType;
+        _ = context;
+        _ = checkMode;
+        return undefined;
+    }
+
+    pub fn getMutableArrayOrTupleType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForBindingElement(c: *Checker, declaration: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForStaticPropertyDeclaration(c: *Checker, declaration: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = declaration;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForReturnExpression(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualIterationType(c: *Checker, kind_: *anyopaque, functionDecl: *anyopaque) *anyopaque {
+        _ = c;
+        _ = kind_;
+        _ = functionDecl;
+        return undefined;
+    }
+
+    pub fn getContextualReturnType(c: *Checker, functionDecl: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = functionDecl;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn checkGeneratorInstantiationAssignabilityToReturnType(c: *Checker, returnType: *anyopaque, functionFlags: *anyopaque, errorNode: *anyopaque) bool {
+        _ = c;
+        _ = returnType;
+        _ = functionFlags;
+        _ = errorNode;
+        return false;
+    }
+
+    pub fn getContextualSignatureForFunctionLikeDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForYieldOperand(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForAwaitOperand(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForArgument(c: *Checker, callTarget: *anyopaque, arg: *anyopaque) *anyopaque {
+        _ = c;
+        _ = callTarget;
+        _ = arg;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForDecorator(c: *Checker, decorator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = decorator;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForBinaryOperand(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForAssignmentExpression(c: *Checker, binary: *anyopaque) *anyopaque {
+        _ = c;
+        _ = binary;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForObjectLiteralMethod(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForElementExpression(c: *Checker, t: *anyopaque, index: *anyopaque, length: *anyopaque, firstSpreadIndex: *anyopaque, lastSpreadIndex: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = index;
+        _ = length;
+        _ = firstSpreadIndex;
+        _ = lastSpreadIndex;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForConditionalOperand(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn getContextualTypeForSubstitutionExpression(c: *Checker, template: *anyopaque, substitutionExpression: *anyopaque) *anyopaque {
+        _ = c;
+        _ = template;
+        _ = substitutionExpression;
+        return undefined;
+    }
+
+    pub fn getContextualImportAttributeType(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getEffectiveCallArguments(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getSpreadArgumentIndex(c: *Checker, args: *anyopaque) i32 {
+        _ = c;
+        _ = args;
+        return 0;
+    }
+
+    pub fn isSpreadArgument(arg: *anyopaque) bool {
+        _ = arg;
+        return false;
+    }
+
+    pub fn createSyntheticExpression(c: *Checker, parent: *anyopaque, t: *anyopaque, isSpread: *anyopaque, tupleNameSource: *anyopaque) *anyopaque {
+        _ = c;
+        _ = parent;
+        _ = t;
+        _ = isSpread;
+        _ = tupleNameSource;
+        return undefined;
+    }
+
+    pub fn getSpreadIndices(c: *Checker, node: *anyopaque) i32 {
+        _ = c;
+        _ = node;
+        return 0;
+    }
+
+    pub fn getEffectiveDecoratorArguments(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getDecoratorCallSignature(c: *Checker, decorator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = decorator;
+        return undefined;
+    }
+
+    pub fn getLegacyDecoratorCallSignature(c: *Checker, decorator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = decorator;
+        return undefined;
+    }
+
+    pub fn getESDecoratorCallSignature(c: *Checker, decorator: *anyopaque) *anyopaque {
+        _ = c;
+        _ = decorator;
+        return undefined;
+    }
+
+    pub fn newClassDecoratorContextType(c: *Checker, classType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = classType;
+        return undefined;
+    }
+
+    pub fn newClassMethodDecoratorContextType(c: *Checker, classType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = classType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn newClassGetterDecoratorContextType(c: *Checker, classType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = classType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn newClassSetterDecoratorContextType(c: *Checker, classType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = classType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn newClassAccessorDecoratorContextType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = thisType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn newClassFieldDecoratorContextType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = thisType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn getClassMemberDecoratorContextOverrideType(c: *Checker, nameType: *anyopaque, isPrivate: *anyopaque, isStatic: *anyopaque) *anyopaque {
+        _ = c;
+        _ = nameType;
+        _ = isPrivate;
+        _ = isStatic;
+        return undefined;
+    }
+
+    pub fn newClassMemberDecoratorContextTypeForNode(c: *Checker, node: *anyopaque, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = thisType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn newClassAccessorDecoratorTargetType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = thisType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn newClassAccessorDecoratorResultType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = thisType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn newClassFieldDecoratorInitializerMutatorType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = thisType;
+        _ = valueType;
+        return undefined;
+    }
+
+    pub fn newESDecoratorCallSignature(c: *Checker, targetType: *anyopaque, contextType: *anyopaque, nonOptionalReturnType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = targetType;
+        _ = contextType;
+        _ = nonOptionalReturnType;
+        return undefined;
+    }
+
+    pub fn newFunctionType(c: *Checker, typeParameters: *anyopaque, thisParameter: *anyopaque, parameters: *anyopaque, returnType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeParameters;
+        _ = thisParameter;
+        _ = parameters;
+        _ = returnType;
+        return undefined;
+    }
+
+    pub fn newGetterFunctionType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn newSetterFunctionType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn newCallSignature(c: *Checker, typeParameters: *anyopaque, thisParameter: *anyopaque, parameters: *anyopaque, returnType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = typeParameters;
+        _ = thisParameter;
+        _ = parameters;
+        _ = returnType;
+        return undefined;
+    }
+
+    pub fn newTypedPropertyDescriptorType(c: *Checker, propertyType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = propertyType;
+        return undefined;
+    }
+
+    pub fn getParentTypeOfClassElement(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getClassElementPropertyKeyType(c: *Checker, element: *anyopaque) *anyopaque {
+        _ = c;
+        _ = element;
+        return undefined;
+    }
+
+    pub fn getTypeOfPropertyOfContextualType(c: *Checker, t: *anyopaque, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn getTypeOfPropertyOfContextualTypeEx(c: *Checker, t: *anyopaque, name_: *anyopaque, nameType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = name_;
+        _ = nameType;
+        return undefined;
+    }
+
+    pub fn getIndexedMappedTypeSubstitutedTypeOfContextualType(c: *Checker, t: *anyopaque, name_: *anyopaque, nameType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = name_;
+        _ = nameType;
+        return undefined;
+    }
+
+    pub fn isExcludedMappedPropertyName(c: *Checker, t: *anyopaque, propertyNameType: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        _ = propertyNameType;
+        return false;
+    }
+
+    pub fn getTypeOfConcretePropertyOfContextualType(c: *Checker, t: *anyopaque, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn getTypeFromIndexInfosOfContextualType(c: *Checker, t: *anyopaque, name_: *anyopaque, nameType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = name_;
+        _ = nameType;
+        return undefined;
+    }
+
+    pub fn isCircularMappedProperty(c: *Checker, symbol_: *anyopaque) bool {
+        _ = c;
+        _ = symbol_;
+        return false;
+    }
+
+    pub fn appendContextualPropertyTypeConstituent(c: *Checker, types_: *anyopaque, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = types_;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getApparentTypeOfContextualType(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn len(d: *anyopaque) i32 {
+        _ = d;
+        return 0;
+    }
+
+    pub fn name_stub(d: *anyopaque, index: *anyopaque) *anyopaque {
+        _ = d;
+        _ = index;
+        return undefined;
+    }
+
+    pub fn matches(d: *anyopaque, index: *anyopaque, t: *anyopaque) bool {
+        _ = d;
+        _ = index;
+        _ = t;
+        return false;
+    }
+
+    pub fn discriminateContextualTypeByObjectMembers(c: *Checker, node: *anyopaque, contextualType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        _ = contextualType;
+        return undefined;
+    }
+
+    pub fn getMatchingUnionConstituentForObjectLiteral(c: *Checker, unionType: *anyopaque, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = unionType;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isPossiblyDiscriminantValue(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn instantiateContextualType(c: *Checker, contextualType: *anyopaque, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+        _ = c;
+        _ = contextualType;
+        _ = node;
+        _ = contextFlags;
+        return undefined;
+    }
+
+    pub fn instantiateInstantiableTypes(c: *Checker, t: *anyopaque, mapper: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = mapper;
+        return undefined;
+    }
+
+    pub fn pushCachedContextualType(c: *Checker, node: *anyopaque) void {
+        _ = c;
+        _ = node;
+    }
+
+    pub fn pushContextualType(c: *Checker, node: *anyopaque, t: *anyopaque, isCache: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = t;
+        _ = isCache;
+    }
+
+    pub fn popContextualType(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn findContextualNode(c: *Checker, node: *anyopaque, includeCaches: *anyopaque) i32 {
+        _ = c;
+        _ = node;
+        _ = includeCaches;
+        return 0;
+    }
+
+    pub fn pushInferenceContext(c: *Checker, node: *anyopaque, context: *anyopaque) void {
+        _ = c;
+        _ = node;
+        _ = context;
+    }
+
+    pub fn popInferenceContext(c: *Checker) void {
+        _ = c;
+    }
+
+    pub fn getInferenceContext(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn isZeroBigInt(t: *anyopaque) bool {
+        _ = t;
+        return false;
+    }
+
+    pub fn convertAutoToAny(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn checkAwaitedType(c: *Checker, t: *anyopaque, withAlias: *anyopaque, errorNode: *anyopaque, diagnosticMessage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = withAlias;
+        _ = errorNode;
+        _ = diagnosticMessage;
+        return undefined;
+    }
+
+    pub fn getAwaitedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getAwaitedTypeEx(c: *Checker, t: *anyopaque, errorNode: *anyopaque, diagnosticMessage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = errorNode;
+        _ = diagnosticMessage;
+        return undefined;
+    }
+
+    pub fn getAwaitedTypeNoAlias(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getAwaitedTypeNoAliasEx(c: *Checker, t: *anyopaque, errorNode: *anyopaque, diagnosticMessage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = errorNode;
+        _ = diagnosticMessage;
+        return undefined;
+    }
+
+    pub fn isAwaitedTypeInstantiation(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn isAwaitedTypeNeeded(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn createAwaitedTypeIfNeeded(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn tryCreateAwaitedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn unwrapAwaitedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn isThenableType(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getAwaitedTypeOfPromise(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getAwaitedTypeOfPromiseEx(c: *Checker, t: *anyopaque, errorNode: *anyopaque, diagnosticMessage: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = errorNode;
+        _ = diagnosticMessage;
+        return undefined;
+    }
+
+    pub fn isSomeSymbolAssigned(c: *Checker, rootDeclaration: *anyopaque) bool {
+        _ = c;
+        _ = rootDeclaration;
+        return false;
+    }
+
+    pub fn isSomeSymbolAssignedWorker(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn getNarrowableTypeForReference(c: *Checker, t_param: types.TypeIndex, reference: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
+        var t = t_param;
+        if (c.isNoInferType(@ptrFromInt(t))) {
+            t = c.typesList.items[t].data.Substitution.baseType;
+        }
+        const substituteConstraints = (@intFromEnum(checkMode) & @intFromEnum(CheckMode.Inferential) == 0) and
+            c.someType(t, isGenericTypeWithUnionConstraintMap, {}) and
+            (Checker.isConstraintPosition(c, t, reference) or Checker.hasContextualTypeWithNoGenericTypes(c, reference, checkMode));
+
+        if (substituteConstraints) {
+            return t;
+        }
+        return t;
+    }
+
+    pub fn isConstraintPosition(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) bool {
+        const ast_data = c.binder.ast;
+        const parent = ast_utils.getParent(ast_data, node);
+        if (parent == 0) return false;
+
+        const parentKind = ast_data.getKind(parent);
+        if (ast_utils.isPropertyAccessExpression(ast_data, parent) or parentKind == .QualifiedName) {
+            return true;
+        }
+        if ((parentKind == .CallExpression or parentKind == .NewExpression) and
+            ast_utils.getExpressionOfNode(ast_data, parent) == node)
+        {
+            return true;
+        }
+        if (parentKind == .ElementAccessExpression and ast_utils.getExpressionOfNode(ast_data, parent) == node) {
+            const parentNode = ast_data.getNode(parent).ElementAccessExpression;
+            if (c.someType(t, isGenericTypeWithoutNullableConstraintMap, {})) {
+                if (c.isGenericIndexType(@intCast(@intFromPtr(c.getTypeOfExpression(@ptrFromInt(parentNode.ArgumentExpression)))))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    fn isGenericTypeWithUnionConstraintMap(c: *Checker, t: types.TypeIndex, ctx: void) bool {
+        _ = ctx;
+        return Checker.isGenericTypeWithUnionConstraint(c, t);
+    }
+
+    pub fn isGenericTypeWithUnionConstraint(c: *Checker, t: types.TypeIndex) bool {
+        if ((Checker.getTypeFlags(c, t) & types.TypeFlags.Intersection) != 0) {
+            const types_list = Checker.getTypesFromIntersection(c, t);
+            for (types_list) |t_elem| {
+                if (isGenericTypeWithUnionConstraint(c, t_elem)) return true;
+            }
+            return false;
+        }
+        return ((Checker.getTypeFlags(c, t) & types.TypeFlags.Instantiable) != 0) and
+            ((Checker.getTypeFlags(c, Checker.getBaseConstraintOrType(c, t)) & (types.TypeFlags.Nullable | types.TypeFlags.Union)) != 0);
+    }
+
+    fn isGenericTypeWithoutNullableConstraintMap(c: *Checker, t: types.TypeIndex, ctx: void) bool {
+        _ = ctx;
+        return Checker.isGenericTypeWithoutNullableConstraint(c, t);
+    }
+
+    pub fn isGenericTypeWithoutNullableConstraint(c: *Checker, t: types.TypeIndex) bool {
+        if ((Checker.getTypeFlags(c, t) & types.TypeFlags.Intersection) != 0) {
+            const types_list = Checker.getTypesFromIntersection(c, t);
+            for (types_list) |t_elem| {
+                if (isGenericTypeWithoutNullableConstraint(c, t_elem)) return true;
+            }
+            return false;
+        }
+        return ((Checker.getTypeFlags(c, t) & types.TypeFlags.Instantiable) != 0) and
+            !Checker.maybeTypeOfKind(c, Checker.getBaseConstraintOrType(c, t), types.TypeFlags.Nullable);
+    }
+
+    pub fn hasContextualTypeWithNoGenericTypes(c: *Checker, node: ast_gen.NodeIndex, checkMode: CheckMode) bool {
+        const ast_data = c.binder.ast;
+        if ((ast_data.getKind(node) == .Identifier or ast_utils.isPropertyAccessExpression(ast_data, node) or ast_data.getKind(node) == .ElementAccessExpression)) {
+            const parent = ast_utils.getParent(ast_data, node);
+            if (parent != 0 and (ast_data.getKind(parent) == .JsxOpeningElement or ast_data.getKind(parent) == .JsxSelfClosingElement)) {
+                // Jsx tag name, ignore
+                const tagName = switch (ast_data.getNode(parent)) {
+                    .JsxOpeningElement => |n| n.TagName,
+                    .JsxSelfClosingElement => |n| n.TagName,
+                    else => 0,
+                };
+                if (tagName == node) return false;
+            }
+
+            const skipBindingPatterns = (@intFromEnum(checkMode) & @intFromEnum(CheckMode.RestBindingElement)) != 0;
+            const contextFlags: u32 = if (skipBindingPatterns) (1 << 3) else 0; // ContextFlagsSkipBindingPatterns = 1 << 3
+
+            const contextualType = c.getContextualType(node, contextFlags);
+            if (contextualType != 0) {
+                return !c.isGenericType(@ptrFromInt(contextualType));
+            }
+        }
+        return false;
+    }
+
+    pub fn getNonUndefinedType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn isGenericTypeWithUndefinedConstraint(c: *Checker, t: *anyopaque) bool {
+        _ = c;
+        _ = t;
+        return false;
+    }
+
+    pub fn getIndexSignaturesAtLocation(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getSymbolOfNameOrPropertyAccessExpression(c: *Checker, name_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = name_;
+        return undefined;
+    }
+
+    pub fn isThisPropertyAndThisTyped(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn getThisTypeOfObjectLiteralFromContextualType(c: *Checker, containingLiteral: *anyopaque, contextualType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = containingLiteral;
+        _ = contextualType;
+        return undefined;
+    }
+
+    pub fn getThisTypeFromContextualType(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getThisTypeArgument(c: *Checker, t: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        return undefined;
+    }
+
+    pub fn getApplicableIndexInfos(c: *Checker, t: *anyopaque, keyType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = keyType;
+        return undefined;
+    }
+
+    pub fn getApplicableIndexSymbol(c: *Checker, t: *anyopaque, keyType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = keyType;
+        return undefined;
+    }
+
+    pub fn getRegularTypeOfExpression(c: *Checker, expr: *anyopaque) *anyopaque {
+        _ = c;
+        _ = expr;
+        return undefined;
+    }
+
+    pub fn containsArgumentsReference(c: *Checker, node: *anyopaque) bool {
+        _ = c;
+        _ = node;
+        return false;
+    }
+
+    pub fn getTypeAtLocation(c: *Checker, node: *anyopaque) *anyopaque {
+        _ = c;
+        _ = node;
+        return undefined;
+    }
+
+    pub fn getEmitResolver(c: *Checker) *anyopaque {
+        _ = c;
+        return undefined;
+    }
+
+    pub fn getAliasedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+        _ = c;
+        _ = symbol_;
+        return undefined;
     }
 };
 

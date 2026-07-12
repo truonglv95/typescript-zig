@@ -229,3 +229,257 @@ pub fn getResolvedSignatureForSignatureHelp(c: *Checker, node: NodeIndex, argume
         }
     }.callback);
 }
+
+pub fn forEachExportAndPropertyOfModule(c: *Checker, moduleSymbol: *anyopaque, cb: *anyopaque, arg2: *anyopaque) *anyopaque {
+    _ = c;
+    _ = moduleSymbol;
+    _ = cb;
+    _ = arg2;
+    return undefined;
+}
+
+pub fn isValidPropertyAccessWithType(c: *Checker, node: *anyopaque, isSuper: *anyopaque, propertyName: *anyopaque, t: *anyopaque) *anyopaque {
+    _ = c;
+    _ = node;
+    _ = isSuper;
+    _ = propertyName;
+    _ = t;
+    return undefined;
+}
+
+pub fn getApparentProperties(c: *Checker, t: *anyopaque) *anyopaque {
+    _ = c;
+    _ = t;
+    return undefined;
+}
+
+pub fn getAugmentedPropertiesOfType(c: *Checker, t: *anyopaque) *anyopaque {
+    _ = c;
+    _ = t;
+    return undefined;
+}
+
+pub fn tryGetMemberInModuleExportsAndProperties(c: *Checker, memberName: *anyopaque, moduleSymbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = memberName;
+    _ = moduleSymbol;
+    return undefined;
+}
+
+pub fn tryGetMemberInModuleExports(c: *Checker, memberName: *anyopaque, moduleSymbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = memberName;
+    _ = moduleSymbol;
+    return undefined;
+}
+
+pub fn shouldTreatPropertiesOfExternalModuleAsExports(c: *Checker, resolvedExternalModuleType: *anyopaque) *anyopaque {
+    _ = c;
+    _ = resolvedExternalModuleType;
+    return undefined;
+}
+
+pub fn skipAlias(c: *Checker, symbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = symbol;
+    return undefined;
+}
+
+pub fn getRootSymbols(c: *Checker, symbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = symbol;
+    return undefined;
+}
+
+pub fn getMappedTypeSymbolOfProperty(c: *Checker, symbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = symbol;
+    return undefined;
+}
+
+pub fn getImmediateRootSymbols(c: *Checker, symbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = symbol;
+    return undefined;
+}
+
+pub fn tryGetTarget(c: *Checker, symbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = symbol;
+    return undefined;
+}
+
+pub fn getExportSymbolOfSymbol(c: *Checker, symbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = symbol;
+    return undefined;
+}
+
+pub fn getExportSpecifierLocalTargetSymbol(c: *Checker, node: *anyopaque) *anyopaque {
+    _ = c;
+    _ = node;
+    return undefined;
+}
+
+pub fn getShorthandAssignmentValueSymbol(c: *Checker, location: *anyopaque) *anyopaque {
+    _ = c;
+    _ = location;
+    return undefined;
+}
+
+pub fn getSymbolsOfParameterPropertyDeclaration(c: *Checker, parameter: *anyopaque, parameterName: *anyopaque) *anyopaque {
+    _ = c;
+    _ = parameter;
+    _ = parameterName;
+    return undefined;
+}
+
+pub fn getLocalSymbolForExportSpecifier(c: *Checker, referenceLocation: *anyopaque, referenceSymbol: *anyopaque, exportSpecifier: *anyopaque) *anyopaque {
+    _ = c;
+    _ = referenceLocation;
+    _ = referenceSymbol;
+    _ = exportSpecifier;
+    return undefined;
+}
+
+pub fn isExportSpecifierAlias(referenceLocation: *anyopaque, exportSpecifier: *anyopaque) *anyopaque {
+    _ = referenceLocation;
+    _ = exportSpecifier;
+    return undefined;
+}
+
+pub fn getPossibleSymbolReferenceNodes(sourceFile: *anyopaque, symbolName: *anyopaque, container: *anyopaque) *anyopaque {
+    _ = sourceFile;
+    _ = symbolName;
+    _ = container;
+    return undefined;
+}
+
+pub fn getPossibleSymbolReferencePositions(sourceFile: *anyopaque, symbolName: *anyopaque, container: *anyopaque) *anyopaque {
+    _ = sourceFile;
+    _ = symbolName;
+    _ = container;
+    return undefined;
+}
+
+pub fn getTypeArgumentConstraint(c: *Checker, node: *anyopaque) *anyopaque {
+    _ = c;
+    _ = node;
+    return undefined;
+}
+
+pub fn getUninstantiatedSignatures(c: *Checker, node: *anyopaque) *anyopaque {
+    _ = c;
+    _ = node;
+    return undefined;
+}
+
+pub fn getTypeParameterConstraintForPositionAcrossSignatures(c: *Checker, signatures: *anyopaque, position: *anyopaque) *anyopaque {
+    _ = c;
+    _ = signatures;
+    _ = position;
+    return undefined;
+}
+
+pub fn isTypeInvalidDueToUnionDiscriminant(c: *Checker, contextualType: *anyopaque, obj: *anyopaque) *anyopaque {
+    _ = c;
+    _ = contextualType;
+    _ = obj;
+    return undefined;
+}
+
+pub fn getExportsAndPropertiesOfModule(c: *Checker, moduleSymbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = moduleSymbol;
+    return undefined;
+}
+
+pub fn getExportsOfModuleAsArray(c: *Checker, moduleSymbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = moduleSymbol;
+    return undefined;
+}
+
+pub fn getJsxIntrinsicTagNamesAt(c: *Checker, location: *anyopaque) *anyopaque {
+    _ = c;
+    _ = location;
+    return undefined;
+}
+
+pub fn getContextualTypeForJsxAttribute(c: *Checker, attribute: *anyopaque) *anyopaque {
+    _ = c;
+    _ = attribute;
+    return undefined;
+}
+
+pub fn getCandidateSignaturesForStringLiteralCompletions(c: *Checker, call: *anyopaque, editingArgument: *anyopaque) *anyopaque {
+    _ = c;
+    _ = call;
+    _ = editingArgument;
+    return undefined;
+}
+
+pub fn getTypeAtPosition(c: *Checker, s: *anyopaque, pos: *anyopaque) *anyopaque {
+    _ = c;
+    _ = s;
+    _ = pos;
+    return undefined;
+}
+
+pub fn getTypeParameterAtPosition(c: *Checker, s: *anyopaque, pos: *anyopaque) *anyopaque {
+    _ = c;
+    _ = s;
+    _ = pos;
+    return undefined;
+}
+
+pub fn getContextualTypeForArrayLiteralAtPosition(c: *Checker, contextualArrayType: *anyopaque, arrayLiteral: *anyopaque, position: *anyopaque) *anyopaque {
+    _ = c;
+    _ = contextualArrayType;
+    _ = arrayLiteral;
+    _ = position;
+    return undefined;
+}
+
+pub fn isKnownGenericTypeName(name: *anyopaque) *anyopaque {
+    _ = name;
+    return undefined;
+}
+
+pub fn getFirstTypeArgumentFromKnownType(c: *Checker, t: *anyopaque) *anyopaque {
+    _ = c;
+    _ = t;
+    return undefined;
+}
+
+pub fn getPropertySymbolsFromContextualType(c: *Checker, node: *anyopaque, contextualType: *anyopaque, unionSymbolOk: *anyopaque) *anyopaque {
+    _ = c;
+    _ = node;
+    _ = contextualType;
+    _ = unionSymbolOk;
+    return undefined;
+}
+
+pub fn getPropertySymbolOfDestructuringAssignment(c: *Checker, location: *anyopaque) *anyopaque {
+    _ = c;
+    _ = location;
+    return undefined;
+}
+
+pub fn getTypeOfAssignmentPattern(c: *Checker, expr: *anyopaque) *anyopaque {
+    _ = c;
+    _ = expr;
+    return undefined;
+}
+
+pub fn isLibSymbolForHoverVerbosity(c: *Checker, symbol: *anyopaque) *anyopaque {
+    _ = c;
+    _ = symbol;
+    return undefined;
+}
+
+pub fn isLibTypeForHoverVerbosity(c: *Checker, t: *anyopaque) *anyopaque {
+    _ = c;
+    _ = t;
+    return undefined;
+}

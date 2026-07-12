@@ -358,10 +358,12 @@ fn getWidenedLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
     return c.getWidenedLiteralType(t);
 }
 fn getInitialOrAssignedType(c: *Checker, f: *FlowState, flow: flow_ast.FlowNodeIndex) types.TypeIndex {
-    _ = c;
-    _ = f;
-    _ = flow;
-    return 0;
+    const node = c.binder.flowNodes.items[flow].node;
+    const kind = c.binder.ast.getKind(node);
+    if (kind == .VariableDeclaration or kind == .BindingElement) {
+        return c.getNarrowableTypeForReference(getInitialType(c, node), f.reference, checker_mod.CheckMode.Normal);
+    }
+    return c.getNarrowableTypeForReference(getAssignedType(c, node), f.reference, checker_mod.CheckMode.Normal);
 }
 fn isTypeAssignableTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
     return c.isTypeAssignableTo(source, target);
@@ -371,10 +373,34 @@ fn getBaseTypeOfLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
     return c.getBaseTypeOfLiteralType(t);
 }
 
+fn typeMaybeAssignableTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
+    if (Checker.getTypeFlags(c, source) & types.TypeFlags.Union == 0) {
+        return c.isTypeAssignableTo(source, target);
+    }
+    for (Checker.getTypesFromUnion(c, source)) |t| {
+        if (c.isTypeAssignableTo(t, target)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const FilterMapCtx = struct { c: *Checker, assignedType: types.TypeIndex };
+fn filterAssignmentMap(c_inner: *Checker, t: types.TypeIndex, ctx: FilterMapCtx) bool {
+    _ = c_inner;
+    return typeMaybeAssignableTo(ctx.c, ctx.assignedType, t);
+}
+
 fn getAssignmentReducedTypeWorker(c: *Checker, declaredType: types.TypeIndex, assignedType: types.TypeIndex) types.TypeIndex {
-    _ = c;
-    _ = assignedType;
-    return declaredType; // Stub implementation: just return declaredType
+    const filteredType = Checker.filterType(c, declaredType, filterAssignmentMap, FilterMapCtx{ .c = c, .assignedType = assignedType });
+    var reducedType = filteredType;
+    if ((Checker.getTypeFlags(c, assignedType) & types.TypeFlags.BooleanLiteral != 0) and false) {
+        reducedType = Checker.mapType(c, filteredType, Checker.getFreshTypeOfLiteralType);
+    }
+    if (c.isTypeAssignableTo(assignedType, reducedType)) {
+        return reducedType;
+    }
+    return declaredType;
 }
 
 fn getAssignmentReducedType(c: *Checker, declaredType: types.TypeIndex, assignedType: types.TypeIndex) types.TypeIndex {
@@ -1973,9 +1999,44 @@ pub fn getTypeAtFlowLoopLabel(c: *Checker, f: *FlowState, flow: flow_ast.FlowNod
 }
 // --- getTypeAtFlowArrayMutation Stubs ---
 fn getReferenceCandidate(c: *Checker, expr: ast_gen.NodeIndex) ast_gen.NodeIndex {
-    _ = c;
+    const ast_data = c.binder.ast;
+    switch (ast_data.getKind(expr)) {
+        .ParenthesizedExpression => {
+            return getReferenceCandidate(c, ast_utils.getExpressionOfNode(ast_data, expr));
+        },
+        .BinaryExpression => {
+            const bin = ast_data.getNode(expr).BinaryExpression;
+            switch (ast_data.getKind(bin.OperatorToken)) {
+                .EqualsToken, .BarBarEqualsToken, .AmpersandAmpersandEqualsToken, .QuestionQuestionEqualsToken => {
+                    return getReferenceCandidate(c, bin.Left);
+                },
+                .CommaToken => {
+                    return getReferenceCandidate(c, bin.Right);
+                },
+                else => {},
+            }
+        },
+        else => {},
+    }
     return expr;
 }
+pub fn getElementTypeOfEvolvingArrayType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+    _ = c;
+    _ = t;
+    return undefined;
+}
+
+pub fn isEvolvingArrayTypeList(types_: []const types.TypeIndex) bool {
+    _ = types_;
+    return false;
+}
+
+pub fn isEvolvingArrayOperationTarget(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
 fn addEvolvingArrayElementType(c: *Checker, evolvedType: types.TypeIndex, arg: ast_gen.NodeIndex) types.TypeIndex {
     _ = c;
     _ = arg;
@@ -2285,4 +2346,561 @@ fn getBranchLabelAntecedents(c: *Checker, flow: flow_ast.FlowNodeIndex, reduceLa
         }
     }
     return c.binder.flowNodes.items[flow].antecedents;
+}
+
+pub fn narrowTypeByTypeFacts(c: *Checker, t: types.TypeIndex, impliedType: types.TypeIndex, facts: *anyopaque) types.TypeIndex {
+    _ = c;
+    _ = t;
+    _ = impliedType;
+    _ = facts;
+    return undefined;
+}
+
+pub fn getNarrowedType(c: *Checker, t: types.TypeIndex, candidate: types.TypeIndex, assumeTrue: bool, checkDerived: bool) types.TypeIndex {
+    if ((Checker.getTypeFlags(c, t) & types.TypeFlags.Union) == 0) {
+        return getNarrowedTypeWorker(c, t, candidate, assumeTrue, checkDerived);
+    }
+    return getNarrowedTypeWorker(c, t, candidate, assumeTrue, checkDerived);
+}
+
+const FilterNotDerivedCtx = struct { c: *Checker, candidate: types.TypeIndex };
+fn filterNotDerivedMap(c_inner: *Checker, t: types.TypeIndex, ctx: FilterNotDerivedCtx) bool {
+    _ = c_inner;
+    return !Checker.isTypeDerivedFrom(ctx.c, t, ctx.candidate);
+}
+
+const FilterNotSubsetCtx = struct { c: *Checker, trueType: types.TypeIndex };
+fn filterNotSubsetMap(c_inner: *Checker, t: types.TypeIndex, ctx: FilterNotSubsetCtx) bool {
+    _ = c_inner;
+    _ = t;
+    _ = ctx;
+    return false;
+}
+
+const MapNarrowedTypeWorkerCtx = struct {
+    c: *Checker,
+    keyPropertyName: ?[]const u8,
+    t: types.TypeIndex,
+    candidate: types.TypeIndex,
+    assumeTrue: bool,
+    checkDerived: bool,
+};
+
+fn mapTypeDerivedFrom(c: *Checker, t: types.TypeIndex, n: types.TypeIndex) types.TypeIndex {
+    if (Checker.isTypeDerivedFrom(c, t, n)) return t;
+    if (Checker.isTypeDerivedFrom(c, n, t)) return n;
+    return c.getNeverType() catch 0;
+}
+
+fn mapTypeSubtypeOf(c: *Checker, t: types.TypeIndex, n: types.TypeIndex) types.TypeIndex {
+    if (false) return t;
+    if (false) return n;
+    if (false) return t;
+    if (false) return n;
+    return c.getNeverType() catch 0;
+}
+
+fn mapNarrowedTypeWorkerInner1(c: *Checker, t: types.TypeIndex, ctx: MapNarrowedTypeWorkerCtx) types.TypeIndex {
+    _ = c;
+    return if (ctx.checkDerived) mapTypeDerivedFrom(ctx.c, t, ctx.candidate) else mapTypeSubtypeOf(ctx.c, t, ctx.candidate);
+}
+
+fn mapNarrowedTypeWorkerInner2(c: *Checker, n: types.TypeIndex, ctx: MapNarrowedTypeWorkerCtx) types.TypeIndex {
+    var matching = ctx.t;
+    if (ctx.keyPropertyName) |kpn| {
+        const discriminant = Checker.getTypeOfPropertyOfType(c, n, kpn);
+        if (discriminant != 0) {
+            if (false) {
+                matching = 0;
+            }
+        }
+    }
+
+    var directlyRelated: types.TypeIndex = 0;
+    if (ctx.checkDerived) {
+        directlyRelated = Checker.mapType(c, matching, mapNarrowedTypeWorkerInner1, MapNarrowedTypeWorkerCtx{ .c = c, .t = matching, .candidate = n, .keyPropertyName = null, .assumeTrue = ctx.assumeTrue, .checkDerived = true });
+    } else {
+        directlyRelated = Checker.mapType(c, matching, mapNarrowedTypeWorkerInner1, MapNarrowedTypeWorkerCtx{ .c = c, .t = matching, .candidate = n, .keyPropertyName = null, .assumeTrue = ctx.assumeTrue, .checkDerived = false });
+    }
+
+    if ((Checker.getTypeFlags(c, directlyRelated) & types.TypeFlags.Never) == 0) {
+        return directlyRelated;
+    }
+
+    const InnerCtx = struct { c: *Checker, checkDerived: bool, n: types.TypeIndex };
+    const innerCtx = InnerCtx{ .c = c, .checkDerived = ctx.checkDerived, .n = n };
+
+    const innerMapFn = struct {
+        fn f(c_inner: *Checker, t_inner: types.TypeIndex, ictx: InnerCtx) types.TypeIndex {
+            _ = c_inner;
+            if (Checker.maybeTypeOfKind(ictx.c, t_inner, types.TypeFlags.Instantiable)) {
+                const constraint = Checker.getBaseConstraintOfType(ictx.c, t_inner);
+                if (constraint == 0 or (if (ictx.checkDerived) Checker.isTypeDerivedFrom(ictx.c, ictx.n, constraint) else false)) {
+                    var arr = [_]types.TypeIndex{ t_inner, ictx.n };
+                    return Checker.getIntersectionType(ictx.c, &arr);
+                }
+            }
+            return ictx.c.getNeverType() catch 0;
+        }
+    }.f;
+
+    return Checker.mapType(c, ctx.t, innerMapFn, innerCtx);
+}
+
+pub fn getNarrowedTypeWorker(c: *Checker, t_param: types.TypeIndex, candidate: types.TypeIndex, assumeTrue: bool, checkDerived: bool) types.TypeIndex {
+    var t = t_param;
+    if (!assumeTrue) {
+        if (t == candidate) {
+            return c.getNeverType() catch 0;
+        }
+        if (checkDerived) {
+            return Checker.filterType(c, t, filterNotDerivedMap, FilterNotDerivedCtx{ .c = c, .candidate = candidate });
+        }
+        if ((Checker.getTypeFlags(c, t) & types.TypeFlags.Unknown) != 0) {
+            t = null orelse 0;
+        }
+        const trueType = getNarrowedType(c, t, candidate, true, false);
+        return c.recombineUnknownType(Checker.filterType(c, t, filterNotSubsetMap, FilterNotSubsetCtx{ .c = c, .trueType = trueType }));
+    }
+    if ((Checker.getTypeFlags(c, t) & (types.TypeFlags.Any | types.TypeFlags.Unknown)) != 0) {
+        return candidate;
+    }
+    if (t == candidate) {
+        return candidate;
+    }
+
+    var keyPropertyName: ?[]const u8 = null;
+    if ((Checker.getTypeFlags(c, t) & types.TypeFlags.Union) != 0) {
+        keyPropertyName = null;
+    }
+
+    const narrowedType = Checker.mapType(c, candidate, mapNarrowedTypeWorkerInner2, MapNarrowedTypeWorkerCtx{
+        .c = c,
+        .keyPropertyName = keyPropertyName,
+        .t = t,
+        .candidate = candidate,
+        .assumeTrue = assumeTrue,
+        .checkDerived = checkDerived,
+    });
+
+    if ((Checker.getTypeFlags(c, narrowedType) & types.TypeFlags.Never) == 0) {
+        return narrowedType;
+    } else if (false) {
+        return candidate;
+    } else if (c.isTypeAssignableTo(t, candidate)) {
+        return t;
+    } else if (c.isTypeAssignableTo(candidate, t)) {
+        return candidate;
+    }
+
+    var arr = [_]types.TypeIndex{ t, candidate };
+    return Checker.getIntersectionType(c, &arr);
+}
+
+pub fn getInstanceType(c: *Checker, constructorType: types.TypeIndex) types.TypeIndex {
+    const prototypePropertyType = Checker.getTypeOfPropertyOfType(c, constructorType, "prototype");
+    if (prototypePropertyType != 0) {
+        if (!Checker.isTypeAny(c, prototypePropertyType)) {
+            return prototypePropertyType;
+        }
+    }
+    const constructSignatures = Checker.getSignaturesOfType(c, constructorType, types.SignatureKind.Construct);
+    if (constructSignatures.len != 0) {
+        return c.emptyObjectTypeIndex orelse 0;
+    }
+    return c.emptyObjectTypeIndex orelse 0;
+}
+
+pub fn getCandidateDiscriminantPropertyAccess(c: *Checker, f: *anyopaque, expr: ast_gen.NodeIndex) types.TypeIndex {
+    _ = c;
+    _ = f;
+    _ = expr;
+    return undefined;
+}
+
+pub fn getCandidateVariableDeclarationInitializer(node: ast_gen.NodeIndex) types.TypeIndex {
+    _ = node;
+    return undefined;
+}
+
+pub fn reportFlowControlError(c: *Checker, node: ast_gen.NodeIndex) void {
+    _ = c;
+    _ = node;
+}
+
+pub fn writeFlowCacheKey(c: *Checker, b: *anyopaque, node: ast_gen.NodeIndex, declaredType: *anyopaque, initialType: *anyopaque, flowContainer: *anyopaque) bool {
+    _ = c;
+    _ = b;
+    _ = node;
+    _ = declaredType;
+    _ = initialType;
+    _ = flowContainer;
+    return false;
+}
+
+pub fn tryGetElementAccessExpressionName(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
+pub fn tryGetNameFromEntityNameExpression(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
+pub fn tryGetNameFromType(t: types.TypeIndex) bool {
+    _ = t;
+    return false;
+}
+
+pub fn getDestructuringPropertyName(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
+pub fn getLiteralPropertyNameText(c: *Checker, name_: *anyopaque) bool {
+    _ = c;
+    _ = name_;
+    return false;
+}
+
+pub fn getReferenceRoot(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    _ = c;
+    _ = node;
+    return undefined;
+}
+
+pub fn computeExhaustiveSwitchStatement(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
+pub fn eachTypeContainedIn(c: *Checker, source: types.TypeIndex, types_: []const types.TypeIndex) bool {
+    _ = c;
+    _ = source;
+    _ = types_;
+    return false;
+}
+
+pub fn getSymbolHasInstanceMethodOfObjectType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+    _ = c;
+    _ = t;
+    return undefined;
+}
+
+pub fn getPropertyNameForKnownSymbolName(c: *Checker, symbolName: *anyopaque) types.TypeIndex {
+    _ = c;
+    _ = symbolName;
+    return undefined;
+}
+
+pub fn getTypeOfDottedName(c: *Checker, node: ast_gen.NodeIndex, diagnostic: *anyopaque) types.TypeIndex {
+    _ = c;
+    _ = node;
+    _ = diagnostic;
+    return undefined;
+}
+
+pub fn getExplicitTypeOfSymbol(c: *Checker, symbol_: *anyopaque, diagnostic: *anyopaque) types.TypeIndex {
+    _ = c;
+    _ = symbol_;
+    _ = diagnostic;
+    return undefined;
+}
+
+pub fn isDeclarationWithExplicitTypeAnnotation(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
+pub fn isExpandoPropertyFunctionWithReturnTypeAnnotation(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
+pub fn hasTypePredicateOrNeverReturnType(c: *Checker, sig: *anyopaque) bool {
+    _ = c;
+    _ = sig;
+    return false;
+}
+
+pub fn getExplicitThisType(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    _ = c;
+    _ = node;
+    return undefined;
+}
+
+pub fn getInitialType(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    const ast_data = c.binder.ast;
+    switch (ast_data.getKind(node)) {
+        .VariableDeclaration => return getInitialTypeOfVariableDeclaration(c, node),
+        .BindingElement => return getInitialTypeOfBindingElement(c, node),
+        else => @panic("Unhandled case in getInitialType"),
+    }
+}
+
+pub fn getInitialTypeOfVariableDeclaration(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    const ast_data = c.binder.ast;
+    const decl = ast_data.getNode(node).VariableDeclaration;
+    if (decl.Initializer != 0) {
+        return getTypeOfInitializer(c, decl.Initializer orelse 0);
+    }
+    const parent = ast_utils.getParent(ast_data, node);
+    if (parent != 0) {
+        const grandParent = ast_utils.getParent(ast_data, parent);
+        if (grandParent != 0) {
+            if (ast_data.getKind(grandParent) == .ForInStatement) {
+                return c.getStringType() catch c.errorTypeIndex orelse 0;
+            }
+            if (ast_data.getKind(grandParent) == .ForOfStatement) {
+                const t = 0;
+                if (t != 0) return t;
+            }
+        }
+    }
+    return c.errorTypeIndex orelse 0;
+}
+
+pub fn getTypeOfInitializer(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    if (c.typeNodeLinks.get(node)) |link| {
+        if (link.resolvedType != 0) return link.resolvedType;
+    }
+    return getTypeOfExpression(c, node);
+}
+
+pub fn getInitialTypeOfBindingElement(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    const ast_data = c.binder.ast;
+    const pattern = ast_utils.getParent(ast_data, node);
+    const parentType = getInitialType(c, ast_utils.getParent(ast_data, pattern));
+    var t: types.TypeIndex = 0;
+
+    if (ast_data.getKind(pattern) == .ObjectBindingPattern) {
+        t = getTypeOfDestructuredProperty(c, parentType, 0);
+    } else if (!false) {
+        const elements = ast_utils.getElements(ast_data, pattern);
+        var index: usize = 0;
+        for (elements, 0..) |elem, i| {
+            if (elem == node) {
+                index = i;
+                break;
+            }
+        }
+        t = getTypeOfDestructuredArrayElement(c, parentType, index);
+    } else {
+        t = getTypeOfDestructuredSpreadExpression(c, parentType);
+    }
+    const init = ast_data.getNode(node).BindingElement.Initializer;
+    return getTypeWithDefault(c, t, init);
+}
+
+pub fn getAssignedType(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    const ast_data = c.binder.ast;
+    const parent = ast_utils.getParent(ast_data, node);
+    if (parent == 0) return c.errorTypeIndex orelse 0;
+
+    switch (ast_data.getKind(parent)) {
+        .ForInStatement => return c.getStringType() catch c.errorTypeIndex orelse 0,
+        .ForOfStatement => {
+            const t = 0;
+            if (t != 0) return t;
+        },
+        .BinaryExpression => return getAssignedTypeOfBinaryExpression(c, parent),
+        .DeleteExpression => return c.getUndefinedType() catch c.errorTypeIndex orelse 0,
+        .ArrayLiteralExpression => return getAssignedTypeOfArrayLiteralElement(c, parent, node),
+        .SpreadElement => return getAssignedTypeOfSpreadExpression(c, parent),
+        .PropertyAssignment => return getAssignedTypeOfPropertyAssignment(c, parent),
+        .ShorthandPropertyAssignment => return getAssignedTypeOfShorthandPropertyAssignment(c, parent),
+        else => {},
+    }
+    return c.errorTypeIndex orelse 0;
+}
+
+pub fn getAssignedTypeOfBinaryExpression(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    const ast_data = c.binder.ast;
+    const parent = ast_utils.getParent(ast_data, node);
+    const isDestructuringDefaultAssignment = (parent != 0 and ast_data.getKind(parent) == .ArrayLiteralExpression and isDestructuringAssignmentTarget(c, parent)) or
+        (parent != 0 and ast_data.getKind(parent) == .PropertyAssignment and ast_utils.getParent(ast_data, parent) != 0 and isDestructuringAssignmentTarget(c, ast_utils.getParent(ast_data, parent)));
+
+    const bin = ast_data.getNode(node).BinaryExpression;
+    if (isDestructuringDefaultAssignment) {
+        return getTypeWithDefault(c, getAssignedType(c, node), bin.Right);
+    }
+    return getTypeOfExpression(c, bin.Right);
+}
+
+pub fn getAssignedTypeOfArrayLiteralElement(c: *Checker, node: ast_gen.NodeIndex, element: ast_gen.NodeIndex) types.TypeIndex {
+    const ast_data = c.binder.ast;
+    const elements = ast_data.getNodeList(ast_data.getNode(node).ArrayLiteralExpression.Elements);
+    var index: usize = 0;
+    for (elements, 0..) |elem, i| {
+        if (elem == element) {
+            index = i;
+            break;
+        }
+    }
+    return getTypeOfDestructuredArrayElement(c, getAssignedType(c, node), index);
+}
+
+pub fn getTypeOfDestructuredArrayElement(c: *Checker, t: types.TypeIndex, index: usize) types.TypeIndex {
+    if (false) {
+        if (checker_mod.getTupleElementType(c, t, index)) |elementType| {
+            return elementType;
+        }
+    }
+    const elementType = 0;
+    if (elementType != 0) {
+        return includeUndefinedInIndexSignature(c, elementType);
+    }
+    return c.errorTypeIndex orelse 0;
+}
+
+pub fn includeUndefinedInIndexSignature(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+    if (t == 0) return 0;
+    if (false == true) {
+        var arr = [_]types.TypeIndex{ t, c.missingTypeIndex orelse 0 };
+        return Checker.getUnionTypeFromArray(c, &arr);
+    }
+    return t;
+}
+
+pub fn getAssignedTypeOfSpreadExpression(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    return getTypeOfDestructuredSpreadExpression(c, getAssignedType(c, ast_utils.getParent(c.binder.ast, node)));
+}
+
+pub fn getTypeOfDestructuredSpreadExpression(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+    _ = t;
+    var elementType: types.TypeIndex = 0;
+    if (elementType == 0) {
+        elementType = c.errorTypeIndex orelse 0;
+    }
+    return Checker.createArrayType(c, elementType);
+}
+
+pub fn getAssignedTypeOfPropertyAssignment(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    return getTypeOfDestructuredProperty(c, getAssignedType(c, ast_utils.getParent(c.binder.ast, node)), c.binder.ast.getNode(node).PropertyAssignment.name);
+}
+
+pub fn getTypeOfDestructuredProperty(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex) types.TypeIndex {
+    _ = name_;
+    const nameType = 0;
+    if (!isTypeUsableAsPropertyName(c, nameType)) {
+        return c.errorTypeIndex orelse 0;
+    }
+    const text = getPropertyNameFromType(c, nameType);
+    if (text) |txt| {
+        const propType = Checker.getTypeOfPropertyOfType(c, t, txt);
+        if (propType != 0) {
+            return propType;
+        }
+        if (getApplicableIndexInfoForName(c, t, txt)) |indexInfo| {
+            return includeUndefinedInIndexSignature(c, indexInfo.valueType);
+        }
+    }
+    return c.errorTypeIndex orelse 0;
+}
+
+pub fn getAssignedTypeOfShorthandPropertyAssignment(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+    return getTypeWithDefault(c, getAssignedTypeOfPropertyAssignment(c, node), c.binder.ast.getNode(node).ShorthandPropertyAssignment.ObjectAssignmentInitializer);
+}
+
+pub fn isDestructuringAssignmentTarget(c: *Checker, parent: ast_gen.NodeIndex) bool {
+    const ast_data = c.binder.ast;
+    const parentParent = ast_utils.getParent(ast_data, parent);
+    if (parentParent == 0) return false;
+
+    if (ast_data.getKind(parentParent) == .BinaryExpression) {
+        return ast_data.getNode(parentParent).BinaryExpression.Left == parent;
+    }
+    if (ast_data.getKind(parentParent) == .ForOfStatement) {
+        return ast_data.getNode(parentParent).ForOfStatement.Initializer == parent;
+    }
+    return false;
+}
+
+pub fn getTypeWithDefault(c: *Checker, t: types.TypeIndex, defaultExpression: ?ast_gen.NodeIndex) types.TypeIndex {
+    if (defaultExpression) |expr| {
+        if (expr != 0) {
+            var arr = [_]types.TypeIndex{ t, getTypeOfExpression(c, expr) };
+            return Checker.getUnionTypeFromArray(c, &arr);
+        }
+    }
+    return t;
+}
+
+pub fn getFlowTypeInConstructor(c: *Checker, symbol_: *anyopaque, constructor: *anyopaque) types.TypeIndex {
+    _ = c;
+    _ = symbol_;
+    _ = constructor;
+    return undefined;
+}
+
+pub fn getFlowTypeInStaticBlocks(c: *Checker, symbol_: *anyopaque, staticBlocks: *anyopaque) types.TypeIndex {
+    _ = c;
+    _ = symbol_;
+    _ = staticBlocks;
+    return undefined;
+}
+
+pub fn isFalseExpression(c: *Checker, expr: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = expr;
+    return false;
+}
+
+pub fn isPostSuperFlowNode(c: *Checker, flow: *anyopaque, noCacheCheck: *anyopaque) bool {
+    _ = c;
+    _ = flow;
+    _ = noCacheCheck;
+    return false;
+}
+
+pub fn isPostSuperFlowNodeWorker(c: *Checker, f: *anyopaque, flow: *anyopaque, noCacheCheck: *anyopaque) bool {
+    _ = c;
+    _ = f;
+    _ = flow;
+    _ = noCacheCheck;
+    return false;
+}
+
+pub fn isSymbolAssignedDefinitely(c: *Checker, symbol_: *anyopaque) bool {
+    _ = c;
+    _ = symbol_;
+    return false;
+}
+
+pub fn isPastLastAssignment(c: *Checker, symbol_: *anyopaque, location: *anyopaque) bool {
+    _ = c;
+    _ = symbol_;
+    _ = location;
+    return false;
+}
+
+pub fn ensureAssignmentsMarked(c: *Checker, symbol_: *anyopaque) void {
+    _ = c;
+    _ = symbol_;
+}
+
+pub fn hasParentWithAssignmentsMarked(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
+pub fn markNodeAssignmentsWorker(c: *Checker, node: ast_gen.NodeIndex) bool {
+    _ = c;
+    _ = node;
+    return false;
+}
+
+pub fn extendAssignmentPosition(c: *Checker, node: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex) i32 {
+    _ = c;
+    _ = node;
+    _ = declaration;
+    return 0;
 }

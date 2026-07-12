@@ -5,6 +5,7 @@ const NodeIndex = ast_gen.NodeIndex;
 const checker_mod = @import("checker.zig");
 const Checker = checker_mod.Checker;
 const diagnostics = @import("../diagnostics/diagnostics.zig");
+const utils = @import("utilities.zig");
 
 pub fn checkUnmatchedJSDocParameters(c: *Checker, node: NodeIndex) void {
     const allocator = c.arena.allocator();
@@ -79,8 +80,8 @@ pub fn checkUnmatchedJSDocParameters(c: *Checker, node: NodeIndex) void {
             if (c.ast.isQualifiedName(name)) {
                 if (isJs) {
                     c.errorNodeArgs(name, diagnostics.Diagnostics.Qualified_name_0_is_not_allowed_without_a_leading_param_object_1, .{
-                        c.entityNameToString(name),
-                        c.entityNameToString(c.ast.qualifiedName_left(name)),
+                        utils.entityNameToString(c, name),
+                        utils.entityNameToString(c, c.ast.qualifiedName_left(name)),
                     });
                 }
             } else {
