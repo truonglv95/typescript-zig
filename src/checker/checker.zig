@@ -231,6 +231,7 @@ pub const Checker = struct {
 
     unionTypesPool: std.ArrayListUnmanaged(types.TypeIndex),
     tupleTypesPool: std.ArrayListUnmanaged(types.TypeIndex),
+    tupleTypes: std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex) = .empty,
     templateLiteralTypes: std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex) = .empty,
     typeArgumentsPool: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
 
@@ -5514,16 +5515,26 @@ pub const Checker = struct {
 
     pub fn createTypeReferenceEx(c: *Checker, target: types.TypeIndex, typeArguments: []const types.TypeIndex, objectFlags: u32) !types.TypeIndex {
         const id = getTypeListKey(typeArguments);
-        var targetData = &c.typesList.items[target].data.Object;
+        const targetTypeNode = c.typesList.items[target];
 
-        if (targetData.instantiations != null) {
-            if (targetData.instantiations.?.get(id)) |t| {
-                return t;
+        var instantiationsOpt: ?*?std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex) = null;
+
+        if (std.meta.activeTag(targetTypeNode.data) == .Object) {
+            instantiationsOpt = &c.typesList.items[target].data.Object.instantiations;
+        } else if (std.meta.activeTag(targetTypeNode.data) == .Tuple) {
+            instantiationsOpt = &c.typesList.items[target].data.Tuple.instantiations;
+        }
+
+        if (instantiationsOpt) |inst| {
+            if (inst.* != null) {
+                if (inst.*.?.get(id)) |t| {
+                    return t;
+                }
             }
         }
 
         const newFlags = types.ObjectFlags.Reference | objectFlags | c.getPropagatingFlagsOfTypes(typeArguments, types.TypeFlags.None);
-        const t = try c.createType(.{ .flags = types.TypeFlags.Object, .objectFlags = newFlags, .symbol = c.typesList.items[target].symbol, .data = .{ .Object = .{
+        const t = try c.createType(.{ .flags = types.TypeFlags.Object, .objectFlags = newFlags, .symbol = targetTypeNode.symbol, .data = .{ .Object = .{
             .target = target,
         } } });
 
@@ -5535,13 +5546,20 @@ pub const Checker = struct {
         d.typeArgumentsStart = typeArgsStart;
         d.typeArgumentsLen = @as(u32, @intCast(typeArguments.len));
 
-        // Note: instantiations map should be updated on the original target, not targetData directly because targetData is a copy of the pointer, wait: targetData is a pointer to the element in array list.
         // It's safer to re-fetch the pointer after any allocator calls!
-        var actualTargetData = &c.typesList.items[target].data.Object;
-        if (actualTargetData.instantiations == null) {
-            actualTargetData.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex){};
+        if (std.meta.activeTag(c.typesList.items[target].data) == .Object) {
+            var actualTargetData = &c.typesList.items[target].data.Object;
+            if (actualTargetData.instantiations == null) {
+                actualTargetData.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex){};
+            }
+            try actualTargetData.instantiations.?.put(c.allocator, id, t);
+        } else if (std.meta.activeTag(c.typesList.items[target].data) == .Tuple) {
+            var actualTargetData = &c.typesList.items[target].data.Tuple;
+            if (actualTargetData.instantiations == null) {
+                actualTargetData.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex){};
+            }
+            try actualTargetData.instantiations.?.put(c.allocator, id, t);
         }
-        try actualTargetData.instantiations.?.put(c.allocator, id, t);
 
         return t;
     }
@@ -5688,12 +5706,144 @@ pub const Checker = struct {
         return true;
     }
 
-    pub fn getTupleTargetType(c: *Checker, elementInfos: []const types.TupleElementInfo, readonly: bool) types.TypeIndex {
+    pub fn getTupleKey(c: *Checker, elementInfos: []const types.TupleElementInfo, readonly: bool) types.CacheHashKey {
         _ = c;
-        _ = elementInfos;
-        _ = readonly;
-        // TODO: implement
-        return 0; // c.emptyGenericTypeIndex once we expose it properly
+        var hasher = std.hash.Wyhash.init(0);
+        for (elementInfos) |e| {
+            if ((e.flags & types.ElementFlags.Required) != 0) {
+                hasher.update("#");
+            } else if ((e.flags & types.ElementFlags.Optional) != 0) {
+                hasher.update("?");
+            } else if ((e.flags & types.ElementFlags.Rest) != 0) {
+                hasher.update(".");
+            } else {
+                hasher.update("*");
+            }
+            if (e.labeledDeclaration) |node| {
+                const nodeBytes = std.mem.asBytes(&node);
+                hasher.update(nodeBytes);
+            }
+        }
+        if (readonly) {
+            hasher.update("R");
+        }
+        return hasher.final();
+    }
+
+    pub fn getTupleTargetType(c: *Checker, elementInfos: []const types.TupleElementInfo, readonly: bool) types.TypeIndex {
+        if (elementInfos.len == 1 and (elementInfos[0].flags & types.ElementFlags.Rest) != 0) {
+            if (readonly) {
+                return c.globalReadonlyArrayType;
+            }
+            return c.globalArrayType;
+        }
+        const key = c.getTupleKey(elementInfos, readonly);
+        if (c.tupleTypes.get(key)) |t| {
+            return t;
+        }
+        const t = c.createTupleTargetType(elementInfos, readonly);
+        c.tupleTypes.put(c.allocator, key, t) catch {};
+        return t;
+    }
+
+    pub fn createTupleTargetType(c: *Checker, elementInfos: []const types.TupleElementInfo, readonly: bool) types.TypeIndex {
+        const arity = elementInfos.len;
+        var minLength: u32 = 0;
+        for (elementInfos) |e| {
+            if ((e.flags & (types.ElementFlags.Required | types.ElementFlags.Variadic)) != 0) {
+                minLength += 1;
+            }
+        }
+        var combinedFlags: u32 = types.ElementFlags.None;
+        var typeParametersStart: u32 = 0;
+
+        var members = std.AutoHashMapUnmanaged([]const u8, ast_gen.SymbolIndex){};
+        defer members.deinit(c.allocator);
+
+        if (arity != 0) {
+            typeParametersStart = @as(u32, @intCast(c.typeArgumentsPool.items.len));
+            c.typeArgumentsPool.ensureUnusedCapacity(c.allocator, arity) catch {};
+            for (elementInfos, 0..) |e, i| {
+                const typeParameter = c.createTypeParameter(0);
+                c.typeArgumentsPool.appendAssumeCapacity(typeParameter);
+                const flags = e.flags;
+                combinedFlags |= flags;
+                if ((combinedFlags & types.ElementFlags.Variable) == 0) {
+                    var buf: [32]u8 = undefined;
+                    const name = std.fmt.bufPrint(&buf, "{d}", .{i}) catch "0";
+                    const allocName = c.allocator.dupe(u8, name) catch name;
+                    const symFlags = types.SymbolFlags.Property | if ((flags & types.ElementFlags.Optional) != 0) types.SymbolFlags.Optional else 0;
+                    const property = c.createSymbolEx(symFlags, allocName, if (readonly) types.CheckFlags.Readonly else 0);
+                    c.valueSymbolLinks.getPtr(property).?.resolvedType = typeParameter;
+                    members.put(c.allocator, allocName, property) catch {};
+                }
+            }
+        }
+
+        const fixedLength = @as(u32, @intCast(members.count()));
+        const lengthSymbol = c.createSymbolEx(types.SymbolFlags.Property, "length", if (readonly) types.CheckFlags.Readonly else 0);
+
+        if ((combinedFlags & types.ElementFlags.Variable) != 0) {
+            c.valueSymbolLinks.getPtr(lengthSymbol).?.resolvedType = c.numberType;
+        } else {
+            var literalTypes = std.ArrayListUnmanaged(types.TypeIndex).initCapacity(c.allocator, arity - minLength + 1) catch unreachable;
+            defer literalTypes.deinit(c.allocator);
+            var i: u32 = minLength;
+            while (i <= arity) : (i += 1) {
+                literalTypes.appendAssumeCapacity(c.getNumberLiteralType(i)); // Assuming getNumberLiteralType handles u32 correctly
+            }
+            c.valueSymbolLinks.getPtr(lengthSymbol).?.resolvedType = c.getUnionTypeFromArray(literalTypes.items);
+        }
+        members.put(c.allocator, "length", lengthSymbol) catch {};
+
+        const t = c.createType(.{
+            .flags = types.TypeFlags.Object,
+            .objectFlags = types.ObjectFlags.Tuple | types.ObjectFlags.Reference,
+            .data = .{ .Tuple = .{
+                .typesStart = 0,
+                .typesLen = 0,
+                .elementInfosStart = 0,
+                .readonly = readonly,
+                .combinedFlags = combinedFlags,
+                .minLength = minLength,
+                .fixedLength = fixedLength,
+                .hasRestElement = (combinedFlags & types.ElementFlags.Rest) != 0,
+                .typeParametersStart = typeParametersStart,
+                .typeParametersLen = @as(u32, @intCast(arity)),
+            } },
+        }) catch return 0;
+
+        var d = &c.typesList.items[t].data.Tuple;
+        d.thisType = c.createTypeParameter(0);
+        c.typesList.items[d.thisType.?].data.TypeParameter.isThisType = true;
+        c.typesList.items[d.thisType.?].data.TypeParameter.constraintType = t;
+
+        c.typeArgumentsPool.append(c.allocator, d.thisType.?) catch {}; // append to allTypeParameters
+        d.target = t;
+
+        // Ensure elementInfos are saved in c.tupleElementInfos if not already
+        const elementInfosStart = @as(u32, @intCast(c.tupleElementInfos.items.len));
+        c.tupleElementInfos.appendSlice(c.allocator, elementInfos) catch {};
+        d.elementInfosStart = elementInfosStart;
+
+        d.typesStart = typeParametersStart;
+        d.typesLen = @as(u32, @intCast(arity));
+
+        // Members should be saved to c.binder.symbolMembers
+        c.binder.symbolMembers.put(c.allocator, t, members) catch {}; // Actually should be stored on the tuple type symbol? Wait! t is a TypeIndex, not SymbolIndex.
+        // Go's TupleType has declaredMembers which is ast.SymbolTable
+        // Let's create a dummy symbol for the Tuple target and attach members to it
+        const tupleSym = c.createSymbolEx(types.SymbolFlags.TypeLiteral, "__tuple", 0);
+        c.typesList.items[t].symbol = tupleSym;
+        c.binder.symbolMembers.put(c.allocator, tupleSym, members) catch {};
+
+        d.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex){};
+
+        // d.instantiations[getTypeListKey(d.TypeParameters())] = t
+        const typeParams = c.typeArgumentsPool.items[typeParametersStart .. typeParametersStart + arity];
+        d.instantiations.?.put(c.allocator, getTypeListKey(typeParams), t) catch {};
+
+        return t;
     }
 
     pub const CreateTupleCtx = struct {
