@@ -285,6 +285,7 @@ pub const Checker = struct {
     flowLoopCache: std.AutoHashMapUnmanaged(flow.FlowLoopKey, types.TypeIndex) = .empty,
     flowLoopStack: std.ArrayListUnmanaged(flow.FlowLoopInfo) = .empty,
     flowLoopTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
+    contextualInfos: std.ArrayListUnmanaged(types.ContextualInfo) = .empty,
     currentNode: ast_gen.NodeIndex = 0,
     withinUnreachableCode: bool = false,
     instantiationCount: u32 = 0,
@@ -14781,26 +14782,24 @@ pub const Checker = struct {
     }
 
     pub fn pushCachedContextualType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = node_idx;
+        c.pushContextualType(node_idx, c.getContextualType(node_idx, 0), true);
     }
 
     pub fn pushContextualType(c: *Checker, node_idx: ast_gen.NodeIndex, t: types.TypeIndex, isCache: bool) void {
-        _ = c;
-        _ = node_idx;
-        _ = t;
-        _ = isCache;
+        c.contextualInfos.append(c.allocator, .{ .node = node_idx, .type_ = t, .isCache = isCache }) catch unreachable;
     }
 
     pub fn popContextualType(c: *Checker) void {
-        _ = c;
+        _ = c.contextualInfos.pop();
     }
 
-    pub fn findContextualNode(c: *Checker, node: *anyopaque, includeCaches: *anyopaque) i32 {
-        _ = c;
-        _ = node;
-        _ = includeCaches;
-        return 0;
+    pub fn findContextualNode(c: *Checker, node: ast_gen.NodeIndex, includeCaches: bool) i32 {
+        for (c.contextualInfos.items, 0..) |info, i| {
+            if (info.node == node and (includeCaches or !info.isCache)) {
+                return @intCast(i);
+            }
+        }
+        return -1;
     }
 
     pub fn pushInferenceContext(c: *Checker, node: *anyopaque, context: *anyopaque) void {
@@ -16699,7 +16698,11 @@ pub fn checkPrefixUnaryExpression(c: *Checker, node_idx: ast_gen.NodeIndex) type
     }
 }
 pub fn checkPrivateIdentifierExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
-    _ = node_idx;
+    _ = c.checkGrammarPrivateIdentifierExpression(node_idx);
+    const sym = c.getSymbolForPrivateIdentifierExpression(node_idx);
+    if (sym != 0) {
+        c.markPropertyAsReferenced(sym, 0, false);
+    }
     return c.anyTypeIndex orelse 0;
 }
 pub fn checkPropertyAccessExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
