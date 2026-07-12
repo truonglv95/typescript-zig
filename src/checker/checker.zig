@@ -9035,11 +9035,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkNonNullType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
+    pub fn checkNonNullType(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = c;
-        _ = t;
         _ = node;
-        return undefined;
+        return t;
     }
 
     pub fn checkNonNullTypeWithReporter(c: *Checker, t: *anyopaque, node1: *anyopaque, reportError_: *anyopaque, node2: *anyopaque, facts: *anyopaque) *anyopaque {
@@ -9812,10 +9811,9 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkNonNullChain(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn checkNonNullChain(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = node;
-        return undefined;
+        return c.anyTypeIndex orelse 0;
     }
 
     pub fn checkExpressionWithTypeArguments(c: *Checker, node: *anyopaque) *anyopaque {
@@ -10336,13 +10334,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkArithmeticOperandType(c: *Checker, operand: *anyopaque, t: *anyopaque, diagnostic: *anyopaque, isAwaitValid: *anyopaque) bool {
+    pub fn checkArithmeticOperandType(c: *Checker, operand: ast_gen.NodeIndex, t: types.TypeIndex, diagnostic: diagnostics.Message, isAwaitValid: bool) bool {
         _ = c;
         _ = operand;
         _ = t;
         _ = diagnostic;
         _ = isAwaitValid;
-        return false;
+        return true;
     }
 
     pub fn checkForDisallowedESSymbolOperand(c: *Checker, left: *anyopaque, right: *anyopaque, leftType: *anyopaque, rightType: *anyopaque, operator: *anyopaque) bool {
@@ -10473,12 +10471,12 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkReferenceExpression(c: *Checker, expr: *anyopaque, invalidReferenceMessage: *anyopaque, invalidOptionalChainMessage: *anyopaque) bool {
+    pub fn checkReferenceExpression(c: *Checker, expr: ast_gen.NodeIndex, invalidReferenceMessage: diagnostics.Message, invalidOptionalChainMessage: diagnostics.Message) bool {
         _ = c;
         _ = expr;
         _ = invalidReferenceMessage;
         _ = invalidOptionalChainMessage;
-        return false;
+        return true;
     }
 
     pub fn checkSpreadPropOverrides(c: *Checker, t: *anyopaque, props: *anyopaque, spread: *anyopaque) void {
@@ -11918,10 +11916,9 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getNonNullableType(c: *Checker, t: *anyopaque) *anyopaque {
+    pub fn getNonNullableType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
-        _ = t;
-        return undefined;
+        return t;
     }
 
     pub fn isNullableType(c: *Checker, t: *anyopaque) bool {
@@ -16574,14 +16571,36 @@ pub fn checkCommaListExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.
 }
 pub fn checkConditionalExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
     const node = c.binder.ast.getNode(node_idx).ConditionalExpression;
-    _ = checkExpression(c, node.Condition);
+    const condType = checkExpressionEx(c, node.Condition, checkMode);
+    const t = c.checkTruthinessOfType(condType, node.Condition);
+    c.checkTestingKnownTruthyCallableOrAwaitableOrEnumMemberType(node.Condition, t, node.WhenTrue);
     const t1 = checkExpressionEx(c, node.WhenTrue, checkMode);
     const t2 = checkExpressionEx(c, node.WhenFalse, checkMode);
     return c.getUnionTypeFromArray(&[_]types.TypeIndex{ t1, t2 });
 }
 pub fn checkDeleteExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
-    const node = c.binder.ast.getNode(node_idx).DeleteExpression;
-    _ = checkExpression(c, node.Expression);
+    const expr = c.binder.ast.getNode(node_idx).DeleteExpression;
+    _ = checkExpression(c, expr.Expression);
+    const operand = ast_utils.skipParentheses(c.binder.ast, expr.Expression);
+    if (!ast_utils.isAccessExpression(c.binder.ast, operand)) {
+        c.reportError(operand, &diagnostics.The_operand_of_a_delete_operator_must_be_a_property_reference);
+        return c.booleanTypeIndex orelse 0;
+    }
+    if (c.binder.ast.getKind(operand) == .PropertyAccessExpression) {
+        const nameNode = c.binder.ast.getNode(operand).PropertyAccessExpression.Name;
+        if (c.binder.ast.getKind(nameNode) == .PrivateIdentifier) {
+            c.reportError(operand, &diagnostics.The_operand_of_a_delete_operator_cannot_be_a_private_identifier);
+        }
+    }
+    const resolvedSym = c.getResolvedSymbolOrNil(operand);
+    const exportSymbol = c.getExportSymbolOfValueSymbolIfExported(resolvedSym);
+    if (exportSymbol != 0) {
+        if (c.isReadonlySymbol(exportSymbol)) {
+            c.reportError(operand, &diagnostics.The_operand_of_a_delete_operator_cannot_be_a_read_only_property);
+        } else {
+            c.checkDeleteExpressionMustBeOptional(operand, exportSymbol);
+        }
+    }
     return c.booleanTypeIndex orelse 0;
 }
 pub fn checkElementAccessExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
@@ -16645,8 +16664,12 @@ pub fn checkNewExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIn
     return c.checkExpressionAdHoc(node_idx) catch c.anyTypeIndex orelse 0;
 }
 pub fn checkNonNullExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    const flags = c.binder.ast.nodes.items[node_idx].flags;
+    if ((flags & ast_gen.NodeFlags.OptionalChain) != 0) {
+        return c.checkNonNullChain(node_idx);
+    }
     const expr = c.binder.ast.getNode(node_idx).NonNullExpression;
-    return checkExpression(c, expr.Expression);
+    return c.getNonNullableType(checkExpression(c, expr.Expression));
 }
 pub fn checkNumericLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
     _ = checkMode;
@@ -16680,12 +16703,23 @@ pub fn checkPartiallyEmittedExpression(c: *Checker, node_idx: ast_gen.NodeIndex)
 }
 pub fn checkPostfixUnaryExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     const expr = c.binder.ast.getNode(node_idx).PostfixUnaryExpression;
-    _ = checkExpression(c, expr.Operand);
-    return c.numberTypeIndex orelse 0;
+    const operandType = checkExpression(c, expr.Operand);
+    if (operandType == c.silentNeverTypeIndex orelse 0) {
+        return c.silentNeverTypeIndex orelse 0;
+    }
+    const nonNullType = c.checkNonNullType(operandType, expr.Operand);
+    const ok = c.checkArithmeticOperandType(expr.Operand, nonNullType, diagnostics.An_arithmetic_operand_must_be_of_type_any_number_bigint_or_an_enum_type, false);
+    if (ok) {
+        _ = c.checkReferenceExpression(expr.Operand, diagnostics.The_operand_of_an_increment_or_decrement_operator_must_be_a_variable_or_a_property_access, diagnostics.The_operand_of_an_increment_or_decrement_operator_may_not_be_an_optional_property_access);
+    }
+    return c.getUnaryResultType(operandType) catch c.errorTypeIndex orelse 0;
 }
 pub fn checkPrefixUnaryExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     const expr = c.binder.ast.getNode(node_idx).PrefixUnaryExpression;
-    _ = checkExpression(c, expr.Operand);
+    const operandType = checkExpression(c, expr.Operand);
+    if (operandType == c.silentNeverTypeIndex orelse 0) {
+        return c.silentNeverTypeIndex orelse 0;
+    }
 
     const operandKind = c.binder.ast.getKind(expr.Operand);
     if (operandKind == .NumericLiteral) {
@@ -16701,10 +16735,39 @@ pub fn checkPrefixUnaryExpression(c: *Checker, node_idx: ast_gen.NodeIndex) type
     }
 
     switch (expr.Operator) {
-        .PlusToken, .MinusToken, .TildeToken => return c.numberTypeIndex orelse 0,
-        .ExclamationToken => return c.booleanTypeIndex orelse 0,
-        .PlusPlusToken, .MinusMinusToken => return c.numberTypeIndex orelse 0,
-        else => return c.anyTypeIndex orelse 0,
+        .PlusToken, .MinusToken, .TildeToken => {
+            _ = c.checkNonNullType(operandType, expr.Operand);
+            if (c.maybeTypeOfKindConsideringBaseConstraint(operandType, types.TypeFlags.ESSymbolLike)) {
+                c.reportErrorWithArgs(expr.Operand, &diagnostics.The_0_operator_cannot_be_applied_to_type_symbol, .{c.binder.ast.tokenToString(expr.Operator)});
+            }
+            if (expr.Operator == .PlusToken) {
+                if (c.maybeTypeOfKindConsideringBaseConstraint(operandType, types.TypeFlags.BigIntLike)) {
+                    // TODO: Operator_0_cannot_be_applied_to_type_1 format argument requires typeToString
+                }
+                return c.numberTypeIndex orelse 0;
+            }
+            return c.getUnaryResultType(operandType) catch c.errorTypeIndex orelse 0;
+        },
+        .ExclamationToken => {
+            _ = c.checkTruthinessOfType(operandType, expr.Operand);
+            const facts = c.getTypeFacts(operandType, types.TypeFacts.Truthy | types.TypeFacts.Falsy);
+            if (facts == types.TypeFacts.Truthy) {
+                return c.falseTypeIndex orelse 0;
+            } else if (facts == types.TypeFacts.Falsy) {
+                return c.trueTypeIndex orelse 0;
+            } else {
+                return c.booleanTypeIndex orelse 0;
+            }
+        },
+        .PlusPlusToken, .MinusMinusToken => {
+            const nonNullType = c.checkNonNullType(operandType, expr.Operand);
+            const ok = c.checkArithmeticOperandType(expr.Operand, nonNullType, diagnostics.An_arithmetic_operand_must_be_of_type_any_number_bigint_or_an_enum_type, false);
+            if (ok) {
+                _ = c.checkReferenceExpression(expr.Operand, diagnostics.The_operand_of_an_increment_or_decrement_operator_must_be_a_variable_or_a_property_access, diagnostics.The_operand_of_an_increment_or_decrement_operator_may_not_be_an_optional_property_access);
+            }
+            return c.getUnaryResultType(operandType) catch c.errorTypeIndex orelse 0;
+        },
+        else => return c.errorTypeIndex orelse 0,
     }
 }
 pub fn checkPrivateIdentifierExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
