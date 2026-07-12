@@ -16523,15 +16523,23 @@ pub fn checkExpressionWorker(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode
 
 // Stubs
 pub fn checkArrayLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode, arg4: ?ast_gen.NodeIndex) types.TypeIndex {
-    _ = checkMode;
     _ = arg4;
     const elements = c.binder.ast.nodes.get(node_idx).ArrayLiteralExpression.Elements;
     const elem_list = c.binder.ast.nodes.get(elements).NodeList;
     var iter = c.binder.ast.nodeListIter(elem_list);
     while (iter.next()) |elem_idx| {
-        c.checkSourceElement(elem_idx);
+        const node = c.binder.ast.nodes.get(elem_idx);
+        switch (node) {
+            .SpreadElement => |spread| {
+                _ = checkExpressionEx(c, spread.Expression, checkMode);
+            },
+            .OmittedExpression => {},
+            else => {
+                _ = checkExpressionEx(c, elem_idx, checkMode);
+            },
+        }
     }
-    return c.anyTypeIndex orelse 0;
+    return c.anyTypeIndex orelse 0; // Stub: full checkArrayLiteral logic pending
 }
 pub fn checkAssertion(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     const node_kind = c.binder.ast.getKind(node_idx);
@@ -16647,8 +16655,10 @@ pub fn checkNumericLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
     return c.getFreshTypeOfLiteralType(c.getNumberLiteralType(value));
 }
 pub fn checkObjectLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
-    std.debug.print("checkObjectLiteral\n", .{});
     _ = checkMode;
+    const inDestructuringPattern = c.binder.ast.isAssignmentTarget(node_idx);
+    _ = c.checkGrammarObjectLiteralExpression(node_idx, inDestructuringPattern);
+
     const properties = c.binder.ast.nodes.get(node_idx).ObjectLiteralExpression.Properties;
     const prop_list = c.binder.ast.nodes.get(properties).NodeList;
 
