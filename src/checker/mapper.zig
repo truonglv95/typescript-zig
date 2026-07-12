@@ -183,11 +183,11 @@ pub const InferenceTypeMapper = struct {
 
 // Factory functions
 pub fn createSimpleTypeMapper(c: *Checker, source: TypeIndex, target: TypeIndex) TypeMapperIndex {
-    return c.addTypeMapper(.{ .Simple = .{ .source = source, .target = target } });
+    return checker_mod.addTypeMapper(c, .{ .kind = .Simple, .data = .{ .Simple = .{ .source = source, .target = target } } });
 }
 
 pub fn createArrayTypeMapper(c: *Checker, sources: []const TypeIndex, targets: []const TypeIndex) TypeMapperIndex {
-    return c.addTypeMapper(.{ .Array = .{ .sources = sources, .targets = targets } });
+    return checker_mod.addTypeMapper(c, .{ .kind = .Array, .data = .{ .Array = .{ .sources = sources, .targets = targets } } });
 }
 
 pub fn createTypeMapper(c: *Checker, sources: []const TypeIndex, targets: []const TypeIndex) TypeMapperIndex {
@@ -199,14 +199,14 @@ pub fn createTypeMapper(c: *Checker, sources: []const TypeIndex, targets: []cons
 
 pub fn combineTypeMappers(c: *Checker, m1: TypeMapperIndex, m2: TypeMapperIndex) TypeMapperIndex {
     if (m1 != 0) {
-        return c.addTypeMapper(.{ .Composite = .{ .m1 = m1, .m2 = m2 } });
+        return checker_mod.addTypeMapper(c, .{ .kind = .Composite, .data = .{ .Composite = .{ .m1 = m1, .m2 = m2 } } });
     }
     return m2;
 }
 
 pub fn mergeTypeMappers(c: *Checker, m1: TypeMapperIndex, m2: TypeMapperIndex) TypeMapperIndex {
     if (m1 != 0) {
-        return c.addTypeMapper(.{ .Merged = .{ .m1 = m1, .m2 = m2 } });
+        return checker_mod.addTypeMapper(c, .{ .kind = .Merged, .data = .{ .Merged = .{ .mapper1 = m1, .mapper2 = m2 } } });
     }
     return m2;
 }
@@ -232,5 +232,5 @@ pub fn createBackreferenceMapper(c: *Checker, contextIndex: u32, index: usize) T
     for (forwardInferences, 0..) |infIndex, i| {
         typeParameters[i] = c.getInferenceInfo(infIndex).typeParameter;
     }
-    return c.addTypeMapper(.{ .ArrayToSingle = .{ .sources = typeParameters, .target = c.globalUnknownType() } });
+    return checker_mod.addTypeMapper(c, .{ .kind = .ArrayToSingle, .data = .{ .ArrayToSingle = .{ .sources = typeParameters, .target = c.globalUnknownType() } } });
 }

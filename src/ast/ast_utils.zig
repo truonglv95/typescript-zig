@@ -30,19 +30,61 @@ pub fn isParameterPropertyDeclaration(tree: *ast.Ast, nodeIndex: ast_gen.NodeInd
     return hasSyntacticModifier(tree, nodeIndex, ModifierFlags.ParameterPropertyModifier);
 }
 
-pub const OEKAllExceptAssertionsOrExpressionsWithTypeArguments = 1;
-pub const OEKAll = ~@as(u32, 0);
+pub const OEKParentheses: u32 = 1 << 0;
+pub const OEKTypeAssertions: u32 = 1 << 1;
+pub const OEKNonNullAssertions: u32 = 1 << 2;
+pub const OEKPartiallyEmittedExpressions: u32 = 1 << 3;
+pub const OEKAssertions: u32 = OEKTypeAssertions | OEKNonNullAssertions;
+pub const OEKAll: u32 = OEKParentheses | OEKAssertions | OEKPartiallyEmittedExpressions;
+pub const OEKExcludeJSDocTypeAssertion: u32 = 1 << 4;
+pub const OEKAllExceptAssertionsOrExpressionsWithTypeArguments: u32 = OEKParentheses | OEKPartiallyEmittedExpressions;
 
 pub fn isJSDocTypeAssertion(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     _ = a;
     _ = nodeIndex;
-    return false;
+    return false; // TODO
 }
 
-pub fn skipOuterExpressions(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex, flags: u32) ast_gen.NodeIndex {
-    _ = a;
-    _ = flags;
-    return nodeIndex;
+pub fn skipOuterExpressions(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex, kinds: u32) ast_gen.NodeIndex {
+    var curr = nodeIndex;
+    while (curr != 0) {
+        const node = a.getNode(curr);
+        switch (node) {
+            .ParenthesizedExpression => |n| {
+                if (kinds & OEKParentheses != 0) {
+                    curr = n.Expression;
+                    continue;
+                }
+            },
+            .TypeAssertionExpression => |n| {
+                if (kinds & OEKTypeAssertions != 0) {
+                    curr = n.Expression;
+                    continue;
+                }
+            },
+            .AsExpression => |n| {
+                if (kinds & OEKTypeAssertions != 0) {
+                    curr = n.Expression;
+                    continue;
+                }
+            },
+            .NonNullExpression => |n| {
+                if (kinds & OEKNonNullAssertions != 0) {
+                    curr = n.Expression;
+                    continue;
+                }
+            },
+            .PartiallyEmittedExpression => |n| {
+                if (kinds & OEKPartiallyEmittedExpressions != 0) {
+                    curr = n.Expression;
+                    continue;
+                }
+            },
+            else => {},
+        }
+        break;
+    }
+    return curr;
 }
 
 pub fn isEnumConst(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
@@ -120,7 +162,8 @@ pub fn isAliasSymbolDeclaration(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex
         .ImportEqualsDeclaration, .NamespaceExportDeclaration, .NamespaceImport, .NamespaceExport, .ImportSpecifier, .ExportSpecifier => return true,
         .ImportClause => |n| return n.name != 0,
         .ExportAssignment => return false, // TODO: expressionIsAlias
-        .VariableDeclaration, .BindingElement => return false, // TODO: isVariableDeclarationInitializedToRequire
+        .VariableDeclaration => |n| return if (n.initializer != 0) isRequireCall(tree, n.initializer, true) else false,
+        .BindingElement => |n| return if (n.initializer != 0) isRequireCall(tree, n.initializer, true) else false,
         else => return false,
     }
 }
@@ -1694,7 +1737,53 @@ pub fn hasPropertyAccessExpressionWithName(a: anytype, b: anytype, c: anytype) b
 pub fn isParameterDeclaration(a: anytype, b: anytype) bool {
     _ = a;
     _ = b;
-    return false;
+    return false; // Stub
+}
+
+pub fn isStatement(tree: *ast_pkg.Ast, node: ast_gen.NodeIndex) bool {
+    const nodeKind = tree.getKind(node);
+    return switch (nodeKind) {
+        .Block, .EmptyStatement, .VariableStatement, .ExpressionStatement, .IfStatement, .DoStatement, .WhileStatement, .ForStatement, .ForInStatement, .ForOfStatement, .ContinueStatement, .BreakStatement, .ReturnStatement, .WithStatement, .SwitchStatement, .LabeledStatement, .ThrowStatement, .TryStatement, .DebuggerStatement => true,
+        else => false,
+    };
+}
+
+pub fn isTypeOnlyImportOrExportDeclaration(tree: *ast_gen.Tree, node: ast_gen.NodeIndex) bool {
+    switch (tree.getNodeKind(node)) {
+        .ImportSpecifier => {
+            const specifier = tree.getImportSpecifier(node);
+            if (specifier.isTypeOnly) return true;
+            const parent = tree.getNodeParent(node);
+            if (parent == 0) return false;
+            const grandParent = tree.getNodeParent(parent);
+            if (grandParent != 0 and tree.getNodeKind(grandParent) == .ImportClause) {
+                return tree.getImportClause(grandParent).isTypeOnly;
+            }
+            return false;
+        },
+        .ExportSpecifier => {
+            const specifier = tree.getExportSpecifier(node);
+            if (specifier.isTypeOnly) return true;
+            const parent = tree.getNodeParent(node);
+            if (parent == 0) return false;
+            const grandParent = tree.getNodeParent(parent);
+            if (grandParent != 0 and tree.getNodeKind(grandParent) == .ExportDeclaration) {
+                return tree.getExportDeclaration(grandParent).isTypeOnly;
+            }
+            return false;
+        },
+        .ImportClause => return tree.getImportClause(node).isTypeOnly,
+        .ImportEqualsDeclaration => return tree.getImportEqualsDeclaration(node).isTypeOnly,
+        .ExportDeclaration => return tree.getExportDeclaration(node).isTypeOnly,
+        .NamespaceImport => {
+            const parent = tree.getNodeParent(node);
+            if (parent != 0 and tree.getNodeKind(parent) == .ImportClause) {
+                return tree.getImportClause(parent).isTypeOnly;
+            }
+            return false;
+        },
+        else => return false,
+    }
 }
 
 pub fn isPropertyAccessExpression(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
@@ -1882,9 +1971,9 @@ pub fn questionDotToken(a: anytype) ast.NodeIndex {
     _ = a;
     return 0;
 }
-pub fn isComputedPropertyName(a: anytype) bool {
-    _ = a;
-    return false;
+pub fn isComputedPropertyName(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    return tree.getKind(node) == .ComputedPropertyName;
 }
 pub fn initializer(a: anytype) ast.NodeIndex {
     _ = a;
@@ -1998,15 +2087,71 @@ pub fn isTypeNode(a: anytype, b: anytype) bool {
     return false;
 }
 
-pub fn isInterfaceDeclaration(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
+pub fn isInterfaceDeclaration(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    if (node == 0) return false;
+    return tree.getKind(node) == .InterfaceDeclaration;
+}
+
+pub fn isNodeDescendantOf(tree: *ast.Ast, node_in: ast.NodeIndex, ancestor: ast.NodeIndex) bool {
+    var node = node_in;
+    while (node != 0) {
+        if (node == ancestor) return true;
+        node = tree.getNodeParent(node);
+    }
     return false;
 }
-pub fn isClassElement(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
-    return false;
+pub fn isClassElementKind(k: kind.Kind) bool {
+    switch (k) {
+        .Constructor, .PropertyDeclaration, .MethodDeclaration, .GetAccessor, .SetAccessor, .IndexSignature, .ClassStaticBlockDeclaration, .SemicolonClassElement => return true,
+        else => return false,
+    }
+}
+
+pub fn isClassElement(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    if (node == 0) return false;
+    return isClassElementKind(tree.getKind(node));
+}
+
+pub fn getThisContainer(tree: *ast.Ast, node_in: ast.NodeIndex, includeArrowFunctions: bool, includeClassComputedPropertyName: bool) ast.NodeIndex {
+    var node = node_in;
+    while (true) {
+        node = tree.getNodeParent(node);
+        if (node == 0) {
+            return 0; // panic("nil parent in getThisContainer")
+        }
+        const k = tree.getKind(node);
+        switch (k) {
+            .ComputedPropertyName => {
+                const parent1 = tree.getNodeParent(node);
+                const parent2 = if (parent1 != 0) tree.getNodeParent(parent1) else 0;
+                if (includeClassComputedPropertyName and parent2 != 0 and isClassLike(tree, parent2)) {
+                    return node;
+                }
+                node = parent2;
+                // node will be reassigned at the start of loop? No, the Go code continues loop which calls `node = node.Parent`.
+                // So here we need to simulate the loop continuing, wait, Go code: `node = node.Parent.Parent` then loop continues.
+                // In my code, loop starts with `node = tree.getNodeParent(node)`. If I set `node = parent2`, the next loop will parent it again!
+            },
+            .Decorator => {
+                const parent1 = tree.getNodeParent(node);
+                if (parent1 != 0 and tree.getKind(parent1) == .Parameter) {
+                    const parent2 = tree.getNodeParent(parent1);
+                    if (parent2 != 0 and isClassElement(tree, parent2)) {
+                        node = parent2;
+                    }
+                } else if (parent1 != 0 and isClassElement(tree, parent1)) {
+                    node = parent1;
+                }
+            },
+            .ArrowFunction => {
+                if (includeArrowFunctions) return node;
+            },
+            .FunctionDeclaration, .FunctionExpression, .ModuleDeclaration, .ClassStaticBlockDeclaration, .PropertyDeclaration, .PropertySignature, .MethodDeclaration, .MethodSignature, .Constructor, .GetAccessor, .SetAccessor, .CallSignature, .ConstructSignature, .IndexSignature, .EnumDeclaration, .SourceFile => {
+                return node;
+            },
+            else => {},
+        }
+    }
 }
 
 pub fn getCommonJSModuleIndicator(tree: *ast.Ast, node_index: ast.NodeIndex) ast.NodeIndex {
@@ -2238,11 +2383,20 @@ pub fn getModuleSpecifierOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = b;
     return 0;
 }
-pub fn isRequireCall(a: anytype, b: anytype, c: anytype) bool {
-    _ = a;
-    _ = b;
-    _ = c;
-    return false;
+pub fn isRequireCall(tree: anytype, node: ast_gen.NodeIndex, requireStringLiteralLikeArgument: bool) bool {
+    if (tree.getKind(node) != .CallExpression) return false;
+    const callExpr = tree.getNode(node).CallExpression;
+    const expr = callExpr.Expression;
+    if (expr == 0) return false;
+    if (tree.getKind(expr) != .Identifier) return false;
+    if (!std.mem.eql(u8, getText(tree, expr), "require")) return false;
+
+    const args = tree.getNodeList(callExpr.Arguments);
+    if (args.len != 1) return false;
+
+    if (!requireStringLiteralLikeArgument) return true;
+    const argKind = tree.getKind(args[0]);
+    return argKind == .StringLiteral or argKind == .NoSubstitutionTemplateLiteral;
 }
 
 pub fn isSourceFile(a: anytype, b: anytype) bool {
@@ -2601,4 +2755,49 @@ pub fn isWriteOnlyAccess(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
 
 pub fn isWriteAccess(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     return accessKind(tree, node) != .Read;
+}
+
+pub fn hasContextSensitiveParameters(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (getTypeParametersOfNode(tree, node).len == 0) {
+        const params = getParametersOfNode(tree, node);
+        for (params) |p| {
+            if (getTypeOfNode(tree, p) == 0) return true;
+        }
+        if (!isArrowFunction(tree, node)) {
+            if (params.len > 0 and isThisParameter(tree, params[0])) {
+                // explicit this param, not context sensitive via this
+            } else {
+                return (tree.getNodeFlags(node) & NodeFlags.ContainsThis) != 0;
+            }
+        }
+    }
+    return false;
+}
+
+const ReturnStatementVisitor = struct {
+    visitor: *const fn (node: ast_gen.NodeIndex, context: ?*anyopaque) bool,
+    context: ?*anyopaque,
+    tree: *ast.Ast,
+
+    pub fn visit(self: *ReturnStatementVisitor, node: ast_gen.NodeIndex) bool {
+        const node_kind = self.tree.getKind(node);
+        if (node_kind == .ReturnStatement) {
+            return self.visitor(node, self.context);
+        }
+        switch (node_kind) {
+            .CaseBlock, .Block, .IfStatement, .DoStatement, .WhileStatement, .ForStatement, .ForInStatement, .ForOfStatement, .WithStatement, .SwitchStatement, .CaseClause, .DefaultClause, .LabeledStatement, .TryStatement, .CatchClause => {
+                return forEachChildBool(self.tree, node, self, visit);
+            },
+            else => return false,
+        }
+    }
+};
+
+pub fn forEachReturnStatement(tree: *ast.Ast, body: ast_gen.NodeIndex, visitor: *const fn (node: ast_gen.NodeIndex, context: ?*anyopaque) bool, context: ?*anyopaque) bool {
+    var v = ReturnStatementVisitor{ .visitor = visitor, .context = context, .tree = tree };
+    return v.visit(body);
+}
+
+pub fn isArrowFunction(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .ArrowFunction;
 }

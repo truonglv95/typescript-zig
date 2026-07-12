@@ -599,41 +599,7 @@ pub const EmitResolver = struct {
     }
 
     fn isTypeOnlyImportOrExportDeclaration(tree: *ast_gen.Tree, node: ast_gen.NodeIndex) bool {
-        switch (tree.getNodeKind(node)) {
-            .ImportSpecifier => {
-                const specifier = tree.getImportSpecifier(node);
-                if (specifier.isTypeOnly) return true;
-                const parent = tree.getNodeParent(node);
-                if (parent == 0) return false;
-                const grandParent = tree.getNodeParent(parent);
-                if (grandParent != 0 and tree.getNodeKind(grandParent) == .ImportClause) {
-                    return tree.getImportClause(grandParent).isTypeOnly;
-                }
-                return false;
-            },
-            .ExportSpecifier => {
-                const specifier = tree.getExportSpecifier(node);
-                if (specifier.isTypeOnly) return true;
-                const parent = tree.getNodeParent(node);
-                if (parent == 0) return false;
-                const grandParent = tree.getNodeParent(parent);
-                if (grandParent != 0 and tree.getNodeKind(grandParent) == .ExportDeclaration) {
-                    return tree.getExportDeclaration(grandParent).isTypeOnly;
-                }
-                return false;
-            },
-            .ImportClause => return tree.getImportClause(node).isTypeOnly,
-            .ImportEqualsDeclaration => return tree.getImportEqualsDeclaration(node).isTypeOnly,
-            .ExportDeclaration => return tree.getExportDeclaration(node).isTypeOnly,
-            .NamespaceImport => {
-                const parent = tree.getNodeParent(node);
-                if (parent != 0 and tree.getNodeKind(parent) == .ImportClause) {
-                    return tree.getImportClause(parent).isTypeOnly;
-                }
-                return false;
-            },
-            else => return false,
-        }
+        return ast_utils.isTypeOnlyImportOrExportDeclaration(tree, node);
     }
 
     fn resolveAliasStub(c: *checker.Checker, symbol: ast_gen.SymbolIndex) ast_gen.SymbolIndex {

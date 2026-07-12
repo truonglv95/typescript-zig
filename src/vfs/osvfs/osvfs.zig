@@ -9,17 +9,27 @@ const OsFS = struct {
         return self.case_sensitive;
     }
 
+    var global_threaded: ?std.Io.Threaded = null;
+
+    fn getIo() std.Io {
+        if (global_threaded == null) {
+            global_threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+        }
+        return global_threaded.?.io();
+    }
+
     fn fileExists(ptr: *anyopaque, path: []const u8) bool {
         const self: *OsFS = @ptrCast(@alignCast(ptr));
         _ = self;
-        return std.fs.cwd().access(path, .{}) == null;
+        std.Io.Dir.cwd().access(getIo(), path, .{}) catch return false;
+        return true;
     }
 
     fn directoryExists(ptr: *anyopaque, path: []const u8) bool {
         const self: *OsFS = @ptrCast(@alignCast(ptr));
         _ = self;
-        if (std.fs.cwd().openDir(path, .{})) |dir| {
-            dir.close();
+        if (std.Io.Dir.cwd().openDir(getIo(), path, .{})) |dir| {
+            dir.close(getIo());
             return true;
         } else |_| {
             return false;
@@ -29,23 +39,23 @@ const OsFS = struct {
     fn readFile(ptr: *anyopaque, allocator: std.mem.Allocator, path: []const u8) ?[]u8 {
         const self: *OsFS = @ptrCast(@alignCast(ptr));
         _ = self;
-        return std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize)) catch null;
+        return std.Io.Dir.cwd().readFileAlloc(getIo(), path, allocator, .limited(std.math.maxInt(usize))) catch null;
     }
 
     fn writeFile(ptr: *anyopaque, path: []const u8, data: []const u8) !void {
         const self: *OsFS = @ptrCast(@alignCast(ptr));
         _ = self;
         if (std.fs.path.dirname(path)) |dir| {
-            try std.fs.cwd().makePath(dir);
+            try std.Io.Dir.cwd().createDirPath(getIo(), dir);
         }
-        try std.fs.cwd().writeFile(.{ .sub_path = path, .data = data });
+        try std.Io.Dir.cwd().writeFile(getIo(), .{ .sub_path = path, .data = data });
     }
 
     fn getAccessibleEntries(ptr: *anyopaque, allocator: std.mem.Allocator, path: []const u8) vfs.Entries {
         const self: *OsFS = @ptrCast(@alignCast(ptr));
         _ = self;
-        var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return .{};
-        defer dir.close();
+        var dir = std.Io.Dir.cwd().openDir(getIo(), path, .{ .iterate = true }) catch return .{};
+        defer dir.close(getIo());
 
         var files = std.ArrayListUnmanaged([]const u8).empty;
         var directories = std.ArrayListUnmanaged([]const u8).empty;
@@ -53,7 +63,7 @@ const OsFS = struct {
         defer directories.deinit(allocator);
 
         var it = dir.iterate();
-        while (it.next() catch null) |entry| {
+        while (it.next(getIo()) catch null) |entry| {
             const name = allocator.dupe(u8, entry.name) catch continue;
             switch (entry.kind) {
                 .file => files.append(allocator, name) catch allocator.free(name),
@@ -71,7 +81,7 @@ const OsFS = struct {
     fn realpath(ptr: *anyopaque, allocator: std.mem.Allocator, path: []const u8) ?[]const u8 {
         const self: *OsFS = @ptrCast(@alignCast(ptr));
         _ = self;
-        return std.fs.cwd().realpathAlloc(allocator, path) catch null;
+        return std.Io.Dir.cwd().realPathFileAlloc(getIo(), path, allocator) catch null;
     }
 
     const vtable = vfs.FS.VTable{

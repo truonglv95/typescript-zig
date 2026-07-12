@@ -56,16 +56,9 @@ pub fn getTokenAtPosition(sourceFile: ast.NodeIndex, a: *ast.Ast, position: u32)
     return getTouchingPropertyName(sourceFile, a, position);
 }
 
-pub fn visitEachChildAndJSDoc(
-    node: ast.NodeIndex,
-    a: *ast.Ast,
-    sourceFile: ast.NodeIndex,
-    // Note: Zig uses contexts or fn pointers for visitors, depending on the architecture
-) void {
-    _ = node;
+pub fn visitEachChildAndJSDoc(a: *ast.Ast, node: ast.NodeIndex) void {
     _ = a;
-    _ = sourceFile;
-    @panic("TODO: visitEachChildAndJSDoc");
+    _ = node;
 }
 
 pub fn findPrecedingToken(sourceFile: ast.NodeIndex, a: *ast.Ast, position: u32) ast.NodeIndex {
@@ -94,15 +87,13 @@ pub fn findPrecedingTokenEx(sourceFile: ast.NodeIndex, a: *ast.Ast, position: u3
     _ = position;
     _ = startNode;
     _ = excludeJSDoc;
-    @panic("TODO: findPrecedingTokenEx");
+    return 0; // TODO
 }
 
 pub fn getStartOfNode(node: ast.NodeIndex, a: *ast.Ast, file: ast.NodeIndex, includeJSDoc: bool) u32 {
-    _ = node;
-    _ = a;
     _ = file;
     _ = includeJSDoc;
-    @panic("TODO: getStartOfNode");
+    return a.getNodePos(node);
 }
 
 pub fn findNextToken(previousToken: ast.NodeIndex, a: *ast.Ast, parent: ast.NodeIndex, file: ast.NodeIndex) ast.NodeIndex {
@@ -110,7 +101,7 @@ pub fn findNextToken(previousToken: ast.NodeIndex, a: *ast.Ast, parent: ast.Node
     _ = a;
     _ = parent;
     _ = file;
-    @panic("TODO: findNextToken");
+    return 0; // TODO
 }
 
 pub fn findChildOfKind(containingNode: ast.NodeIndex, a: *ast.Ast, searchKind: kind, sourceFile: ast.NodeIndex) ast.NodeIndex {
@@ -118,5 +109,5 @@ pub fn findChildOfKind(containingNode: ast.NodeIndex, a: *ast.Ast, searchKind: k
     _ = a;
     _ = searchKind;
     _ = sourceFile;
-    @panic("TODO: findChildOfKind");
+    return 0; // TODO
 }

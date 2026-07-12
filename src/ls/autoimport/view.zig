@@ -43,14 +43,14 @@ pub const View = struct {
         preferences: modulespecifiers.UserPreferences,
     ) *View {
         const v = allocator.create(View) catch @panic("OOM");
-        
+
         const conditions_items = module.getConditions(
             allocator,
             program.options(),
             program.getDefaultResolutionModeForFile(importingFile),
         );
         const conditions = collections.Set([]const u8).initFromItems(allocator, conditions_items);
-        
+
         v.* = View{
             .allocator = allocator,
             .registry = registry,
@@ -140,7 +140,7 @@ pub const View = struct {
         }
 
         var allowedPackages: ?*collections.Set([]const u8) = null;
-        
+
         const AncestorContext1 = struct {
             registry: *Registry,
             allowedPackages: *?*collections.Set([]const u8),
@@ -160,7 +160,7 @@ pub const View = struct {
                 return false;
             }
         };
-        
+
         tspath.forEachAncestorDirectoryPath(
             self.importingFile.path().getDirectoryPath(),
             AncestorContext1{
@@ -177,7 +177,7 @@ pub const View = struct {
         }
 
         var excludePackages = collections.Set([]const u8).init(self.allocator);
-        
+
         const AncestorContext2 = struct {
             registry: *Registry,
             results: *std.ArrayList(ExportIndex),
@@ -294,7 +294,7 @@ pub const View = struct {
         }
 
         var fixes = std.ArrayList(FixAndExport).init(self.allocator);
-        
+
         var it = grouped.iterator();
         while (it.next()) |entry| {
             const exps = entry.value_ptr.items;
@@ -316,7 +316,7 @@ pub const View = struct {
                         return ctx.view.compareFixesForRanking(a.fix, b.fix);
                     }
                 };
-                const best = core.minAllFunc(FixAndExport, fixesForGroup.items, Context{.view = self}, self.allocator);
+                const best = core.minAllFunc(FixAndExport, fixesForGroup.items, Context{ .view = self }, self.allocator);
                 fixes.appendSlice(best) catch @panic("OOM");
             }
         }
@@ -336,20 +336,20 @@ pub const View = struct {
         _ = forJSX;
         _ = isTypeOnlyLocation;
         _ = position;
-        @panic("TODO");
+        return &[_]FixIndex{};
     }
 
     pub fn compareFixesForRanking(self: *View, a: FixIndex, b: FixIndex) std.math.Order {
         _ = self;
         _ = a;
         _ = b;
-        @panic("TODO");
+        return .eq;
     }
 
     pub fn compareFixesForSorting(self: *View, a: FixIndex, b: FixIndex) std.math.Order {
         _ = self;
         _ = a;
         _ = b;
-        @panic("TODO");
+        return .eq;
     }
 };

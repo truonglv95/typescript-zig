@@ -1028,3 +1028,46 @@ pub fn getTypeNameSymbol(t: *const types.Type) ?ast_gen.SymbolIndex {
     }
     return null;
 }
+
+const YieldExpressionVisitor = struct {
+    visitor: *const fn (node: ast_gen.NodeIndex, context: ?*anyopaque) bool,
+    context: ?*anyopaque,
+    tree: *ast.Ast,
+
+    pub fn visit(self: *YieldExpressionVisitor, node: ast_gen.NodeIndex) bool {
+        const kind = self.tree.getKind(node);
+        if (kind == .YieldExpression) {
+            if (self.visitor(node, self.context)) {
+                return true;
+            }
+            const operand_opt = self.tree.getNode(node).YieldExpression.Expression;
+            if (operand_opt) |operand| {
+                if (operand == 0) return false;
+                return self.visit(operand);
+            }
+            return false;
+        }
+        switch (kind) {
+            .EnumDeclaration, .InterfaceDeclaration, .ModuleDeclaration, .TypeAliasDeclaration => {
+                return false;
+            },
+            else => {
+                if (ast_utils.isFunctionLike(kind)) {
+                    const name = ast_utils.getNameOfNode(self.tree, node);
+                    if (name != 0 and ast_utils.isComputedPropertyName(self.tree, name)) {
+                        return self.visit(name);
+                    }
+                    return false;
+                } else if (kind == .ClassDeclaration or kind == .ClassExpression) {
+                    return false;
+                }
+            },
+        }
+        return ast_utils.forEachChildBool(self.tree, node, self, visit);
+    }
+};
+
+pub fn forEachYieldExpression(tree: *ast.Ast, body: ast_gen.NodeIndex, visitor: *const fn (node: ast_gen.NodeIndex, context: ?*anyopaque) bool, context: ?*anyopaque) bool {
+    var v = YieldExpressionVisitor{ .visitor = visitor, .context = context, .tree = tree };
+    return v.visit(body);
+}
