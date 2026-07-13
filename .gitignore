@@ -7,3 +7,19 @@ zig-out/
 *.dylib
 .DS_Store
 node_modules/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+
+# Test baselines (generated)
+testdata/baselines/local/
+
+# Smoke test output
+smoke/

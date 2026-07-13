@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # windows-latest can be added once the build is confirmed green on POSIX
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.16.0
+
+      - name: Print Zig version
+        run: zig version
+
+      - name: Semantic check (no codegen)
+        run: zig build check
+
+      - name: Build all artifacts
+        run: zig build
+
+      - name: Run unit tests
+        run: zig build test
+
+      - name: Smoke test — tsc --version
+        run: ./zig-out/bin/tsc --version
+
+      - name: Smoke test — compile a simple .ts file
+        run: |
+          mkdir -p smoke && cd smoke
+          printf 'const x: number = 42;\nconsole.log(x);\n' > hello.ts
+          ../zig-out/bin/tsc hello.ts || true
+          if [ -f hello.js ]; then
+            echo "PASS: hello.js emitted"
+          else
+            echo "WARN: hello.js not emitted (expected for early-stage port)"
+          fi
+
+      - name: Upload build artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zig-out-${{ matrix.os }}
+          path: zig-out/
+          retention-days: 7

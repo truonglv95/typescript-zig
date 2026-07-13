@@ -53,6 +53,7 @@ test {
     _ = @import("testrunner/testmain_test.zig");
     _ = @import("testrunner/compiler_runner_test.zig");
     _ = @import("testrunner/test_case_parser_test.zig");
+    _ = @import("testrunner/smoke_test.zig");
 
     // Utilities and modules tests
     _ = @import("modulespecifiers/specifiers_test.zig");

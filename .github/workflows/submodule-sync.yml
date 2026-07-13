@@ -1,0 +1,51 @@
+name: Submodule sync
+
+# Keeps the typescript-go submodule pinned to the latest upstream main so
+# we can catch drift early. Runs nightly and on manual dispatch.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update submodule to latest upstream main
+        run: |
+          cd submodule/typescript-go
+          git fetch origin main
+          NEW_SHA=$(git rev-parse origin/main)
+          cd -
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b chore/sync-typescript-go-$NEW_SHA
+          git submodule update --remote --merge submodule/typescript-go
+          git add submodule/typescript-go
+          git commit -m "chore(submodule): sync typescript-go to $NEW_SHA"
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/sync-typescript-go
+          title: "chore(submodule): sync typescript-go to latest main"
+          body: |
+            Automated daily sync of `submodule/typescript-go` to the latest
+            `main` branch of microsoft/typescript-go.
+
+            **Checklist before merge:**
+            - [ ] CI passes (`zig build && zig build test`)
+            - [ ] No new compile errors from upstream API changes
+            - [ ] Update port tracking in README.md if new files were added upstream
+          labels: submodule, automated

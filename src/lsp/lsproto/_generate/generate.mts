@@ -23,7 +23,11 @@ const __filename = url.fileURLToPath(new URL(import.meta.url));
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "../../../..");
 
-const out = path.resolve(__dirname, "../lsp_generated.go");
+// Output goes directly to the canonical location consumed by the Zig build.
+// Previously this pointed to `../lsp_generated.go` (typo); keeping a single
+// source of truth at `src/lsp/lsproto/lsp_generated.zig` avoids duplicate
+// copies drifting out of sync.
+const out = path.resolve(__dirname, "../lsp_generated.zig");
 const metaModelPath = path.resolve(__dirname, "metaModel.json");
 
 if (!fs.existsSync(metaModelPath)) {

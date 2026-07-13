@@ -20,6 +20,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     var os_sys = OsSystem.init(allocator);
+    defer os_sys.deinit();
     var sys = os_sys.sys();
 
     const result = tsc.execute.tsc_module.commandLine(&os_sys, &sys, raw_args.items, null);
