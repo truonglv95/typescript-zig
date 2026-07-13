@@ -8535,12 +8535,84 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isPropertyInitializedInConstructor(c: *Checker, propName: *anyopaque, propType: *anyopaque, constructor: *anyopaque) bool {
-        _ = c;
-        _ = propName;
+    /// Port of `checker.go::isPropertyInitializedInConstructor`. Returns
+    /// true if the property `propName` is assigned within `constructor`
+    /// before being read (i.e., the flow type does not contain undefined).
+    ///
+    /// Note: The Go implementation creates a synthetic `this.propName`
+    /// reference and uses `getFlowTypeOfReferenceEx`. The Zig flow analysis
+    /// is partially ported; this implementation uses a conservative
+    /// heuristic: scan the constructor body for an assignment to
+    /// `this.<propName>` and return true if found. This is less precise
+    /// than the full flow analysis but handles the common case.
+    pub fn isPropertyInitializedInConstructor(c: *Checker, propName: ast_gen.NodeIndex, propType: types.TypeIndex, constructor: ast_gen.NodeIndex) bool {
         _ = propType;
-        _ = constructor;
+        if (constructor == 0 or propName == 0) return false;
+        const tree = c.binder.ast;
+        // Walk constructor body looking for `this.<propName> = ...` or
+        // `this[<propName>] = ...` assignments.
+        const prop_name_text = ast_utils.getText(tree, propName);
+        if (prop_name_text.len == 0) return false;
+
+        // Get constructor body
+        const ctor_data = tree.getNode(constructor);
+        if (ctor_data != .Constructor) return false;
+        const body = ctor_data.Constructor.Body orelse return false;
+        return scanConstructorForAssignment(c, body, prop_name_text);
+    }
+
+    /// Walks a constructor body (Block) looking for `this.<name> = ...` or
+    /// `this[<name>] = ...` assignments. Returns true if found.
+    fn scanConstructorForAssignment(c: *Checker, body: ast_gen.NodeIndex, name: []const u8) bool {
+        const tree = c.binder.ast;
+        const body_data = tree.getNode(body);
+        if (body_data != .Block) return false;
+        const stmts = tree.getNodeList(body_data.Block.Statements);
+        for (stmts) |stmt| {
+            if (scanExpressionForAssignment(c, stmt, name)) return true;
+        }
         return false;
+    }
+
+    fn scanExpressionForAssignment(c: *Checker, node: ast_gen.NodeIndex, name: []const u8) bool {
+        if (node == 0) return false;
+        const tree = c.binder.ast;
+        const node_data = tree.getNode(node);
+        switch (node_data) {
+            .ExpressionStatement => |n| return scanExpressionForAssignment(c, n.Expression, name),
+            .BinaryExpression => |n| {
+                const op_kind = tree.getNodeKind(n.OperatorToken);
+                if (op_kind == .EqualsToken) {
+                    // Check left side
+                    const left_kind = tree.getNodeKind(n.Left);
+                    if (left_kind == .PropertyAccessExpression) {
+                        const pa = tree.getNode(n.Left).PropertyAccessExpression;
+                        // Check expression is `this`
+                        const expr_kind = tree.getNodeKind(pa.Expression);
+                        if (expr_kind == .ThisKeyword) {
+                            const prop_text = ast_utils.getText(tree, pa.name);
+                            if (std.mem.eql(u8, prop_text, name)) return true;
+                        }
+                    } else if (left_kind == .ElementAccessExpression) {
+                        const ea = tree.getNode(n.Left).ElementAccessExpression;
+                        const expr_kind = tree.getNodeKind(ea.Expression);
+                        if (expr_kind == .ThisKeyword) {
+                            const arg_text = ast_utils.getText(tree, ea.ArgumentExpression);
+                            if (std.mem.eql(u8, arg_text, name)) return true;
+                        }
+                    }
+                }
+                return false;
+            },
+            .Block => |n| {
+                const stmts = tree.getNodeList(n.Statements);
+                for (stmts) |stmt| {
+                    if (scanExpressionForAssignment(c, stmt, name)) return true;
+                }
+                return false;
+            },
+            else => return false,
+        }
     }
 
     pub fn checkInheritedPropertiesAreIdentical(c: *Checker, t: *anyopaque, typeNode: *anyopaque) bool {
