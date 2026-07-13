@@ -15592,22 +15592,48 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn createAwaitedTypeIfNeeded(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        return undefined;
+    /// Port of `checker.go::createAwaitedTypeIfNeeded`. Wraps `t` in
+    /// `Awaited<T>` if `isAwaitedTypeNeeded` returns true.
+    pub fn createAwaitedTypeIfNeeded(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (c.isAwaitedTypeNeeded(t)) {
+            const awaited = c.tryCreateAwaitedType(t);
+            if (awaited != 0) return awaited;
+        }
+        return t;
     }
 
-    pub fn tryCreateAwaitedType(c: *Checker, t: *anyopaque) *anyopaque {
+    /// Port of `checker.go::tryCreateAwaitedType`. Attempts to create
+    /// `Awaited<T>` via `getTypeAliasInstantiation`. Returns 0 if the
+    /// global `Awaited` symbol is not available.
+    pub fn tryCreateAwaitedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Requires global Awaited symbol + getTypeAliasInstantiation,
+        // both of which are not yet wired. Conservative: return 0.
+        // TODO(phase1.2): wire getGlobalAwaitedSymbol + getTypeAliasInstantiation.
         _ = c;
         _ = t;
-        return undefined;
+        return 0;
     }
 
-    pub fn unwrapAwaitedType(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        return undefined;
+    /// Port of `checker.go::unwrapAwaitedType`. For a generic `Awaited<T>`,
+    /// returns `T`. Unwraps unions that may contain `Awaited<T>`.
+    pub fn unwrapAwaitedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Union) != 0) {
+            // Map unwrapAwaitedType over constituents
+            const constituents = c.getTypesFromUnion(t);
+            var arr = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer arr.deinit(c.allocator);
+            for (constituents) |s| arr.append(c.allocator, c.unwrapAwaitedType(s)) catch return t;
+            return c.getUnionTypeFromArray(arr.items);
+        }
+        if (c.isAwaitedTypeInstantiation(t)) {
+            // Return the first type argument of the Awaited<T> alias.
+            // Requires alias.typeArguments; conservative: return t.
+            // TODO(phase1.2): wire alias.typeArguments[0].
+            return t;
+        }
+        return t;
     }
 
     /// Port of `checker.go::isThenableType`. Returns true if `t` has a
