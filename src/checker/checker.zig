@@ -7901,9 +7901,15 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isPrimitiveTypeName(s: *anyopaque) bool {
-        _ = s;
-        return false;
+    /// Port of `checker.go::isPrimitiveTypeName`. Returns true if `s` is
+    /// a built-in primitive type name.
+    pub fn isPrimitiveTypeName(s: []const u8) bool {
+        return std.mem.eql(u8, s, "any") or
+            std.mem.eql(u8, s, "string") or
+            std.mem.eql(u8, s, "number") or
+            std.mem.eql(u8, s, "boolean") or
+            std.mem.eql(u8, s, "never") or
+            std.mem.eql(u8, s, "unknown");
     }
 
     pub fn checkAndReportErrorForUsingNamespaceAsTypeOrValue(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
@@ -7922,9 +7928,15 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isES2015OrLaterConstructorName(s: *anyopaque) bool {
-        _ = s;
-        return false;
+    /// Port of `checker.go::isES2015OrLaterConstructorName`. Returns true
+    /// if `s` is a built-in ES2015+ constructor name.
+    pub fn isES2015OrLaterConstructorName(s: []const u8) bool {
+        return std.mem.eql(u8, s, "Promise") or
+            std.mem.eql(u8, s, "Symbol") or
+            std.mem.eql(u8, s, "Map") or
+            std.mem.eql(u8, s, "WeakMap") or
+            std.mem.eql(u8, s, "Set") or
+            std.mem.eql(u8, s, "WeakSet");
     }
 
     pub fn maybeMappedType(c: *Checker, node: *anyopaque, symbol_: *anyopaque) bool {
@@ -8185,7 +8197,10 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn shouldCheckErasableSyntax(c: *Checker, node: *anyopaque) bool {
+    /// Port of `checker.go::shouldCheckErasableSyntax`. Returns true when
+    /// `erasableSyntaxOnly` is enabled and the node is not in a JS file.
+    pub fn shouldCheckErasableSyntax(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // TODO(phase1.2): wire c.compilerOptions.erasableSyntaxOnly
         _ = c;
         _ = node;
         return false;
