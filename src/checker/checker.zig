@@ -17951,9 +17951,84 @@ pub fn checkStringLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: C
     const s = c.binder.ast.getNode(node_idx).StringLiteral;
     return c.getFreshTypeOfLiteralType(c.getStringLiteralType(s.Text));
 }
+/// Port of `checker.go::checkSuperExpression`. Validates `super` keyword
+/// usage and returns the type of `super` in the current context.
+///
+/// Conservative implementation: returns `anyType` for object literal
+/// contexts, `errorType` for invalid usage. Full implementation requires
+/// `getSuperContainer` + `checkThisBeforeSuper` + `getBaseConstructorTypeOfClass`.
 pub fn checkSuperExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
-    _ = node_idx;
-    return c.anyTypeIndex orelse 0;
+    if (node_idx == 0) return c.errorTypeIndex orelse 0;
+    const tree = c.binder.ast;
+    const parent = tree.getNodeParent(node_idx);
+    if (parent == 0) return c.errorTypeIndex orelse 0;
+
+    // Check if super is used in a call expression: super(...)
+    const is_call = tree.getNodeKind(parent) == .CallExpression and
+        tree.getNode(parent).CallExpression.Expression == node_idx;
+
+    // Walk up to find the containing class/constructor/method.
+    var container: ast_gen.NodeIndex = parent;
+    while (container != 0) {
+        const kind = tree.getNodeKind(container);
+        if (kind == .Constructor or kind == .MethodDeclaration or
+            kind == .GetAccessor or kind == .SetAccessor or
+            kind == .PropertyDeclaration or kind == .ClassStaticBlockDeclaration)
+        {
+            break;
+        }
+        if (kind == .ClassDeclaration or kind == .ClassExpression or
+            kind == .ObjectLiteralExpression)
+        {
+            break;
+        }
+        container = tree.getNodeParent(container);
+    }
+
+    if (container == 0) {
+        c.reportError(node_idx, &diagnostics_gen.X_super_can_only_be_referenced_in_members_of_derived_classes_or_object_literal_expressions);
+        return c.errorTypeIndex orelse 0;
+    }
+
+    const container_parent = tree.getNodeParent(container);
+    if (container_parent != 0 and tree.getNodeKind(container_parent) == .ObjectLiteralExpression) {
+        // Object literal: super is 'any'
+        return c.anyTypeIndex orelse 0;
+    }
+
+    // Check that the class has an extends clause.
+    if (container_parent != 0 and ast_utils.isClassLike(tree, container_parent)) {
+        const extends_elem = ast_utils.getExtendsHeritageClauseElement(tree, container_parent);
+        if (extends_elem == 0) {
+            c.reportError(node_idx, &diagnostics_gen.X_super_can_only_be_referenced_in_a_derived_class);
+            return c.errorTypeIndex orelse 0;
+        }
+        if (c.classDeclarationExtendsNull(container_parent)) {
+            if (is_call) return c.errorTypeIndex orelse 0;
+            return c.nullTypeIndex orelse 0;
+        }
+        // Get the class type and its base.
+        const class_sym = c.getSymbolOfDeclaration(container_parent);
+        const class_type = c.getDeclaredTypeOfSymbol(class_sym);
+        if (class_type == 0) return c.errorTypeIndex orelse 0;
+
+        if (is_call) {
+            // super(...) — return base constructor type.
+            // TODO(phase1.2): wire getBaseConstructorTypeOfClass
+            return c.anyTypeIndex orelse 0;
+        }
+        // super.x — return base class instance type.
+        // TODO(phase1.2): wire getTypeWithThisArgument
+        return c.anyTypeIndex orelse 0;
+    }
+
+    // Invalid context.
+    if (is_call) {
+        c.reportError(node_idx, &diagnostics_gen.Super_calls_are_not_permitted_outside_constructors_or_in_nested_functions_inside_constructors);
+    } else {
+        c.reportError(node_idx, &diagnostics_gen.X_super_property_access_is_permitted_only_in_a_constructor_member_function_or_member_accessor_of_a_derived_class);
+    }
+    return c.errorTypeIndex orelse 0;
 }
 pub fn checkSyntheticExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     const node = c.binder.ast.getNode(node_idx).SyntheticExpression;
