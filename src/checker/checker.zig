@@ -10907,16 +10907,37 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIndexInfoWithReadonly(c: *Checker, info: *anyopaque, readonly: *anyopaque) *anyopaque {
-        _ = c;
-        _ = info;
-        _ = readonly;
-        return undefined;
+    /// Port of `checker.go::getIndexInfoWithReadonly`. Returns a new
+    /// `IndexInfo` with the readonly flag set to `readonly`, or returns
+    /// `info` unchanged if it already matches.
+    pub fn getIndexInfoWithReadonly(c: *Checker, info: types.IndexInfo, readonly: bool) types.IndexInfo {
+        if (info.isReadonly != readonly) {
+            return .{
+                .keyType = info.keyType,
+                .valueType = info.valueType,
+                .isReadonly = readonly,
+                .declaration = info.declaration,
+            };
+        }
+        return info;
     }
 
-    pub fn isValidSpreadType(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
+    /// Port of `checker.go::isValidSpreadType`. Returns true if `t` can be
+    /// spread into an object literal (any, non-primitive, object, or a
+    /// union/intersection of valid spread types).
+    pub fn isValidSpreadType(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        const valid_mask = types.TypeFlags.Any | types.TypeFlags.NonPrimitive |
+            types.TypeFlags.Object | types.TypeFlags.InstantiableNonPrimitive;
+        if ((flags & valid_mask) != 0) return true;
+        if ((flags & types.TypeFlags.UnionOrIntersection) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            for (constituents) |sub| {
+                if (!c.isValidSpreadType(sub)) return false;
+            }
+            return true;
+        }
         return false;
     }
 
