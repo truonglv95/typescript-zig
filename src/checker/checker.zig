@@ -14834,17 +14834,22 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeOfFirstParameterOfSignature(c: *Checker, signature: *anyopaque) *anyopaque {
-        _ = c;
-        _ = signature;
-        return undefined;
+    /// Port of `checker.go::getTypeOfFirstParameterOfSignature`. Returns
+    /// the type of the first parameter of `signature`, or `neverType` if
+    /// the signature has no parameters.
+    pub fn getTypeOfFirstParameterOfSignature(c: *Checker, signature: types.SignatureIndex) types.TypeIndex {
+        return c.getTypeOfFirstParameterOfSignatureWithFallback(signature, c.neverTypeIndex orelse 0);
     }
 
-    pub fn getTypeOfFirstParameterOfSignatureWithFallback(c: *Checker, signature: *anyopaque, fallbackType: *anyopaque) *anyopaque {
-        _ = c;
-        _ = signature;
-        _ = fallbackType;
-        return undefined;
+    /// Port of `checker.go::getTypeOfFirstParameterOfSignatureWithFallback`.
+    /// Returns the type of the first parameter of `signature`, or
+    /// `fallback_type` if the signature has no parameters.
+    pub fn getTypeOfFirstParameterOfSignatureWithFallback(c: *Checker, signature: types.SignatureIndex, fallback_type: types.TypeIndex) types.TypeIndex {
+        const sig = c.signatures.items[signature];
+        if (sig.parametersLen > 0) {
+            return relater.getTypeAtPosition(c, signature, 0);
+        }
+        return fallback_type;
     }
 
     pub fn getOptionalExpressionType(c: *Checker, exprType: types.TypeIndex, expression: ast_gen.NodeIndex) types.TypeIndex {
