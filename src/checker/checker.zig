@@ -13463,10 +13463,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isGenericType(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        return false;
+    /// Port of `checker.go::isGenericType`. Returns true if `t` has any
+    /// generic object flags (i.e. contains type parameters).
+    pub fn isGenericType(c: *Checker, t: types.TypeIndex) bool {
+        return c.getGenericObjectFlags(t) != 0;
     }
 
     pub fn isGenericReducibleType(c: *Checker, t: *anyopaque) bool {
@@ -14011,10 +14011,19 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isKeyTypeIncluded(c: *Checker, keyType: *anyopaque, include: *anyopaque) bool {
-        _ = c;
-        _ = keyType;
-        _ = include;
+    /// Port of `checker.go::isKeyTypeIncluded`. Returns true if `keyType`
+    /// has any of the `include` flags, or if it's an intersection type
+    /// whose constituents include a type with those flags.
+    pub fn isKeyTypeIncluded(c: *Checker, key_type: types.TypeIndex, include: u32) bool {
+        if (key_type == 0 or key_type >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[key_type].flags;
+        if ((flags & include) != 0) return true;
+        if ((flags & types.TypeFlags.Intersection) != 0) {
+            const constituents = c.getTypesFromIntersection(key_type);
+            for (constituents) |ct| {
+                if (c.isKeyTypeIncluded(ct, include)) return true;
+            }
+        }
         return false;
     }
 
