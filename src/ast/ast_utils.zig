@@ -1790,9 +1790,20 @@ pub fn isTypeQueryNode(a: anytype, b: anytype) bool {
     _ = b;
     return false;
 }
-pub fn findConstructorDeclaration(a: anytype, b: anytype) u32 {
-    _ = a;
-    _ = b;
+/// Returns the constructor declaration of a class-like node, or 0 if
+/// the class has no constructor. Port of `ast.FindConstructorDeclaration`.
+pub fn findConstructorDeclaration(tree: *ast.Ast, class_node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (class_node == 0) return 0;
+    const node_data = tree.getNode(class_node);
+    const members_idx: u32 = switch (node_data) {
+        .ClassDeclaration => |n| n.Members,
+        .ClassExpression => |n| n.Members,
+        else => return 0,
+    };
+    if (members_idx == 0) return 0;
+    for (tree.getNodeList(members_idx)) |member| {
+        if (tree.getNodeKind(member) == .Constructor) return member;
+    }
     return 0;
 }
 pub fn getEndOfNode(tree: *ast.Ast, node: anytype) u32 {

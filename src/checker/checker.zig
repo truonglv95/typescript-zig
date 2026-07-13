@@ -34,6 +34,7 @@ pub const services_pkg = @import("services.zig");
 pub const nodecopy_pkg = @import("nodecopy.zig");
 pub const type_resolution_pkg = @import("type_resolution.zig");
 pub const argument_arity = @import("argument_arity.zig");
+pub const member_overrides = @import("member_overrides.zig");
 pub const SymbolIndex = ast_gen.SymbolIndex;
 
 pub const EnumRelationKey = packed struct(u64) {
@@ -8416,10 +8417,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkKindsOfPropertyMemberOverrides(c: *Checker, t: *anyopaque, baseType: *anyopaque) void {
-        _ = c;
-        _ = t;
-        _ = baseType;
+    /// Port of `checker.go::checkKindsOfPropertyMemberOverrides`.
+    /// Delegates to `member_overrides.checkKindsOfPropertyMemberOverrides`.
+    pub fn checkKindsOfPropertyMemberOverrides(c: *Checker, t: types.TypeIndex, base_type: types.TypeIndex) void {
+        member_overrides.checkKindsOfPropertyMemberOverrides(c, t, base_type);
     }
 
     /// Port of `checker.go::arePropertiesAbstractOrInterface`. Returns true
