@@ -14018,11 +14018,32 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn mapTypeEx(c: *Checker, t: *anyopaque, f: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        _ = f;
-        return false;
+    /// Port of `checker.go::mapTypeEx`. Applies `mapFn` to `t`, descending
+    /// into union constituents. `no_reductions` is currently ignored.
+    pub fn mapTypeEx(c: *Checker, t: types.TypeIndex, comptime mapFn: anytype, ctx: anytype, no_reductions: bool) types.TypeIndex {
+        _ = no_reductions;
+        const flags = c.getTypeFlags(t);
+        if ((flags & types.TypeFlags.Never) != 0) return t;
+        if ((flags & types.TypeFlags.Union) == 0) return mapFn(c, t, ctx);
+        // Walk union constituents
+        var types_list: std.ArrayListUnmanaged(types.TypeIndex) = .empty;
+        defer types_list.deinit(c.allocator);
+        const union_types = c.getTypesFromUnion(t);
+        var changed = false;
+        for (union_types) |s| {
+            const s_flags = c.getTypeFlags(s);
+            const mapped: types.TypeIndex = if ((s_flags & types.TypeFlags.Union) != 0)
+                c.mapTypeEx(s, mapFn, ctx, no_reductions)
+            else
+                mapFn(c, s, ctx);
+            if (mapped != s) changed = true;
+            if (mapped != 0) types_list.append(c.allocator, mapped) catch unreachable;
+        }
+        if (changed) {
+            if (types_list.items.len == 0) return 0;
+            return c.getUnionTypeFromArray(types_list.items);
+        }
+        return t;
     }
 
     pub fn getUnionOrIntersectionType(c: *Checker, types_: *anyopaque, isUnion: *anyopaque, unionReduction: *anyopaque) *anyopaque {
