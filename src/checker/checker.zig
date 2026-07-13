@@ -10975,14 +10975,56 @@ pub const Checker = struct {
         _ = spread;
     }
 
-    pub fn getSpreadType(c: *Checker, left: *anyopaque, right: *anyopaque, symbol_: *anyopaque, objectFlags: *anyopaque, readonly: *anyopaque) *anyopaque {
-        _ = c;
-        _ = left;
-        _ = right;
-        _ = symbol_;
-        _ = objectFlags;
+    /// Port of `checker.go::getSpreadType`. Merges two object types as
+    /// `{...left, ...right}`, combining properties and index signatures.
+    ///
+    /// Conservative implementation: handles the common cases (any, unknown,
+    /// never, primitive right side, generic object types). Full property
+    /// merging with synthetic symbols is deferred to Phase 1.2.
+    pub fn getSpreadType(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, symbol: ast_gen.SymbolIndex, object_flags: u32, readonly: bool) types.TypeIndex {
+        _ = symbol;
+        _ = object_flags;
         _ = readonly;
-        return undefined;
+
+        if (left == 0 or right == 0 or left >= c.typesList.items.len or right >= c.typesList.items.len) {
+            return c.anyTypeIndex orelse 0;
+        }
+        const left_flags = c.typesList.items[left].flags;
+        const right_flags = c.typesList.items[right].flags;
+
+        // any in either side -> any
+        if ((left_flags & types.TypeFlags.Any) != 0 or (right_flags & types.TypeFlags.Any) != 0) {
+            return c.anyTypeIndex orelse 0;
+        }
+        // unknown in either side -> unknown
+        if ((left_flags & types.TypeFlags.Unknown) != 0 or (right_flags & types.TypeFlags.Unknown) != 0) {
+            return c.unknownTypeIndex orelse 0;
+        }
+        // never in left -> right
+        if ((left_flags & types.TypeFlags.Never) != 0) return right;
+        // never in right -> left
+        if ((right_flags & types.TypeFlags.Never) != 0) return left;
+
+        // Primitive right side (boolean, number, etc.) -> return left
+        const primitive_mask = types.TypeFlags.BooleanLike | types.TypeFlags.NumberLike |
+            types.TypeFlags.BigIntLike | types.TypeFlags.StringLike |
+            types.TypeFlags.EnumLike | types.TypeFlags.NonPrimitive | types.TypeFlags.Index;
+        if ((right_flags & primitive_mask) != 0) return left;
+
+        // Generic object types: return intersection (simplified)
+        if (c.isGenericObjectType(left) or c.isGenericObjectType(right)) {
+            if (c.isEmptyObjectType(left)) return right;
+            // TODO(phase1.2): full intersection merging with last-constituent
+            // spread optimization. For now, return intersection.
+            var arr = [_]types.TypeIndex{ left, right };
+            return c.getIntersectionType(&arr);
+        }
+
+        // Non-generic object types: merge properties.
+        // TODO(phase1.2): full property merging with synthetic symbols,
+        // spreadLinks, and index info combination. For now, return right
+        // (conservative: right overrides left).
+        return right;
     }
 
     /// Port of `checker.go::getIndexInfoWithReadonly`. Returns a new
