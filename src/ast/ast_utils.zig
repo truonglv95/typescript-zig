@@ -2391,6 +2391,18 @@ pub fn isClassLike(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     const k = tree.getNodeKind(node);
     return k == .ClassDeclaration or k == .ClassExpression;
 }
+
+/// Returns the class-like declaration node associated with `symbol`, or
+/// 0 if the symbol has no class declaration. Port of
+/// `ast.GetClassLikeDeclarationOfSymbol`.
+pub fn getClassLikeDeclarationOfSymbol(tree: *ast.Ast, symbols: *const std.ArrayListUnmanaged(@import("../ast/symbol.zig").Symbol), sym: ast_gen.SymbolIndex) ast_gen.NodeIndex {
+    if (sym == 0 or sym >= symbols.items.len) return 0;
+    const decls = symbols.items[sym].Declarations.items;
+    for (decls) |decl| {
+        if (decl != 0 and isClassLike(tree, decl)) return decl;
+    }
+    return 0;
+}
 pub fn isPrivateIdentifier(a: anytype) bool {
     _ = a;
     return false;

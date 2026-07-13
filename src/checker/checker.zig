@@ -10434,9 +10434,24 @@ pub const Checker = struct {
         _ = diagnosticMessage;
     }
 
-    pub fn classDeclarationExtendsNull(c: *Checker, classDecl: *anyopaque) bool {
-        _ = c;
-        _ = classDecl;
+    /// Port of `checker.go::classDeclarationExtendsNull`. Returns true if
+    /// the class declaration extends `null` (i.e., its base constructor
+    /// type resolves to `nullWideningType`).
+    ///
+    /// Conservative implementation: checks if the extends heritage clause
+    /// expression is the `null` keyword literal.
+    pub fn classDeclarationExtendsNull(c: *Checker, class_decl: ast_gen.NodeIndex) bool {
+        if (class_decl == 0) return false;
+        const extends_elem = ast_utils.getExtendsHeritageClauseElement(c.binder.ast, class_decl);
+        if (extends_elem == 0) return false;
+        // Check if the heritage element's expression is the `null` keyword
+        const node_data = c.binder.ast.getNode(extends_elem);
+        if (node_data == .ExpressionWithTypeArguments) {
+            const expr = node_data.ExpressionWithTypeArguments.Expression;
+            if (expr != 0) {
+                return c.binder.ast.getNodeKind(expr) == .NullKeyword;
+            }
+        }
         return false;
     }
 
@@ -12555,9 +12570,16 @@ pub const Checker = struct {
         _ = t;
     }
 
-    pub fn getBaseTypeNodeOfClass(t: *anyopaque) *anyopaque {
-        _ = t;
-        return undefined;
+    /// Port of `checker.go::getBaseTypeNodeOfClass`. Returns the AST node
+    /// representing the `extends` clause expression of the class associated
+    /// with type `t`, or 0 if absent.
+    pub fn getBaseTypeNodeOfClass(c: *Checker, t: types.TypeIndex) ast_gen.NodeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const ty = c.typesList.items[t];
+        const sym = ty.symbol orelse return 0;
+        const class_decl = ast_utils.getClassLikeDeclarationOfSymbol(&c.binder.ast, &c.binder.symbols, sym);
+        if (class_decl == 0) return 0;
+        return ast_utils.getExtendsHeritageClauseElement(c.binder.ast, class_decl);
     }
 
     pub fn getInstantiatedConstructorsForTypeArguments(c: *Checker, t: *anyopaque, typeArgumentNodes: *anyopaque, location: *anyopaque) *anyopaque {
