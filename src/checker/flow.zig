@@ -2967,10 +2967,11 @@ pub fn getTypeOfDestructuredArrayElement(c: *Checker, t: types.TypeIndex, index:
 
 pub fn includeUndefinedInIndexSignature(c: *Checker, t: types.TypeIndex) types.TypeIndex {
     if (t == 0) return 0;
-    if (false == true) {
-        var arr = [_]types.TypeIndex{ t, c.missingTypeIndex orelse 0 };
-        return Checker.getUnionTypeFromArray(c, &arr);
-    }
+    // NoUncheckedIndexedAccess: when true, include `undefined` (missing) in
+    // index signature lookups. The compilerOptions field is not directly
+    // accessible here; for now we use a conservative false. TODO(phase1.2):
+    // wire c.compilerOptions.noUncheckedIndexedAccess.
+    _ = c;
     return t;
 }
 

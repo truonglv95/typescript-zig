@@ -54,6 +54,18 @@ pub const UnionReduction = enum(u32) {
     Subtype = 1 << 1,
 };
 
+/// IterationUse - bitmask describing the context in which an iteration
+/// type is requested. Port of Go's `IterationUse` (checker.go:483).
+pub const IterationUse = u32;
+pub const IterationUseAllowsSyncIterablesFlag: IterationUse = 1 << 0;
+pub const IterationUseAllowsAsyncIterablesFlag: IterationUse = 1 << 1;
+pub const IterationUseAllowsStringInputFlag: IterationUse = 1 << 2;
+pub const IterationUseForOfFlag: IterationUse = 1 << 3;
+pub const IterationUseYieldStarFlag: IterationUse = 1 << 4;
+pub const IterationUseSpreadFlag: IterationUse = 1 << 5;
+pub const IterationUseDestructuringFlag: IterationUse = 1 << 6;
+pub const IterationUsePossiblyOutOfBounds: IterationUse = 1 << 7;
+
 pub const Ternary = enum(i8) {
     False = 0,
     True = 1,

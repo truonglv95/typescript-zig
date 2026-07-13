@@ -8753,14 +8753,92 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIteratedTypeOrElementType(c: *Checker, use: *anyopaque, inputType: *anyopaque, sentType: *anyopaque, errorNode: *anyopaque, checkAssignability: *anyopaque) *anyopaque {
-        _ = c;
-        _ = use;
-        _ = inputType;
-        _ = sentType;
-        _ = errorNode;
-        _ = checkAssignability;
-        return undefined;
+    /// Port of `checker.go::getIteratedTypeOrElementType`. Returns the
+    /// element type of an iterated type (for...of, spread, destructuring,
+    /// yield*).
+    ///
+    /// Conservative implementation: handles the array-like path and string
+    /// input path. Full iterable/iterator resolution requires
+    /// `getGlobalIterableType` + `getIterationTypesOfIterable` which are
+    /// not yet wired.
+    pub fn getIteratedTypeOrElementType(
+        c: *Checker,
+        use: types.IterationUse,
+        input_type: types.TypeIndex,
+        sent_type: types.TypeIndex,
+        error_node: ast_gen.NodeIndex,
+        check_assignability: bool,
+    ) types.TypeIndex {
+        const allow_async_iterables = (use & types.IterationUseAllowsAsyncIterablesFlag) != 0;
+        _ = allow_async_iterables;
+        _ = sent_type;
+        _ = check_assignability;
+
+        if (input_type == 0 or input_type >= c.typesList.items.len) return 0;
+        const flags = c.typesList.items[input_type].flags;
+
+        // `never` type is not iterable.
+        if ((flags & types.TypeFlags.Never) != 0) {
+            if (error_node != 0) {
+                // reportTypeNotIterableError stub — skip for now.
+            }
+            return 0;
+        }
+
+        // TODO(phase1.2): wire getGlobalIterableType + getIterationTypesOfIterable.
+        // For now, fall through to array-like path.
+
+        // Array-like path: remove string constituents if allowed.
+        var array_type = input_type;
+        var has_string_constituent = false;
+        if ((use & types.IterationUseAllowsStringInputFlag) != 0) {
+            if ((flags & types.TypeFlags.Union) != 0) {
+                // Filter out StringLike constituents.
+                const constituents = c.getTypesFromUnion(input_type);
+                var filtered = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                defer filtered.deinit(c.allocator);
+                for (constituents) |s| {
+                    if ((c.typesList.items[s].flags & types.TypeFlags.StringLike) == 0) {
+                        filtered.append(c.allocator, s) catch return 0;
+                    }
+                }
+                if (filtered.items.len != constituents.len) {
+                    has_string_constituent = true;
+                    array_type = c.getUnionTypeFromArray(filtered.items);
+                }
+            } else if ((flags & types.TypeFlags.StringLike) != 0) {
+                has_string_constituent = true;
+                array_type = c.neverTypeIndex orelse 0;
+            }
+            if (has_string_constituent) {
+                if (array_type == 0 or (c.typesList.items[array_type].flags & types.TypeFlags.Never) != 0) {
+                    return c.stringTypeIndex orelse 0;
+                }
+            }
+        }
+
+        // If not array-like, report error.
+        if (!c.isArrayLikeType(array_type)) {
+            if (error_node != 0) {
+                // TODO(phase1.2): wire reportTypeNotIterableError + errorAndMaybeSuggestAwait.
+            }
+            if (has_string_constituent) {
+                return c.stringTypeIndex orelse 0;
+            }
+            return 0;
+        }
+
+        // Get the element type via number index.
+        const number_type = c.numberTypeIndex orelse 0;
+        const array_element_type = c.getIndexTypeOfType(array_type, number_type) orelse 0;
+
+        if (has_string_constituent and array_element_type != 0) {
+            // Union of element type and string.
+            var arr = [_]types.TypeIndex{ array_element_type, c.stringTypeIndex orelse 0 };
+            return c.getUnionTypeFromArray(&arr);
+        }
+
+        return array_element_type;
     }
 
     pub fn getIterationTypeOfGeneratorFunctionReturnType(c: *Checker, typeKind: *anyopaque, returnType: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
