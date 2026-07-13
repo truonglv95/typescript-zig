@@ -33,6 +33,7 @@ pub const printer_mod = @import("printer.zig");
 pub const services_pkg = @import("services.zig");
 pub const nodecopy_pkg = @import("nodecopy.zig");
 pub const type_resolution_pkg = @import("type_resolution.zig");
+pub const argument_arity = @import("argument_arity.zig");
 pub const SymbolIndex = ast_gen.SymbolIndex;
 
 pub const EnumRelationKey = packed struct(u64) {
@@ -9556,24 +9557,22 @@ pub const Checker = struct {
         _ = diagnostic;
     }
 
-    pub fn getArgumentArityError(c: *Checker, node: *anyopaque, signatures: *anyopaque, args: *anyopaque, headMessage: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = signatures;
-        _ = args;
-        _ = headMessage;
-        return undefined;
+    pub fn getArgumentArityError(
+        c: *Checker,
+        node: ast_gen.NodeIndex,
+        signatures: []const types.SignatureIndex,
+        args: []const ast_gen.NodeIndex,
+        head_message: ?*const diagnostics.Message,
+    ) ?diagnostics.Diagnostic {
+        return argument_arity.getArgumentArityError(c, node, signatures, args, head_message);
     }
 
-    pub fn isPromiseResolveArityError(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
-        return false;
+    pub fn isPromiseResolveArityError(c: *Checker, node: ast_gen.NodeIndex) bool {
+        return argument_arity.isPromiseResolveArityError(c, node);
     }
 
-    pub fn getErrorNodeForCallNode(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
+    pub fn getErrorNodeForCallNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        return argument_arity.getErrorNodeForCallNode(c, node);
     }
 
     pub fn getTypeArgumentArityError(c: *Checker, node: *anyopaque, signatures: *anyopaque, typeArguments: *anyopaque, headMessage: *anyopaque) *anyopaque {
@@ -14775,15 +14774,12 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSpreadArgumentIndex(c: *Checker, args: *anyopaque) i32 {
-        _ = c;
-        _ = args;
-        return 0;
+    pub fn getSpreadArgumentIndex(c: *Checker, args: []const ast_gen.NodeIndex) i32 {
+        return argument_arity.getSpreadArgumentIndex(c, args);
     }
 
-    pub fn isSpreadArgument(arg: *anyopaque) bool {
-        _ = arg;
-        return false;
+    pub fn isSpreadArgument(c: *Checker, arg: ast_gen.NodeIndex) bool {
+        return argument_arity.isSpreadArgument(c, arg);
     }
 
     pub fn createSyntheticExpression(c: *Checker, parent: *anyopaque, t: *anyopaque, isSpread: *anyopaque, tupleNameSource: *anyopaque) *anyopaque {

@@ -2419,40 +2419,164 @@ pub fn isTopSignature(c: *Checker, s: types.SignatureIndex) bool {
     return false; // Stub
 }
 
+/// Return the number of parameters in a signature. The rest parameter, if
+/// present, counts as one parameter. For example, the parameter count of
+/// `(x: number, y: number, ...z: string[])` is 3 and the parameter count
+/// of `(x: number, ...args: [number, ...string[], boolean])` is also 3. In
+/// the latter example, the effective rest type is `[...string[], boolean]`.
+///
+/// Port of `checker.go::getParameterCount`.
 pub fn getParameterCount(c: *Checker, signature: types.SignatureIndex) usize {
-    _ = c;
-    _ = signature;
-    return 0; // Stub
+    const sig = c.signatures.items[signature];
+    const params = types.parameters(c, signature);
+    const length = params.len;
+    if (checker_mod.Checker.signatureHasRestParameter(&sig)) {
+        if (length == 0) return 0;
+        const rest_symbol = params[length - 1];
+        const rest_type = c.getTypeOfSymbol(rest_symbol) catch return length;
+        if (c.isTupleType(rest_type)) {
+            const tuple = c.getTargetTupleType(rest_type);
+            const variable_offset: usize = if ((tuple.combinedFlags & types.ElementFlags.Variable) != 0) 0 else 1;
+            return length + tuple.fixedLength - variable_offset;
+        }
+    }
+    return length;
 }
 
+/// Return the minimum number of arguments required by `signature`.
+///
+/// Port of `checker.go::getMinArgumentCount`. Caches the resolved value
+/// in `signature.resolvedMinArgumentCount` (-1 means "not yet computed").
 pub fn getMinArgumentCount(c: *Checker, signature: types.SignatureIndex) usize {
     return getMinArgumentCountEx(c, signature, MinArgumentCountFlags_None);
 }
 
+/// Port of `checker.go::getMinArgumentCountEx`. Computes (and caches) the
+/// minimum argument count, taking rest-tuple-element required-flags and
+/// trailing `void` parameters into account.
 pub fn getMinArgumentCountEx(c: *Checker, signature: types.SignatureIndex, flags: MinArgumentCountFlags) usize {
-    _ = c;
-    _ = signature;
-    _ = flags;
-    return 0; // Stub
+    const strong_arity_for_untyped_js = (flags & MinArgumentCountFlags_StrongArityForUntypedJS) != 0;
+    const void_is_non_optional = (flags & MinArgumentCountFlags_VoidIsNonOptional) != 0;
+    var sig = &c.signatures.items[signature];
+
+    if (void_is_non_optional or sig.resolvedMinArgumentCount == -1) {
+        var min_argument_count: i32 = -1;
+        const params = types.parameters(c, signature);
+        if (checker_mod.Checker.signatureHasRestParameter(sig)) {
+            if (params.len > 0) {
+                const rest_symbol = params[params.len - 1];
+                const rest_type = c.getTypeOfSymbol(rest_symbol) catch 0;
+                if (rest_type != 0 and c.isTupleType(rest_type)) {
+                    const tuple = c.getTargetTupleType(rest_type);
+                    const element_infos = c.getTupleElementInfos(rest_type);
+                    var first_optional_index: i32 = -1;
+                    for (element_infos, 0..) |info, i| {
+                        if ((info.flags & types.ElementFlags.Required) == 0) {
+                            first_optional_index = @intCast(i);
+                            break;
+                        }
+                    }
+                    const required_count: i32 = if (first_optional_index < 0)
+                        @intCast(tuple.fixedLength)
+                    else
+                        first_optional_index;
+                    if (required_count > 0) {
+                        min_argument_count = @as(i32, @intCast(params.len)) - 1 + required_count;
+                    }
+                }
+            }
+        }
+        if (min_argument_count == -1) {
+            if (!strong_arity_for_untyped_js and (sig.flags & types.SignatureFlags.IsUntypedSignatureInJSFile) != 0) {
+                if (void_is_non_optional) {
+                    // already set
+                } else {
+                    sig.resolvedMinArgumentCount = 0;
+                    return 0;
+                }
+            }
+            min_argument_count = sig.minArgumentCount;
+        }
+        if (void_is_non_optional) {
+            sig.resolvedMinArgumentCount = min_argument_count;
+            return @intCast(@max(min_argument_count, 0));
+        }
+        // Walk back over trailing `void` parameters — they are treated as
+        // optional for arity purposes (e.g. `function f(): void {}` has
+        // min-arg-count 0 even though its declared minArgumentCount might
+        // be 1 from a parameter-less signature).
+        var i: i32 = min_argument_count - 1;
+        while (i >= 0) : (i -= 1) {
+            const t = getTypeAtPosition(c, signature, @intCast(i));
+            if (!someTypeIsVoid(c, t)) break;
+            min_argument_count = i;
+        }
+        sig.resolvedMinArgumentCount = min_argument_count;
+    }
+    return @intCast(@max(sig.resolvedMinArgumentCount, 0));
 }
 
+/// Port of `checker.go::hasEffectiveRestParameter`. A signature has an
+/// effective rest parameter when its rest parameter is *not* a fixed-length
+/// tuple (i.e. it ends with `...T[]` or `[...T[], ...U[]]`).
 pub fn hasEffectiveRestParameter(c: *Checker, signature: types.SignatureIndex) bool {
-    _ = c;
-    _ = signature;
-    return false; // Stub
+    const sig = c.signatures.items[signature];
+    if (!checker_mod.Checker.signatureHasRestParameter(&sig)) return false;
+    const params = types.parameters(c, signature);
+    if (params.len == 0) return false;
+    const rest_symbol = params[params.len - 1];
+    const rest_type = c.getTypeOfSymbol(rest_symbol) catch return true;
+    if (!c.isTupleType(rest_type)) return true;
+    const tuple = c.getTargetTupleType(rest_type);
+    return (tuple.combinedFlags & types.ElementFlags.Variable) != 0;
 }
 
+/// Returns true if any constituent of `t` (if it's a union) has the `Void`
+/// flag set. Used by `getMinArgumentCountEx` to skip trailing void params.
+/// Port of `someType(t, func(t) bool { return t.flags & TypeFlagsVoid != 0 })`.
+fn someTypeIsVoid(c: *Checker, t: types.TypeIndex) bool {
+    if (t == 0) return false;
+    const type_obj = c.typesList.items[t];
+    if ((type_obj.flags & types.TypeFlags.Union) != 0) {
+        // Walk union constituents
+        const constituents = c.getTypesFromUnion(t);
+        for (constituents) |ct| {
+            if ((c.typesList.items[ct].flags & types.TypeFlags.Void) != 0) return true;
+        }
+        return false;
+    }
+    return (type_obj.flags & types.TypeFlags.Void) != 0;
+}
+
+/// Port of `checker.go::getTypeAtPosition`. Returns the type of the
+/// parameter at `pos` in `signature`, or `c.anyType` if out of range.
+/// Currently a thin wrapper around `tryGetTypeAtPosition`.
 pub fn getTypeAtPosition(c: *Checker, signature: types.SignatureIndex, pos: usize) types.TypeIndex {
-    _ = signature;
-    _ = pos;
-    return c.anyType; // Stub
+    if (tryGetTypeAtPosition(c, signature, pos)) |t| return t;
+    return c.anyTypeIndex orelse 0;
 }
 
+/// Port of `checker.go::tryGetTypeAtPosition`. Returns the type of the
+/// parameter at `pos`, or null if `pos` is past the last fixed parameter
+/// and the signature has no rest parameter.
 pub fn tryGetTypeAtPosition(c: *Checker, signature: types.SignatureIndex, pos: usize) ?types.TypeIndex {
-    _ = c;
-    _ = signature;
-    _ = pos;
-    return null; // Stub
+    const sig = c.signatures.items[signature];
+    const params = types.parameters(c, signature);
+    const has_rest = checker_mod.Checker.signatureHasRestParameter(&sig);
+    const param_count: usize = if (has_rest) params.len - 1 else params.len;
+    if (pos < param_count) {
+        return c.getTypeOfParameter(params[pos]);
+    }
+    if (has_rest and params.len > 0) {
+        // Out-of-bounds position with a rest parameter — return the
+        // rest element type. Full implementation requires indexed-access
+        // type machinery (`getIndexedAccessType`), which is still a stub.
+        // For now, return the rest array's element type if available.
+        const rest_symbol = params[param_count];
+        const rest_type = c.getTypeOfSymbol(rest_symbol) catch return null;
+        return c.getElementTypeOfArrayType(rest_type);
+    }
+    return null;
 }
 
 pub fn getRestOrAnyTypeAtPosition(c: *Checker, source: types.SignatureIndex, pos: usize) ?types.TypeIndex {
