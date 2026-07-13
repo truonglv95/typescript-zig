@@ -2631,24 +2631,41 @@ pub fn getKnownKeysOfTupleType(c: *Checker, t: types.TypeIndex) types.TypeIndex 
     return t; // Stub
 }
 
+/// Port of `checker.go::getThisTypeOfSignature`. Returns the type of the
+/// `this` parameter of `signature`, or null if the signature has no
+/// `this` parameter.
 pub fn getThisTypeOfSignature(c: *Checker, signature: types.SignatureIndex) ?types.TypeIndex {
-    _ = c;
-    _ = signature;
-    return null; // Stub
+    const sig = c.signatures.items[signature];
+    if (sig.thisParameter) |this_param| {
+        return c.getTypeOfSymbol(this_param) catch null;
+    }
+    return null;
 }
 
+/// Port of `checker.go::isInstantiatedGenericParameter`. Returns true if
+/// the parameter at `pos` in `signature` is an instantiated generic
+/// parameter (i.e., its target type is generic).
 pub fn isInstantiatedGenericParameter(c: *Checker, signature: types.SignatureIndex, pos: usize) bool {
-    _ = c;
-    _ = signature;
-    _ = pos;
-    return false; // Stub
+    const sig = c.signatures.items[signature];
+    const target = sig.target orelse return false;
+    const t = tryGetTypeAtPosition(c, target, pos) orelse return false;
+    return c.isGenericType(t);
 }
 
+/// Port of `checker.go::getParameterNameAtPosition`. Returns the name of
+/// the parameter at `pos` in `signature`, or "" if out of range.
 pub fn getParameterNameAtPosition(c: *Checker, signature: types.SignatureIndex, pos: usize) []const u8 {
-    _ = c;
-    _ = signature;
-    _ = pos;
-    return ""; // Stub
+    const sig = c.signatures.items[signature];
+    const params = types.parameters(c, signature);
+    const has_rest = checker_mod.Checker.signatureHasRestParameter(&sig);
+    const param_count: usize = if (has_rest) params.len - 1 else params.len;
+    if (pos < param_count) {
+        const sym = params[pos];
+        if (sym < c.binder.symbols.items.len) {
+            return c.binder.symbols.items[sym].Name;
+        }
+    }
+    return "";
 }
 
 pub fn getTupleElementLabel(c: *Checker, elementInfo: types.TupleElementInfo, restSymbol: ?ast.SymbolIndex, index: usize) []const u8 {
