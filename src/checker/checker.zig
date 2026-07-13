@@ -8073,12 +8073,21 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSymbol(c: *Checker, symbols: *anyopaque, name_: *anyopaque, meaning: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbols;
-        _ = name_;
-        _ = meaning;
-        return undefined;
+    /// Port of `checker.go::getSymbol`. Looks up `name` in `symbols` with
+    /// the given `meaning` (SymbolFlags bitmask). If the found symbol is
+    /// an alias, resolves the alias and checks its target flags.
+    pub fn getSymbol(c: *Checker, symbols: *const symbol.SymbolTable, name: []const u8, meaning: u32) ast_gen.SymbolIndex {
+        if ((meaning & symbol.SymbolFlags.All) == 0) return 0;
+        const raw = symbols.get(name) orelse return 0;
+        const sym = c.getMergedSymbol(raw);
+        if (sym == 0) return 0;
+        const flags = c.getSymbolFlags(sym);
+        if ((flags & meaning) != 0) return sym;
+        if ((flags & symbol.SymbolFlags.Alias) != 0) {
+            const target_flags = c.getSymbolFlags(sym);
+            if ((target_flags & meaning) != 0) return sym;
+        }
+        return 0;
     }
 
     pub fn checkSourceFile(c: *Checker, ctx: ?*anyopaque, sourceFile: ast_gen.NodeIndex, checkUnused: bool) void {

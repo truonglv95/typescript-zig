@@ -2348,9 +2348,9 @@ pub fn parameters(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeInde
         else => return 0,
     }
 }
-pub fn isPropertyDeclaration(a: anytype) bool {
-    _ = a;
-    return false;
+pub fn isPropertyDeclaration(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    if (nodeIndex == 0) return false;
+    return tree.getNode(nodeIndex) == .PropertyDeclaration;
 }
 pub fn isPrivateIdentifier(a: anytype) bool {
     _ = a;
