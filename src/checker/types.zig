@@ -77,6 +77,7 @@ pub const TypeFlags = struct {
     pub const None: u32 = 0;
     pub const Any: u32 = 1 << 0;
     pub const Unknown: u32 = 1 << 1;
+    pub const AnyOrUnknown: u32 = Any | Unknown;
     pub const Undefined: u32 = 1 << 2;
     pub const Null: u32 = 1 << 3;
     pub const Void: u32 = 1 << 4;

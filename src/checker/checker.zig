@@ -15546,15 +15546,49 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isAwaitedTypeInstantiation(c: *Checker, t: *anyopaque) bool {
+    /// Port of `checker.go::isAwaitedTypeInstantiation`. Returns true if
+    /// `t` is a conditional type that instantiates `Awaited<T>`.
+    pub fn isAwaitedTypeInstantiation(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const ty = c.typesList.items[t];
+        if ((ty.flags & types.TypeFlags.Conditional) == 0) return false;
+        // Requires global Awaited symbol + alias tracking; conservative
+        // false until those are wired. TODO(phase1.2): wire
+        // getGlobalAwaitedSymbolOrNil + alias.symbol + alias.typeArguments.
         _ = c;
-        _ = t;
         return false;
     }
 
-    pub fn isAwaitedTypeNeeded(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
+    /// Port of `checker.go::isAwaitedTypeNeeded`. Returns true if `t`
+    /// should be wrapped in `Awaited<T>` (i.e., it's a generic object type
+    /// whose base constraint is any/unknown/object/empty or thenable).
+    pub fn isAwaitedTypeNeeded(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        // If `t` is `any` or already `Awaited<U>`, no wrapping needed.
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Any) != 0) return false;
+        if (c.isAwaitedTypeInstantiation(t)) return false;
+        // Only wrap generic object types
+        if (c.isGenericObjectType(t)) {
+            const base_constraint = c.getBaseConstraintOfType(t);
+            if (base_constraint != 0) {
+                const bc_flags = c.typesList.items[base_constraint].flags;
+                if ((bc_flags & types.TypeFlags.AnyOrUnknown) != 0) return true;
+                if (c.isEmptyObjectType(base_constraint)) return true;
+                // someType(base_constraint, c.isThenableType) — for unions
+                if ((bc_flags & types.TypeFlags.Union) != 0) {
+                    const constituents = c.getTypesFromUnion(base_constraint);
+                    for (constituents) |sub| {
+                        if (c.isThenableType(sub)) return true;
+                    }
+                } else {
+                    if (c.isThenableType(base_constraint)) return true;
+                }
+                return false;
+            }
+            // No base constraint: check if `t` is a type variable
+            return c.maybeTypeOfKind(t, types.TypeFlags.TypeVariable);
+        }
         return false;
     }
 
