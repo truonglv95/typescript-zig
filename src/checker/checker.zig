@@ -13083,18 +13083,67 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getReturnTypeFromBody(c: *Checker, fn_: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = fn_;
-        _ = checkMode;
-        return undefined;
+    /// Port of `checker.go::getReturnTypeFromBody`. Infers the return type
+    /// of a function by walking its body.
+    ///
+    /// Simplified implementation: handles non-async, non-generator
+    /// functions with block bodies and expression-body arrow functions.
+    /// Full async/generator support requires createPromiseType,
+    /// createGeneratorType, checkAndAggregateYieldOperandTypes (stubs).
+    pub fn getReturnTypeFromBody(c: *Checker, fn_node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
+        const tree = c.binder.ast;
+        // Get body: works for FunctionDeclaration, FunctionExpression, ArrowFunction, MethodDeclaration
+        const body = getBodyOfFunction(tree, fn_node);
+        if (body == 0) return c.errorTypeIndex orelse 0;
+
+        // Check if body is a block or an expression
+        const body_kind = tree.getNodeKind(body);
+
+        if (body_kind != .Block) {
+            // Expression body (arrow function): return type is the expression type
+            const ret = c.checkExpressionCachedEx(body, check_mode);
+            if (c.isConstContext(body)) {
+                return c.getRegularTypeOfLiteralType(ret);
+            }
+            return ret;
+        }
+
+        // Block body: walk return statements and aggregate types
+        var return_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer return_types.deinit(c.allocator);
+        var has_return_with_no_expr = false;
+        var has_never_return = false;
+
+        collectReturnTypes(c, body, &return_types, &has_return_with_no_expr, &has_never_return);
+
+        if (has_never_return and return_types.items.len == 0) {
+            return c.neverTypeIndex orelse 0;
+        }
+        if (return_types.items.len == 0) {
+            // No explicit return -> void (or undefined if contextual)
+            return c.voidTypeIndex orelse 0;
+        }
+        if (return_types.items.len == 1) {
+            return return_types.items[0];
+        }
+        return c.getUnionTypeEx(return_types.items, .Subtype, null, null);
     }
 
-    pub fn checkAndAggregateReturnExpressionTypes(c: *Checker, fn_: *anyopaque, checkMode: *anyopaque) bool {
-        _ = c;
-        _ = fn_;
-        _ = checkMode;
-        return false;
+    /// Port of `checker.go::checkAndAggregateReturnExpressionTypes`. Walks
+    /// the function body collecting return expression types. Returns the
+    /// aggregated types and whether the function is never-returning.
+    pub fn checkAndAggregateReturnExpressionTypes(c: *Checker, fn_node: ast_gen.NodeIndex, check_mode: CheckMode) struct { types: []const types.TypeIndex, is_never_returning: bool } {
+        const tree = c.binder.ast;
+        const body = getBodyOfFunction(tree, fn_node);
+        if (body == 0) return .{ .types = &.{}, .is_never_returning = false };
+
+        var return_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        var has_no_expr = false;
+        var has_never = false;
+        collectReturnTypes(c, body, &return_types, &has_no_expr, &has_never);
+
+        _ = check_mode;
+        return .{ .types = return_types.toOwnedSlice(c.allocator) catch &.{}, .is_never_returning = has_never and return_types.items.len == 0 };
     }
 
     pub fn functionHasImplicitReturn(c: *Checker, fn_: *anyopaque) bool {
@@ -16174,6 +16223,121 @@ fn containsTypeIndex(items: []const types.TypeIndex, needle: types.TypeIndex) bo
 
 pub fn resolveName(c: *Checker, location: ?ast_gen.NodeIndex, name: []const u8, meaning: u32, nameNotFoundMessage: ?*const diagnostics_gen.Message, isUse: bool, excludeGlobals: bool) ast_gen.SymbolIndex {
     return c.resolver.resolve(location orelse 0, name, meaning, nameNotFoundMessage, isUse, excludeGlobals) orelse c.unknownSymbol;
+}
+
+/// Returns the body node of a function-like declaration.
+/// Works for FunctionDeclaration, FunctionExpression, ArrowFunction,
+/// MethodDeclaration, GetAccessor, SetAccessor, Constructor.
+fn getBodyOfFunction(tree: *ast.Ast, fn_node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (fn_node == 0) return 0;
+    const node_data = tree.getNode(fn_node);
+    return switch (node_data) {
+        .FunctionDeclaration => |n| n.Body orelse 0,
+        .FunctionExpression => |n| n.Body orelse 0,
+        .ArrowFunction => |n| n.Body orelse 0,
+        .MethodDeclaration => |n| n.Body orelse 0,
+        .GetAccessor => |n| n.Body orelse 0,
+        .SetAccessor => |n| n.Body orelse 0,
+        .Constructor => |n| n.Body orelse 0,
+        else => 0,
+    };
+}
+
+/// Recursively walks a block body collecting return expression types.
+/// Sets `has_return_with_no_expr` if any `return;` is found.
+/// Sets `has_never_return` if a `return neverExpr` or throw is found.
+fn collectReturnTypes(
+    c: *Checker,
+    body: ast_gen.NodeIndex,
+    return_types: *std.ArrayListUnmanaged(types.TypeIndex),
+    has_return_with_no_expr: *bool,
+    has_never_return: *bool,
+) void {
+    const tree = c.binder.ast;
+    if (body == 0) return;
+    const node_data = tree.getNode(body);
+    switch (node_data) {
+        .ReturnStatement => |n| {
+            if (n.Expression) |expr| {
+                if (expr != 0) {
+                    const t = c.checkExpressionCached(expr);
+                    if (t != 0) {
+                        return_types.append(c.allocator, t) catch {};
+                        if ((c.typesList.items[t].flags & types.TypeFlags.Never) != 0) {
+                            has_never_return.* = true;
+                        }
+                    }
+                } else {
+                    has_return_with_no_expr.* = true;
+                }
+            } else {
+                has_return_with_no_expr.* = true;
+            }
+        },
+        .Block => |n| {
+            if (n.Statements != 0) {
+                for (tree.getNodeList(n.Statements)) |stmt| {
+                    collectReturnTypes(c, stmt, return_types, has_return_with_no_expr, has_never_return);
+                }
+            }
+        },
+        .IfStatement => |n| {
+            collectReturnTypes(c, n.ThenStatement, return_types, has_return_with_no_expr, has_never_return);
+            if (n.ElseStatement) |else_stmt| {
+                if (else_stmt != 0) collectReturnTypes(c, else_stmt, return_types, has_return_with_no_expr, has_never_return);
+            }
+        },
+        .ForStatement => |n| {
+            if (n.Statement != 0) collectReturnTypes(c, n.Statement, return_types, has_return_with_no_expr, has_never_return);
+        },
+        .ForInStatement, .ForOfStatement => |n| {
+            if (n.Statement != 0) collectReturnTypes(c, n.Statement, return_types, has_return_with_no_expr, has_never_return);
+        },
+        .WhileStatement => |n| {
+            if (n.Statement != 0) collectReturnTypes(c, n.Statement, return_types, has_return_with_no_expr, has_never_return);
+        },
+        .DoStatement => |n| {
+            if (n.Statement != 0) collectReturnTypes(c, n.Statement, return_types, has_return_with_no_expr, has_never_return);
+        },
+        .TryStatement => |n| {
+            if (n.TryBlock != 0) collectReturnTypes(c, n.TryBlock, return_types, has_return_with_no_expr, has_never_return);
+            if (n.CatchClause) |catch_clause| {
+                if (catch_clause != 0) {
+                    const cc_data = tree.getNode(catch_clause);
+                    if (cc_data == .CatchClause) {
+                        collectReturnTypes(c, cc_data.CatchClause.Block, return_types, has_return_with_no_expr, has_never_return);
+                    }
+                }
+            }
+            if (n.FinallyBlock) |fb| {
+                if (fb != 0) collectReturnTypes(c, fb, return_types, has_return_with_no_expr, has_never_return);
+            }
+        },
+        .SwitchStatement => |n| {
+            if (n.CaseBlock != 0) {
+                const cb_data = tree.getNode(n.CaseBlock);
+                if (cb_data == .CaseBlock) {
+                    for (tree.getNodeList(cb_data.CaseBlock.Clauses)) |clause| {
+                        collectReturnTypes(c, clause, return_types, has_return_with_no_expr, has_never_return);
+                    }
+                }
+            }
+        },
+        .CaseClause, .DefaultClause => |n| {
+            if (n.Statements != 0) {
+                for (tree.getNodeList(n.Statements)) |stmt| {
+                    collectReturnTypes(c, stmt, return_types, has_return_with_no_expr, has_never_return);
+                }
+            }
+        },
+        .LabeledStatement => |n| {
+            if (n.Statement != 0) collectReturnTypes(c, n.Statement, return_types, has_return_with_no_expr, has_never_return);
+        },
+        .ThrowStatement => {
+            has_never_return.* = true;
+        },
+        else => {},
+    }
 }
 
 pub fn getResolvedSymbol(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
