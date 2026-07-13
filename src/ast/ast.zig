@@ -353,3 +353,4 @@ pub const NodeFlagsConst: u32 = 1 << 1;
 pub const NodeFlagsUsing: u32 = 1 << 2;
 pub const NodeFlagsAwaitUsing: u32 = 1 << 3;
 pub const NodeFlagsBlockScoped: u32 = NodeFlagsLet | NodeFlagsConst | NodeFlagsUsing | NodeFlagsAwaitUsing;
+pub const NodeFlagsPossiblyContainsDeprecatedTag: u32 = 1 << 26;

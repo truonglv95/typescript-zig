@@ -1299,7 +1299,7 @@ pub const Relater = struct {
             const sourceConstraint = c.instantiateType(c.getConstraintTypeFromMappedType(source), mapper_type);
 
             if (r.isRelatedTo(targetConstraint, sourceConstraint, RecursionFlags_Both, reportErrors) != .False) {
-                const mapper = c.newSimpleTypeMapper(c.getTypeParameterFromMappedType(source), c.getTypeParameterFromMappedType(target));
+                const mapper = checker_mod.addTypeMapper(c, .{ .kind = .Simple, .data = .{ .Simple = .{ .source = c.getTypeParameterFromMappedType(source), .target = c.getTypeParameterFromMappedType(target) } } });
                 if (c.instantiateType(c.getNameTypeFromMappedType(source), mapper) == c.instantiateType(c.getNameTypeFromMappedType(target), mapper)) {
                     return types.Ternary.andValues(r.isRelatedTo(targetConstraint, sourceConstraint, RecursionFlags_Both, reportErrors), r.isRelatedTo(c.instantiateType(c.getTemplateTypeFromMappedType(source), mapper), c.getTemplateTypeFromMappedType(target), RecursionFlags_Both, reportErrors));
                 }
@@ -2543,34 +2543,34 @@ pub fn getTupleElementLabelFromBindingElement(c: *Checker, node: ast.NodeIndex, 
     return ""; // Stub
 }
 
-pub fn getTypePredicateOfSignature(c: *Checker, sig: types.SignatureIndex) ?types.TypePredicateIndex {
+pub fn getTypePredicateOfSignature(c: *Checker, sig: types.SignatureIndex) ?*types.TypePredicate {
     _ = c;
     _ = sig;
     return null; // Stub
 }
 
-pub fn getUnionOrIntersectionTypePredicate(c: *Checker, signatures: []types.SignatureIndex, isUnion: bool) ?types.TypePredicateIndex {
+pub fn getUnionOrIntersectionTypePredicate(c: *Checker, signatures: []types.SignatureIndex, isUnion: bool) ?*types.TypePredicate {
     _ = c;
     _ = signatures;
     _ = isUnion;
     return null; // Stub
 }
 
-pub fn typePredicateKindsMatch(c: *Checker, a: types.TypePredicateIndex, b: types.TypePredicateIndex) bool {
+pub fn typePredicateKindsMatch(c: *Checker, a: *types.TypePredicate, b: *types.TypePredicate) bool {
     _ = c;
     _ = a;
     _ = b;
     return false; // Stub
 }
 
-pub fn createTypePredicateFromTypePredicateNode(c: *Checker, node: ast.NodeIndex, signature: types.SignatureIndex) types.TypePredicateIndex {
+pub fn createTypePredicateFromTypePredicateNode(c: *Checker, node: ast.NodeIndex, signature: types.SignatureIndex) *types.TypePredicate {
     _ = c;
     _ = node;
     _ = signature;
     return 0; // Stub
 }
 
-pub fn instantiateTypePredicate(c: *Checker, predicate: types.TypePredicateIndex, mapper: ?types.TypeMapperIndex) types.TypePredicateIndex {
+pub fn instantiateTypePredicate(c: *Checker, predicate: *types.TypePredicate, mapper: ?types.TypeMapperIndex) *types.TypePredicate {
     _ = c;
     _ = mapper;
     return predicate; // Stub
@@ -2626,7 +2626,7 @@ pub fn compareTypeParametersIdentical(c: *Checker, sourceParams: []types.TypeInd
     return false; // Stub
 }
 
-pub fn compareTypePredicatesIdentical(c: *Checker, source: ?types.TypePredicateIndex, target: ?types.TypePredicateIndex, compareTypes: ?*const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
+pub fn compareTypePredicatesIdentical(c: *Checker, source: ?*types.TypePredicate, target: ?*types.TypePredicate, compareTypes: ?*const fn (c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
     _ = c;
     _ = source;
     _ = target;

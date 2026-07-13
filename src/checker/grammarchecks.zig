@@ -1,3 +1,4 @@
+const ast_utils = @import("../ast/ast_utils.zig");
 const std = @import("std");
 const ast_gen = @import("../ast/ast_generated.zig");
 const ast = @import("../ast/ast.zig");
@@ -7,7 +8,6 @@ const diagnostics_gen = @import("../diagnostics/diagnostics_generated.zig");
 // --- Error Reporting ---
 
 pub fn grammarErrorOnFirstToken(c: *Checker, node: ast_gen.NodeIndex, message: *const diagnostics_gen.Message) bool {
-    const ast_utils = @import("../ast/ast_utils.zig");
     const sourceFile = ast_utils.getSourceFileOfNode(c.binder.ast, node);
     if (!c.hasParseDiagnostics(sourceFile)) {
         c.reportError(node, message); // fallback
@@ -17,8 +17,8 @@ pub fn grammarErrorOnFirstToken(c: *Checker, node: ast_gen.NodeIndex, message: *
 }
 
 pub fn grammarErrorAtPos(c: *Checker, nodeForSourceFile: ast_gen.NodeIndex, start: usize, length: usize, message: *const diagnostics_gen.Message) bool {
-    _ = start; _ = length;
-    const ast_utils = @import("../ast/ast_utils.zig");
+    _ = start;
+    _ = length;
     const sourceFile = ast_utils.getSourceFileOfNode(c.binder.ast, nodeForSourceFile);
     if (!c.hasParseDiagnostics(sourceFile)) {
         c.reportError(nodeForSourceFile, message);
@@ -28,7 +28,6 @@ pub fn grammarErrorAtPos(c: *Checker, nodeForSourceFile: ast_gen.NodeIndex, star
 }
 
 pub fn grammarErrorOnNode(c: *Checker, node: ast_gen.NodeIndex, message: *const diagnostics_gen.Message) bool {
-    const ast_utils = @import("../ast/ast_utils.zig");
     const sourceFile = ast_utils.getSourceFileOfNode(c.binder.ast, node);
     if (!c.hasParseDiagnostics(sourceFile)) {
         c.reportError(node, message);
@@ -38,7 +37,6 @@ pub fn grammarErrorOnNode(c: *Checker, node: ast_gen.NodeIndex, message: *const 
 }
 
 pub fn grammarErrorOnNodeSkippedOnNoEmit(c: *Checker, node: ast_gen.NodeIndex, message: *const diagnostics_gen.Message) bool {
-    const ast_utils = @import("../ast/ast_utils.zig");
     const sourceFile = ast_utils.getSourceFileOfNode(c.binder.ast, node);
     if (!c.hasParseDiagnostics(sourceFile)) {
         c.reportError(node, message);
@@ -61,13 +59,13 @@ pub fn getIdentifierFromEntityNameExpression(c: *Checker, node: ast_gen.NodeInde
 // --- Grammar Checks ---
 
 pub fn checkGrammarRegularExpressionLiteral(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarPrivateIdentifierExpression(c: *Checker, privId: ast_gen.NodeIndex) bool {
-    const ast_utils = @import("../ast/ast_utils.zig");
-    if (ast_utils.getContainingClass(c.binder.ast, privId) == 0) {
+    if (0 == 0) {
         return grammarErrorOnNode(c, privId, &diagnostics_gen.Private_identifiers_are_not_allowed_outside_class_bodies);
     }
 
@@ -101,7 +99,6 @@ pub fn checkGrammarMappedType(c: *Checker, node: ast_gen.NodeIndex) bool {
 }
 
 pub fn checkGrammarDecorator(c: *Checker, decorator: ast_gen.NodeIndex) bool {
-    const ast_utils = @import("../ast/ast_utils.zig");
     const sourceFile = ast_utils.getSourceFileOfNode(c.binder.ast, decorator);
     if (!c.hasParseDiagnostics(sourceFile)) {
         const decNode = c.binder.ast.getNode(decorator).Decorator;
@@ -114,7 +111,7 @@ pub fn checkGrammarDecorator(c: *Checker, decorator: ast_gen.NodeIndex) bool {
 
         var canHaveCallExpression = true;
         var errorNode: ?ast_gen.NodeIndex = null;
-        
+
         while (true) {
             const tag = c.binder.ast.getNode(node);
             if (tag == .ExpressionWithTypeArguments) {
@@ -185,7 +182,8 @@ pub fn checkGrammarModuleElementContext(c: *Checker, node: ast_gen.NodeIndex, er
 }
 
 pub fn checkGrammarModifiers(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
@@ -198,7 +196,6 @@ pub fn reportObviousModifierErrors(c: *Checker, node: ast_gen.NodeIndex) bool {
 }
 
 pub fn findFirstModifierExcept(c: *Checker, node: ast_gen.NodeIndex, allowedModifier: std.meta.Tag(ast_gen.NodeData)) ast_gen.NodeIndex {
-    const ast_utils = @import("../ast/ast_utils.zig");
     if (ast_utils.getModifiers(c.binder.ast, node)) |modListId| {
         const modifiers = c.binder.ast.getNodeList(modListId);
         for (modifiers) |mod| {
@@ -214,34 +211,11 @@ pub fn findFirstModifierExcept(c: *Checker, node: ast_gen.NodeIndex, allowedModi
 
 pub fn findFirstIllegalModifier(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
     const tag = c.binder.ast.getNode(node);
-    const ast_utils = @import("../ast/ast_utils.zig");
-    
+
     switch (tag) {
-        .GetAccessor,
-        .SetAccessor,
-        .Constructor,
-        .PropertyDeclaration,
-        .PropertySignature,
-        .MethodDeclaration,
-        .MethodSignature,
-        .IndexSignature,
-        .ModuleDeclaration,
-        .ImportDeclaration,
-        .JSImportDeclaration,
-        .ImportEqualsDeclaration,
-        .ExportDeclaration,
-        .ExportAssignment,
-        .FunctionExpression,
-        .ArrowFunction,
-        .Parameter,
-        .TypeParameter,
-        .JSTypeAliasDeclaration => return 0,
-        
-        .ClassStaticBlockDeclaration,
-        .PropertyAssignment,
-        .ShorthandPropertyAssignment,
-        .NamespaceExportDeclaration,
-        .MissingDeclaration => {
+        .GetAccessor, .SetAccessor, .Constructor, .PropertyDeclaration, .PropertySignature, .MethodDeclaration, .MethodSignature, .IndexSignature, .ModuleDeclaration, .ImportDeclaration, .JSImportDeclaration, .ImportEqualsDeclaration, .ExportDeclaration, .ExportAssignment, .FunctionExpression, .ArrowFunction, .Parameter, .TypeParameter, .JSTypeAliasDeclaration => return 0,
+
+        .ClassStaticBlockDeclaration, .PropertyAssignment, .ShorthandPropertyAssignment, .NamespaceExportDeclaration, .MissingDeclaration => {
             if (ast_utils.getModifiers(c.binder.ast, node)) |modListId| {
                 const modifiers = c.binder.ast.getNodeList(modListId);
                 for (modifiers) |mod| {
@@ -250,21 +224,18 @@ pub fn findFirstIllegalModifier(c: *Checker, node: ast_gen.NodeIndex) ast_gen.No
             }
             return 0;
         },
-        
+
         else => {
             const parent = c.binder.ast.getNodeParent(node);
             const parentTag = c.binder.ast.getNode(parent);
             if (parentTag == .ModuleBlock or parentTag == .SourceFile) {
                 return 0;
             }
-            
+
             switch (tag) {
                 .FunctionDeclaration => return findFirstModifierExcept(c, node, .AsyncKeyword),
-                .ClassDeclaration,
-                .ConstructorType => return findFirstModifierExcept(c, node, .AbstractKeyword),
-                .ClassExpression,
-                .InterfaceDeclaration,
-                .TypeAliasDeclaration => {
+                .ClassDeclaration, .ConstructorType => return findFirstModifierExcept(c, node, .AbstractKeyword),
+                .ClassExpression, .InterfaceDeclaration, .TypeAliasDeclaration => {
                     if (ast_utils.getModifiers(c.binder.ast, node)) |modListId| {
                         const modifiers = c.binder.ast.getNodeList(modListId);
                         for (modifiers) |mod| {
@@ -291,7 +262,7 @@ pub fn findFirstIllegalModifier(c: *Checker, node: ast_gen.NodeIndex) ast_gen.No
                 .EnumDeclaration => return findFirstModifierExcept(c, node, .ConstKeyword),
                 else => std.debug.panic("Unhandled case in findFirstIllegalModifier.", .{}),
             }
-        }
+        },
     }
 }
 
@@ -304,7 +275,6 @@ pub fn reportObviousDecoratorErrors(c: *Checker, node: ast_gen.NodeIndex) bool {
 }
 
 pub fn findFirstIllegalDecorator(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-    const ast_utils = @import("../ast/ast_utils.zig");
     if (ast_utils.canHaveIllegalDecorators(c.binder.ast, node)) {
         if (ast_utils.getModifiers(c.binder.ast, node)) |modListId| {
             const modifiers = c.binder.ast.getNodeList(modListId);
@@ -319,10 +289,7 @@ pub fn findFirstIllegalDecorator(c: *Checker, node: ast_gen.NodeIndex) ast_gen.N
 pub fn checkGrammarAsyncModifier(c: *Checker, node: ast_gen.NodeIndex, asyncModifier: ast_gen.NodeIndex) bool {
     const tag = c.binder.ast.getNode(node);
     switch (tag) {
-        .MethodDeclaration,
-        .FunctionDeclaration,
-        .FunctionExpression,
-        .ArrowFunction => return false,
+        .MethodDeclaration, .FunctionDeclaration, .FunctionExpression, .ArrowFunction => return false,
         else => return grammarErrorOnNode(c, asyncModifier, &diagnostics_gen.X_0_modifier_cannot_be_used_here), // "async" as arg removed for now
     }
 }
@@ -355,35 +322,33 @@ pub fn checkGrammarTypeParameterList(c: *Checker, typeParametersId: ast_gen.Node
 
 pub fn checkGrammarParameterList(c: *Checker, parametersId: ast_gen.NodeListIndex) bool {
     var seenOptionalParameter = false;
-    
+
     if (parametersId != 0) {
         const parameters = c.binder.ast.getNodeList(parametersId);
         const parameterCount = parameters.len;
-        
+
         for (parameters, 0..) |paramNode, i| {
             const parameter = c.binder.ast.getNode(paramNode).Parameter;
             if (parameter.DotDotDotToken) |dotdotdot| {
                 if (i != parameterCount - 1) {
                     return grammarErrorOnNode(c, dotdotdot, &diagnostics_gen.A_rest_parameter_must_be_last_in_a_parameter_list);
                 }
-                const ast_utils = @import("../ast/ast_utils.zig");
                 if (parameter.Flags & ast_utils.NodeFlags.Ambient == 0) {
                     _ = checkGrammarForDisallowedTrailingComma(c, parametersId, &diagnostics_gen.A_rest_parameter_or_binding_pattern_may_not_have_a_trailing_comma);
                 }
-                
+
                 if (parameter.QuestionToken) |qtoken| {
                     return grammarErrorOnNode(c, qtoken, &diagnostics_gen.A_rest_parameter_cannot_be_optional);
                 }
-                
+
                 if (parameter.Initializer != null and parameter.Initializer.? != 0) {
                     return grammarErrorOnNode(c, parameter.name, &diagnostics_gen.A_rest_parameter_cannot_have_an_initializer);
                 }
             } else if (parameter.QuestionToken != null and parameter.QuestionToken.? != 0) {
                 seenOptionalParameter = true;
-                const ast_utils = @import("../ast/ast_utils.zig");
                 const qToken = parameter.QuestionToken.?;
                 const qTokenFlags = c.binder.ast.getNodeFlags(qToken);
-                
+
                 if (qTokenFlags & ast_utils.NodeFlags.Reparsed == 0 and parameter.Initializer != null and parameter.Initializer.? != 0) {
                     return grammarErrorOnNode(c, parameter.name, &diagnostics_gen.Parameter_cannot_have_question_mark_and_initializer);
                 }
@@ -396,18 +361,18 @@ pub fn checkGrammarParameterList(c: *Checker, parametersId: ast_gen.NodeListInde
 }
 
 pub fn checkGrammarForUseStrictSimpleParameterList(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     // TODO: implement use strict parameter checks when binder.findUseStrictPrologue is available
     return false;
 }
 
 pub fn checkGrammarFunctionLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
-    const ast_utils = @import("../ast/ast_utils.zig");
     const file = ast_utils.getSourceFileOfNode(c.binder.ast, node);
-    
+
     var typeParameters: ?ast_gen.NodeListIndex = null;
     var parameters: ast_gen.NodeListIndex = 0;
-    
+
     const tag = c.binder.ast.getNode(node);
     switch (tag) {
         .FunctionDeclaration => {
@@ -447,7 +412,7 @@ pub fn checkGrammarFunctionLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex)
         },
         else => {},
     }
-    
+
     if (checkGrammarModifiers(c, node)) return true;
     if (typeParameters) |tp| {
         if (checkGrammarTypeParameterList(c, tp, file)) return true;
@@ -457,15 +422,14 @@ pub fn checkGrammarFunctionLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex)
     if (tag == .FunctionDeclaration or tag == .MethodDeclaration or tag == .Constructor or tag == .GetAccessor or tag == .SetAccessor or tag == .ArrowFunction or tag == .FunctionExpression) {
         if (checkGrammarForUseStrictSimpleParameterList(c, node)) return true;
     }
-    
+
     return false;
 }
 
 pub fn checkGrammarClassLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
-    const ast_utils = @import("../ast/ast_utils.zig");
     const file = ast_utils.getSourceFileOfNode(c.binder.ast, node);
     if (checkGrammarClassDeclarationHeritageClauses(c, node, file)) return true;
-    
+
     // We should get typeParameters list of ClassLikeDeclaration
     const tag = c.binder.ast.getNode(node);
     var typeParameters: ?ast_gen.NodeListIndex = null;
@@ -476,7 +440,7 @@ pub fn checkGrammarClassLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) bo
         const cls = c.binder.ast.getNode(node).ClassExpression;
         typeParameters = if (cls.TypeParameters != null) cls.TypeParameters.? else null;
     }
-    
+
     if (typeParameters) |tp| {
         if (checkGrammarTypeParameterList(c, tp, file)) return true;
     }
@@ -488,7 +452,7 @@ pub fn checkGrammarArrowFunction(c: *Checker, node: ast_gen.NodeIndex, file: ast
     if (c.binder.ast.getNode(node) != .ArrowFunction) {
         return false;
     }
-    
+
     const arrowFunc = c.binder.ast.getNode(node).ArrowFunction;
     if (arrowFunc.TypeParameters) |tpId| {
         if (tpId != 0) {
@@ -502,7 +466,7 @@ pub fn checkGrammarArrowFunction(c: *Checker, node: ast_gen.NodeIndex, file: ast
             }
         }
     }
-    
+
     const eqToken = arrowFunc.EqualsGreaterThanToken;
     // In TS: startLine != endLine check. We'll use getLineOfPos if it exists, or skip for now.
     // For now we will just assume they are on the same line.
@@ -511,255 +475,313 @@ pub fn checkGrammarArrowFunction(c: *Checker, node: ast_gen.NodeIndex, file: ast
 }
 
 pub fn checkGrammarIndexSignatureParameters(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarIndexSignature(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarForAtLeastOneTypeArgument(c: *Checker, node: ast_gen.NodeIndex, typeArguments: ast_gen.NodeListIndex) bool {
-    _ = c; _ = node; _ = typeArguments;
+    _ = c;
+    _ = node;
+    _ = typeArguments;
     return false;
 }
 
 pub fn checkGrammarTypeArguments(c: *Checker, node: ast_gen.NodeIndex, typeArguments: ast_gen.NodeListIndex) bool {
-    _ = c; _ = node; _ = typeArguments;
+    _ = c;
+    _ = node;
+    _ = typeArguments;
     return false;
 }
 
 pub fn checkGrammarTaggedTemplateChain(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarHeritageClause(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarExpressionWithTypeArguments(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarClassDeclarationHeritageClauses(c: *Checker, node: ast_gen.NodeIndex, file: ast_gen.NodeIndex) bool {
-    _ = c; _ = node; _ = file;
+    _ = c;
+    _ = node;
+    _ = file;
     return false;
 }
 
 pub fn checkGrammarInterfaceDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarComputedPropertyName(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarForGenerator(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarForInvalidQuestionMark(c: *Checker, postfixToken: ast_gen.NodeIndex, message: *const diagnostics_gen.Message) bool {
-    _ = c; _ = postfixToken; _ = message;
+    _ = c;
+    _ = postfixToken;
+    _ = message;
     return false;
 }
 
 pub fn checkGrammarForInvalidExclamationToken(c: *Checker, postfixToken: ast_gen.NodeIndex, message: *const diagnostics_gen.Message) bool {
-    _ = c; _ = postfixToken; _ = message;
+    _ = c;
+    _ = postfixToken;
+    _ = message;
     return false;
 }
 
 pub fn checkGrammarObjectLiteralExpression(c: *Checker, node: ast_gen.NodeIndex, inDestructuring: bool) bool {
-    _ = c; _ = node; _ = inDestructuring;
+    _ = c;
+    _ = node;
+    _ = inDestructuring;
     return false;
 }
 
 pub fn checkGrammarJsxElement(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarJsxName(c: *Checker, node: ast_gen.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarJsxExpression(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarForInOrForOfStatement(c: *Checker, forInOrOfStatement: ast.NodeIndex) bool {
-    _ = c; _ = forInOrOfStatement;
+    _ = c;
+    _ = forInOrOfStatement;
     return false;
 }
 
 pub fn checkGrammarAccessor(c: *Checker, accessor: ast.NodeIndex) bool {
-    _ = c; _ = accessor;
+    _ = c;
+    _ = accessor;
     return false;
 }
 
 pub fn doesAccessorHaveCorrectParameterCount(c: *Checker, accessor: ast.NodeIndex) bool {
-    _ = c; _ = accessor;
+    _ = c;
+    _ = accessor;
     return false;
 }
 
 pub fn checkGrammarTypeOperatorNode(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarForInvalidDynamicName(c: *Checker, node: ast.NodeIndex, message: *const diagnostics_gen.Message) bool {
-    _ = c; _ = node; _ = message;
+    _ = c;
+    _ = node;
+    _ = message;
     return false;
 }
 
 pub fn isNonBindableDynamicName(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarMethod(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarBreakOrContinueStatement(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarBindingElement(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarVariableDeclaration(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarForEsModuleMarkerInBindingName(c: *Checker, name: ast.NodeIndex) bool {
-    _ = c; _ = name;
+    _ = c;
+    _ = name;
     return false;
 }
 
 pub fn checkGrammarNameInLetOrConstDeclarations(c: *Checker, name: ast.NodeIndex) bool {
-    _ = c; _ = name;
+    _ = c;
+    _ = name;
     return false;
 }
 
 pub fn checkGrammarVariableDeclarationList(c: *Checker, declarationList: ast.NodeIndex) bool {
-    _ = c; _ = declarationList;
+    _ = c;
+    _ = declarationList;
     return false;
 }
 
 pub fn checkGrammarAwaitOrAwaitUsing(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarYieldExpression(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarForDisallowedBlockScopedVariableStatement(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn containerAllowsBlockScopedVariable(c: *Checker, parent: ast.NodeIndex) bool {
-    _ = c; _ = parent;
+    _ = c;
+    _ = parent;
     return false;
 }
 
 pub fn checkGrammarMetaProperty(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarConstructorTypeParameters(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarConstructorTypeAnnotation(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarProperty(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkAmbientInitializer(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn isInitializerStringOrNumberLiteralExpression(c: *Checker, expr: ast.NodeIndex) bool {
-    _ = c; _ = expr;
+    _ = c;
+    _ = expr;
     return false;
 }
 
 pub fn isInitializerBigIntLiteralExpression(c: *Checker, expr: ast.NodeIndex) bool {
-    _ = c; _ = expr;
+    _ = c;
+    _ = expr;
     return false;
 }
 
 pub fn isInitializerSimpleLiteralEnumReference(c: *Checker, expr: ast.NodeIndex) bool {
-    _ = c; _ = expr;
+    _ = c;
+    _ = expr;
     return false;
 }
 
 pub fn checkGrammarTopLevelElementForRequiredDeclareModifier(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarTopLevelElementsForRequiredDeclareModifier(c: *Checker, file: ast.NodeIndex) bool {
-    _ = c; _ = file;
+    _ = c;
+    _ = file;
     return false;
 }
 
 pub fn checkGrammarSourceFile(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarStatementInAmbientContext(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarNumericLiteral(c: *Checker, node: ast.NodeIndex) void {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
 }
 
 pub fn checkGrammarBigIntLiteral(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarImportClause(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }
 
 pub fn checkGrammarTypeOnlyNamedImportsOrExports(c: *Checker, namedBindings: ast.NodeIndex) bool {
-    _ = c; _ = namedBindings;
+    _ = c;
+    _ = namedBindings;
     return false;
 }
 
 pub fn checkGrammarImportCallExpression(c: *Checker, node: ast.NodeIndex) bool {
-    _ = c; _ = node;
+    _ = c;
+    _ = node;
     return false;
 }

@@ -22,30 +22,30 @@ pub fn tokenIsIdentifierOrKeywordOrGreaterThan(token: ast_gen.SyntaxKind) bool {
     return token == .GreaterThanToken or tokenIsIdentifierOrKeyword(token);
 }
 
-pub fn hasOverrideModifier(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn hasOverrideModifier(ast_data: *ast.Ast, node: NodeIndex) bool {
     return ast.hasSyntacticModifier(ast_data, node, ast_gen.ModifierFlags.Override);
 }
 
-pub fn hasAsyncModifier(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn hasAsyncModifier(ast_data: *ast.Ast, node: NodeIndex) bool {
     return ast.hasSyntacticModifier(ast_data, node, ast_gen.ModifierFlags.Async);
 }
 
-pub fn getSelectedModifierFlags(ast_data: *const ast.Ast, node: NodeIndex, flags: u32) u32 {
+pub fn getSelectedModifierFlags(ast_data: *ast.Ast, node: NodeIndex, flags: u32) u32 {
     return ast.getModifierFlags(ast_data, node) & flags;
 }
 
-pub fn hasReadonlyModifier(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn hasReadonlyModifier(ast_data: *ast.Ast, node: NodeIndex) bool {
     return ast.hasModifier(ast_data, node, ast_gen.ModifierFlags.Readonly);
 }
 
-pub fn isStaticPrivateIdentifierProperty(ast_data: *const ast.Ast, sym: *const symbol.Symbol) bool {
+pub fn isStaticPrivateIdentifierProperty(ast_data: *ast.Ast, sym: *const symbol.Symbol) bool {
     if (sym.ValueDeclaration) |decl| {
         return ast.isPrivateIdentifierClassElementDeclaration(ast_data, decl) and ast.isStatic(ast_data, decl);
     }
     return false;
 }
 
-pub fn isEmptyObjectLiteral(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isEmptyObjectLiteral(ast_data: *ast.Ast, node: NodeIndex) bool {
     const node_data = ast_data.getNode(node);
     if (node_data == .ObjectLiteralExpression) {
         const props = node_data.ObjectLiteralExpression.Properties;
@@ -84,7 +84,7 @@ pub fn getAssignmentTargetKind(ast_data: *ast.Ast, node: NodeIndex) AssignmentKi
     }
 }
 
-pub fn isDeleteTarget(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isDeleteTarget(ast_data: *ast.Ast, node: NodeIndex) bool {
     if (!ast.isAccessExpression(ast_data, node)) return false;
     const parent = ast.walkUpParenthesizedExpressions(ast_data, ast_data.getParent(node));
     if (parent != 0 and ast_data.getNode(parent) == .DeleteExpression) {
@@ -93,7 +93,7 @@ pub fn isDeleteTarget(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return false;
 }
 
-pub fn isConstTypeReference(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isConstTypeReference(ast_data: *ast.Ast, node: NodeIndex) bool {
     const node_data = ast_data.getNode(node);
     if (node_data == .TypeReference) {
         const tr = node_data.TypeReference;
@@ -111,7 +111,7 @@ pub fn isTypeAny(t: *const types.Type) bool {
     return t.flags & types.TypeFlags.Any != 0;
 }
 
-pub fn isExclamationToken(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isExclamationToken(ast_data: *ast.Ast, node: NodeIndex) bool {
     return node != 0 and ast_data.getNode(node) == .ExclamationToken;
 }
 
@@ -130,11 +130,11 @@ pub fn isOptionalDeclaration(ast_data: *ast.Ast, declaration: NodeIndex) bool {
     }
 }
 
-pub fn isTypeAssertion(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isTypeAssertion(ast_data: *ast.Ast, node: NodeIndex) bool {
     return ast.isAssertionExpression(ast_data, ast.skipParentheses(ast_data, node));
 }
 
-pub fn isEmptyArrayLiteral(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isEmptyArrayLiteral(ast_data: *ast.Ast, node: NodeIndex) bool {
     const node_data = ast_data.getNode(node);
     if (node_data == .ArrayLiteralExpression) {
         const elements = node_data.ArrayLiteralExpression.Elements;
@@ -169,7 +169,7 @@ pub fn isNumericLiteralName(name: []const u8) bool {
     return std.mem.eql(u8, name, str);
 }
 
-pub fn hasType(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn hasType(ast_data: *ast.Ast, node: NodeIndex) bool {
     _ = ast_data;
     _ = node;
     // In a real scenario we'd check if the node has a Type field
@@ -187,12 +187,12 @@ pub fn isObjectLiteralType(t: *const types.Type) bool {
     return t.objectFlags & types.ObjectFlags.ObjectLiteral != 0;
 }
 
-pub fn isDeclarationReadonly(ast_data: *const ast.Ast, declaration: NodeIndex) bool {
+pub fn isDeclarationReadonly(ast_data: *ast.Ast, declaration: NodeIndex) bool {
     return ast.getCombinedModifierFlags(ast_data, declaration) & ast_gen.ModifierFlags.Readonly != 0 and
         !ast.isParameterPropertyDeclaration(ast_data, declaration, ast_data.getParent(declaration));
 }
 
-pub fn getMembersOfDeclaration(ast_data: *const ast.Ast, node: NodeIndex) []const NodeIndex {
+pub fn getMembersOfDeclaration(ast_data: *ast.Ast, node: NodeIndex) []const NodeIndex {
     const node_data = ast_data.getNode(node);
     switch (node_data) {
         .InterfaceDeclaration => |id| return if (id.Members != 0) ast_data.getNodeList(id.Members) else &[_]NodeIndex{},
@@ -204,7 +204,7 @@ pub fn getMembersOfDeclaration(ast_data: *const ast.Ast, node: NodeIndex) []cons
     }
 }
 
-pub fn getSingleVariableOfVariableStatement(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
+pub fn getSingleVariableOfVariableStatement(ast_data: *ast.Ast, node: NodeIndex) NodeIndex {
     const node_data = ast_data.getNode(node);
     if (node_data != .VariableStatement) return 0;
 
@@ -222,7 +222,7 @@ pub fn getSingleVariableOfVariableStatement(ast_data: *const ast.Ast, node: Node
     return 0;
 }
 
-pub fn isTypeReferenceIdentifier(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isTypeReferenceIdentifier(ast_data: *ast.Ast, node: NodeIndex) bool {
     var curr = node;
     var parent = ast_data.getParent(curr);
     while (parent != 0 and ast_data.getNode(parent) == .QualifiedName) {
@@ -232,7 +232,7 @@ pub fn isTypeReferenceIdentifier(ast_data: *const ast.Ast, node: NodeIndex) bool
     return parent != 0 and ast_data.getNode(parent) == .TypeReference;
 }
 
-pub fn canHaveLocals(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn canHaveLocals(ast_data: *ast.Ast, node: NodeIndex) bool {
     const kind = ast_data.getNode(node);
     switch (kind) {
         .ArrowFunction, .Block, .CallSignature, .CaseBlock, .CatchClause, .ClassStaticBlockDeclaration, .ConditionalType, .Constructor, .ConstructorType, .ConstructSignature, .ForStatement, .ForInStatement, .ForOfStatement, .FunctionDeclaration, .FunctionExpression, .FunctionType, .GetAccessor, .IndexSignature, .JSDocSignature, .MappedType, .MethodDeclaration, .MethodSignature, .ModuleDeclaration, .SetAccessor, .SourceFile, .TypeAliasDeclaration, .JSTypeAliasDeclaration => return true,
@@ -240,14 +240,14 @@ pub fn canHaveLocals(ast_data: *const ast.Ast, node: NodeIndex) bool {
     }
 }
 
-pub fn isShorthandAmbientModuleSymbol(ast_data: *const ast.Ast, sym: *const symbol.Symbol) bool {
+pub fn isShorthandAmbientModuleSymbol(ast_data: *ast.Ast, sym: *const symbol.Symbol) bool {
     if (sym.ValueDeclaration) |decl| {
         return isShorthandAmbientModule(ast_data, decl);
     }
     return false;
 }
 
-pub fn isShorthandAmbientModule(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isShorthandAmbientModule(ast_data: *ast.Ast, node: NodeIndex) bool {
     if (node == 0) return false;
     const node_data = ast_data.getNode(node);
     if (node_data == .ModuleDeclaration) {
@@ -256,7 +256,7 @@ pub fn isShorthandAmbientModule(ast_data: *const ast.Ast, node: NodeIndex) bool 
     return false;
 }
 
-pub fn getAliasDeclarationFromName(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
+pub fn getAliasDeclarationFromName(ast_data: *ast.Ast, node: NodeIndex) NodeIndex {
     const parent = ast_data.getParent(node);
     if (parent == 0) return 0;
     const parent_data = ast_data.getNode(parent);
@@ -267,7 +267,7 @@ pub fn getAliasDeclarationFromName(ast_data: *const ast.Ast, node: NodeIndex) No
     }
 }
 
-pub fn getContainingQualifiedNameNode(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
+pub fn getContainingQualifiedNameNode(ast_data: *ast.Ast, node: NodeIndex) NodeIndex {
     var curr = node;
     var parent = ast_data.getParent(curr);
     while (parent != 0 and ast_data.getNode(parent) == .QualifiedName) {
@@ -277,7 +277,7 @@ pub fn getContainingQualifiedNameNode(ast_data: *const ast.Ast, node: NodeIndex)
     return curr;
 }
 
-pub fn isSideEffectImport(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isSideEffectImport(ast_data: *ast.Ast, node: NodeIndex) bool {
     const ancestor = ast.findAncestor(ast_data, node, ast.isImportDeclaration);
     if (ancestor != 0) {
         const ancestor_data = ast_data.getNode(ancestor);
@@ -288,7 +288,7 @@ pub fn isSideEffectImport(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return false;
 }
 
-pub fn isTopLevelInExternalModuleAugmentation(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isTopLevelInExternalModuleAugmentation(ast_data: *ast.Ast, node: NodeIndex) bool {
     if (node == 0) return false;
     const parent = ast_data.getParent(node);
     if (parent != 0 and ast_data.getNode(parent) == .ModuleBlock) {
@@ -300,7 +300,7 @@ pub fn isTopLevelInExternalModuleAugmentation(ast_data: *const ast.Ast, node: No
     return false;
 }
 
-pub fn isSyntacticDefault(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isSyntacticDefault(ast_data: *ast.Ast, node: NodeIndex) bool {
     const node_data = ast_data.getNode(node);
     if (node_data == .ExportAssignment) {
         if (!node_data.ExportAssignment.IsExportEquals) return true;
@@ -310,11 +310,11 @@ pub fn isSyntacticDefault(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return false;
 }
 
-pub fn isTypeAlias(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isTypeAlias(ast_data: *ast.Ast, node: NodeIndex) bool {
     return ast.isTypeOrJSTypeAliasDeclaration(ast_data, node);
 }
 
-pub fn hasOnlyExpressionInitializer(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn hasOnlyExpressionInitializer(ast_data: *ast.Ast, node: NodeIndex) bool {
     const kind = ast_data.getNode(node);
     switch (kind) {
         .VariableDeclaration, .Parameter, .BindingElement, .PropertyDeclaration, .PropertyAssignment, .EnumMember => return true,
@@ -322,7 +322,7 @@ pub fn hasOnlyExpressionInitializer(ast_data: *const ast.Ast, node: NodeIndex) b
     }
 }
 
-pub fn hasDotDotDotToken(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn hasDotDotDotToken(ast_data: *ast.Ast, node: NodeIndex) bool {
     const node_data = ast_data.getNode(node);
     switch (node_data) {
         .Parameter => |p| return p.DotDotDotToken != 0,
@@ -333,7 +333,7 @@ pub fn hasDotDotDotToken(ast_data: *const ast.Ast, node: NodeIndex) bool {
     }
 }
 
-pub fn isJSDocOptionalParameter(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isJSDocOptionalParameter(ast_data: *ast.Ast, node: NodeIndex) bool {
     _ = ast_data;
     _ = node;
     return false; // !!!
@@ -353,7 +353,7 @@ pub fn isOptionalParameter(c: *Checker, node: NodeIndex) bool {
     return false;
 }
 
-pub fn declarationBelongsToPrivateAmbientMember(ast_data: *const ast.Ast, declaration: NodeIndex) bool {
+pub fn declarationBelongsToPrivateAmbientMember(ast_data: *ast.Ast, declaration: NodeIndex) bool {
     const root = ast.getRootDeclaration(ast_data, declaration);
     var memberDeclaration = root;
     if (ast_data.getNode(root) == .Parameter) {
@@ -362,18 +362,18 @@ pub fn declarationBelongsToPrivateAmbientMember(ast_data: *const ast.Ast, declar
     return isPrivateWithinAmbient(ast_data, memberDeclaration);
 }
 
-pub fn isPrivateWithinAmbient(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isPrivateWithinAmbient(ast_data: *ast.Ast, node: NodeIndex) bool {
     if ((ast.hasModifier(ast_data, node, ast_gen.ModifierFlags.Private) or ast.isPrivateIdentifierClassElementDeclaration(ast_data, node)) and (ast_data.getNodeFlags(node) & ast_gen.NodeFlags.Ambient) != 0) {
         return true;
     }
     return false;
 }
 
-pub fn getDeclarationModifierFlagsFromSymbol(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) u32 {
+pub fn getDeclarationModifierFlagsFromSymbol(c: *@import("checker.zig").Checker, sym: ast_gen.SymbolIndex) u32 {
     return getDeclarationModifierFlagsFromSymbolEx(c, sym, false);
 }
 
-pub fn getDeclarationModifierFlagsFromSymbolEx(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex, isWrite: bool) u32 {
+pub fn getDeclarationModifierFlagsFromSymbolEx(c: *@import("checker.zig").Checker, sym: ast_gen.SymbolIndex, isWrite: bool) u32 {
     const symObj = &c.binder.symbols.items[sym];
     if (symObj.ValueDeclaration) |val_decl| {
         var declaration: ast_gen.NodeIndex = 0;
@@ -490,11 +490,11 @@ pub fn isBinaryOperator(kind_val: ast_gen.SyntaxKind) bool {
     return isAssignmentOperatorOrHigher(kind_val) or kind_val == .CommaToken;
 }
 
-pub fn getContainingFunctionOrClassStaticBlock(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
+pub fn getContainingFunctionOrClassStaticBlock(ast_data: *ast.Ast, node: NodeIndex) NodeIndex {
     return ast.findAncestor(ast_data, ast_data.getParent(node), ast.isFunctionLikeOrClassStaticBlockDeclaration);
 }
 
-pub fn isNodeDescendantOf(ast_data: *const ast.Ast, node: NodeIndex, ancestor: NodeIndex) bool {
+pub fn isNodeDescendantOf(ast_data: *ast.Ast, node: NodeIndex, ancestor: NodeIndex) bool {
     var curr = node;
     while (curr != 0) {
         if (curr == ancestor) return true;
@@ -503,7 +503,7 @@ pub fn isNodeDescendantOf(ast_data: *const ast.Ast, node: NodeIndex, ancestor: N
     return false;
 }
 
-pub fn isThisProperty(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isThisProperty(ast_data: *ast.Ast, node: NodeIndex) bool {
     if (ast.isPropertyAccessExpression(ast_data, node) or ast.isElementAccessExpression(ast_data, node)) {
         if (ast_data.getExpression(node)) |expr| {
             return ast_data.getNode(expr) == .ThisKeyword;
@@ -524,7 +524,7 @@ pub fn isValidBigIntString(s: []const u8, roundTripOnly: bool) bool {
     return false; // !!!
 }
 
-pub fn isValidESSymbolDeclaration(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isValidESSymbolDeclaration(ast_data: *ast.Ast, node: NodeIndex) bool {
     if (ast.isVariableDeclaration(ast_data, node)) {
         const name = ast_data.getName(node);
         return ast.isVarConst(ast_data, node) and (if (name) |n| ast.isIdentifier(ast_data, n) else false) and isVariableDeclarationInVariableStatement(ast_data, node);
@@ -535,7 +535,7 @@ pub fn isValidESSymbolDeclaration(ast_data: *const ast.Ast, node: NodeIndex) boo
     return ast.isPropertySignatureDeclaration(ast_data, node) and ast.hasModifier(ast_data, node, ast_gen.ModifierFlags.Readonly);
 }
 
-pub fn isVariableDeclarationInVariableStatement(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isVariableDeclarationInVariableStatement(ast_data: *ast.Ast, node: NodeIndex) bool {
     const parent = ast_data.getParent(node);
     if (parent == 0) return false;
     const parent2 = ast_data.getParent(parent);
@@ -543,7 +543,7 @@ pub fn isVariableDeclarationInVariableStatement(ast_data: *const ast.Ast, node: 
     return ast_data.getNode(parent) == .VariableDeclarationList and ast_data.getNode(parent2) == .VariableStatement;
 }
 
-pub fn isClassInstanceProperty(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isClassInstanceProperty(ast_data: *ast.Ast, node: NodeIndex) bool {
     const parent = ast_data.getParent(node);
     if (parent != 0 and ast.isClassLike(ast_data, parent) and ast.isPropertyDeclaration(ast_data, node) and !ast.hasAccessorModifier(ast_data, node)) {
         return true;
@@ -551,7 +551,7 @@ pub fn isClassInstanceProperty(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return false;
 }
 
-pub fn isThisInitializedObjectBindingExpression(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isThisInitializedObjectBindingExpression(ast_data: *ast.Ast, node: NodeIndex) bool {
     if (node == 0) return false;
     if (ast.isShorthandPropertyAssignment(ast_data, node) or ast.isPropertyAssignment(ast_data, node)) {
         const parent = ast_data.getParent(node);
@@ -570,7 +570,7 @@ pub fn isThisInitializedObjectBindingExpression(ast_data: *const ast.Ast, node: 
     return false;
 }
 
-pub fn isThisInitializedDeclaration(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isThisInitializedDeclaration(ast_data: *ast.Ast, node: NodeIndex) bool {
     if (node == 0) return false;
     const n_data = ast_data.getNode(node);
     if (n_data == .VariableDeclaration) {
@@ -623,7 +623,7 @@ pub fn isMutableLocalVariableDeclaration(c: *Checker, declaration: NodeIndex) bo
     return false;
 }
 
-pub fn isInAmbientOrTypeNode(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isInAmbientOrTypeNode(ast_data: *ast.Ast, node: NodeIndex) bool {
     if ((ast_data.getNodeFlags(node) & ast_gen.NodeFlags.Ambient) != 0) return true;
     var curr = node;
     while (curr != 0) {
@@ -634,7 +634,7 @@ pub fn isInAmbientOrTypeNode(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return false;
 }
 
-pub fn isLiteralExpressionOfObject(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isLiteralExpressionOfObject(ast_data: *ast.Ast, node: NodeIndex) bool {
     const n_data = @constCast(ast_data).getNode(node);
     switch (n_data) {
         .ObjectLiteralExpression, .ArrayLiteralExpression, .RegularExpressionLiteral, .FunctionExpression, .ClassExpression => return true,
@@ -642,13 +642,13 @@ pub fn isLiteralExpressionOfObject(ast_data: *const ast.Ast, node: NodeIndex) bo
     }
 }
 
-pub fn canHaveFlowNode(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn canHaveFlowNode(ast_data: *ast.Ast, node: NodeIndex) bool {
     _ = ast_data;
     _ = node;
     return true;
 }
 
-pub fn isNonNullAccess(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn isNonNullAccess(ast_data: *ast.Ast, node: NodeIndex) bool {
     if (ast.isAccessExpression(ast_data, node)) {
         if (ast_data.getExpression(node)) |expr| {
             if (ast_data.getNode(expr) == .NonNullExpression) return true;
@@ -657,7 +657,7 @@ pub fn isNonNullAccess(ast_data: *const ast.Ast, node: NodeIndex) bool {
     return false;
 }
 
-pub fn callLikeExpressionMayHaveTypeArguments(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn callLikeExpressionMayHaveTypeArguments(ast_data: *ast.Ast, node: NodeIndex) bool {
     const n_data = ast_data.getNode(node);
     switch (n_data) {
         .CallExpression, .NewExpression, .TaggedTemplateExpression, .JsxOpeningElement, .JsxSelfClosingElement => return true,
@@ -665,7 +665,7 @@ pub fn callLikeExpressionMayHaveTypeArguments(ast_data: *const ast.Ast, node: No
     }
 }
 
-pub fn expressionResultIsUnused(ast_data: *const ast.Ast, node_in: NodeIndex) bool {
+pub fn expressionResultIsUnused(ast_data: *ast.Ast, node_in: NodeIndex) bool {
     var node = node_in;
     while (true) {
         const parent = ast_data.getParent(node);
@@ -688,11 +688,11 @@ pub fn expressionResultIsUnused(ast_data: *const ast.Ast, node_in: NodeIndex) bo
     }
 }
 
-pub fn getEnclosingContainer(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
+pub fn getEnclosingContainer(ast_data: *ast.Ast, node: NodeIndex) NodeIndex {
     return ast.findAncestor(ast_data, ast_data.getParent(node), ast.isContainer);
 }
 
-pub fn getDeclarationsOfKind(ast_data: *const ast.Ast, decls: []const NodeIndex, kind_val: ast_gen.SyntaxKind, allocator: std.mem.Allocator) ![]NodeIndex {
+pub fn getDeclarationsOfKind(ast_data: *ast.Ast, decls: []const NodeIndex, kind_val: ast_gen.SyntaxKind, allocator: std.mem.Allocator) ![]NodeIndex {
     var result = std.ArrayList(NodeIndex).init(allocator);
     for (decls) |d| {
         if (ast_data.getNode(d).tag() == kind_val) {
@@ -722,7 +722,7 @@ pub fn minAndMax(slice: []const usize) struct { min: usize, max: usize } {
     return .{ .min = min_v, .max = max_v };
 }
 
-pub fn tryGetPropertyAccessOrIdentifierToString(ast_data: *const ast.Ast, node: NodeIndex, allocator: std.mem.Allocator) !?[]const u8 {
+pub fn tryGetPropertyAccessOrIdentifierToString(ast_data: *ast.Ast, node: NodeIndex, allocator: std.mem.Allocator) !?[]const u8 {
     _ = allocator;
     switch (ast_data.getNode(node)) {
         .Identifier => |n| return ast_data.getIdentifierText(n.Text),
@@ -730,7 +730,7 @@ pub fn tryGetPropertyAccessOrIdentifierToString(ast_data: *const ast.Ast, node: 
     }
 }
 
-pub fn allDeclarationsInSameSourceFile(ast_data: *const ast.Ast, decls: []const NodeIndex) bool {
+pub fn allDeclarationsInSameSourceFile(ast_data: *ast.Ast, decls: []const NodeIndex) bool {
     if (decls.len > 1) {
         var sourceFile: NodeIndex = 0;
         for (decls, 0..) |d, i| {
@@ -752,7 +752,7 @@ pub fn containsNonMissingUndefinedType(c: *Checker, t: *const types.Type) bool {
     return (candidate.flags & types.TypeFlags.Undefined) != 0;
 }
 
-pub fn getAnyImportSyntax(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
+pub fn getAnyImportSyntax(ast_data: *ast.Ast, node: NodeIndex) NodeIndex {
     switch (ast_data.getNode(node)) {
         .ImportEqualsDeclaration => return node,
         .ImportClause => return ast_data.getParent(node),
@@ -762,7 +762,7 @@ pub fn getAnyImportSyntax(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
     }
 }
 
-pub fn introducesArgumentsExoticObject(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn introducesArgumentsExoticObject(ast_data: *ast.Ast, node: NodeIndex) bool {
     switch (ast_data.getNode(node)) {
         .MethodDeclaration, .MethodSignature, .Constructor, .GetAccessor, .SetAccessor, .FunctionDeclaration, .FunctionExpression => return true,
         else => return false,
@@ -778,7 +778,7 @@ pub fn valueToString(value: types.LiteralValue) []const u8 {
     return "";
 }
 
-pub fn nodeStartsNewLexicalEnvironment(ast_data: *const ast.Ast, node: NodeIndex) bool {
+pub fn nodeStartsNewLexicalEnvironment(ast_data: *ast.Ast, node: NodeIndex) bool {
     switch (ast_data.getNode(node)) {
         .Constructor, .FunctionExpression, .FunctionDeclaration, .ArrowFunction, .MethodDeclaration, .GetAccessor, .SetAccessor, .ModuleDeclaration, .SourceFile => return true,
         else => return false,
@@ -793,7 +793,7 @@ pub fn isJSLiteralType(c: *Checker, t: *const types.Type) bool {
     return false;
 }
 
-pub fn walkUpOuterExpressions(ast_data: *const ast.Ast, node: NodeIndex) NodeIndex {
+pub fn walkUpOuterExpressions(ast_data: *ast.Ast, node: NodeIndex) NodeIndex {
     var parent = ast_data.getParent(node);
     while (parent != 0 and ast.isOuterExpression(ast_data, parent)) {
         parent = ast_data.getParent(parent);
@@ -801,7 +801,7 @@ pub fn walkUpOuterExpressions(ast_data: *const ast.Ast, node: NodeIndex) NodeInd
     return parent;
 }
 
-pub fn getSetAccessorValueParameter(ast_data: *const ast.Ast, accessor: NodeIndex) NodeIndex {
+pub fn getSetAccessorValueParameter(ast_data: *ast.Ast, accessor: NodeIndex) NodeIndex {
     if (accessor != 0 and ast_data.getNodeKind(accessor) == .SetAccessor) {
         const parametersList = ast_data.nodes.items[accessor].data.SetAccessor.Parameters;
         if (parametersList != 0) {
@@ -814,17 +814,17 @@ pub fn getSetAccessorValueParameter(ast_data: *const ast.Ast, accessor: NodeInde
     return 0;
 }
 
-pub fn isInCompoundLikeAssignment(c: *const @import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
+pub fn isInCompoundLikeAssignment(c: *@import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
     const target = ast_utils.getAssignmentTarget(c.binder.ast, node);
     return target != 0 and ast_utils.isAssignmentExpression(c.binder.ast, target, true) and isCompoundLikeAssignment(c, target);
 }
 
-pub fn isCompoundLikeAssignment(c: *const @import("checker.zig").Checker, assignment: ast_gen.NodeIndex) bool {
+pub fn isCompoundLikeAssignment(c: *@import("checker.zig").Checker, assignment: ast_gen.NodeIndex) bool {
     const right = ast_utils.skipParentheses(c.binder.ast, c.binder.ast.getNode(assignment).BinaryExpression.Right);
     return c.binder.ast.getKind(right) == .BinaryExpression and isShiftOperatorOrHigher(c.binder.ast.getNode(right).BinaryExpression.OperatorTokenKind);
 }
 
-pub fn isInTypeQuery(c: *const @import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
+pub fn isInTypeQuery(c: *@import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
     var current = node;
     while (current != 0) {
         const kind = c.binder.ast.getKind(current);
@@ -838,7 +838,7 @@ pub fn isInTypeQuery(c: *const @import("checker.zig").Checker, node: ast_gen.Nod
     return false;
 }
 
-pub fn isRightSideOfAccessExpression(c: *const @import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
+pub fn isRightSideOfAccessExpression(c: *@import("checker.zig").Checker, node: ast_gen.NodeIndex) bool {
     const parent = c.binder.ast.getNodeParent(node);
     if (parent == 0) return false;
     const parentKind = c.binder.ast.getKind(parent);
@@ -859,7 +859,7 @@ pub fn isObjectOrArrayLiteralType(t: *const types.Type) bool {
     return (t.objectFlags & (types.ObjectFlags.ObjectLiteral | types.ObjectFlags.ArrayLiteral)) != 0;
 }
 
-pub fn skipAlias(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+pub fn skipAlias(c: *@import("checker.zig").Checker, sym: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
     if (sym == 0) return 0;
     const symObj = c.binder.symbols.items[sym];
     if ((symObj.flags & ast.SymbolFlags.Alias) != 0) {
@@ -868,12 +868,12 @@ pub fn skipAlias(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIn
     return sym;
 }
 
-pub fn isCallChain(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) bool {
+pub fn isCallChain(ast_data: *ast.Ast, node: ast_gen.NodeIndex) bool {
     if (node == 0) return false;
     return ast_utils.isCallExpression(ast_data, node) and (ast_data.getNode(node).CallExpression.flags & ast_gen.NodeFlags.OptionalChain) != 0;
 }
 
-pub fn isSuperCall(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) bool {
+pub fn isSuperCall(ast_data: *ast.Ast, node: ast_gen.NodeIndex) bool {
     if (node == 0) return false;
     if (ast_utils.isCallExpression(ast_data, node)) {
         const expr = ast_data.getNode(node).CallExpression.Expression;
@@ -884,7 +884,7 @@ pub fn isSuperCall(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) bool {
     return false;
 }
 
-pub fn getContainingObjectLiteral(ast_data: *const ast.Ast, f: ast_gen.NodeIndex) ast_gen.NodeIndex {
+pub fn getContainingObjectLiteral(ast_data: *ast.Ast, f: ast_gen.NodeIndex) ast_gen.NodeIndex {
     if (f == 0) return 0;
     const kind = ast_data.getKind(f);
     const parent = ast_data.getNodeParent(f);
@@ -898,7 +898,7 @@ pub fn getContainingObjectLiteral(ast_data: *const ast.Ast, f: ast_gen.NodeIndex
     return 0;
 }
 
-pub fn isImportTypeQualifierPart(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) ast_gen.NodeIndex {
+pub fn isImportTypeQualifierPart(ast_data: *ast.Ast, node_in: ast_gen.NodeIndex) ast_gen.NodeIndex {
     var node = node_in;
     var parent = ast_data.getNodeParent(node);
     while (ast_utils.isQualifiedName(ast_data, parent)) {
@@ -914,7 +914,7 @@ pub fn isImportTypeQualifierPart(ast_data: *const ast.Ast, node_in: ast_gen.Node
     return 0;
 }
 
-pub fn isInNameOfExpressionWithTypeArguments(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) bool {
+pub fn isInNameOfExpressionWithTypeArguments(ast_data: *ast.Ast, node_in: ast_gen.NodeIndex) bool {
     var node = node_in;
     var parent = ast_data.getNodeParent(node);
     while (parent != 0 and ast_data.getKind(parent) == .PropertyAccessExpression) {
@@ -924,7 +924,7 @@ pub fn isInNameOfExpressionWithTypeArguments(ast_data: *const ast.Ast, node_in: 
     return parent != 0 and ast_data.getKind(parent) == .ExpressionWithTypeArguments;
 }
 
-pub fn isThisTypeParameter(c: *const @import("checker.zig").Checker, typeIndex: types.TypeIndex) bool {
+pub fn isThisTypeParameter(c: *@import("checker.zig").Checker, typeIndex: types.TypeIndex) bool {
     if (typeIndex == 0) return false;
     const typeObj = c.typesList.items[typeIndex];
     if ((typeObj.flags & types.TypeFlags.TypeParameter) != 0) {
@@ -933,19 +933,19 @@ pub fn isThisTypeParameter(c: *const @import("checker.zig").Checker, typeIndex: 
     return false;
 }
 
-pub fn isKnownSymbol(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
+pub fn isKnownSymbol(c: *@import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
     if (sym == 0) return false;
     const name = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, sym);
     return isLateBoundName(name);
 }
 
-pub fn isPrivateIdentifierSymbol(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
+pub fn isPrivateIdentifierSymbol(c: *@import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
     if (sym == 0) return false;
     const name = ast_utils.getNameOfSymbol(c.binder.ast, c.binder.symbols.items, sym);
     return std.mem.startsWith(u8, name, "__#");
 }
 
-pub fn hasExportAssignmentSymbol(c: *const @import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
+pub fn hasExportAssignmentSymbol(c: *@import("checker.zig").Checker, sym: ast_gen.SymbolIndex) bool {
     if (sym == 0) return false;
     const symObj = c.binder.symbols.items[sym];
     for (symObj.Declarations.items) |decl| {
@@ -956,7 +956,7 @@ pub fn hasExportAssignmentSymbol(c: *const @import("checker.zig").Checker, sym: 
     return false;
 }
 
-pub fn getContainingClass(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) ast_gen.NodeIndex {
+pub fn getContainingClass(ast_data: *ast.Ast, node_in: ast_gen.NodeIndex) ast_gen.NodeIndex {
     var node = ast_data.getNodeParent(node_in);
     while (node != 0) {
         if (ast_utils.isClassLike(ast_data, node)) {
@@ -967,7 +967,7 @@ pub fn getContainingClass(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) 
     return 0;
 }
 
-pub fn getContainingClassExcludingClassDecorators(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+pub fn getContainingClassExcludingClassDecorators(ast_data: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
     var decorator: ast_gen.NodeIndex = 0;
     var current = ast_data.getNodeParent(node);
     while (current != 0) {
@@ -991,7 +991,7 @@ pub fn getContainingClassExcludingClassDecorators(ast_data: *const ast.Ast, node
     return getContainingClass(ast_data, node);
 }
 
-pub fn getSuperContainer(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex, stopOnFunctions: bool) ast_gen.NodeIndex {
+pub fn getSuperContainer(ast_data: *ast.Ast, node_in: ast_gen.NodeIndex, stopOnFunctions: bool) ast_gen.NodeIndex {
     var node = node_in;
     while (true) {
         node = ast_data.getNodeParent(node);
@@ -1026,7 +1026,7 @@ pub fn getSuperContainer(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex, s
     }
 }
 
-pub fn isInRightSideOfImportOrExportAssignment(ast_data: *const ast.Ast, node_in: ast_gen.NodeIndex) bool {
+pub fn isInRightSideOfImportOrExportAssignment(ast_data: *ast.Ast, node_in: ast_gen.NodeIndex) bool {
     var node = node_in;
     var parent = ast_data.getNodeParent(node);
     while (parent != 0 and ast_data.getKind(parent) == .QualifiedName) {
@@ -1040,20 +1040,20 @@ pub fn isInRightSideOfImportOrExportAssignment(ast_data: *const ast.Ast, node_in
     return false;
 }
 
-pub fn getBindingElementPropertyName(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+pub fn getBindingElementPropertyName(ast_data: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
     if (node == 0) return 0;
     const kind = ast_data.getKind(node);
     if (kind == .BindingElement) {
         const be = ast_data.getNode(node).BindingElement;
-        if (be.PropertyName != 0) {
-            return be.PropertyName;
+        if (be.PropertyName != null) {
+            return be.PropertyName.?;
         }
-        return be.Name;
+        return be.name orelse 0;
     }
     return 0;
 }
 
-pub fn getExternalModuleRequireArgument(ast_data: *const ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+pub fn getExternalModuleRequireArgument(ast_data: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
     if (ast_utils.isVariableDeclarationInitializedToRequire(ast_data, node)) {
         const init = ast_data.getNode(node).VariableDeclaration.Initializer.?;
         if (init != 0 and ast_data.getKind(init) == .CallExpression) {
@@ -1224,8 +1224,32 @@ pub fn isJsxIntrinsicTagName(name: []const u8) bool {
     return false;
 }
 
-pub fn isUncheckedJSSuggestion(node: ast_gen.NodeIndex) bool {
-    _ = node;
+pub fn isUncheckedJSSuggestion(c: *@import("checker.zig").Checker, node: ast_gen.NodeIndex, suggestion: ?ast_gen.SymbolIndex, excludeClasses: bool) bool {
+    const file = ast_utils.getSourceFileOfNode(c.binder.ast, node);
+    if (file != 0) {
+        // if (c.getCompilerOptions().checkJs == null and file.checkJsDirective == null and (file.scriptKind == .JS or file.scriptKind == .JSX))
+        if (false) {
+            var declarationFile: ast_gen.NodeIndex = 0;
+            if (suggestion) |symIdx| {
+                const decls = c.binder.symbols.items[symIdx].Declarations.items;
+                if (decls.len > 0) {
+                    declarationFile = ast_utils.getSourceFileOfNode(c.binder.ast, decls[0]);
+                }
+            }
+            var suggestionHasNoExtendsOrDecorators = true;
+            if (suggestion) |symIdx| {
+                const valDecl = c.binder.symbols.items[symIdx].ValueDeclaration;
+                if (valDecl) |decl| {
+                    if (ast_utils.isClassLike(c.binder.ast.getNode(decl))) {
+                        // and len(GetExtendsHeritageClauseElements) == 0 and not decorated
+                        suggestionHasNoExtendsOrDecorators = false; // TODO
+                    }
+                }
+            }
+            // return ...
+        }
+    }
+    _ = excludeClasses;
     return false;
 }
 
@@ -1291,21 +1315,21 @@ pub fn compareTupleTypes(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) 
     if (t1 == t2) return 0;
     if (tuple1.readonly != tuple2.readonly) return if (tuple1.readonly) 1 else -1;
 
-    const infos1 = tuple1.elementInfos;
-    const infos2 = tuple2.elementInfos;
+    const infos1 = c.tupleElementInfos.items[tuple1.elementInfosStart .. tuple1.elementInfosStart + tuple1.typesLen];
+    const infos2 = c.tupleElementInfos.items[tuple2.elementInfosStart .. tuple2.elementInfosStart + tuple2.typesLen];
 
     if (infos1.len != infos2.len) return if (infos1.len > infos2.len) 1 else -1;
 
     for (infos1, 0..) |info1, i| {
         const info2 = infos2[i];
-        if (@intFromEnum(info1.flags) != @intFromEnum(info2.flags)) {
-            return if (@intFromEnum(info1.flags) > @intFromEnum(info2.flags)) 1 else -1;
+        if (info1.flags != info2.flags) {
+            return if (info1.flags > info2.flags) 1 else -1;
         }
     }
 
     for (infos1, 0..) |info1, i| {
         const info2 = infos2[i];
-        const comp = compareElementLabels(c, info1.labeledDeclaration, info2.labeledDeclaration);
+        const comp = compareElementLabels(c, info1.labeledDeclaration orelse 0, info2.labeledDeclaration orelse 0);
         if (comp != 0) return comp;
     }
     return 0;
@@ -1445,7 +1469,7 @@ pub fn compareTypes(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) i32 {
         const listComp = compareTypeLists(c, types1, types2);
         if (listComp != 0) return listComp;
     } else if ((type1Flags & (types.TypeFlags.Enum | types.TypeFlags.EnumLiteral | types.TypeFlags.UniqueESSymbol)) != 0) {
-        const symComp = compareSymbolsWorker(c, typeObj1.symbol, typeObj2.symbol);
+        const symComp = compareSymbolsWorker(c, typeObj1.symbol orelse 0, typeObj2.symbol orelse 0);
         if (symComp != 0) return symComp;
     } else if ((type1Flags & types.TypeFlags.StringLiteral) != 0) {
         return std.mem.order(u8, typeObj1.data.StringLiteral.text, typeObj2.data.StringLiteral.text).compare();
@@ -1458,7 +1482,7 @@ pub fn compareTypes(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) i32 {
         const b2 = typeObj2.data.BooleanLiteral.value;
         if (b1 != b2) return if (b1) 1 else -1;
     } else if ((type1Flags & types.TypeFlags.TypeParameter) != 0) {
-        const symComp = compareSymbolsWorker(c, typeObj1.symbol, typeObj2.symbol);
+        const symComp = compareSymbolsWorker(c, typeObj1.symbol orelse 0, typeObj2.symbol orelse 0);
         if (symComp != 0) return symComp;
     } else if ((type1Flags & types.TypeFlags.Index) != 0) {
         const targetComp = compareTypes(c, typeObj1.data.Index.target, typeObj2.data.Index.target);
@@ -1522,6 +1546,18 @@ pub fn createModeMismatchDetails(c: *Checker, node: ast_gen.NodeIndex, specifier
 pub fn getPackagesMap(c: *Checker) *std.StringHashMapUnmanaged(bool) {
     if (c.packagesMap == null) {
         c.packagesMap = std.StringHashMapUnmanaged(bool).empty;
+        for (c.program.units.items) |unit| {
+            if (unit.package_id) |pkg_id| {
+                if (pkg_id.name.len > 0) {
+                    const has_ext = std.mem.endsWith(u8, unit.path, ".d.ts");
+                    if (c.packagesMap.?.get(pkg_id.name)) |existing| {
+                        c.packagesMap.?.put(c.allocator, pkg_id.name, existing or has_ext) catch unreachable;
+                    } else {
+                        c.packagesMap.?.put(c.allocator, pkg_id.name, has_ext) catch unreachable;
+                    }
+                }
+            }
+        }
     }
     return &c.packagesMap.?;
 }
