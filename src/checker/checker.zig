@@ -8717,17 +8717,25 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isReferenceToType(c: *Checker, t: *anyopaque, target: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        _ = target;
-        return false;
+    /// Port of `checker.go::isReferenceToType`. Returns true if `t` is a
+    /// type reference whose target is `target`.
+    pub fn isReferenceToType(c: *Checker, t: types.TypeIndex, target: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const ty = c.typesList.items[t];
+        if ((ty.objectFlags & types.ObjectFlags.Reference) == 0) return false;
+        return c.getTargetType(t) == target;
     }
 
-    pub fn isReferenceToSomeType(c: *Checker, t: *anyopaque, targets: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        _ = targets;
+    /// Port of `checker.go::isReferenceToSomeType`. Returns true if `t` is a
+    /// type reference whose target is one of `targets`.
+    pub fn isReferenceToSomeType(c: *Checker, t: types.TypeIndex, targets: []const types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const ty = c.typesList.items[t];
+        if ((ty.objectFlags & types.ObjectFlags.Reference) == 0) return false;
+        const target = c.getTargetType(t);
+        for (targets) |tgt| {
+            if (target == tgt) return true;
+        }
         return false;
     }
 
@@ -12212,21 +12220,28 @@ pub const Checker = struct {
         return undefined;
     }
 
+    /// Port of `checker.go::GetNonNullableType`. Strips `undefined | null`
+    /// from `t` when strictNullChecks is enabled.
     pub fn getNonNullableType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
+        if (c.strictNullChecks) {
+            return c.getAdjustedTypeWithFacts(t, types.TypeFacts.NEUndefinedOrNull);
+        }
         return t;
     }
 
-    pub fn isNullableType(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        return false;
+    /// Port of `checker.go::IsNullableType`. Returns true if `t` includes
+    /// `undefined` or `null` as a possible value.
+    pub fn isNullableType(c: *Checker, t: types.TypeIndex) bool {
+        return c.hasTypeFacts(t, types.TypeFacts.IsUndefinedOrNull);
     }
 
-    pub fn getNonNullableTypeIfNeeded(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        return undefined;
+    /// Port of `checker.go::getNonNullableTypeIfNeeded`. Conditionally
+    /// strips null/undefined from `t` if it is nullable.
+    pub fn getNonNullableTypeIfNeeded(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (c.isNullableType(t)) {
+            return c.getNonNullableType(t);
+        }
+        return t;
     }
 
     pub fn getCombinedNodeFlagsCached(c: *Checker, node: *anyopaque) *anyopaque {
