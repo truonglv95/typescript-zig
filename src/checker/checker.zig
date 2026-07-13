@@ -14482,19 +14482,25 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn allTypesAssignableToKind(c: *Checker, source: *anyopaque, kind_: *anyopaque) bool {
-        _ = c;
-        _ = source;
-        _ = kind_;
-        return false;
+    /// Port of `checker.go::allTypesAssignableToKind`. Returns true if every
+    /// constituent of `source` (if union) is assignable to `kindFlags`.
+    pub fn allTypesAssignableToKind(c: *Checker, source: types.TypeIndex, kind_flags: u32) bool {
+        return c.allTypesAssignableToKindEx(source, kind_flags, false);
     }
 
-    pub fn allTypesAssignableToKindEx(c: *Checker, source: *anyopaque, kind_: *anyopaque, strict: *anyopaque) bool {
-        _ = c;
-        _ = source;
-        _ = kind_;
-        _ = strict;
-        return false;
+    /// Port of `checker.go::allTypesAssignableToKindEx`. Walks union
+    /// constituents and checks each via `isTypeAssignableToKindEx`.
+    pub fn allTypesAssignableToKindEx(c: *Checker, source: types.TypeIndex, kind_flags: u32, strict: bool) bool {
+        if (source == 0 or source >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[source].flags;
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(source);
+            for (constituents) |sub| {
+                if (!c.allTypesAssignableToKindEx(sub, kind_flags, strict)) return false;
+            }
+            return true;
+        }
+        return c.isTypeAssignableToKindEx(source, kind_flags, strict);
     }
 
     pub fn isConstEnumObjectType(c: *Checker, t: types.TypeIndex) bool {
@@ -15488,10 +15494,18 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isThenableType(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        return false;
+    /// Port of `checker.go::isThenableType`. Returns true if `t` has a
+    /// callable `then` property (i.e., it looks like a Promise/thenable).
+    pub fn isThenableType(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        // Primitive types cannot be thenable.
+        if (c.allTypesAssignableToKind(c.getBaseConstraintOrType(t), types.TypeFlags.Primitive | types.TypeFlags.Never)) {
+            return false;
+        }
+        const then_function = c.getTypeOfPropertyOfType(t, "then");
+        if (then_function == 0) return false;
+        const signatures = c.getSignaturesOfType(c.getTypeWithFacts(then_function, types.TypeFacts.NEUndefinedOrNull), .Call);
+        return signatures.len > 0;
     }
 
     pub fn getAwaitedTypeOfPromise(c: *Checker, t: types.TypeIndex) types.TypeIndex {
