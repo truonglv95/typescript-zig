@@ -13923,18 +13923,35 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newIndexInfo(c: *Checker, keyType: *anyopaque, valueType: *anyopaque, isReadonly: *anyopaque, declaration: *anyopaque, components: *anyopaque) *anyopaque {
+    /// Port of `checker.go::newIndexInfo`. Creates a new `IndexInfo` value.
+    /// In Go this allocates from an arena; in Zig we return a value (the
+    /// caller stores it in an `IndexInfo` slice as needed).
+    pub fn newIndexInfo(
+        c: *Checker,
+        key_type: types.TypeIndex,
+        value_type: types.TypeIndex,
+        is_readonly: bool,
+        declaration: ?ast_gen.NodeIndex,
+    ) types.IndexInfo {
         _ = c;
-        _ = keyType;
-        _ = valueType;
-        _ = isReadonly;
-        _ = declaration;
-        _ = components;
-        return undefined;
+        return .{
+            .keyType = key_type,
+            .valueType = value_type,
+            .isReadonly = is_readonly,
+            .declaration = declaration,
+        };
     }
 
-    pub fn isFreshLiteralType(t: *anyopaque) bool {
-        _ = t;
+    /// Port of `checker.go::isFreshLiteralType`. Returns true if `t` is a
+    /// fresh literal type (literal type whose `freshType` points to itself).
+    pub fn isFreshLiteralType(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Freshable) == 0) return false;
+        // Freshable types are StringLiteral/NumberLiteral/BooleanLiteral/BigIntLiteral.
+        // Without a `freshType` field on LiteralType data, we conservatively
+        // return false. TODO(phase1.2): add freshType tracking.
+        _ = c;
         return false;
     }
 
