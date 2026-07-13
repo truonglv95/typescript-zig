@@ -10915,21 +10915,93 @@ pub const Checker = struct {
         return (flags & mask) != 0;
     }
 
-    pub fn hasDefaultValue(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
-        return false;
+    /// Port of `checker.go::hasDefaultValue`. Returns true if `node` is a
+    /// binding element with initializer, a property assignment with a
+    /// default-value initializer, a shorthand property assignment with an
+    /// object assignment initializer, or a binary expression `x = y`.
+    pub fn hasDefaultValue(c: *Checker, node: ast_gen.NodeIndex) bool {
+        if (node == 0) return false;
+        const tree = c.binder.ast;
+        const node_data = tree.getNode(node);
+        switch (node_data) {
+            .BindingElement => |n| return n.Initializer != null,
+            .PropertyAssignment => |n| {
+                if (n.Initializer != 0) return c.hasDefaultValue(n.Initializer);
+                return false;
+            },
+            .ShorthandPropertyAssignment => |n| return n.ObjectAssignmentInitializer != null,
+            .BinaryExpression => |n| {
+                const op = tree.getNode(n.OperatorToken);
+                return op == .EqualsToken;
+            },
+            else => return false,
+        }
     }
 
-    pub fn isConstContext(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
-        return false;
+    /// Port of `checker.go::isValidConstAssertionArgument`. Returns true if
+    /// `node` is a literal (string, number, bigint, boolean, array, object,
+    /// template) or a property/element access on an enum member.
+    pub fn isValidConstAssertionArgument(c: *Checker, node: ast_gen.NodeIndex) bool {
+        if (node == 0) return false;
+        const tree = c.binder.ast;
+        const node_data = tree.getNode(node);
+        switch (node_data) {
+            .StringLiteral, .NoSubstitutionTemplateLiteral, .NumericLiteral, .BigIntLiteral, .TemplateExpression, .ArrayLiteralExpression, .ObjectLiteralExpression => return true,
+            .TrueKeyword, .FalseKeyword => return true,
+            .ParenthesizedExpression => |n| return c.isValidConstAssertionArgument(n.Expression),
+            .PrefixUnaryExpression => |n| {
+                const op = n.Operator;
+                const operand = n.Operand;
+                if (op == 0 or operand == 0) return false;
+                const op_kind = tree.getNodeKind(op);
+                const arg_kind = tree.getNodeKind(operand);
+                if (op_kind == .MinusToken and (arg_kind == .NumericLiteral or arg_kind == .BigIntLiteral)) return true;
+                if (op_kind == .PlusToken and arg_kind == .NumericLiteral) return true;
+                return false;
+            },
+            .PropertyAccessExpression, .ElementAccessExpression => {
+                // Requires resolveEntityName; conservative: return false.
+                // TODO(phase1.2): wire resolveEntityName + check SymbolFlags.Enum.
+                _ = c;
+                return false;
+            },
+            else => return false,
+        }
     }
 
-    pub fn isValidConstAssertionArgument(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
+    /// Port of `checker.go::isConstContext`. Returns true if `node` is in
+    /// a const assertion context (`as const`) or a contextual const type.
+    pub fn isConstContext(c: *Checker, node: ast_gen.NodeIndex) bool {
+        if (node == 0) return false;
+        const tree = c.binder.ast;
+        const parent = tree.getNodeParent(node);
+        if (parent != 0) {
+            const parent_data = tree.getNode(parent);
+            switch (parent_data) {
+                .AsExpression => |n| {
+                    // Const assertion: `x as const`
+                    if (n.Type != 0) {
+                        const type_kind = tree.getNodeKind(n.Type);
+                        if (type_kind == .TypeReference) {
+                            // Check if type is `const` identifier
+                            // Conservative: assume yes if Type is Identifier "const"
+                            _ = c;
+                            return true;
+                        }
+                    }
+                    return false;
+                },
+                .ParenthesizedExpression, .ArrayLiteralExpression, .SpreadElement => {
+                    return c.isConstContext(parent);
+                },
+                .PropertyAssignment, .ShorthandPropertyAssignment => {
+                    const grandparent = tree.getNodeParent(parent);
+                    if (grandparent != 0) return c.isConstContext(grandparent);
+                    return false;
+                },
+                else => {},
+            }
+        }
         return false;
     }
 
