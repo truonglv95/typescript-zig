@@ -14345,16 +14345,28 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn containsUndefinedType(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        return false;
+    /// Port of `checker.go::containsUndefinedType`. Returns true if `t` is
+    /// or starts with (in a union) the `undefined` type.
+    pub fn containsUndefinedType(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        var ty = c.typesList.items[t];
+        if ((ty.flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            if (constituents.len > 0) {
+                ty = c.typesList.items[constituents[0]];
+            }
+        }
+        return (ty.flags & types.TypeFlags.Undefined) != 0;
     }
 
-    pub fn typeHasCallOrConstructSignatures(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        return false;
+    /// Port of `checker.go::typeHasCallOrConstructSignatures`. Returns true
+    /// if `t` is a structured type with call or construct signatures.
+    pub fn typeHasCallOrConstructSignatures(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.StructuredType) == 0) return false;
+        const members = c.resolveStructuredTypeMembers(t);
+        return members.callSignaturesLen > 0 or members.constructSignaturesLen > 0;
     }
 
     pub fn getSimplifiedIndexedAccessType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
