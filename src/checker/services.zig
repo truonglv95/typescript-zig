@@ -201,7 +201,7 @@ pub fn runWithoutResolvedSignatureCaching(c: *Checker, node: NodeIndex, comptime
     return callback(c, node, ctx);
 }
 
-pub fn getResolvedSignatureWorker(c: *Checker, node: NodeIndex, checkMode: u32, argumentCount: usize) ResolvedSignatureAndCandidates {
+pub fn getResolvedSignatureWorker(c: *Checker, node: NodeIndex, checkMode: checker_mod.CheckMode, argumentCount: usize) ResolvedSignatureAndCandidates {
     _ = argumentCount; // We don't have apparentArgumentCount yet
     var candidatesOutArray = std.ArrayListUnmanaged(SignatureIndex).empty;
     defer candidatesOutArray.deinit(c.allocator);
@@ -225,7 +225,7 @@ pub fn getResolvedSignatureForSignatureHelp(c: *Checker, node: NodeIndex, argume
     };
     return runWithoutResolvedSignatureCaching(c, node, ResolvedSignatureAndCandidates, Ctx{ .argumentCount = argumentCount }, struct {
         fn callback(checker: *Checker, n: NodeIndex, ctx: Ctx) ResolvedSignatureAndCandidates {
-            return getResolvedSignatureWorker(checker, n, 1, ctx.argumentCount); // 1 is CheckModeIsForSignatureHelp
+            return getResolvedSignatureWorker(checker, n, @as(checker_mod.CheckMode, @enumFromInt(1)), ctx.argumentCount); // 1 is CheckModeIsForSignatureHelp
         }
     }.callback);
 }

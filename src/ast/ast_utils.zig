@@ -647,6 +647,23 @@ pub fn getNameOfNode(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeInde
         .PropertyDeclaration => |n| return n.name,
         .GetAccessor => |n| return n.name,
         .SetAccessor => |n| return n.name,
+        .VariableDeclaration => |n| return n.name,
+        .Parameter => |n| return n.name,
+        .BindingElement => |n| return if (n.name) |n_name| n_name else 0,
+        .PropertySignature => |n| return n.name,
+        .MethodSignature => |n| return n.name,
+        .InterfaceDeclaration => |n| return n.name,
+        .TypeAliasDeclaration => |n| return n.name,
+        .ImportEqualsDeclaration => |n| return n.name,
+        .ImportSpecifier => |n| return n.name,
+        .ExportSpecifier => |n| return n.name,
+        .EnumMember => |n| return n.name,
+        .PropertyAssignment => |n| return n.name,
+        .ShorthandPropertyAssignment => |n| return n.name,
+        .JsxAttribute => |n| return n.name,
+        .NamespaceImport => |n| return n.name,
+        .NamespaceExport => |n| return n.name,
+        .ImportClause => |n| return if (n.name) |n_name| n_name else 0,
         else => return 0,
     }
 }
@@ -1670,10 +1687,20 @@ pub fn getDecoratorsOfParameters(a: anytype, b: anytype, c: anytype) ![][]const 
     _ = c;
     return &.{};
 }
-pub fn isDeclaration(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
-    return false;
+pub fn isDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const kind_ = tree.getKind(node);
+    if (kind_ == .TypeParameter) {
+        const parent = tree.getNodeParent(node);
+        return parent != 0;
+    }
+    return isDeclarationKind(kind_);
+}
+
+pub fn isDeclarationKind(k: kind.Kind) bool {
+    switch (k) {
+        .ArrowFunction, .BindingElement, .ClassDeclaration, .ClassExpression, .ClassStaticBlockDeclaration, .Constructor, .EnumDeclaration, .EnumMember, .ExportSpecifier, .FunctionDeclaration, .FunctionExpression, .GetAccessor, .ImportClause, .ImportEqualsDeclaration, .ImportSpecifier, .InterfaceDeclaration, .JsxAttribute, .MethodDeclaration, .MethodSignature, .ModuleDeclaration, .NamespaceExport, .NamespaceExportDeclaration, .NamespaceImport, .Parameter, .PropertyAssignment, .PropertyDeclaration, .PropertySignature, .SetAccessor, .ShorthandPropertyAssignment, .TypeAliasDeclaration, .TypeParameter, .VariableDeclaration, .JSDocTypedefTag, .JSDocCallbackTag, .JSDocPropertyTag, .JSDocParameterTag, .JSDocSignature => return true,
+        else => return false,
+    }
 }
 
 pub fn findSuperStatementIndexPath(a: anytype, b: anytype) []const ast_gen.NodeIndex {
@@ -2506,8 +2533,19 @@ pub fn getAssignmentTarget(tree: *ast.Ast, start_node: ast_gen.NodeIndex) ast_ge
                 }
                 return 0;
             },
-            .ParenthesizedExpression, .NonNullExpression, .TypeAssertionExpression, .AsExpression, .SatisfiesExpression => {
+            .ParenthesizedExpression, .ArrayLiteralExpression, .SpreadElement, .NonNullExpression => {
                 node = parent;
+            },
+            .SpreadAssignment => {
+                node = tree.getNodeParent(parent);
+            },
+            .ShorthandPropertyAssignment => {
+                if (tree.getNode(parent).ShorthandPropertyAssignment.name != node) return 0;
+                node = tree.getNodeParent(parent);
+            },
+            .PropertyAssignment => {
+                if (tree.getNode(parent).PropertyAssignment.name == node) return 0;
+                node = tree.getNodeParent(parent);
             },
             else => return 0,
         }
@@ -2570,6 +2608,10 @@ pub fn getFirstToken(nodeIndex: ast_gen.NodeIndex, tree: *ast.Ast) ast_gen.NodeI
 
 pub fn isLogicalOrCoalescingBinaryOperator(op: kind.Kind) bool {
     return op == .AmpersandAmpersandToken or op == .BarBarToken or op == .QuestionQuestionToken;
+}
+
+pub fn isLogicalBinaryOperator(op: kind.Kind) bool {
+    return op == .AmpersandAmpersandToken or op == .BarBarToken;
 }
 
 pub fn isLogicalOrCoalescingAssignmentOperator(op: kind.Kind) bool {
@@ -2637,14 +2679,7 @@ pub fn isDestructuringAssignment(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeInde
 }
 
 pub fn isAssignmentTarget(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) bool {
-    const parent = tree.getNodeParent(nodeIndex);
-    if (parent == 0) return false;
-    const parentNode = tree.getNode(parent);
-    if (parentNode == .BinaryExpression) {
-        const bin = parentNode.BinaryExpression;
-        if (bin.Left == nodeIndex and isAssignmentOperator(tree.getKind(bin.OperatorToken))) return true;
-    }
-    return false;
+    return getAssignmentTarget(tree, nodeIndex) != 0;
 }
 
 pub fn getExpressionOfNode(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -2853,4 +2888,147 @@ pub fn forEachReturnStatement(tree: *ast.Ast, body: ast_gen.NodeIndex, visitor: 
 
 pub fn isArrowFunction(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     return tree.getKind(node) == .ArrowFunction;
+}
+
+pub fn isWriteAccessForReference(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const decl = getDeclarationFromName(tree, node);
+    if (decl != 0 and declarationIsWriteAccess(tree, decl)) {
+        return true;
+    }
+    return tree.getKind(node) == .DefaultKeyword or isWriteAccess(tree, node);
+}
+
+pub fn getDeclarationFromName(tree: *ast.Ast, name_node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (name_node == 0) return 0;
+    const parent = tree.getNodeParent(name_node);
+    if (parent == 0) return 0;
+
+    const kind_ = tree.getKind(name_node);
+    if (kind_ == .StringLiteral or kind_ == .NoSubstitutionTemplateLiteral or kind_ == .NumericLiteral) {
+        if (isComputedPropertyName(tree, parent)) {
+            return tree.getNodeParent(parent);
+        }
+        return getDeclarationFromNameForIdentifier(tree, name_node, parent);
+    } else if (kind_ == .Identifier) {
+        return getDeclarationFromNameForIdentifier(tree, name_node, parent);
+    } else if (kind_ == .PrivateIdentifier) {
+        if (isDeclaration(tree, parent) and getNameOfNode(tree, parent) == name_node) {
+            return parent;
+        }
+    }
+    return 0;
+}
+
+fn getDeclarationFromNameForIdentifier(tree: *ast.Ast, name_node: ast_gen.NodeIndex, parent: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (isDeclaration(tree, parent)) {
+        if (getNameOfNode(tree, parent) == name_node) {
+            return parent;
+        }
+        return 0;
+    }
+    if (tree.getKind(parent) == .QualifiedName) {
+        const tag = tree.getNodeParent(parent);
+        if (tree.getKind(tag) == .JSDocParameterTag and getNameOfNode(tree, tag) == parent) {
+            return tag;
+        }
+        return 0;
+    }
+    const binExp = tree.getNodeParent(parent);
+    if (binExp != 0 and tree.getKind(binExp) == .BinaryExpression and getAssignmentDeclarationKind(tree, binExp) != .None) {
+        const binNode = tree.getNode(binExp).BinaryExpression;
+        var leftHasSymbol = false;
+        if (binNode.Left != 0 and tree.getNodeSymbol(binNode.Left) != null) {
+            leftHasSymbol = true;
+        }
+        if (leftHasSymbol or tree.getNodeSymbol(binExp) != null) {
+            const declName = if (tree.getKind(binNode.Left) == .PropertyAccessExpression)
+                tree.getNode(binNode.Left).PropertyAccessExpression.name
+            else
+                binNode.Left;
+            if (declName == name_node) {
+                return binExp;
+            }
+        }
+    }
+    return 0;
+}
+
+pub fn declarationIsWriteAccess(tree: *ast.Ast, decl: ast_gen.NodeIndex) bool {
+    if (decl == 0) return false;
+
+    const flags = tree.getNodeFlags(decl);
+    if ((flags & @intFromEnum(ast.NodeFlags.Ambient)) != 0) return true;
+
+    switch (tree.getKind(decl)) {
+        .BinaryExpression, .BindingElement, .ClassDeclaration, .ClassExpression, .DefaultKeyword, .EnumDeclaration, .EnumMember, .ExportSpecifier, .ImportClause, .ImportEqualsDeclaration, .ImportSpecifier, .InterfaceDeclaration, .JSDocCallbackTag, .JSDocTypedefTag, .JsxAttribute, .ModuleDeclaration, .NamespaceExportDeclaration, .NamespaceImport, .NamespaceExport, .Parameter, .ShorthandPropertyAssignment, .TypeAliasDeclaration, .TypeParameter => return true,
+
+        .PropertyAssignment => {
+            return !isArrayLiteralOrObjectLiteralDestructuringPattern(tree, tree.getNodeParent(decl));
+        },
+
+        .FunctionDeclaration => return tree.getNode(decl).FunctionDeclaration.body != 0,
+        .FunctionExpression => return tree.getNode(decl).FunctionExpression.body != 0,
+        .Constructor => return tree.getNode(decl).Constructor.body != 0,
+        .MethodDeclaration => return tree.getNode(decl).MethodDeclaration.body != 0,
+        .GetAccessor => return tree.getNode(decl).GetAccessor.body != 0,
+        .SetAccessor => return tree.getNode(decl).SetAccessor.body != 0,
+
+        .VariableDeclaration => {
+            const hasInit = tree.getNode(decl).VariableDeclaration.initializer != 0;
+            return hasInit or tree.getKind(tree.getNodeParent(decl)) == .CatchClause;
+        },
+        .PropertyDeclaration => {
+            const hasInit = tree.getNode(decl).PropertyDeclaration.initializer != 0;
+            return hasInit or tree.getKind(tree.getNodeParent(decl)) == .CatchClause;
+        },
+
+        .MethodSignature, .PropertySignature, .JSDocPropertyTag, .JSDocParameterTag => return false,
+
+        else => @panic("Unhandled case in declarationIsWriteAccess"),
+    }
+}
+
+pub fn isArrayLiteralOrObjectLiteralDestructuringPattern(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const start_kind = tree.getKind(node);
+    if (start_kind != .ArrayLiteralExpression and start_kind != .ObjectLiteralExpression) {
+        return false;
+    }
+
+    var current = node;
+    while (current != 0) {
+        const parent = tree.getNodeParent(current);
+        if (parent == 0) return false;
+        const parentKind = tree.getKind(parent);
+
+        if (parentKind == .BinaryExpression) {
+            const bin = tree.getNode(parent).BinaryExpression;
+            if (bin.Left == current and tree.getKind(bin.OperatorToken) == .EqualsToken) return true;
+        }
+        if (parentKind == .ForOfStatement) {
+            const forOf = tree.getNode(parent).ForOfStatement;
+            if (forOf.Initializer == current) return true;
+        }
+        if (parentKind == .PropertyAssignment) {
+            current = tree.getNodeParent(parent);
+            continue;
+        }
+        if (parentKind == .ArrayLiteralExpression or parentKind == .ObjectLiteralExpression) {
+            current = parent;
+            continue;
+        }
+        return false;
+    }
+    return false;
+}
+
+pub fn isImportCall(tree: *ast_pkg.Ast, node: ast_gen.NodeIndex) bool {
+    if (tree.getNodeKind(node) == .CallExpression) {
+        const expr = tree.getNode(node).CallExpression.Expression;
+        return tree.getNodeKind(expr) == .ImportKeyword;
+    }
+    return false;
+}
+
+pub fn getContainingClass(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    return findAncestor(tree, getParent(tree, node), isClassLike);
 }

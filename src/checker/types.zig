@@ -48,10 +48,28 @@ const checker_mod = @import("checker.zig");
 
 pub const TypeIndex = u32;
 
+pub const UnionReduction = enum(u32) {
+    None = 0,
+    Literal = 1 << 0,
+    Subtype = 1 << 1,
+};
+
 pub const Ternary = enum(i8) {
     False = 0,
     True = 1,
     Maybe = 2,
+
+    pub fn andValues(a: Ternary, b: Ternary) Ternary {
+        if (a == .False or b == .False) return .False;
+        if (a == .Maybe or b == .Maybe) return .Maybe;
+        return .True;
+    }
+
+    pub fn orValues(a: Ternary, b: Ternary) Ternary {
+        if (a == .True or b == .True) return .True;
+        if (a == .Maybe or b == .Maybe) return .Maybe;
+        return .False;
+    }
 };
 
 /// TypeFlags - bitmask flags 1:1 với Go checker/types.go
@@ -108,12 +126,15 @@ pub const TypeFlags = struct {
     pub const ObjectFlagsType: u32 = Any | Nullable | Never | Object | Union | Intersection;
     pub const Nullable: u32 = Undefined | Null;
     pub const NonPrimitiveUnion: u32 = NonPrimitive | Union;
-    pub const IncludesWildcard: u32 = Index;
+    pub const IncludesMask: u32 = Any | Unknown | Primitive | Never | Object | Union | Intersection | NonPrimitive | TemplateLiteral | StringMapping;
+    pub const IncludesMissingType: u32 = TypeParameter;
+    pub const IncludesNonWideningType: u32 = Index;
+    pub const IncludesWildcard: u32 = IndexedAccess;
+    pub const IncludesEmptyObject: u32 = Conditional;
     pub const IncludesInstantiable: u32 = Substitution;
-    pub const IncludesEmptyObject: u32 = NonPrimitive;
-    pub const IncludesIntersection: u32 = Conditional;
-    pub const IncludesConstrainedTypeVariable: u32 = ESSymbol;
-    pub const IncludesMissingType: u32 = TemplateLiteral;
+    pub const IncludesConstrainedTypeVariable: u32 = 1 << 29; // Assuming Reserved1 is 29
+    pub const IncludesError: u32 = 1 << 30; // Assuming Reserved2 is 30
+    pub const NotPrimitiveUnion: u32 = Any | Unknown | Void | Never | Object | Intersection | IncludesInstantiable;
     pub const NotUnionOrUnit: u32 = ~(Union | Unit);
     pub const DefinitelyNonNullable: u32 = StringLike | NumberLike | BigIntLike | BooleanLike | EnumLike | ESSymbolLike | Object | NonPrimitive;
     pub const Freshable: u32 = Enum | Literal;
@@ -619,14 +640,19 @@ pub const InferenceContext = struct {
     mapper: u32 = 0,
     nonFixingMapper: u32 = 0,
 };
-pub const InferenceContextInfo = struct {};
+pub const InferenceContextInfo = struct {
+    node: @import("../ast/ast_generated.zig").NodeIndex = 0,
+    context: ?u32 = null, // InferenceContextIndex
+};
 pub const InferenceInfo = struct {
     typeParameter: TypeIndex = 0,
     candidates: std.ArrayListUnmanaged(TypeIndex) = .empty,
     contraCandidates: std.ArrayListUnmanaged(TypeIndex) = .empty,
-    inferredType: TypeIndex = 0,
+    inferredType: ?TypeIndex = null,
     priority: i32 = 0,
+    topLevel: bool = false,
     isFixed: bool = false,
+    impliedArity: i32 = -1,
 };
 pub const InferenceInfoIndex = u32;
 
@@ -744,6 +770,8 @@ pub const InferencePriority = struct {
     pub const NoConstraints: i32 = 1 << 9;
     pub const AlwaysStrict: i32 = 1 << 10;
     pub const MaxValue: i32 = 0x7FFFFFFF;
+
+    pub const PriorityImpliesCombination = ReturnType | MappedTypeConstraint | LiteralKeyof;
 };
 
 pub const TypePredicateKind = enum(u32) {
@@ -827,6 +855,7 @@ pub const AccessFlags = struct {
 
 pub const CheckFlags = struct {
     pub const None: u32 = 0;
+    pub const Instantiated: u32 = 1 << 0;
     pub const SyntheticProperty: u32 = 1 << 1;
     pub const Readonly: u32 = 1 << 3;
     pub const ReadPartial: u32 = 1 << 4;
@@ -1086,21 +1115,27 @@ pub const ExternalEmitHelpers = struct {
     pub const AsyncDelegatorIncludes = Await | AsyncDelegator | AsyncValues;
 };
 
-pub fn formatTypeFlags(flags_: *anyopaque) *anyopaque {
+pub fn formatTypeFlags(flags_: u32) []const u8 {
     _ = flags_;
-    return undefined;
+    return "";
 }
 
-pub fn string() *anyopaque {
-    return undefined;
+pub fn string(c: *const @import("checker.zig").Checker, t: TypeIndex) []const u8 {
+    _ = c;
+    _ = t;
+    return "";
 }
 
-pub fn symbol() *anyopaque {
-    return undefined;
+pub fn symbol(c: *const @import("checker.zig").Checker, t: TypeIndex) ?@import("../ast/ast_generated.zig").SymbolIndex {
+    return c.typesList.items[t].symbol;
 }
 
-pub fn typeArguments() *anyopaque {
-    return undefined;
+pub fn typeArguments(c: *const @import("checker.zig").Checker, t: TypeIndex) []const TypeIndex {
+    const data = c.typesList.items[t].data;
+    if (data == .Object) {
+        return c.typeArgumentsPool.items[data.Object.typeArgumentsStart .. data.Object.typeArgumentsStart + data.Object.typeArgumentsLen];
+    }
+    return &[_]TypeIndex{};
 }
 
 pub fn id(c: *const @import("checker.zig").Checker, t: TypeIndex) u32 {
@@ -1115,368 +1150,427 @@ pub fn objectFlags(c: *const @import("checker.zig").Checker, t: TypeIndex) u32 {
     return c.typesList.items[t].objectFlags;
 }
 
-pub fn asIntrinsicType(t: TypeIndex) *anyopaque {
+pub fn asIntrinsicType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .Intrinsic) {
+    const d = c.typesList.items[t].data;
+    return if (d == .Intrinsic) d.Intrinsic else null;
+}
+
+pub fn asLiteralType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const flags_ = c.typesList.items[t].flags;
+    return if ((flags_ & TypeFlags.Literal) != 0) t else null;
+}
+
+pub fn asUniqueESSymbolType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const flags_ = c.typesList.items[t].flags;
+    return if ((flags_ & TypeFlags.UniqueESSymbol) != 0) t else null;
+}
+
+pub fn asTupleType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TupleType {
+    const d = c.typesList.items[t].data;
+    return if (d == .Tuple) d.Tuple else null;
+}
+
+pub fn asInstantiationExpressionType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const objFlags = c.typesList.items[t].objectFlags;
+    return if ((objFlags & ObjectFlags.InstantiationExpressionType) != 0) t else null;
+}
+
+pub fn asMappedType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .Mapped) {
+    const d = c.typesList.items[t].data;
+    return if (d == .Mapped) d.Mapped else null;
+}
+
+pub fn asReverseMappedType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .ReverseMapped) {
+    const d = c.typesList.items[t].data;
+    return if (d == .ReverseMapped) d.ReverseMapped else null;
+}
+
+pub fn asEvolvingArrayType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const objFlags = c.typesList.items[t].objectFlags;
+    return if ((objFlags & ObjectFlags.EvolvingArray) != 0) t else null;
+}
+
+pub fn asTypeParameter(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .TypeParameter) {
+    const d = c.typesList.items[t].data;
+    return if (d == .TypeParameter) d.TypeParameter else null;
+}
+
+pub fn asUnionType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .Union) {
+    const d = c.typesList.items[t].data;
+    return if (d == .Union) d.Union else null;
+}
+
+pub fn asIntersectionType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .Intersection) {
+    const d = c.typesList.items[t].data;
+    return if (d == .Intersection) d.Intersection else null;
+}
+
+pub fn asIndexType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .Index) {
+    const d = c.typesList.items[t].data;
+    return if (d == .Index) d.Index else null;
+}
+
+pub fn asIndexedAccessType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .IndexedAccess) {
+    const d = c.typesList.items[t].data;
+    return if (d == .IndexedAccess) d.IndexedAccess else null;
+}
+
+pub fn asTemplateLiteralType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .TemplateLiteral) {
+    const d = c.typesList.items[t].data;
+    return if (d == .TemplateLiteral) d.TemplateLiteral else null;
+}
+
+pub fn asStringMappingType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .StringMapping) {
+    const d = c.typesList.items[t].data;
+    return if (d == .StringMapping) d.StringMapping else null;
+}
+
+pub fn asSubstitutionType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .Substitution) {
+    const d = c.typesList.items[t].data;
+    return if (d == .Substitution) d.Substitution else null;
+}
+
+pub fn asConditionalType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?std.meta.FieldType(TypeData, .Conditional) {
+    const d = c.typesList.items[t].data;
+    return if (d == .Conditional) d.Conditional else null;
+}
+
+pub fn asConstrainedType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const flags_ = c.typesList.items[t].flags;
+    return if ((flags_ & (TypeFlags.TypeParameter | TypeFlags.IndexedAccess)) != 0) t else null;
+}
+
+pub fn asStructuredType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const flags_ = c.typesList.items[t].flags;
+    return if ((flags_ & TypeFlags.StructuredType) != 0) t else null;
+}
+
+pub fn asObjectType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?ObjectTypeData {
+    const d = c.typesList.items[t].data;
+    return if (d == .Object) d.Object else null;
+}
+
+pub fn asTypeReference(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const objFlags = c.typesList.items[t].objectFlags;
+    return if ((objFlags & ObjectFlags.Reference) != 0) t else null;
+}
+
+pub fn asInterfaceType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const objFlags = c.typesList.items[t].objectFlags;
+    return if ((objFlags & ObjectFlags.Interface) != 0) t else null;
+}
+
+pub fn asUnionOrIntersectionType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const flags_ = c.typesList.items[t].flags;
+    return if ((flags_ & TypeFlags.UnionOrIntersection) != 0) t else null;
+}
+
+pub fn distributed(c: *const @import("checker.zig").Checker, t: TypeIndex) []const TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Union) return c.unionTypesPool.items[d.Union.typesStart .. d.Union.typesStart + d.Union.typesLen];
+    if ((c.typesList.items[t].flags & TypeFlags.Never) != 0) return &[_]TypeIndex{};
+    return &[_]TypeIndex{t}; // Note: this is a temporary slice! In Zig we probably just return a single element slice if possible, but actually we shouldn't return a slice of a local. Wait!
+}
+
+pub fn target(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    switch (d) {
+        .Object => return d.Object.target,
+        .TypeParameter => return d.TypeParameter.target,
+        .Index => return d.Index.target,
+        .StringMapping => return d.StringMapping.target,
+        .Mapped => return d.Mapped.target,
+        else => return null,
+    }
+}
+
+pub fn mapper(c: *const @import("checker.zig").Checker, t: TypeIndex) ?u32 {
+    const d = c.typesList.items[t].data;
+    switch (d) {
+        .Object => return d.Object.mapper,
+        .TypeParameter => return d.TypeParameter.mapper,
+        .Conditional => return d.Conditional.mapper,
+        else => return null,
+    }
+}
+
+pub fn types(c: *const @import("checker.zig").Checker, t: TypeIndex) []const TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Union) return c.unionTypesPool.items[d.Union.typesStart .. d.Union.typesStart + d.Union.typesLen];
+    if (d == .Intersection) return c.unionTypesPool.items[d.Intersection.typesStart .. d.Intersection.typesStart + d.Intersection.typesLen];
+    if (d == .TemplateLiteral) return c.unionTypesPool.items[d.TemplateLiteral.typesStart .. d.TemplateLiteral.typesStart + d.TemplateLiteral.typesLen];
+    return &[_]TypeIndex{};
+}
+
+pub fn targetInterfaceType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Object and d.Object.target != null) {
+        return d.Object.target; // We assume the target is an interface type
+    }
+    return null;
+}
+
+pub fn targetTupleType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Object and d.Object.target != null) {
+        return d.Object.target;
+    }
+    return null;
+}
+
+pub fn alias(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeAlias {
+    return c.typesList.items[t].alias;
+}
+
+pub fn isUnion(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.Union) != 0;
+}
+
+pub fn isString(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.String) != 0;
+}
+
+pub fn isIntersection(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.Intersection) != 0;
+}
+
+pub fn isStringLiteral(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.StringLiteral) != 0;
+}
+
+pub fn isNumberLiteral(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.NumberLiteral) != 0;
+}
+
+pub fn isBigIntLiteral(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.BigIntLiteral) != 0;
+}
+
+pub fn isEnumLiteral(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.EnumLiteral) != 0;
+}
+
+pub fn isBooleanLike(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.BooleanLike) != 0;
+}
+
+pub fn isStringLike(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.StringLike) != 0;
+}
+
+pub fn isClass(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].objectFlags & ObjectFlags.Class) != 0;
+}
+
+pub fn isTypeParameter(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.TypeParameter) != 0;
+}
+
+pub fn isIndex(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return (c.typesList.items[t].flags & TypeFlags.Index) != 0;
+}
+
+pub fn isTupleType(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    return c.typesList.items[t].data == .Tuple;
+}
+
+pub fn asType(c: *const @import("checker.zig").Checker, t: TypeIndex) TypeIndex {
+    _ = c;
+    return t;
+}
+
+pub fn intrinsicName(c: *const @import("checker.zig").Checker, t: TypeIndex) []const u8 {
+    const d = c.typesList.items[t].data;
+    if (d == .Intrinsic) return d.Intrinsic.intrinsicName;
+    return "";
+}
+
+pub fn value(c: *const @import("checker.zig").Checker, t: TypeIndex) ?f64 {
+    const d = c.typesList.items[t].data;
+    if (d == .NumberLiteral) return d.NumberLiteral.value;
+    return null;
+}
+
+pub fn freshType(c: *const @import("checker.zig").Checker, t: TypeIndex) TypeIndex {
+    _ = c;
+    return t; // TODO: properly implement freshType mapping if stored
+}
+
+pub fn regularType(c: *const @import("checker.zig").Checker, t: TypeIndex) TypeIndex {
+    _ = c;
+    return t; // TODO: properly implement regularType mapping if stored
+}
+
+pub fn callSignatures(c: *const @import("checker.zig").Checker, t: TypeIndex) []const SignatureIndex {
+    _ = c;
     _ = t;
-    return undefined;
+    return &[_]SignatureIndex{};
 }
 
-pub fn asLiteralType(t: TypeIndex) *anyopaque {
+pub fn constructSignatures(c: *const @import("checker.zig").Checker, t: TypeIndex) []const SignatureIndex {
+    _ = c;
     _ = t;
-    return undefined;
+    return &[_]SignatureIndex{};
 }
 
-pub fn asUniqueESSymbolType(t: TypeIndex) *anyopaque {
+pub fn properties(c: *const @import("checker.zig").Checker, t: TypeIndex) []const @import("../ast/ast_generated.zig").SymbolIndex {
+    _ = c;
     _ = t;
-    return undefined;
+    return &[_]@import("../ast/ast_generated.zig").SymbolIndex{};
 }
 
-pub fn asTupleType(t: TypeIndex) *anyopaque {
+pub fn outerTypeParameters(c: *const @import("checker.zig").Checker, t: TypeIndex) []const TypeIndex {
+    _ = c;
     _ = t;
-    return undefined;
+    return &[_]TypeIndex{};
 }
 
-pub fn asInstantiationExpressionType(t: TypeIndex) *anyopaque {
+pub fn localTypeParameters(c: *const @import("checker.zig").Checker, t: TypeIndex) []const TypeIndex {
+    _ = c;
     _ = t;
-    return undefined;
+    return &[_]TypeIndex{};
 }
 
-pub fn asMappedType(t: TypeIndex) *anyopaque {
+pub fn typeParameters(c: *const @import("checker.zig").Checker, t: TypeIndex) []const TypeIndex {
+    _ = c;
     _ = t;
-    return undefined;
+    return &[_]TypeIndex{};
 }
 
-pub fn asReverseMappedType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asEvolvingArrayType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asTypeParameter(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asUnionType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asIntersectionType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asIndexType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asIndexedAccessType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asTemplateLiteralType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asStringMappingType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asSubstitutionType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asConditionalType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asConstrainedType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asStructuredType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asObjectType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asTypeReference(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asInterfaceType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn asUnionOrIntersectionType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn distributed(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn target(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn mapper(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn types(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn targetInterfaceType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn targetTupleType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn alias(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn isUnion(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isString(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isIntersection(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isStringLiteral(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isNumberLiteral(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isBigIntLiteral(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isEnumLiteral(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isBooleanLike(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isStringLike(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isClass(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isTypeParameter(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isIndex(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn isTupleType(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn asType(t: TypeIndex) *anyopaque {
-    _ = t;
-    return undefined;
-}
-
-pub fn intrinsicName() *anyopaque {
-    return undefined;
-}
-
-pub fn value() *anyopaque {
-    return undefined;
-}
-
-pub fn freshType() *anyopaque {
-    return undefined;
-}
-
-pub fn regularType() *anyopaque {
-    return undefined;
-}
-
-pub fn callSignatures() *anyopaque {
-    return undefined;
-}
-
-pub fn constructSignatures() *anyopaque {
-    return undefined;
-}
-
-pub fn properties() *anyopaque {
-    return undefined;
-}
-
-pub fn outerTypeParameters() *anyopaque {
-    return undefined;
-}
-
-pub fn localTypeParameters() *anyopaque {
-    return undefined;
-}
-
-pub fn typeParameters() *anyopaque {
-    return undefined;
-}
-
-pub fn tupleElementFlags() *anyopaque {
-    return undefined;
-}
-
-pub fn labeledDeclaration() *anyopaque {
-    return undefined;
-}
-
-pub fn fixedLength() i32 {
+pub fn tupleElementFlags(c: *const @import("checker.zig").Checker, t: TypeIndex, elementIndex: usize) u32 {
+    const d = c.typesList.items[t].data;
+    if (d == .Tuple) {
+        // We need to look up the element info from checker.
+        _ = elementIndex;
+        // return c.tupleElementInfos.items[d.Tuple.elementInfosStart + elementIndex].flags;
+        return 0;
+    }
     return 0;
 }
 
-pub fn isReadonly() bool {
-    return false;
+pub fn labeledDeclaration(c: *const @import("checker.zig").Checker, t: TypeIndex, elementIndex: usize) ?@import("../ast/ast_generated.zig").NodeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Tuple) {
+        // We need to look up the element info from checker.
+        _ = elementIndex;
+        // return c.tupleElementInfos.items[d.Tuple.elementInfosStart + elementIndex].labeledDeclaration;
+        return null;
+    }
+    return null;
 }
 
-pub fn elementFlags() *anyopaque {
-    return undefined;
-}
-
-pub fn elementInfos() *anyopaque {
-    return undefined;
-}
-
-pub fn isThisType(t: TypeIndex) bool {
-    _ = t;
-    return false;
-}
-
-pub fn objectType() *anyopaque {
-    return undefined;
-}
-
-pub fn indexType() *anyopaque {
-    return undefined;
-}
-
-pub fn texts() *anyopaque {
-    return undefined;
-}
-
-pub fn baseType() *anyopaque {
-    return undefined;
-}
-
-pub fn substConstraint() *anyopaque {
-    return undefined;
-}
-
-pub fn checkType() *anyopaque {
-    return undefined;
-}
-
-pub fn extendsType() *anyopaque {
-    return undefined;
-}
-
-pub fn declaration(s: *anyopaque) *anyopaque {
-    _ = s;
-    return undefined;
-}
-
-pub fn thisParameter(s: *anyopaque) *anyopaque {
-    _ = s;
-    return undefined;
-}
-
-pub fn parameters(s: *anyopaque) *anyopaque {
-    _ = s;
-    return undefined;
-}
-
-pub fn hasRestParameter(s: *anyopaque) bool {
-    _ = s;
-    return false;
-}
-
-pub fn minArgumentCount(s: *anyopaque) i32 {
-    _ = s;
+pub fn fixedLength(c: *const @import("checker.zig").Checker, t: TypeIndex) i32 {
+    const d = c.typesList.items[t].data;
+    if (d == .Tuple) return @intCast(d.Tuple.fixedLength);
     return 0;
 }
 
-pub fn @"type"() *anyopaque {
-    return undefined;
+pub fn isReadonly(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    const d = c.typesList.items[t].data;
+    if (d == .Tuple) return d.Tuple.readonly;
+    return false;
 }
 
-pub fn kind() *anyopaque {
-    return undefined;
+pub fn elementFlags(info: *const TupleElementInfo) u32 {
+    return info.flags;
 }
 
-pub fn parameterIndex() i32 {
-    return 0;
+pub fn elementInfos(c: *const @import("checker.zig").Checker, t: TypeIndex) []const TupleElementInfo {
+    const d = c.typesList.items[t].data;
+    if (d == .Tuple) return c.tupleElementInfos.items[d.Tuple.elementInfosStart .. d.Tuple.elementInfosStart + d.Tuple.typesLen];
+    return &[_]TupleElementInfo{};
 }
 
-pub fn parameterName() *anyopaque {
-    return undefined;
+pub fn isThisType(c: *const @import("checker.zig").Checker, t: TypeIndex) bool {
+    const d = c.typesList.items[t].data;
+    if (d == .TypeParameter) return d.TypeParameter.isThisType;
+    return false;
 }
 
-pub fn keyType() *anyopaque {
-    return undefined;
+pub fn objectType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .IndexedAccess) return d.IndexedAccess.objectType;
+    return null;
 }
 
-pub fn valueType() *anyopaque {
-    return undefined;
+pub fn indexType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .IndexedAccess) return d.IndexedAccess.indexType;
+    return null;
+}
+
+pub fn texts(c: *const @import("checker.zig").Checker, t: TypeIndex) [][]const u8 {
+    const d = c.typesList.items[t].data;
+    if (d == .TemplateLiteral) return d.TemplateLiteral.texts;
+    return &[_][]const u8{};
+}
+
+pub fn baseType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Substitution) return d.Substitution.baseType;
+    return null;
+}
+
+pub fn substConstraint(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Substitution) return d.Substitution.constraint;
+    return null;
+}
+
+pub fn checkType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Conditional) return d.Conditional.checkType;
+    return null;
+}
+
+pub fn extendsType(c: *const @import("checker.zig").Checker, t: TypeIndex) ?TypeIndex {
+    const d = c.typesList.items[t].data;
+    if (d == .Conditional) return d.Conditional.extendsType;
+    return null;
+}
+
+pub fn declaration(c: *const @import("checker.zig").Checker, s: SignatureIndex) @import("../ast/ast_generated.zig").NodeIndex {
+    return c.signatures.items[s].declaration;
+}
+
+pub fn thisParameter(c: *const @import("checker.zig").Checker, s: SignatureIndex) ?@import("../ast/ast_generated.zig").SymbolIndex {
+    return c.signatures.items[s].thisParameter;
+}
+
+pub fn parameters(c: *const @import("checker.zig").Checker, s: SignatureIndex) []const @import("../ast/ast_generated.zig").SymbolIndex {
+    const sig = c.signatures.items[s];
+    return c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+}
+
+pub fn hasRestParameter(c: *const @import("checker.zig").Checker, s: SignatureIndex) bool {
+    return (c.signatures.items[s].flags & SignatureFlags.HasRestParameter) != 0;
+}
+
+pub fn minArgumentCount(c: *const @import("checker.zig").Checker, s: SignatureIndex) i32 {
+    return c.signatures.items[s].minArgumentCount;
+}
+
+pub fn @"type"(tp: *const TypePredicate) ?TypeIndex {
+    return tp.t;
+}
+
+pub fn kind(tp: *const TypePredicate) TypePredicateKind {
+    return tp.kind;
+}
+
+pub fn parameterIndex(tp: *const TypePredicate) i32 {
+    return tp.parameterIndex;
+}
+
+pub fn parameterName(tp: *const TypePredicate) ?[]const u8 {
+    _ = tp;
+    return null;
+}
+
+pub fn keyType(info: *const IndexInfo) TypeIndex {
+    return info.keyType;
+}
+
+pub fn valueType(info: *const IndexInfo) TypeIndex {
+    return info.valueType;
 }

@@ -4,10 +4,17 @@ const symbol = @import("../ast/symbol.zig");
 const types = @import("types.zig");
 const checker = @import("checker.zig");
 const relater = @import("relater.zig");
+const mapper = @import("mapper.zig");
 
 pub const InferenceKey = struct {
     s: types.TypeIndex,
     t: types.TypeIndex,
+};
+
+pub const ReverseMappedTypeKey = struct {
+    sourceId: types.TypeIndex,
+    targetId: types.TypeIndex,
+    constraintId: types.TypeIndex,
 };
 
 pub const InferenceStateIndex = u32;
@@ -356,7 +363,7 @@ pub fn getInferredType(c: *checker.Checker, n_idx: types.InferenceContextIndex, 
 
             if (inferredCovariantType != null or inferredContravariantType != null) {
                 const preferCovariantType = inferredCovariantType != null and
-                    (inferredContravariantType == null or preferCovariantTypeLogic(c, inf_idx, inferredCovariantType.?, inferredContravariantType));
+                    (inferredContravariantType == null or preferCovariantTypeLogic(c, ctx, inf_idx, inferredCovariantType.?, inferredContravariantType));
 
                 if (preferCovariantType) {
                     inferredType = inferredCovariantType;
@@ -368,9 +375,10 @@ pub fn getInferredType(c: *checker.Checker, n_idx: types.InferenceContextIndex, 
             } else if ((ctx.flags & types.InferenceFlags.NoDefault) != 0) {
                 inferredType = silentNeverType(c);
             } else {
-                const defaultType = getDefaultFromTypeParameter(c, inference.typeParameter);
-                if (defaultType) |dt| {
-                    inferredType = instantiateType(c, dt, mergeTypeMappers(c, newBackreferenceMapper(c, n_idx, index), ctx.nonFixingMapper));
+                const defaultType = c.getDefaultFromTypeParameter(inference.typeParameter);
+                if (defaultType != 0) {
+                    const mergedMapper = mapper.mergeTypeMappers(c, newBackreferenceMapper(c, n_idx, index) orelse 0, ctx.nonFixingMapper);
+                    inferredType = c.instantiateType(defaultType, mergedMapper);
                 }
             }
         } else {
@@ -379,10 +387,9 @@ pub fn getInferredType(c: *checker.Checker, n_idx: types.InferenceContextIndex, 
 
         inference.inferredType = inferredType orelse if ((ctx.flags & types.InferenceFlags.AnyDefault) != 0) anyType(c) else unknownType(c);
 
-        const constraint = getConstraintOfTypeParameter(c, inference.typeParameter);
-        if (constraint) |cst| {
+        const constraint = c.getConstraintOfTypeParameter(inference.typeParameter);
+        if (constraint != null and constraint.? != 0) {
             // Stub constraint logic
-            _ = cst;
         }
     }
 
@@ -455,43 +462,70 @@ pub fn unknownType(c: *checker.Checker) types.TypeIndex {
 }
 
 pub fn getCovariantInference(c: *checker.Checker, inf_idx: types.InferenceInfoIndex, signature: types.SignatureIndex) ?types.TypeIndex {
-    _ = c;
-    _ = inf_idx;
-    _ = signature;
-    return null;
+    const inference = &c.inferenceInfos.items[inf_idx];
+    const candidates = unionObjectAndArrayLiteralCandidates(c, inference.candidates.items) catch return null;
+
+    const primitiveConstraint = hasPrimitiveConstraint(c, inference.typeParameter) or c.isConstTypeVariable(inference.typeParameter, 0);
+    const widenLiteralTypes = !primitiveConstraint and inference.topLevel and (inference.isFixed or !isTypeParameterAtTopLevelInReturnType(c, signature, inference.typeParameter));
+
+    var baseCandidates = candidates;
+    if (primitiveConstraint or widenLiteralTypes) {
+        baseCandidates = c.arena.allocator().alloc(types.TypeIndex, candidates.len) catch return null;
+        if (primitiveConstraint) {
+            for (candidates, 0..) |cand, i| {
+                baseCandidates[i] = c.getRegularTypeOfLiteralType(cand);
+            }
+        } else {
+            for (candidates, 0..) |cand, i| {
+                baseCandidates[i] = c.getWidenedLiteralType(cand);
+            }
+        }
+    }
+
+    var unwidenedType: types.TypeIndex = 0;
+    if (inference.priority & types.InferencePriority.PriorityImpliesCombination != 0) {
+        unwidenedType = c.getUnionTypeFromArray(baseCandidates);
+    } else {
+        unwidenedType = getCommonSupertype(c, baseCandidates);
+    }
+    return c.getWidenedType(unwidenedType);
 }
 
 pub fn getContravariantInference(c: *checker.Checker, inf_idx: types.InferenceInfoIndex) ?types.TypeIndex {
-    _ = c;
-    _ = inf_idx;
-    return null;
+    const inference = &c.inferenceInfos.items[inf_idx];
+    if (inference.priority & types.InferencePriority.PriorityImpliesCombination != 0) {
+        return c.getIntersectionType(inference.contraCandidates.items);
+    }
+    return getCommonSubtype(c, inference.contraCandidates.items);
 }
 
-pub fn preferCovariantTypeLogic(c: *checker.Checker, inf_idx: types.InferenceInfoIndex, cov: types.TypeIndex, contra: ?types.TypeIndex) bool {
-    _ = c;
-    _ = inf_idx;
-    _ = cov;
-    _ = contra;
+pub fn preferCovariantTypeLogic(c: *checker.Checker, ctx: *types.InferenceContext, inf_idx: types.InferenceInfoIndex, cov: types.TypeIndex, contra: ?types.TypeIndex) bool {
+    _ = contra; // Used in Go as a check, but we iterate over contraCandidates anyway
+    const covFlags = c.getTypeFlags(cov);
+    if ((covFlags & (types.TypeFlags.Never | types.TypeFlags.Any)) != 0) return false;
+
+    const inference = &c.inferenceInfos.items[inf_idx];
+    var contraOk = false;
+    for (inference.contraCandidates.items) |t| {
+        if (relater.isTypeAssignableTo(c, cov, t)) {
+            contraOk = true;
+            break;
+        }
+    }
+    if (!contraOk) return false;
+
+    for (ctx.inferences.items) |other_idx| {
+        if (other_idx == inf_idx) continue;
+        const other = &c.inferenceInfos.items[other_idx];
+        if (c.getConstraintOfTypeParameter(other.typeParameter) != inference.typeParameter) continue;
+
+        for (other.candidates.items) |t| {
+            if (!relater.isTypeAssignableTo(c, t, cov)) {
+                return false;
+            }
+        }
+    }
     return true;
-}
-
-pub fn getDefaultFromTypeParameter(c: *checker.Checker, t: types.TypeIndex) ?types.TypeIndex {
-    _ = c;
-    _ = t;
-    return null;
-}
-
-pub fn instantiateType(c: *checker.Checker, t: types.TypeIndex, mapper: ?types.TypeMapperIndex) types.TypeIndex {
-    _ = c;
-    _ = mapper;
-    return t;
-}
-
-pub fn mergeTypeMappers(c: *checker.Checker, a: ?types.TypeMapperIndex, b: ?types.TypeMapperIndex) ?types.TypeMapperIndex {
-    _ = c;
-    _ = a;
-    _ = b;
-    return null;
 }
 
 pub fn newBackreferenceMapper(c: *checker.Checker, n_idx: types.InferenceContextIndex, index: usize) ?types.TypeMapperIndex {
@@ -502,14 +536,13 @@ pub fn newBackreferenceMapper(c: *checker.Checker, n_idx: types.InferenceContext
 }
 
 pub fn getTypeFromInference(c: *checker.Checker, inf_idx: types.InferenceInfoIndex) ?types.TypeIndex {
-    _ = c;
-    _ = inf_idx;
-    return null;
-}
-
-pub fn getConstraintOfTypeParameter(c: *checker.Checker, t: types.TypeIndex) ?types.TypeIndex {
-    _ = c;
-    _ = t;
+    const inference = &c.inferenceInfos.items[inf_idx];
+    if (inference.candidates.items.len > 0) {
+        return c.getUnionTypeFromArray(inference.candidates.items);
+    }
+    if (inference.contraCandidates.items.len > 0) {
+        return c.getIntersectionType(inference.contraCandidates.items);
+    }
     return null;
 }
 
@@ -528,7 +561,7 @@ pub fn unionObjectAndArrayLiteralCandidates(c: *checker.Checker, candidates: []c
             }
         }
         if (objectLiterals.items.len != 0) {
-            const literalsType = getUnionTypeEx(c, objectLiterals.items);
+            const literalsType = c.getUnionTypeFromArray(objectLiterals.items);
             var result = try c.allocator.alloc(types.TypeIndex, nonLiteralTypes.items.len + 1);
             @memcpy(result[0..nonLiteralTypes.items.len], nonLiteralTypes.items);
             result[nonLiteralTypes.items.len] = literalsType;
@@ -539,13 +572,14 @@ pub fn unionObjectAndArrayLiteralCandidates(c: *checker.Checker, candidates: []c
 }
 
 pub fn hasPrimitiveConstraint(c: *checker.Checker, t: types.TypeIndex) bool {
-    var constraint = getConstraintOfTypeParameter(c, t);
-    if (constraint) |cst| {
+    var constraint = c.getConstraintOfTypeParameter(t);
+    if (constraint != null and constraint.? != 0) {
+        const cst = constraint.?;
         const type_obj = c.typesList.items[cst];
         if ((type_obj.flags & types.TypeFlags.Conditional) != 0) {
-            constraint = getDefaultConstraintOfConditionalType(c, cst);
+            constraint = c.getDefaultConstraintOfConditionalType(cst);
         }
-        return maybeTypeOfKind(c, constraint.?, types.TypeFlags.Primitive | types.TypeFlags.Index | types.TypeFlags.TemplateLiteral | types.TypeFlags.StringMapping);
+        return c.maybeTypeOfKind(constraint.?, types.TypeFlags.Primitive | types.TypeFlags.Index | types.TypeFlags.TemplateLiteral | types.TypeFlags.StringMapping);
     }
     return false;
 }
@@ -573,12 +607,44 @@ pub fn isTypeParameterAtTopLevelInReturnType(c: *checker.Checker, signature: typ
     return isTypeParameterAtTopLevel(c, getReturnTypeOfSignature(c, signature), tp, 0);
 }
 
+const FilterCtx = struct {
+    c: *checker.Checker,
+};
+
+fn filterTypeWithoutNullable(ctx: FilterCtx, u: types.TypeIndex) bool {
+    return (ctx.c.getTypeFlags(u) & types.TypeFlags.Nullable) == 0;
+}
+
 pub fn getCommonSupertype(c: *checker.Checker, types_list: []const types.TypeIndex) types.TypeIndex {
     if (types_list.len == 1) return types_list[0];
 
-    // Stub
-    _ = c;
-    return types_list[0];
+    var primaryTypes = std.ArrayListUnmanaged(types.TypeIndex){};
+    var primaryTypesSame = true;
+
+    if (c.strictNullChecks) {
+        for (types_list) |t| {
+            const filtered = c.filterType(t, filterTypeWithoutNullable, FilterCtx{ .c = c });
+            primaryTypes.append(c.allocator, filtered) catch unreachable;
+            if (filtered != t) {
+                primaryTypesSame = false;
+            }
+        }
+    } else {
+        primaryTypes.appendSlice(c.allocator, types_list) catch unreachable;
+    }
+    defer primaryTypes.deinit(c.allocator);
+
+    var supertype: types.TypeIndex = 0;
+    if (literalTypesWithSameBaseType(c, primaryTypes.items)) {
+        supertype = c.getUnionTypeFromArray(primaryTypes.items);
+    } else {
+        supertype = getSingleCommonSupertype(c, primaryTypes.items);
+    }
+
+    if (primaryTypesSame) {
+        return supertype;
+    }
+    return c.getNullableType(supertype, getCombinedTypeFlags(c, types_list) & types.TypeFlags.Nullable);
 }
 
 pub fn isTypeOrBaseIdenticalTo(c: *checker.Checker, s: types.TypeIndex, t: types.TypeIndex) bool {
@@ -1072,10 +1138,7 @@ pub fn isObjectOrArrayLiteralType(c: *checker.Checker, t: types.TypeIndex) bool 
     _ = t;
     return false;
 }
-pub fn getUnionTypeEx(c: *checker.Checker, types_list: []const types.TypeIndex) types.TypeIndex {
-    _ = c;
-    return types_list[0];
-}
+
 pub fn getDefaultConstraintOfConditionalType(c: *checker.Checker, t: types.TypeIndex) ?types.TypeIndex {
     _ = c;
     _ = t;
