@@ -2352,6 +2352,45 @@ pub fn isPropertyDeclaration(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool 
     if (nodeIndex == 0) return false;
     return tree.getNode(nodeIndex) == .PropertyDeclaration;
 }
+
+/// Returns the heritage clause of `class_node` matching token kind `k`
+/// (e.g. `.ExtendsKeyword`, `.ImplementsKeyword`), or null if absent.
+/// Port of `ast.GetHeritageClause`.
+pub fn getHeritageClause(tree: *ast.Ast, class_node: ast_gen.NodeIndex, k: kind.Kind) ?ast_gen.NodeIndex {
+    if (class_node == 0) return null;
+    const node_data = tree.getNode(class_node);
+    const clauses_idx: ?u32 = switch (node_data) {
+        .ClassDeclaration => |n| n.HeritageClauses,
+        .ClassExpression => |n| n.HeritageClauses,
+        .InterfaceDeclaration => |n| n.HeritageClauses,
+        else => return null,
+    };
+    const clauses = clauses_idx orelse return null;
+    if (clauses == 0) return null;
+    for (tree.getNodeList(clauses)) |clause| {
+        const hc = tree.getNode(clause).HeritageClause;
+        if (hc.Token == @intFromEnum(k)) return clause;
+    }
+    return null;
+}
+
+/// Returns the first `extends` heritage clause element of `class_node`,
+/// or 0 if absent. Port of `ast.GetExtendsHeritageClauseElement`.
+pub fn getExtendsHeritageClauseElement(tree: *ast.Ast, class_node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    const clause = getHeritageClause(tree, class_node, .ExtendsKeyword) orelse return 0;
+    const types_list = tree.getNode(clause).HeritageClause.Types;
+    if (types_list == 0) return 0;
+    const types = tree.getNodeList(types_list);
+    if (types.len == 0) return 0;
+    return types[0];
+}
+
+/// Returns true if `node` is a ClassDeclaration or ClassExpression.
+pub fn isClassLike(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    const k = tree.getNodeKind(node);
+    return k == .ClassDeclaration or k == .ClassExpression;
+}
 pub fn isPrivateIdentifier(a: anytype) bool {
     _ = a;
     return false;
