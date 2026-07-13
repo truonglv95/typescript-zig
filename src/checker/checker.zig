@@ -15764,18 +15764,20 @@ pub const Checker = struct {
         return signatures.len > 0;
     }
 
+    /// Port of `checker.go::getAwaitedTypeOfPromise`. Returns the awaited
+    /// type of `Promise<T>`, or 0 if `t` is not a promise.
     pub fn getAwaitedTypeOfPromise(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0; // STUB
+        return c.getAwaitedTypeOfPromiseEx(t, 0, null);
     }
 
-    pub fn getAwaitedTypeOfPromiseEx(c: *Checker, t: *anyopaque, errorNode: *anyopaque, diagnosticMessage: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = errorNode;
-        _ = diagnosticMessage;
-        return undefined;
+    /// Port of `checker.go::getAwaitedTypeOfPromiseEx`. Returns the awaited
+    /// type of `Promise<T>` with error reporting.
+    pub fn getAwaitedTypeOfPromiseEx(c: *Checker, t: types.TypeIndex, error_node: ast_gen.NodeIndex, diagnostic_message: ?*const diagnostics.Message) types.TypeIndex {
+        const promised = c.getPromisedTypeOfPromiseEx(t, error_node, null);
+        if (promised != 0) {
+            return c.getAwaitedTypeEx(promised, error_node, diagnostic_message);
+        }
+        return 0;
     }
 
     pub fn isSomeSymbolAssigned(c: *Checker, rootDeclaration: *anyopaque) bool {
