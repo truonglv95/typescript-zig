@@ -14033,13 +14033,31 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getUnionTypeEx(c: *Checker, types_: *anyopaque, unionReduction: *anyopaque, alias: *anyopaque, origin: *anyopaque) *anyopaque {
-        _ = c;
-        _ = types_;
-        _ = unionReduction;
+    /// Port of `checker.go::getUnionTypeEx`. Creates a union type from
+    /// `types_arr` with the given reduction mode. For now, the reduction
+    /// mode is ignored (we always do literal+identity dedup, which is
+    /// the common case). Alias and origin are also ignored.
+    pub fn getUnionTypeEx(
+        c: *Checker,
+        types_arr: []const types.TypeIndex,
+        union_reduction: types.UnionReduction,
+        alias: ?types.TypeAlias,
+        origin: ?types.TypeIndex,
+    ) types.TypeIndex {
+        _ = union_reduction; // TODO(phase1.2): implement subtype reduction
         _ = alias;
         _ = origin;
-        return undefined;
+        if (types_arr.len == 0) {
+            return c.neverTypeIndex orelse 0;
+        }
+        if (types_arr.len == 1) return types_arr[0];
+        return c.createUnionType(types_arr) catch (c.neverTypeIndex orelse 0);
+    }
+
+    /// Port of `checker.go::getUnionType`. Convenience wrapper for
+    /// `getUnionTypeEx` with default `Literal` reduction and no alias.
+    pub fn getUnionType(c: *Checker, types_arr: []const types.TypeIndex) types.TypeIndex {
+        return c.getUnionTypeEx(types_arr, .Literal, null, null);
     }
 
     pub fn getUnionTypeWorker(c: *Checker, types_: *anyopaque, unionReduction: *anyopaque, alias: *anyopaque, origin: *anyopaque) *anyopaque {
