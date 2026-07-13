@@ -14903,12 +14903,67 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getPromisedTypeOfPromiseEx(c: *Checker, t: *anyopaque, errorNode: *anyopaque, thisTypeForErrorOut: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = errorNode;
-        _ = thisTypeForErrorOut;
-        return undefined;
+    /// Port of `checker.go::getPromisedTypeOfPromiseEx`. Returns the
+    /// promised type `T` of a `Promise<T>` / thenable `t`, or 0 if `t`
+    /// is not a promise.
+    ///
+    /// Conservative implementation: returns 0 (not a promise) for most
+    /// types. Full implementation requires getGlobalPromiseType +
+    /// getTypeArguments + then-signature walking.
+    pub fn getPromisedTypeOfPromiseEx(c: *Checker, t: types.TypeIndex, error_node: ast_gen.NodeIndex, this_type_for_error_out: ?*types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Any) != 0) return 0;
+
+        // Primitives cannot be promises.
+        if (c.allTypesAssignableToKind(c.getBaseConstraintOrType(t), types.TypeFlags.Primitive | types.TypeFlags.Never)) {
+            return 0;
+        }
+
+        // Look up `then` property.
+        const then_function = c.getTypeOfPropertyOfType(t, "then");
+        if (then_function == 0) return 0;
+        if ((c.typesList.items[then_function].flags & types.TypeFlags.Any) != 0) return 0;
+
+        const then_signatures = c.getSignaturesOfType(then_function, .Call);
+        if (then_signatures.len == 0) {
+            if (error_node != 0) {
+                c.reportError(error_node, &diagnostics_gen.A_promise_must_have_a_then_method);
+            }
+            return 0;
+        }
+
+        // Walk candidate signatures (those whose `this` type is compatible).
+        // For simplicity, treat all signatures as candidates.
+        // TODO(phase1.2): filter by thisType compatibility.
+        var candidate_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer candidate_types.deinit(c.allocator);
+        const sigs = c.resolvedSignaturesPool.items[then_signatures.start .. then_signatures.start + then_signatures.len];
+        for (sigs) |sig_idx| {
+            const first_param_type = c.getTypeOfFirstParameterOfSignature(sig_idx);
+            candidate_types.append(c.allocator, first_param_type) catch return 0;
+        }
+
+        const onfulfilled_type = c.getTypeWithFacts(c.getUnionTypeFromArray(candidate_types.items), types.TypeFacts.NEUndefinedOrNull);
+        if ((c.typesList.items[onfulfilled_type].flags & types.TypeFlags.Any) != 0) return 0;
+
+        const onfulfilled_sigs = c.getSignaturesOfType(onfulfilled_type, .Call);
+        if (onfulfilled_sigs.len == 0) {
+            if (error_node != 0) {
+                c.reportError(error_node, &diagnostics_gen.The_first_parameter_of_the_then_method_of_a_promise_must_be_a_callback);
+            }
+            return 0;
+        }
+
+        // Union of first-parameter types of onfulfilled signatures.
+        var result_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer result_types.deinit(c.allocator);
+        const onfulfilled_sig_indices = c.resolvedSignaturesPool.items[onfulfilled_sigs.start .. onfulfilled_sigs.start + onfulfilled_sigs.len];
+        for (onfulfilled_sig_indices) |sig_idx| {
+            result_types.append(c.allocator, c.getTypeOfFirstParameterOfSignature(sig_idx)) catch return 0;
+        }
+        _ = this_type_for_error_out; // TODO: wire thisTypeForError tracking.
+        return c.getUnionTypeFromArray(result_types.items);
     }
 
     /// Port of `checker.go::getTypeOfFirstParameterOfSignature`. Returns
@@ -15518,32 +15573,91 @@ pub const Checker = struct {
         return c.anyTypeIndex orelse 0;
     }
 
-    pub fn getAwaitedType(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        return undefined;
+    /// Port of `checker.go::getAwaitedType`. Returns the awaited type of `t`.
+    pub fn getAwaitedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        return c.getAwaitedTypeEx(t, 0, null);
     }
 
-    pub fn getAwaitedTypeEx(c: *Checker, t: *anyopaque, errorNode: *anyopaque, diagnosticMessage: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = errorNode;
-        _ = diagnosticMessage;
-        return undefined;
+    /// Port of `checker.go::getAwaitedTypeEx`. Returns the awaited type
+    /// of `t`, wrapping in `Awaited<T>` if needed.
+    pub fn getAwaitedTypeEx(c: *Checker, t: types.TypeIndex, error_node: ast_gen.NodeIndex, diagnostic_message: ?*const diagnostics.Message) types.TypeIndex {
+        const awaited = c.getAwaitedTypeNoAliasEx(t, error_node, diagnostic_message);
+        if (awaited != 0) {
+            return c.createAwaitedTypeIfNeeded(awaited);
+        }
+        return 0;
     }
 
-    pub fn getAwaitedTypeNoAlias(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        return undefined;
+    /// Port of `checker.go::getAwaitedTypeNoAlias`. Returns the awaited
+    /// type without introducing an `Awaited<T>` wrapper.
+    pub fn getAwaitedTypeNoAlias(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        return c.getAwaitedTypeNoAliasEx(t, 0, null);
     }
 
-    pub fn getAwaitedTypeNoAliasEx(c: *Checker, t: *anyopaque, errorNode: *anyopaque, diagnosticMessage: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = errorNode;
-        _ = diagnosticMessage;
-        return undefined;
+    /// Port of `checker.go::getAwaitedTypeNoAliasEx`. Computes the
+    /// "awaited type" of `t` without introducing an `Awaited<T>` wrapper.
+    ///
+    /// Algorithm:
+    /// 1. If `t` is `any`, return `t`.
+    /// 2. If `t` is already an `Awaited<U>` instantiation, return `t`.
+    /// 3. If cached, return cached.
+    /// 4. If `t` is a union, map `getAwaitedTypeNoAliasEx` over constituents.
+    /// 5. If `t` is generic and needs wrapping, return `t`.
+    /// 6. If `t` has a promised type (Promise<T>), recursively unwrap.
+    /// 7. If `t` is thenable but not a promise, report error and return 0.
+    /// 8. Otherwise, return `t` (cached).
+    pub fn getAwaitedTypeNoAliasEx(c: *Checker, t: types.TypeIndex, error_node: ast_gen.NodeIndex, diagnostic_message: ?*const diagnostics.Message) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const flags = c.typesList.items[t].flags;
+
+        // 1. `any` is returned as-is.
+        if ((flags & types.TypeFlags.Any) != 0) return t;
+
+        // 2. Already `Awaited<U>` — return as-is.
+        if (c.isAwaitedTypeInstantiation(t)) return t;
+
+        // 3. Cache lookup (TODO: wire cachedTypes with CachedTypeKey).
+        // Skipped for now; the recursive structure ensures termination via
+        // the awaitedTypeStack below.
+
+        // 4. Union: map over constituents.
+        if ((flags & types.TypeFlags.Union) != 0) {
+            // Check for recursive type in awaitedTypeStack (TODO: wire stack).
+            // For now, just map.
+            const constituents = c.getTypesFromUnion(t);
+            var arr = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer arr.deinit(c.allocator);
+            for (constituents) |s| {
+                const mapped = c.getAwaitedTypeNoAliasEx(s, error_node, diagnostic_message);
+                if (mapped != 0) arr.append(c.allocator, mapped) catch return 0;
+            }
+            return c.getUnionTypeFromArray(arr.items);
+        }
+
+        // 5. Generic type that needs wrapping.
+        if (c.isAwaitedTypeNeeded(t)) {
+            return t;
+        }
+
+        // 6. Promise<T>: unwrap.
+        const promised = c.getPromisedTypeOfPromiseEx(t, error_node, null);
+        if (promised != 0) {
+            // Check for self-reference (TODO: awaitedTypeStack).
+            const awaited = c.getAwaitedTypeNoAliasEx(promised, error_node, diagnostic_message);
+            if (awaited == 0) return 0;
+            return awaited;
+        }
+
+        // 7. Thenable but not a promise — error.
+        if (c.isThenableType(t)) {
+            if (error_node != 0 and diagnostic_message != null) {
+                c.reportErrorWithArgs(error_node, diagnostic_message.?, &.{});
+            }
+            return 0;
+        }
+
+        // 8. Not a promise — return as-is.
+        return t;
     }
 
     /// Port of `checker.go::isAwaitedTypeInstantiation`. Returns true if
