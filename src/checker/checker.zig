@@ -9055,9 +9055,55 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkAliasSymbol(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
+    /// Port of `checker.go::checkAliasSymbol`. Validates import/export alias
+    /// symbols for conflicts with local declarations.
+    ///
+    /// Conservative implementation: handles the core alias resolution and
+    /// excluded-meanings conflict check. The following paths are deferred
+    /// to Phase 1.2 (require compilerOptions/program wiring):
+    /// - JS file type-only import errors
+    /// - isolatedModules / verbatimModuleSyntax checks
+    /// - Deprecated symbol suggestions
+    pub fn checkAliasSymbol(c: *Checker, node: ast_gen.NodeIndex) void {
+        if (node == 0) return;
+        const decl_symbol = c.getSymbolOfDeclaration(node);
+        if (decl_symbol == 0) return;
+        const target = c.resolveAlias(decl_symbol);
+        if (target == c.unknownSymbol) return;
+
+        // Merge with export symbol if present.
+        const sym_obj = c.binder.symbols.items[decl_symbol];
+        const export_sym = sym_obj.ExportSymbol orelse decl_symbol;
+        const merged = c.getMergedSymbol(export_sym);
+        if (merged == 0) return;
+        const merged_obj = c.binder.symbols.items[merged];
+        const target_flags = c.getSymbolFlags(target);
+
+        // Compute excluded meanings from merged symbol flags.
+        var excluded_meanings: u32 = 0;
+        if ((merged_obj.Flags & (symbol.SymbolFlags.Value | symbol.SymbolFlags.ExportValue)) != 0) {
+            excluded_meanings |= symbol.SymbolFlags.Value;
+        }
+        if ((merged_obj.Flags & symbol.SymbolFlags.Type) != 0) {
+            excluded_meanings |= symbol.SymbolFlags.Type;
+        }
+        if ((merged_obj.Flags & symbol.SymbolFlags.Namespace) != 0) {
+            excluded_meanings |= symbol.SymbolFlags.Namespace;
+        }
+
+        if ((target_flags & excluded_meanings) != 0) {
+            // Conflict: alias target has a meaning that conflicts with a
+            // local declaration.
+            const is_export_specifier = c.binder.ast.getNodeKind(node) == .ExportSpecifier;
+            const msg = if (is_export_specifier)
+                &diagnostics_gen.Export_declaration_conflicts_with_exported_declaration_of_0
+            else
+                &diagnostics_gen.Import_declaration_conflicts_with_local_declaration_of_0;
+            const sym_name = c.symbolToString(merged);
+            c.reportErrorWithArgs(node, msg, &.{sym_name});
+        }
+        // TODO(phase1.2): isolatedModules / verbatimModuleSyntax checks
+        // TODO(phase1.2): deprecated symbol suggestions
     }
 
     pub fn areDeclarationFlagsIdentical(c: *Checker, left: *anyopaque, right: *anyopaque) bool {
