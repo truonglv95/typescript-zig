@@ -12883,14 +12883,27 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTargetSymbol(c: *Checker, s: *anyopaque) *anyopaque {
-        _ = c;
-        _ = s;
-        return undefined;
+    /// Port of `checker.go::getTargetSymbol`. If `s` is an instantiated
+    /// (transient) symbol, returns its original target symbol; otherwise
+    /// returns `s` unchanged.
+    pub fn getTargetSymbol(c: *Checker, s: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        if (s == 0) return 0;
+        const check_flags = c.getSymbolCheckFlags(s);
+        if ((check_flags & types.CheckFlags.Instantiated) != 0) {
+            if (c.valueSymbolLinks.get(s)) |links| {
+                return links.target orelse s;
+            }
+        }
+        return s;
     }
 
-    pub fn isPrototypeProperty(symbol_: *anyopaque) bool {
-        _ = symbol_;
+    /// Port of `checker.go::isPrototypeProperty`. Returns true if `symbol`
+    /// is a method (or a synthetic method in a union/intersection type).
+    pub fn isPrototypeProperty(c: *Checker, sym: ast_gen.SymbolIndex) bool {
+        if (sym == 0 or sym >= c.binder.symbols.items.len) return false;
+        const s = c.binder.symbols.items[sym];
+        if ((s.Flags & symbol.SymbolFlags.Method) != 0) return true;
+        if ((s.CheckFlags & types.CheckFlags.SyntheticMethod) != 0) return true;
         return false;
     }
 
