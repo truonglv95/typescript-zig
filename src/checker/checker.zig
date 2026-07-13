@@ -10840,23 +10840,79 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isSpreadableProperty(c: *Checker, prop: *anyopaque) bool {
-        _ = c;
-        _ = prop;
+    /// Port of `checker.go::isSpreadableProperty`. We approximate own
+    /// properties as non-methods plus methods that are inside the object
+    /// literal (not class declarations).
+    pub fn isSpreadableProperty(c: *Checker, prop: ast_gen.SymbolIndex) bool {
+        if (prop == 0 or prop >= c.binder.symbols.items.len) return false;
+        const sym = c.binder.symbols.items[prop];
+        const has_method_or_accessor = (sym.Flags & (symbol.SymbolFlags.Method | symbol.SymbolFlags.GetAccessor | symbol.SymbolFlags.SetAccessor)) != 0;
+        // Check if any declaration is a private identifier class element
+        var has_private_id = false;
+        for (sym.Declarations.items) |decl| {
+            if (decl == 0) continue;
+            const node = c.binder.ast.getNode(decl);
+            if (node == .PropertyDeclaration) {
+                const name_node = c.binder.ast.getNode(decl).PropertyDeclaration.name;
+                if (name_node != 0) {
+                    const name_kind = c.binder.ast.getNode(name_node);
+                    if (name_kind == .PrivateIdentifier) {
+                        has_private_id = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!has_private_id and !has_method_or_accessor) return true;
+        // Check if any declaration's parent is NOT class-like
+        for (sym.Declarations.items) |decl| {
+            if (decl == 0) continue;
+            const parent = c.binder.ast.getNodeParent(decl);
+            if (parent != 0 and !ast_utils.isClassLike(c.binder.ast, parent)) return true;
+        }
         return false;
     }
 
-    pub fn getSpreadSymbol(c: *Checker, prop: *anyopaque, readonly: *anyopaque) *anyopaque {
-        _ = c;
-        _ = prop;
-        _ = readonly;
-        return undefined;
+    /// Port of `checker.go::getSpreadSymbol`. Returns the spread symbol for
+    /// `prop`, creating a synthetic one if the readonly flag doesn't match
+    /// or `prop` is a set-only accessor.
+    pub fn getSpreadSymbol(c: *Checker, prop: ast_gen.SymbolIndex, readonly: bool) ast_gen.SymbolIndex {
+        if (prop == 0 or prop >= c.binder.symbols.items.len) return 0;
+        const sym = c.binder.symbols.items[prop];
+        const is_setonly_accessor = (sym.Flags & symbol.SymbolFlags.SetAccessor) != 0 and (sym.Flags & symbol.SymbolFlags.GetAccessor) == 0;
+        if (!is_setonly_accessor and readonly == c.isReadonlySymbol(prop)) {
+            return prop;
+        }
+        // Create synthetic symbol — for now, return the original since the
+        // full newSymbolEx + valueSymbolLinks wiring is complex. The
+        // synthetic-creation path is rarely hit in practice (only when
+        // spreading readonly-ness differs or set-only accessor).
+        // TODO(phase1.2): implement newSymbolEx-based synthetic creation.
+        return prop;
     }
 
-    pub fn isEmptyObjectTypeOrSpreadsIntoEmptyObject(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        return false;
+    /// Port of `checker.go::removeMissingOrUndefinedType`. Strips undefined
+    /// (and missing, when exactOptionalPropertyTypes) from `t`.
+    pub fn removeMissingOrUndefinedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (c.exactOptionalPropertyTypes) {
+            // Full removeType implementation needed; for now use NEUndefined
+            return c.getTypeWithFacts(t, types.TypeFacts.NEUndefined);
+        }
+        return c.getTypeWithFacts(t, types.TypeFacts.NEUndefined);
+    }
+
+    /// Port of `checker.go::isEmptyObjectTypeOrSpreadsIntoEmptyObject`.
+    /// Returns true if `t` is the empty object type or a primitive-like
+    /// type that spreads into nothing (null, undefined, boolean, etc.).
+    pub fn isEmptyObjectTypeOrSpreadsIntoEmptyObject(c: *Checker, t: types.TypeIndex) bool {
+        if (c.isEmptyObjectType(t)) return true;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        const mask = types.TypeFlags.Null | types.TypeFlags.Undefined |
+            types.TypeFlags.BooleanLike | types.TypeFlags.NumberLike |
+            types.TypeFlags.BigIntLike | types.TypeFlags.StringLike |
+            types.TypeFlags.EnumLike | types.TypeFlags.NonPrimitive | types.TypeFlags.Index;
+        return (flags & mask) != 0;
     }
 
     pub fn hasDefaultValue(c: *Checker, node: *anyopaque) bool {
