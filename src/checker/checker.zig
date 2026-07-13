@@ -8422,17 +8422,38 @@ pub const Checker = struct {
         _ = baseType;
     }
 
-    pub fn arePropertiesAbstractOrInterface(c: *Checker, base: *anyopaque, baseDeclarationFlags: *anyopaque) bool {
-        _ = c;
-        _ = base;
-        _ = baseDeclarationFlags;
-        return false;
+    /// Port of `checker.go::arePropertiesAbstractOrInterface`. Returns true
+    /// if all (or some, for synthetic symbols) declarations of `base` are
+    /// abstract or from an interface.
+    pub fn arePropertiesAbstractOrInterface(c: *Checker, base: ast_gen.SymbolIndex, base_declaration_flags: u32) bool {
+        if (base == 0 or base >= c.binder.symbols.items.len) return false;
+        const sym = c.binder.symbols.items[base];
+        const is_synthetic = (sym.CheckFlags & types.CheckFlags.Synthetic) != 0;
+        for (sym.Declarations.items) |decl| {
+            const result = c.isPropertyAbstractOrInterface(decl, base_declaration_flags);
+            if (is_synthetic) {
+                // Synthetic: return true if ANY declaration is abstract/interface
+                if (result) return true;
+            } else {
+                // Non-synthetic: return false if ANY declaration is NOT abstract/interface
+                if (!result) return false;
+            }
+        }
+        return !is_synthetic; // synthetic returns false if none matched; non-synthetic returns true if all matched
     }
 
-    pub fn isPropertyAbstractOrInterface(c: *Checker, declaration: *anyopaque, baseDeclarationFlags: *anyopaque) bool {
-        _ = c;
-        _ = declaration;
-        _ = baseDeclarationFlags;
+    /// Port of `checker.go::isPropertyAbstractOrInterface`. Returns true if
+    /// the declaration's parent is an interface, or if it's an abstract
+    /// property without an initializer.
+    pub fn isPropertyAbstractOrInterface(c: *Checker, declaration: ast_gen.NodeIndex, base_declaration_flags: u32) bool {
+        if (declaration == 0) return false;
+        const tree = c.binder.ast;
+        const parent = tree.getNodeParent(declaration);
+        if (parent != 0 and ast_utils.isInterfaceDeclaration(tree, parent)) return true;
+        if ((base_declaration_flags & ast_utils.ModifierFlags.Abstract) != 0) {
+            if (!ast_utils.isPropertyDeclaration(tree, declaration)) return true;
+            return ast_utils.getInitializerOfNode(tree, declaration) == 0;
+        }
         return false;
     }
 
