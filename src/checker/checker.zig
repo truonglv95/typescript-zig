@@ -9592,11 +9592,13 @@ pub const Checker = struct {
         return t;
     }
 
-    pub fn checkNonNullNonVoidType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
+    /// Port of checker.go::checkNonNullNonVoidType. Returns `t` if it is
+    /// not null/void. If `t` is void, reports a diagnostic. Simplified:
+    /// returns `t` unchanged (was returning undefined).
+    pub fn checkNonNullNonVoidType(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = node;
-        return undefined;
+        if (t == 0) return c.anyTypeIndex orelse 0;
+        return t;
     }
 
     /// Port of checker.go::reportObjectPossiblyNullOrUndefinedError.
@@ -9727,25 +9729,26 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkQualifiedName(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return undefined;
+    /// Port of checker.go::checkQualifiedName. Checks a qualified name
+    /// (e.g., `A.B.C`). Simplified: delegates to checkExpressionCached.
+    pub fn checkQualifiedName(c: *Checker, node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
+        _ = check_mode;
+        return c.checkExpressionCached(node);
     }
 
-    pub fn checkIndexedAccess(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return undefined;
+    /// Port of checker.go::checkIndexedAccess. Checks an indexed access
+    /// type (e.g., `T[K]`). Simplified: delegates to getTypeOfNode.
+    pub fn checkIndexedAccess(c: *Checker, node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
+        _ = check_mode;
+        return c.getTypeOfNode(node) catch (c.anyTypeIndex orelse 0);
     }
 
-    pub fn checkElementAccessChain(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return undefined;
+    /// Port of checker.go::checkElementAccessChain. Checks an element
+    /// access chain (e.g., `a[0][1]`). Simplified: delegates to
+    /// checkExpressionCached.
+    pub fn checkElementAccessChain(c: *Checker, node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
+        _ = check_mode;
+        return c.checkExpressionCached(node);
     }
 
     pub fn isForInVariableForNumericPropertyNames(c: *Checker, expr: ast_gen.NodeIndex) bool {
