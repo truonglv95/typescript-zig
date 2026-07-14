@@ -10208,25 +10208,32 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkClassExpressionExternalHelpers(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkClassExpressionExternalHelpers. Checks
+    /// external emit helpers for class expressions. Simplified: no-op.
+    pub fn checkClassExpressionExternalHelpers(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn checkClassExpressionDeferred(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
+    /// Port of checker.go::checkClassExpressionDeferred. Deferred checking
+    /// of class expressions. Simplified: delegates to checkSourceElement.
+    pub fn checkClassExpressionDeferred(c: *Checker, node: ast_gen.NodeIndex) void {
+        checkSourceElement(c, node);
     }
 
-    pub fn contextuallyCheckFunctionExpressionOrObjectLiteralMethod(c: *Checker, node: *anyopaque, checkMode: *anyopaque) void {
+    /// Port of checker.go::contextuallyCheckFunctionExpressionOrObjectLiteralMethod.
+    /// Simplified: no-op.
+    pub fn contextuallyCheckFunctionExpressionOrObjectLiteralMethod(c: *Checker, node: ast_gen.NodeIndex, check_mode: CheckMode) void {
         _ = c;
         _ = node;
-        _ = checkMode;
+        _ = check_mode;
     }
 
-    pub fn checkFunctionExpressionOrObjectLiteralMethodDeferred(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
+    /// Port of checker.go::checkFunctionExpressionOrObjectLiteralMethodDeferred.
+    /// Deferred checking of function expressions. Simplified: delegates to
+    /// checkSourceElement.
+    pub fn checkFunctionExpressionOrObjectLiteralMethodDeferred(c: *Checker, node: ast_gen.NodeIndex) void {
+        checkSourceElement(c, node);
     }
 
     pub fn inferFromAnnotatedParametersAndReturn(c: *Checker, sig: *anyopaque, context: *anyopaque, inferenceContext: *anyopaque) void {
@@ -10301,35 +10308,43 @@ pub const Checker = struct {
         _ = name_node;
     }
 
-    pub fn checkCollisionWithRequireExportsInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+    /// Port of checker.go::checkCollisionWithRequireExportsInGeneratedCode.
+    /// Simplified: no-op.
+    pub fn checkCollisionWithRequireExportsInGeneratedCode(c: *Checker, node: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
-        _ = name_;
+        _ = name_node;
     }
 
-    pub fn checkCollisionWithGlobalObjectInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+    /// Port of checker.go::checkCollisionWithGlobalObjectInGeneratedCode.
+    /// Simplified: no-op.
+    pub fn checkCollisionWithGlobalObjectInGeneratedCode(c: *Checker, node: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
-        _ = name_;
+        _ = name_node;
     }
 
-    pub fn needCollisionCheckForIdentifier(c: *Checker, node: *anyopaque, identifier: *anyopaque, name_: *anyopaque) bool {
+    /// Port of checker.go::needCollisionCheckForIdentifier. Simplified: false.
+    pub fn needCollisionCheckForIdentifier(c: *Checker, node: ast_gen.NodeIndex, identifier: ast_gen.NodeIndex, name_str: []const u8) bool {
         _ = c;
         _ = node;
         _ = identifier;
-        _ = name_;
+        _ = name_str;
         return false;
     }
 
-    pub fn setNodeLinksForPrivateIdentifierScope(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::setNodeLinksForPrivateIdentifierScope. Simplified: no-op.
+    pub fn setNodeLinksForPrivateIdentifierScope(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn recordPotentialCollisionWithWeakMapSetInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+    /// Port of checker.go::recordPotentialCollisionWithWeakMapSetInGeneratedCode.
+    /// Simplified: no-op.
+    pub fn recordPotentialCollisionWithWeakMapSetInGeneratedCode(c: *Checker, node: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
-        _ = name_;
+        _ = name_node;
     }
 
     /// Port of checker.go::checkWeakMapSetCollision. Reports errors when
@@ -10340,16 +10355,20 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn checkCollisionWithGlobalPromiseInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+    /// Port of checker.go::checkCollisionWithGlobalPromiseInGeneratedCode.
+    /// Simplified: no-op.
+    pub fn checkCollisionWithGlobalPromiseInGeneratedCode(c: *Checker, node: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
-        _ = name_;
+        _ = name_node;
     }
 
-    pub fn recordPotentialCollisionWithReflectInGeneratedCode(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
+    /// Port of checker.go::recordPotentialCollisionWithReflectInGeneratedCode.
+    /// Simplified: no-op.
+    pub fn recordPotentialCollisionWithReflectInGeneratedCode(c: *Checker, node: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
-        _ = name_;
+        _ = name_node;
     }
 
     /// Port of checker.go::checkReflectCollision. Reports errors when
@@ -10360,15 +10379,18 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn checkClassNameCollisionWithObject(c: *Checker, name_: *anyopaque) void {
+    /// Port of checker.go::checkClassNameCollisionWithObject. Reports
+    /// errors when a class name collides with the global `Object`.
+    /// Simplified: no-op.
+    pub fn checkClassNameCollisionWithObject(c: *Checker, name_node: ast_gen.NodeIndex) void {
         _ = c;
-        _ = name_;
+        _ = name_node;
     }
 
-    pub fn checkNonNullAssertion(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    /// Port of checker.go::checkNonNullAssertion. Checks a non-null
+    /// assertion expression (x!). Simplified: delegates to checkExpressionCached.
+    pub fn checkNonNullAssertion(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+        return c.checkExpressionCached(node);
     }
 
     pub fn checkNonNullChain(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
@@ -10383,16 +10405,18 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkNewTargetMetaProperty(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkNewTargetMetaProperty. Checks a
+    /// new.target expression. Simplified: returns anyType.
+    pub fn checkNewTargetMetaProperty(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = node;
-        return undefined;
+        return c.anyTypeIndex orelse 0;
     }
 
-    pub fn checkImportMetaProperty(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkImportMetaProperty. Checks an
+    /// import.meta expression. Simplified: returns anyType.
+    pub fn checkImportMetaProperty(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = node;
-        return undefined;
+        return c.anyTypeIndex orelse 0;
     }
 
     /// Port of checker.go::checkDeleteExpressionMustBeOptional. Reports
@@ -10444,11 +10468,11 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkPropertyAccessChain(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return undefined;
+    /// Port of checker.go::checkPropertyAccessChain. Checks a property
+    /// access chain (e.g., a?.b.c). Simplified: delegates to checkExpressionCached.
+    pub fn checkPropertyAccessChain(c: *Checker, node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
+        _ = check_mode;
+        return c.checkExpressionCached(node);
     }
 
     pub fn checkPropertyAccessExpressionOrQualifiedName(c: *Checker, node: ast_gen.NodeIndex, left: ast_gen.NodeIndex, leftType: types.TypeIndex, right: ast_gen.NodeIndex, checkMode: CheckMode, writeOnly: bool) types.TypeIndex {
@@ -10645,11 +10669,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkPrivateIdentifierPropertyAccess(c: *Checker, leftType: *anyopaque, right: *anyopaque, lexicallyScopedIdentifier: *anyopaque) bool {
+    /// Port of checker.go::checkPrivateIdentifierPropertyAccess. Validates
+    /// that a private identifier property access is valid. Simplified: false.
+    pub fn checkPrivateIdentifierPropertyAccess(c: *Checker, left_type: types.TypeIndex, right: ast_gen.NodeIndex, lexically_scoped_identifier: ast_gen.SymbolIndex) bool {
         _ = c;
-        _ = leftType;
+        _ = left_type;
         _ = right;
-        _ = lexicallyScopedIdentifier;
+        _ = lexically_scoped_identifier;
         return false;
     }
 
