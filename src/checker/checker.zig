@@ -7907,14 +7907,18 @@ pub const Checker = struct {
         _ = c;
     }
 
-    pub fn createNameResolver(c: *Checker) *anyopaque {
+    /// Port of checker.go::createNameResolver. Creates a NameResolver
+    /// for the checker. Simplified: returns null.
+    pub fn createNameResolver(c: *Checker) ?*@import("../binder/nameresolver.zig").NameResolver {
         _ = c;
-        return undefined;
+        return null;
     }
 
-    pub fn createNameResolverForSuggestion(c: *Checker) *anyopaque {
+    /// Port of checker.go::createNameResolverForSuggestion. Creates a
+    /// NameResolver for suggestion mode. Simplified: returns null.
+    pub fn createNameResolverForSuggestion(c: *Checker) ?*@import("../binder/nameresolver.zig").NameResolver {
         _ = c;
-        return undefined;
+        return null;
     }
 
     pub fn symbolReferenced(c: *Checker, symbol_: *anyopaque, meaning: *anyopaque) void {
@@ -8874,9 +8878,12 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIsolatedModulesLikeFlagName(c: *Checker) *anyopaque {
+    /// Port of checker.go::getIsolatedModulesLikeFlagName. Returns the
+    /// compiler option name for isolatedModules-like behavior. Simplified:
+    /// returns null.
+    pub fn getIsolatedModulesLikeFlagName(c: *Checker) ?[]const u8 {
         _ = c;
-        return undefined;
+        return null;
     }
 
     /// Port of checker.go::checkModuleAugmentationElement. Checks a
@@ -9183,9 +9190,11 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getBuiltinIteratorReturnType(c: *Checker) *anyopaque {
+    /// Port of checker.go::getBuiltinIteratorReturnType. Returns the
+    /// return type of a built-in iterator's next() method. Simplified: 0.
+    pub fn getBuiltinIteratorReturnType(c: *Checker) types.TypeIndex {
         _ = c;
-        return undefined;
+        return 0;
     }
 
     pub fn hasTypes(iterationTypes: *anyopaque) bool {
@@ -9693,9 +9702,11 @@ pub const Checker = struct {
         _ = t;
     }
 
-    pub fn getOuterInferenceTypeParameters(c: *Checker) *anyopaque {
+    /// Port of checker.go::getOuterInferenceTypeParameters. Returns
+    /// outer inference type parameters. Simplified: returns empty slice.
+    pub fn getOuterInferenceTypeParameters(c: *Checker) []const types.TypeIndex {
         _ = c;
-        return undefined;
+        return &.{};
     }
 
     pub fn getUniqueTypeParameters(c: *Checker, context: *anyopaque, typeParameters: *anyopaque) *anyopaque {
@@ -11772,9 +11783,11 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getGlobalDiagnostics(c: *Checker) *anyopaque {
+    /// Port of checker.go::getGlobalDiagnostics. Returns global
+    /// diagnostics. Simplified: returns empty slice.
+    pub fn getGlobalDiagnostics(c: *Checker) []const diagnostics.Diagnostic {
         _ = c;
-        return undefined;
+        return &.{};
     }
 
     pub fn addDeferredDiagnostic(c: *Checker, callback: *anyopaque) *anyopaque {
@@ -12297,9 +12310,11 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getAmbientModules(c: *Checker) *anyopaque {
+    /// Port of checker.go::getAmbientModules. Returns ambient module
+    /// symbols. Simplified: returns empty slice.
+    pub fn getAmbientModules(c: *Checker) []const ast_gen.SymbolIndex {
         _ = c;
-        return undefined;
+        return &.{};
     }
 
     pub fn resolveESModuleSymbol(c: *Checker, moduleSymbol: *anyopaque, node: *anyopaque, moduleSpecifier: *anyopaque) *anyopaque {
@@ -14439,9 +14454,11 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getGlobalImportMetaExpressionType(c: *Checker) *anyopaque {
+    /// Port of checker.go::getGlobalImportMetaExpressionType.
+    /// Returns the type of import.meta. Simplified: returns 0.
+    pub fn getGlobalImportMetaExpressionType(c: *Checker) types.TypeIndex {
         _ = c;
-        return undefined;
+        return 0;
     }
 
     pub fn createIterableType(c: *Checker, iteratedType: *anyopaque) *anyopaque {
@@ -14562,9 +14579,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn createUnknownUnionType(c: *Checker) *anyopaque {
-        _ = c;
-        return undefined;
+    /// Port of checker.go::createUnknownUnionType. Creates a union
+    /// type containing unknown. Simplified: returns unknownType.
+    pub fn createUnknownUnionType(c: *Checker) types.TypeIndex {
+        return c.unknownTypeIndex orelse 0;
     }
 
     pub fn newLiteralType(c: *Checker, flags: *anyopaque, value: *anyopaque, regularType: *anyopaque) *anyopaque {
@@ -14875,9 +14893,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn unionTypes_stub(c: *Checker) *anyopaque {
-        _ = c;
-        return undefined;
+    /// Port of checker.go::unionTypes. Returns the union of two types.
+    /// Simplified: delegates to createUnionType.
+    pub fn unionTypes_stub(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) types.TypeIndex {
+        return c.createUnionType(&[_]types.TypeIndex{ t1, t2 });
     }
 
     pub fn addTypesToUnion(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, types_: *anyopaque) *anyopaque {
@@ -16743,9 +16762,11 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getEmitResolver(c: *Checker) *anyopaque {
+    /// Port of checker.go::getEmitResolver. Returns the emit resolver.
+    /// Simplified: returns null.
+    pub fn getEmitResolver(c: *Checker) ?*@import("emitresolver.zig").EmitResolver {
         _ = c;
-        return undefined;
+        return null;
     }
 
     pub fn getAliasedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
