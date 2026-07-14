@@ -7786,24 +7786,28 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn reportUnreliableWorker(c: *Checker, t: *anyopaque) *anyopaque {
+    /// Port of checker.go::reportUnreliableWorker. Reports unreliable
+    /// type comparison results. Simplified: returns `t` unchanged.
+    pub fn reportUnreliableWorker(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
-        _ = t;
-        return undefined;
+        return t;
     }
 
-    pub fn reportUnmeasurableWorker(c: *Checker, t: *anyopaque) *anyopaque {
+    /// Port of checker.go::reportUnmeasurableWorker. Reports unmeasurable
+    /// type comparison results. Simplified: returns `t` unchanged.
+    pub fn reportUnmeasurableWorker(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
-        _ = t;
-        return undefined;
+        return t;
     }
 
-    pub fn getGlobalTypeResolver(c: *Checker, name_: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
-        _ = c;
-        _ = name_;
+    /// Port of checker.go::getGlobalTypeResolver. Resolves a global type
+    /// by name with the given arity. Simplified: delegates to resolveName.
+    pub fn getGlobalTypeResolver(c: *Checker, name: []const u8, arity: u32, report_errors: bool) types.TypeIndex {
         _ = arity;
-        _ = reportErrors;
-        return undefined;
+        _ = report_errors;
+        const sym = c.resolveName(null, name, @import("../ast/symbol.zig").SymbolFlags.Type, null, false, false);
+        if (sym == 0 or sym == c.unknownSymbol) return 0;
+        return c.getDeclaredTypeOfSymbol(sym);
     }
 
     pub fn getGlobalTypeAliasResolver(c: *Checker, name_: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
@@ -8378,13 +8382,15 @@ pub const Checker = struct {
         _ = check_private_names;
     }
 
-    pub fn reportDuplicateMemberErrors(c: *Checker, node: *anyopaque, name_: *anyopaque, checkStatic: *anyopaque, isStatic: *anyopaque, message: *anyopaque) void {
-        _ = c;
-        _ = node;
-        _ = name_;
-        _ = checkStatic;
-        _ = isStatic;
-        _ = message;
+    /// Port of checker.go::reportDuplicateMemberErrors. Reports duplicate
+    /// member errors in a class/interface. Simplified: delegates to
+    /// addDiagnostic with the given message.
+    pub fn reportDuplicateMemberErrors(c: *Checker, node: ast_gen.NodeIndex, name_str: []const u8, check_static: bool, is_static: bool, message: ?*const diagnostics_gen.Message) void {
+        _ = check_static;
+        _ = is_static;
+        if (message) |msg| {
+            c.reportErrorWithArgs(node, msg, &[_][]const u8{name_str});
+        }
     }
 
     pub fn getResolutionModeOverride(c: *Checker, node: *anyopaque, reportErrors: *anyopaque) *anyopaque {
@@ -9239,12 +9245,17 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn reportTypeNotIterableError(c: *Checker, errorNode: *anyopaque, t: *anyopaque, allowAsyncIterables: *anyopaque) *anyopaque {
-        _ = c;
-        _ = errorNode;
-        _ = t;
-        _ = allowAsyncIterables;
-        return undefined;
+    /// Port of checker.go::reportTypeNotIterableError. Reports that a
+    /// type is not iterable. Simplified: reports error and returns `t`.
+    pub fn reportTypeNotIterableError(c: *Checker, error_node: ast_gen.NodeIndex, t: types.TypeIndex, allow_async_iterables: bool) types.TypeIndex {
+        _ = allow_async_iterables;
+        const type_str = c.typeToString(t, 0, 0, null);
+        c.addDiagnostic(.{
+            .nodeIndex = error_node,
+            .message = &diagnostics_gen.Type_0_must_have_a_Symbol_iterator_method_that_returns_an_iterator,
+            .args = &[_][]const u8{type_str},
+        });
+        return t;
     }
 
     pub fn getIterationDiagnosticDetails(c: *Checker, use: *anyopaque, inputType: *anyopaque, allowsStrings: *anyopaque) bool {
@@ -9545,10 +9556,19 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn reportObjectPossiblyNullOrUndefinedError(c: *Checker, node: *anyopaque, facts: *anyopaque) void {
-        _ = c;
-        _ = node;
-        _ = facts;
+    /// Port of checker.go::reportObjectPossiblyNullOrUndefinedError.
+    /// Reports that an object is possibly null or undefined. Simplified:
+    /// reports the appropriate diagnostic based on facts.
+    pub fn reportObjectPossiblyNullOrUndefinedError(c: *Checker, node: ast_gen.NodeIndex, facts: u32) void {
+        const is_null = (facts & types.TypeFacts.EQNull) != 0;
+        const is_undefined = (facts & types.TypeFacts.EQUndefined) != 0;
+        if (is_null and is_undefined) {
+            c.reportError(node, &diagnostics_gen.Object_is_possibly_null_or_undefined);
+        } else if (is_null) {
+            c.reportError(node, &diagnostics_gen.Object_is_possibly_null);
+        } else if (is_undefined) {
+            c.reportError(node, &diagnostics_gen.Object_is_possibly_undefined);
+        }
     }
 
     pub fn checkExpressionWithContextualType(c: *Checker, node: ast_gen.NodeIndex, contextualType: types.TypeIndex, inferenceContext: u32, checkMode: CheckMode) types.TypeIndex {
@@ -10029,12 +10049,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn reportCallResolutionErrors(c: *Checker, node: *anyopaque, s: *anyopaque, signatures: *anyopaque, headMessage: *anyopaque) void {
+    /// Port of checker.go::reportCallResolutionErrors. Reports call
+    /// resolution errors for a call expression. Simplified: no-op.
+    pub fn reportCallResolutionErrors(c: *Checker, node: ast_gen.NodeIndex, sig: types.SignatureIndex, signatures: anytype, head_message: ?*const diagnostics_gen.Message) void {
         _ = c;
         _ = node;
-        _ = s;
+        _ = sig;
         _ = signatures;
-        _ = headMessage;
+        _ = head_message;
     }
 
     pub fn addImplementationSuccessElaboration(c: *Checker, s: *anyopaque, failed: *anyopaque, diagnostic: *anyopaque) void {
@@ -10071,10 +10093,11 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn reportCannotInvokePossiblyNullOrUndefinedError(c: *Checker, node: *anyopaque, facts: *anyopaque) void {
-        _ = c;
-        _ = node;
+    /// Port of checker.go::reportCannotInvokePossiblyNullOrUndefinedError.
+    /// Reports that a possibly null/undefined value is being invoked.
+    pub fn reportCannotInvokePossiblyNullOrUndefinedError(c: *Checker, node: ast_gen.NodeIndex, facts: u32) void {
         _ = facts;
+        c.reportError(node, &diagnostics_gen.X_0_is_possibly_undefined);
     }
 
     pub fn resolveUntypedCall(c: *Checker, node: *anyopaque) *anyopaque {
@@ -11761,7 +11784,9 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn reportMergeSymbolError(c: *Checker, target: *anyopaque, source: *anyopaque) void {
+    /// Port of checker.go::reportMergeSymbolError. Reports errors when
+    /// merging symbols with incompatible flags. Simplified: no-op.
+    pub fn reportMergeSymbolError(c: *Checker, target: ast_gen.SymbolIndex, source: ast_gen.SymbolIndex) void {
         _ = c;
         _ = target;
         _ = source;
@@ -11879,9 +11904,11 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn reportNonDefaultExport(c: *Checker, moduleSymbol: *anyopaque, node: *anyopaque) void {
+    /// Port of checker.go::reportNonDefaultExport. Reports that a
+    /// module does not have a default export. Simplified: no-op.
+    pub fn reportNonDefaultExport(c: *Checker, module_symbol: ast_gen.SymbolIndex, node: ast_gen.NodeIndex) void {
         _ = c;
-        _ = moduleSymbol;
+        _ = module_symbol;
         _ = node;
     }
 
@@ -11973,19 +12000,24 @@ pub const Checker = struct {
         _ = name_;
     }
 
-    pub fn reportNonExportedMember(c: *Checker, name_: *anyopaque, declarationName: *anyopaque, moduleSymbol: *anyopaque, moduleName: *anyopaque) void {
+    /// Port of checker.go::reportNonExportedMember. Reports that a
+    /// member is not exported from a module. Simplified: no-op.
+    pub fn reportNonExportedMember(c: *Checker, name_node: ast_gen.NodeIndex, declaration_name: ast_gen.NodeIndex, module_symbol: ast_gen.SymbolIndex, module_name: []const u8) void {
         _ = c;
-        _ = name_;
-        _ = declarationName;
-        _ = moduleSymbol;
-        _ = moduleName;
+        _ = name_node;
+        _ = declaration_name;
+        _ = module_symbol;
+        _ = module_name;
     }
 
-    pub fn reportInvalidImportEqualsExportMember(c: *Checker, name_: *anyopaque, declarationName: *anyopaque, moduleName: *anyopaque) void {
+    /// Port of checker.go::reportInvalidImportEqualsExportMember.
+    /// Reports that an import equals export member is invalid.
+    /// Simplified: no-op.
+    pub fn reportInvalidImportEqualsExportMember(c: *Checker, name_node: ast_gen.NodeIndex, declaration_name: ast_gen.NodeIndex, module_name: []const u8) void {
         _ = c;
-        _ = name_;
-        _ = declarationName;
-        _ = moduleName;
+        _ = name_node;
+        _ = declaration_name;
+        _ = module_name;
     }
 
     pub fn getTargetOfExportSpecifier(c: *Checker, node: *anyopaque, meaning: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
@@ -13001,10 +13033,11 @@ pub const Checker = struct {
         return true;
     }
 
-    pub fn reportCircularityError(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    /// Port of checker.go::reportCircularityError. Reports a circular
+    /// type reference error. Simplified: no-op.
+    pub fn reportCircularityError(c: *Checker, sym: ast_gen.SymbolIndex) void {
         _ = c;
-        _ = symbol_;
-        return undefined;
+        _ = sym;
     }
 
     pub fn getPropertyOfTypeEx(c: *Checker, t: types.TypeIndex, name_: *anyopaque, skipObjectFunctionPropertyAugment: *anyopaque, includeTypeOnlyMembers: *anyopaque) *anyopaque {
@@ -13536,11 +13569,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn reportErrorsFromWidening(c: *Checker, declaration: *anyopaque, t: *anyopaque, wideningKind: *anyopaque) void {
+    /// Port of checker.go::reportErrorsFromWidening. Reports errors
+    /// from widening a literal type. Simplified: no-op.
+    pub fn reportErrorsFromWidening(c: *Checker, declaration: ast_gen.NodeIndex, t: types.TypeIndex, widening_kind: u32) void {
         _ = c;
         _ = declaration;
         _ = t;
-        _ = wideningKind;
+        _ = widening_kind;
     }
 
     pub fn shouldReportErrorsFromWideningWithContextualSignature(c: *Checker, declaration: *anyopaque, wideningKind: *anyopaque) bool {
@@ -13550,7 +13585,9 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn reportWideningErrorsInType(c: *Checker, t: *anyopaque) bool {
+    /// Port of checker.go::reportWideningErrorsInType. Reports widening
+    /// errors in a type. Simplified: returns false.
+    pub fn reportWideningErrorsInType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
