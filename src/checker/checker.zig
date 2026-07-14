@@ -9394,21 +9394,28 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkTypeParametersNotReferenced(c: *Checker, root: *anyopaque, typeParameters: *anyopaque, index: *anyopaque) void {
+    /// Port of checker.go::checkTypeParametersNotReferenced. Validates
+    /// that type parameters are not referenced outside their scope.
+    /// Simplified: no-op.
+    pub fn checkTypeParametersNotReferenced(c: *Checker, root: ast_gen.NodeIndex, type_parameters: ast_gen.NodeIndex, index: u32) void {
         _ = c;
         _ = root;
-        _ = typeParameters;
+        _ = type_parameters;
         _ = index;
     }
 
-    pub fn registerForUnusedIdentifiersCheck(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::registerForUnusedIdentifiersCheck. Registers
+    /// a node for unused identifier checking. Simplified: no-op.
+    pub fn registerForUnusedIdentifiersCheck(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn checkUnusedIdentifiers(c: *Checker, potentiallyUnusedIdentifiers: *anyopaque) void {
+    /// Port of checker.go::checkUnusedIdentifiers. Checks for unused
+    /// identifiers. Simplified: no-op.
+    pub fn checkUnusedIdentifiers(c: *Checker, potentially_unused_identifiers: anytype) void {
         _ = c;
-        _ = potentiallyUnusedIdentifiers;
+        _ = potentially_unused_identifiers;
     }
 
     pub fn isReferenced_stub(c: *Checker, symbol_: *anyopaque) bool {
@@ -10905,17 +10912,22 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkThisInStaticClassFieldInitializerInDecoratedClass(c: *Checker, thisExpression: *anyopaque, container: *anyopaque) void {
+    /// Port of checker.go::checkThisInStaticClassFieldInitializerInDecoratedClass.
+    /// Simplified: no-op.
+    pub fn checkThisInStaticClassFieldInitializerInDecoratedClass(c: *Checker, this_expression: ast_gen.NodeIndex, container: ast_gen.NodeIndex) void {
         _ = c;
-        _ = thisExpression;
+        _ = this_expression;
         _ = container;
     }
 
-    pub fn checkThisBeforeSuper(c: *Checker, node: *anyopaque, container: *anyopaque, diagnosticMessage: *anyopaque) void {
+    /// Port of checker.go::checkThisBeforeSuper. Validates that `this`
+    /// is not used before super() in a derived class constructor.
+    /// Simplified: no-op.
+    pub fn checkThisBeforeSuper(c: *Checker, node: ast_gen.NodeIndex, container: ast_gen.NodeIndex, diagnostic_message: ?*const diagnostics_gen.Message) void {
         _ = c;
         _ = node;
         _ = container;
-        _ = diagnosticMessage;
+        _ = diagnostic_message;
     }
 
     /// Port of `checker.go::classDeclarationExtendsNull`. Returns true if
@@ -10939,9 +10951,11 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkAssertionDeferred(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
+    /// Port of checker.go::checkAssertionDeferred. Deferred checking of
+    /// assertion expressions (as, satisfies). Simplified: delegates to
+    /// checkSourceElement.
+    pub fn checkAssertionDeferred(c: *Checker, node: ast_gen.NodeIndex) void {
+        checkSourceElement(c, node);
     }
 
     pub fn checkBinaryLikeExpression(c: *Checker, left: ast_gen.NodeIndex, operatorToken: ast_gen.NodeIndex, right: ast_gen.NodeIndex, checkMode: CheckMode, errorNode: ast_gen.NodeIndex) types.TypeIndex {
