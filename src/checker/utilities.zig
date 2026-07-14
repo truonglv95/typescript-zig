@@ -1193,10 +1193,15 @@ pub fn compareSymbolsWorker(c: *Checker, s1: ast_gen.SymbolIndex, s2: ast_gen.Sy
     return if (s1 > s2) 1 else -1;
 }
 
+/// Port of checker.go::checkNotCanceled. Throws if the checker has been
+/// canceled (e.g., via a cancellation token from the language service).
+/// Simplified: no-op since we don't have cancellation support.
 pub fn checkNotCanceled(c: *Checker) void {
     _ = c;
 }
 
+/// Port of checker.go::isCanceled. Returns true if the checker has been
+/// canceled. Simplified: always returns false.
 pub fn isCanceled(c: *Checker) bool {
     _ = c;
     return false;
