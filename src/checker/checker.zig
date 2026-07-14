@@ -7935,42 +7935,51 @@ pub const Checker = struct {
         _ = value;
     }
 
-    pub fn checkAndReportErrorForInvalidInitializer(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, propertyWithInvalidInitializer: *anyopaque, result: *anyopaque) bool {
+    /// Port of checker.go::checkAndReportErrorForInvalidInitializer.
+    /// Simplified: no-op, returns false.
+    pub fn checkAndReportErrorForInvalidInitializer(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, property_with_invalid: ast_gen.NodeIndex, result: ast_gen.NodeIndex) bool {
         _ = c;
-        _ = errorLocation;
-        _ = name_;
-        _ = propertyWithInvalidInitializer;
+        _ = error_location;
+        _ = name_node;
+        _ = property_with_invalid;
         _ = result;
         return false;
     }
 
-    pub fn checkAndReportErrorForMissingPrefix(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque) bool {
+    /// Port of checker.go::checkAndReportErrorForMissingPrefix.
+    /// Simplified: no-op, returns false.
+    pub fn checkAndReportErrorForMissingPrefix(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) bool {
         _ = c;
-        _ = errorLocation;
-        _ = name_;
+        _ = error_location;
+        _ = name_node;
         return false;
     }
 
-    pub fn onFailedToResolveSymbol(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque, nameNotFoundMessage: *anyopaque) void {
+    /// Port of checker.go::onFailedToResolveSymbol. Simplified: no-op.
+    pub fn onFailedToResolveSymbol(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32, name_not_found_message: ?*const diagnostics_gen.Message) void {
         _ = c;
-        _ = errorLocation;
-        _ = name_;
+        _ = error_location;
+        _ = name_node;
         _ = meaning;
-        _ = nameNotFoundMessage;
+        _ = name_not_found_message;
     }
 
-    pub fn checkAndReportErrorForUsingTypeAsNamespace(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
+    /// Port of checker.go::checkAndReportErrorForUsingTypeAsNamespace.
+    /// Simplified: no-op, returns false.
+    pub fn checkAndReportErrorForUsingTypeAsNamespace(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32) bool {
         _ = c;
-        _ = errorLocation;
-        _ = name_;
+        _ = error_location;
+        _ = name_node;
         _ = meaning;
         return false;
     }
 
-    pub fn checkAndReportErrorForExportingPrimitiveType(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque) bool {
+    /// Port of checker.go::checkAndReportErrorForExportingPrimitiveType.
+    /// Simplified: no-op, returns false.
+    pub fn checkAndReportErrorForExportingPrimitiveType(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) bool {
         _ = c;
-        _ = errorLocation;
-        _ = name_;
+        _ = error_location;
+        _ = name_node;
         return false;
     }
 
@@ -7985,18 +7994,22 @@ pub const Checker = struct {
             std.mem.eql(u8, s, "unknown");
     }
 
-    pub fn checkAndReportErrorForUsingNamespaceAsTypeOrValue(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
+    /// Port of checker.go::checkAndReportErrorForUsingNamespaceAsTypeOrValue.
+    /// Simplified: no-op, returns false.
+    pub fn checkAndReportErrorForUsingNamespaceAsTypeOrValue(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32) bool {
         _ = c;
-        _ = errorLocation;
-        _ = name_;
+        _ = error_location;
+        _ = name_node;
         _ = meaning;
         return false;
     }
 
-    pub fn checkAndReportErrorForUsingTypeAsValue(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
+    /// Port of checker.go::checkAndReportErrorForUsingTypeAsValue.
+    /// Simplified: no-op, returns false.
+    pub fn checkAndReportErrorForUsingTypeAsValue(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32) bool {
         _ = c;
-        _ = errorLocation;
-        _ = name_;
+        _ = error_location;
+        _ = name_node;
         _ = meaning;
         return false;
     }
@@ -8019,10 +8032,12 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkAndReportErrorForUsingValueAsType(c: *Checker, errorLocation: *anyopaque, name_: *anyopaque, meaning: *anyopaque) bool {
+    /// Port of checker.go::checkAndReportErrorForUsingValueAsType.
+    /// Simplified: no-op, returns false.
+    pub fn checkAndReportErrorForUsingValueAsType(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32) bool {
         _ = c;
-        _ = errorLocation;
-        _ = name_;
+        _ = error_location;
+        _ = name_node;
         _ = meaning;
         return false;
     }
@@ -8072,10 +8087,12 @@ pub const Checker = struct {
         _ = withinDeferredContext;
     }
 
-    pub fn checkResolvedBlockScopedVariable(c: *Checker, result: *anyopaque, errorLocation: *anyopaque) void {
+    /// Port of checker.go::checkResolvedBlockScopedVariable. Validates
+    /// that a block-scoped variable is declared before use. Simplified: no-op.
+    pub fn checkResolvedBlockScopedVariable(c: *Checker, result: ast_gen.NodeIndex, error_location: ast_gen.NodeIndex) void {
         _ = c;
         _ = result;
-        _ = errorLocation;
+        _ = error_location;
     }
 
     pub fn isBlockScopedNameDeclaredBeforeUse(c: *Checker, declaration: *anyopaque, usage: *anyopaque) bool {
@@ -8346,10 +8363,12 @@ pub const Checker = struct {
         }
     }
 
-    pub fn checkTypeArgumentConstraints(c: *Checker, node: *anyopaque, typeParameters: *anyopaque) bool {
+    /// Port of checker.go::checkTypeArgumentConstraints. Validates that
+    /// type arguments satisfy type parameter constraints. Simplified: no-op.
+    pub fn checkTypeArgumentConstraints(c: *Checker, node: ast_gen.NodeIndex, type_parameters: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
-        _ = typeParameters;
+        _ = type_parameters;
         return false;
     }
 
@@ -8365,11 +8384,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkIfTypePredicateVariableIsDeclaredInBindingPattern(c: *Checker, pattern: *anyopaque, predicateVariableNode: *anyopaque, predicateVariableName: *anyopaque) bool {
+    /// Port of checker.go::checkIfTypePredicateVariableIsDeclaredInBindingPattern.
+    /// Simplified: no-op, returns false.
+    pub fn checkIfTypePredicateVariableIsDeclaredInBindingPattern(c: *Checker, pattern: ast_gen.NodeIndex, predicate_variable_node: ast_gen.NodeIndex, predicate_variable_name: ast_gen.NodeIndex) bool {
         _ = c;
         _ = pattern;
-        _ = predicateVariableNode;
-        _ = predicateVariableName;
+        _ = predicate_variable_node;
+        _ = predicate_variable_name;
         return false;
     }
 
@@ -8581,7 +8602,9 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkBaseTypeAccessibility(c: *Checker, t: *anyopaque, node: *anyopaque) void {
+    /// Port of checker.go::checkBaseTypeAccessibility. Validates that
+    /// a base type's members are accessible. Simplified: no-op.
+    pub fn checkBaseTypeAccessibility(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = t;
         _ = node;
@@ -8642,22 +8665,26 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkMembersForOverrideModifier(c: *Checker, node: *anyopaque, t: *anyopaque, typeWithThis: *anyopaque, staticType: *anyopaque) void {
+    /// Port of checker.go::checkMembersForOverrideModifier. Validates
+    /// that override modifiers are correct for class members. Simplified: no-op.
+    pub fn checkMembersForOverrideModifier(c: *Checker, node: ast_gen.NodeIndex, t: types.TypeIndex, type_with_this: types.TypeIndex, static_type: types.TypeIndex) void {
         _ = c;
         _ = node;
         _ = t;
-        _ = typeWithThis;
-        _ = staticType;
+        _ = type_with_this;
+        _ = static_type;
     }
 
-    pub fn checkMemberForOverrideModifier(c: *Checker, node: *anyopaque, staticType: *anyopaque, baseStaticType: *anyopaque, baseWithThis: *anyopaque, t: *anyopaque, typeWithThis: *anyopaque, member: *anyopaque) void {
+    /// Port of checker.go::checkMemberForOverrideModifier. Validates
+    /// that a single member's override modifier is correct. Simplified: no-op.
+    pub fn checkMemberForOverrideModifier(c: *Checker, node: ast_gen.NodeIndex, static_type: types.TypeIndex, base_static_type: types.TypeIndex, base_with_this: types.TypeIndex, t: types.TypeIndex, type_with_this: types.TypeIndex, member: ast_gen.SymbolIndex) void {
         _ = c;
         _ = node;
-        _ = staticType;
-        _ = baseStaticType;
-        _ = baseWithThis;
+        _ = static_type;
+        _ = base_static_type;
+        _ = base_with_this;
         _ = t;
-        _ = typeWithThis;
+        _ = type_with_this;
         _ = member;
     }
 
@@ -8668,25 +8695,32 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkIndexConstraints(c: *Checker, t: *anyopaque, symbol_: *anyopaque, isStaticIndex: *anyopaque) void {
+    /// Port of checker.go::checkIndexConstraints. Validates index
+    /// constraints on a type. Simplified: no-op.
+    pub fn checkIndexConstraints(c: *Checker, t: types.TypeIndex, sym: ast_gen.SymbolIndex, is_static_index: bool) void {
         _ = c;
         _ = t;
-        _ = symbol_;
-        _ = isStaticIndex;
+        _ = sym;
+        _ = is_static_index;
     }
 
-    pub fn checkIndexConstraintForProperty(c: *Checker, t: *anyopaque, prop: *anyopaque, propNameType: *anyopaque, propType: *anyopaque) void {
+    /// Port of checker.go::checkIndexConstraintForProperty. Validates
+    /// that a property satisfies index constraints. Simplified: no-op.
+    pub fn checkIndexConstraintForProperty(c: *Checker, t: types.TypeIndex, prop: ast_gen.SymbolIndex, prop_name_type: types.TypeIndex, prop_type: types.TypeIndex) void {
         _ = c;
         _ = t;
         _ = prop;
-        _ = propNameType;
-        _ = propType;
+        _ = prop_name_type;
+        _ = prop_type;
     }
 
-    pub fn checkIndexConstraintForIndexSignature(c: *Checker, t: *anyopaque, checkInfo: *anyopaque) void {
+    /// Port of checker.go::checkIndexConstraintForIndexSignature.
+    /// Validates that an index signature satisfies constraints.
+    /// Simplified: no-op.
+    pub fn checkIndexConstraintForIndexSignature(c: *Checker, t: types.TypeIndex, check_info: types.TypeIndex) void {
         _ = c;
         _ = t;
-        _ = checkInfo;
+        _ = check_info;
     }
 
     /// Port of checker.go::checkClassOrInterfaceForDuplicateIndexSignatures.
@@ -8810,10 +8844,12 @@ pub const Checker = struct {
         }
     }
 
-    pub fn checkInheritedPropertiesAreIdentical(c: *Checker, t: *anyopaque, typeNode: *anyopaque) bool {
+    /// Port of checker.go::checkInheritedPropertiesAreIdentical.
+    /// Validates that inherited properties are identical. Simplified: no-op.
+    pub fn checkInheritedPropertiesAreIdentical(c: *Checker, t: types.TypeIndex, type_node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = t;
-        _ = typeNode;
+        _ = type_node;
         return false;
     }
 
@@ -9544,14 +9580,16 @@ pub const Checker = struct {
         return t;
     }
 
-    pub fn checkNonNullTypeWithReporter(c: *Checker, t: *anyopaque, node1: *anyopaque, reportError_: *anyopaque, node2: *anyopaque, facts: *anyopaque) *anyopaque {
+    /// Port of checker.go::checkNonNullTypeWithReporter. Validates that
+    /// a type is non-null and reports errors via the reporter. Simplified:
+    /// returns `t` unchanged.
+    pub fn checkNonNullTypeWithReporter(c: *Checker, t: types.TypeIndex, node1: ast_gen.NodeIndex, report_error: bool, node2: ast_gen.NodeIndex, facts: u32) types.TypeIndex {
         _ = c;
-        _ = t;
         _ = node1;
-        _ = reportError_;
+        _ = report_error;
         _ = node2;
         _ = facts;
-        return undefined;
+        return t;
     }
 
     pub fn checkNonNullNonVoidType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
