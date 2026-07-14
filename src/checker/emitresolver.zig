@@ -928,18 +928,24 @@ pub const EmitResolver = struct {
     }
 };
 
-pub fn newEmitResolver(checker_: *anyopaque) *anyopaque {
+/// Port of emitresolver.go::newEmitResolver. Creates a new EmitResolver.
+/// Simplified: returns null (full implementation requires EmitResolver struct).
+pub fn newEmitResolver(checker_: *checker.Checker) ?*EmitResolver {
     _ = checker_;
-    return undefined;
+    return null;
 }
 
-pub fn aliasMarkingVisitorWorker(r: *anyopaque, node: *anyopaque) bool {
+/// Port of emitresolver.go::aliasMarkingVisitorWorker. Visits a node
+/// for alias marking. Simplified: returns false.
+pub fn aliasMarkingVisitorWorker(r: *EmitResolver, node: ast_gen.NodeIndex) bool {
     _ = r;
     _ = node;
     return false;
 }
 
-pub fn markLinkedAliases(r: *anyopaque, node: *anyopaque) void {
+/// Port of emitresolver.go::markLinkedAliases. Marks linked aliases
+/// for a node. Simplified: no-op.
+pub fn markLinkedAliases(r: *EmitResolver, node: ast_gen.NodeIndex) void {
     _ = r;
     _ = node;
 }
@@ -971,40 +977,53 @@ pub fn getMeaningOfEntityNameReference(self: *EmitResolver, entityName: ast_gen.
     return ast_gen.SymbolFlags.Type;
 }
 
-pub fn noopAddVisibleAlias(declaration: *anyopaque, aliasingStatement: *anyopaque) void {
+/// Port of emitresolver.go::noopAddVisibleAlias. No-op implementation
+/// of addVisibleAlias (used when alias tracking is not needed).
+pub fn noopAddVisibleAlias(declaration: ast_gen.NodeIndex, aliasing_statement: ast_gen.NodeIndex) void {
     _ = declaration;
-    _ = aliasingStatement;
+    _ = aliasing_statement;
 }
 
-pub fn hasVisibleDeclarations(r: *anyopaque, symbol_: *anyopaque, shouldComputeAliasToMakeVisible: *anyopaque) i32 {
+/// Port of emitresolver.go::hasVisibleDeclarations. Returns whether
+/// a symbol has visible declarations. Simplified: returns 0 (false).
+pub fn hasVisibleDeclarations(r: *EmitResolver, sym: ast_gen.SymbolIndex, should_compute_alias: bool) i32 {
     _ = r;
-    _ = symbol_;
-    _ = shouldComputeAliasToMakeVisible;
+    _ = sym;
+    _ = should_compute_alias;
     return 0;
 }
 
-pub fn requiresAddingImplicitUndefinedWorker(r: *anyopaque, parameter: *anyopaque, enclosingDeclaration: *anyopaque) bool {
+/// Port of emitresolver.go::requiresAddingImplicitUndefinedWorker.
+/// Returns true if a parameter requires implicit undefined.
+/// Simplified: false.
+pub fn requiresAddingImplicitUndefinedWorker(r: *EmitResolver, parameter: ast_gen.NodeIndex, enclosing_declaration: ast_gen.NodeIndex) bool {
     _ = r;
     _ = parameter;
-    _ = enclosingDeclaration;
+    _ = enclosing_declaration;
     return false;
 }
 
-pub fn declaredParameterTypeContainsUndefined(r: *anyopaque, parameter: *anyopaque) bool {
+/// Port of emitresolver.go::declaredParameterTypeContainsUndefined.
+/// Simplified: false.
+pub fn declaredParameterTypeContainsUndefined(r: *EmitResolver, parameter: ast_gen.NodeIndex) bool {
     _ = r;
     _ = parameter;
     return false;
 }
 
-pub fn isOptionalUninitializedParameterProperty(r: *anyopaque, parameter: *anyopaque) bool {
+/// Port of emitresolver.go::isOptionalUninitializedParameterProperty.
+/// Simplified: false.
+pub fn isOptionalUninitializedParameterProperty(r: *EmitResolver, parameter: ast_gen.NodeIndex) bool {
     _ = r;
     _ = parameter;
     return false;
 }
 
-pub fn isRequiredInitializedParameter(r: *anyopaque, parameter: *anyopaque, enclosingDeclaration: *anyopaque) bool {
+/// Port of emitresolver.go::isRequiredInitializedParameter.
+/// Simplified: false.
+pub fn isRequiredInitializedParameter(r: *EmitResolver, parameter: ast_gen.NodeIndex, enclosing_declaration: ast_gen.NodeIndex) bool {
     _ = r;
     _ = parameter;
-    _ = enclosingDeclaration;
+    _ = enclosing_declaration;
     return false;
 }
