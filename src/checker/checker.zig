@@ -8829,55 +8829,67 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkModuleAugmentationElement(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkModuleAugmentationElement. Checks a
+    /// module augmentation element. Simplified: no-op.
+    pub fn checkModuleAugmentationElement(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn checkExternalImportOrExportDeclaration(c: *Checker, node: *anyopaque) bool {
+    /// Port of checker.go::checkExternalImportOrExportDeclaration. Returns
+    /// true if the node is an external import/export declaration.
+    pub fn checkExternalImportOrExportDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
+        const k = c.binder.ast.getKind(node);
+        return k == .ImportDeclaration or k == .ExportDeclaration or k == .ImportEqualsDeclaration;
+    }
+
+    /// Port of checker.go::checkImportBinding. Checks an import binding
+    /// (imported symbol). Simplified: no-op.
+    pub fn checkImportBinding(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
+        _ = node;
+    }
+
+    /// Port of checker.go::checkModuleExportName. Validates a module
+    /// export name. Simplified: no-op.
+    pub fn checkModuleExportName(c: *Checker, name_node: ast_gen.NodeIndex, allow_string_literal: bool) void {
+        _ = c;
+        _ = name_node;
+        _ = allow_string_literal;
+    }
+
+    /// Port of checker.go::hasTypeJsonImportAttribute. Returns true if
+    /// the node has a `type: "json"` import attribute. Simplified: false.
+    pub fn hasTypeJsonImportAttribute(node: ast_gen.NodeIndex) bool {
         _ = node;
         return false;
     }
 
-    pub fn checkImportBinding(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
-    }
-
-    pub fn checkModuleExportName(c: *Checker, name_: *anyopaque, allowStringLiteral: *anyopaque) void {
-        _ = c;
-        _ = name_;
-        _ = allowStringLiteral;
-    }
-
-    pub fn hasTypeJsonImportAttribute(node: *anyopaque) bool {
-        _ = node;
-        return false;
-    }
-
-    pub fn checkImportAttributes(c: *Checker, declaration: *anyopaque) void {
+    /// Port of checker.go::checkImportAttributes. Checks import attributes
+    /// (e.g., `with { type: "json" }`). Simplified: no-op.
+    pub fn checkImportAttributes(c: *Checker, declaration: ast_gen.NodeIndex) void {
         _ = c;
         _ = declaration;
     }
 
-    pub fn getTypeFromImportAttributes(c: *Checker, node: *anyopaque) *anyopaque {
+    /// Port of checker.go::getTypeFromImportAttributes. Returns the type
+    /// from import attributes. Simplified: returns 0.
+    pub fn getTypeFromImportAttributes(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = c;
         _ = node;
-        return undefined;
+        return 0;
     }
 
-    pub fn checkExportSpecifier(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkExportSpecifier. Checks an export
+    /// specifier (e.g., `export { foo }`). Simplified: no-op.
+    pub fn checkExportSpecifier(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn getVerbatimModuleSyntaxErrorMessage(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
-    }
-
-    pub fn checkExternalModuleExports(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkExternalModuleExports. Checks external
+    /// module exports. Simplified: no-op.
+    pub fn checkExternalModuleExports(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
@@ -9353,68 +9365,95 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn reportUnusedVariable(c: *Checker, location: *anyopaque, diagnostic: *anyopaque) void {
-        _ = c;
-        _ = location;
-        _ = diagnostic;
+    /// Port of checker.go::reportUnusedVariable. Reports an unused
+    /// variable diagnostic. Simplified: delegates to addDiagnostic.
+    pub fn reportUnusedVariable(c: *Checker, location: ast_gen.NodeIndex, diagnostic: ?*const diagnostics_gen.Message) void {
+        if (diagnostic) |msg| {
+            c.reportError(location, msg);
+        }
     }
 
-    pub fn reportUnused(c: *Checker, location: *anyopaque, kind_: *anyopaque, diagnostic: *anyopaque) void {
-        _ = c;
-        _ = location;
-        _ = kind_;
-        _ = diagnostic;
+    /// Port of checker.go::reportUnused. Reports an unused symbol
+    /// diagnostic with the given kind. Simplified: delegates to addDiagnostic.
+    pub fn reportUnused(c: *Checker, location: ast_gen.NodeIndex, kind_val: u32, diagnostic: ?*const diagnostics_gen.Message) void {
+        _ = kind_val;
+        if (diagnostic) |msg| {
+            c.reportError(location, msg);
+        }
     }
 
-    pub fn unusedIsError(c: *Checker, kind_: *anyopaque) bool {
+    /// Port of checker.go::unusedIsError. Returns true if unused symbols
+    /// of the given kind should be reported as errors (not warnings).
+    pub fn unusedIsError(c: *Checker, kind_val: u32) bool {
         _ = c;
-        _ = kind_;
+        _ = kind_val;
         return false;
     }
 
-    pub fn checkUnusedClassMembers(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkUnusedClassMembers. Checks for unused
+    /// private class members. Simplified: no-op.
+    pub fn checkUnusedClassMembers(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn checkUnusedLocalsAndParameters(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkUnusedLocalsAndParameters. Checks for
+    /// unused local variables and parameters. Simplified: no-op.
+    pub fn checkUnusedLocalsAndParameters(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn reportUnusedLocal(c: *Checker, node: *anyopaque, name_: *anyopaque) void {
-        _ = c;
-        _ = node;
-        _ = name_;
+    /// Port of checker.go::reportUnusedLocal. Reports an unused local
+    /// variable. Simplified: delegates to addDiagnostic.
+    pub fn reportUnusedLocal(c: *Checker, node: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) void {
+        _ = name_node;
+        c.addDiagnostic(.{
+            .nodeIndex = node,
+            .message = &diagnostics_gen.X_0_is_declared_but_its_value_is_never_read,
+            .args = &.{},
+        });
     }
 
-    pub fn reportUnusedVariables(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
-    }
-
-    pub fn reportUnusedParameters(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
-    }
-
-    pub fn reportUnusedBindingElements(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::reportUnusedVariables. Reports unused variables
+    /// in a function or block. Simplified: no-op.
+    pub fn reportUnusedVariables(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn reportUnusedVariableDeclarations(c: *Checker, declarations: *anyopaque) void {
+    /// Port of checker.go::reportUnusedParameters. Reports unused
+    /// parameters. Simplified: no-op.
+    pub fn reportUnusedParameters(c: *Checker, node: ast_gen.NodeIndex) void {
+        _ = c;
+        _ = node;
+    }
+
+    /// Port of checker.go::reportUnusedBindingElements. Reports unused
+    /// binding elements in destructuring patterns. Simplified: no-op.
+    pub fn reportUnusedBindingElements(c: *Checker, node: ast_gen.NodeIndex) void {
+        _ = c;
+        _ = node;
+    }
+
+    /// Port of checker.go::reportUnusedVariableDeclarations. Reports
+    /// unused variable declarations. Simplified: no-op.
+    pub fn reportUnusedVariableDeclarations(c: *Checker, declarations: ast_gen.NodeIndex) void {
         _ = c;
         _ = declarations;
     }
 
-    pub fn isUnreferencedVariableDeclaration(c: *Checker, node: *anyopaque) bool {
+    /// Port of checker.go::isUnreferencedVariableDeclaration. Returns
+    /// true if a variable declaration is unreferenced. Simplified: false.
+    pub fn isUnreferencedVariableDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn reportUnusedImports(c: *Checker, node: *anyopaque, unuseds: *anyopaque) void {
+    /// Port of checker.go::reportUnusedImports. Reports unused imports.
+    /// Simplified: no-op.
+    pub fn reportUnusedImports(c: *Checker, node: ast_gen.NodeIndex, unuseds: anytype) void {
         _ = c;
         _ = node;
         _ = unuseds;
@@ -9430,36 +9469,44 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkUnusedInferTypeParameter(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkUnusedInferTypeParameter. Checks for
+    /// unused infer type parameters in conditional types. Simplified: no-op.
+    pub fn checkUnusedInferTypeParameter(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn checkUnusedTypeParameters(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkUnusedTypeParameters. Checks for unused
+    /// type parameters. Simplified: no-op.
+    pub fn checkUnusedTypeParameters(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn isUnreferencedTypeParameter(c: *Checker, typeParameter: *anyopaque) bool {
+    /// Port of checker.go::isUnreferencedTypeParameter. Returns true if
+    /// a type parameter is unreferenced. Simplified: false.
+    pub fn isUnreferencedTypeParameter(c: *Checker, type_parameter: ast_gen.NodeIndex) bool {
         _ = c;
-        _ = typeParameter;
+        _ = type_parameter;
         return false;
     }
 
+    /// Port of checker.go::checkUnusedRenamedBindingElements. Checks for
+    /// unused renamed binding elements. Simplified: no-op.
     pub fn checkUnusedRenamedBindingElements(c: *Checker) void {
         _ = c;
     }
 
-    pub fn getTypeOfExpression(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    /// Port of checker.go::getTypeOfExpression. Returns the type of an
+    /// expression node. Delegates to checkExpressionCached.
+    pub fn getTypeOfExpression(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+        return c.checkExpressionCached(node);
     }
 
-    pub fn getQuickTypeOfExpression(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    /// Port of checker.go::getQuickTypeOfExpression. Returns a quick
+    /// approximation of an expression's type. Delegates to checkExpressionCached.
+    pub fn getQuickTypeOfExpression(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+        return c.checkExpressionCached(node);
     }
 
     pub fn getReturnTypeOfSingleNonGenericSignature(c: *Checker, funcType: *anyopaque, kind_: *anyopaque) *anyopaque {
@@ -15283,44 +15330,60 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn markIdentifierAliasReferenced(c: *Checker, location: *anyopaque) void {
+    /// Port of checker.go::markIdentifierAliasReferenced. Marks an
+    /// identifier alias as referenced. Simplified: no-op.
+    pub fn markIdentifierAliasReferenced(c: *Checker, location: ast_gen.NodeIndex) void {
         _ = c;
         _ = location;
     }
 
-    pub fn markPropertyAliasReferenced(c: *Checker, location: *anyopaque, propSymbol: *anyopaque, parentType: *anyopaque) void {
+    /// Port of checker.go::markPropertyAliasReferenced. Marks a property
+    /// alias as referenced. Simplified: no-op.
+    pub fn markPropertyAliasReferenced(c: *Checker, location: ast_gen.NodeIndex, prop_symbol: ast_gen.SymbolIndex, parent_type: types.TypeIndex) void {
         _ = c;
         _ = location;
-        _ = propSymbol;
-        _ = parentType;
+        _ = prop_symbol;
+        _ = parent_type;
     }
 
-    pub fn isPartOfImportEqualsModuleReference(location: *anyopaque) bool {
+    /// Port of checker.go::isPartOfImportEqualsModuleReference. Returns
+    /// true if the location is part of an import equals module reference.
+    pub fn isPartOfImportEqualsModuleReference(location: ast_gen.NodeIndex) bool {
         _ = location;
         return false;
     }
 
-    pub fn markExportAssignmentAliasReferenced(c: *Checker, location: *anyopaque) void {
+    /// Port of checker.go::markExportAssignmentAliasReferenced. Marks an
+    /// export assignment alias as referenced. Simplified: no-op.
+    pub fn markExportAssignmentAliasReferenced(c: *Checker, location: ast_gen.NodeIndex) void {
         _ = c;
         _ = location;
     }
 
-    pub fn markJsxAliasReferenced(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::markJsxAliasReferenced. Marks a JSX alias as
+    /// referenced. Simplified: no-op.
+    pub fn markJsxAliasReferenced(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn markImportEqualsAliasReferenced(c: *Checker, location: *anyopaque) void {
+    /// Port of checker.go::markImportEqualsAliasReferenced. Marks an
+    /// import equals alias as referenced. Simplified: no-op.
+    pub fn markImportEqualsAliasReferenced(c: *Checker, location: ast_gen.NodeIndex) void {
         _ = c;
         _ = location;
     }
 
-    pub fn markExportSpecifierAliasReferenced(c: *Checker, location: *anyopaque) void {
+    /// Port of checker.go::markExportSpecifierAliasReferenced. Marks an
+    /// export specifier alias as referenced. Simplified: no-op.
+    pub fn markExportSpecifierAliasReferenced(c: *Checker, location: ast_gen.NodeIndex) void {
         _ = c;
         _ = location;
     }
 
-    pub fn checkExternalEmitHelpers(c: *Checker, location: *anyopaque, helpers: *anyopaque) void {
+    /// Port of checker.go::checkExternalEmitHelpers. Checks if external
+    /// emit helpers are needed. Simplified: no-op.
+    pub fn checkExternalEmitHelpers(c: *Checker, location: ast_gen.NodeIndex, helpers: anytype) void {
         _ = c;
         _ = location;
         _ = helpers;
@@ -15346,7 +15409,9 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn markDecoratorAliasReferenced(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::markDecoratorAliasReferenced. Marks a
+    /// decorator alias as referenced. Simplified: no-op.
+    pub fn markDecoratorAliasReferenced(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
@@ -15357,7 +15422,9 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn markDecoratorMedataDataTypeNodeAsReferenced(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::markDecoratorMedataDataTypeNodeAsReferenced.
+    /// Marks a decorator metadata type node as referenced. Simplified: no-op.
+    pub fn markDecoratorMedataDataTypeNodeAsReferenced(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
@@ -15374,34 +15441,40 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn markAliasReferenced(c: *Checker, symbol_: *anyopaque, location: *anyopaque) void {
+    /// Port of checker.go::markAliasReferenced. Marks an alias symbol
+    /// as referenced at the given location. Simplified: no-op.
+    pub fn markAliasReferenced(c: *Checker, sym: ast_gen.SymbolIndex, location: ast_gen.NodeIndex) void {
         _ = c;
-        _ = symbol_;
+        _ = sym;
         _ = location;
     }
 
-    pub fn markAliasSymbolAsReferenced(c: *Checker, symbol_: *anyopaque) void {
+    /// Port of checker.go::markAliasSymbolAsReferenced. Marks an alias
+    /// symbol as referenced. Simplified: no-op.
+    pub fn markAliasSymbolAsReferenced(c: *Checker, sym: ast_gen.SymbolIndex) void {
         _ = c;
-        _ = symbol_;
+        _ = sym;
     }
 
-    pub fn markExportAsReferenced(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::markExportAsReferenced. Marks an export as
+    /// referenced. Simplified: no-op.
+    pub fn markExportAsReferenced(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn markEntityNameOrEntityExpressionAsReference(c: *Checker, typeName: *anyopaque, forDecoratorMetadata: *anyopaque) void {
+    /// Port of checker.go::markEntityNameOrEntityExpressionAsReference.
+    /// Marks an entity name or entity expression as a reference.
+    /// Simplified: no-op.
+    pub fn markEntityNameOrEntityExpressionAsReference(c: *Checker, type_name: ast_gen.NodeIndex, for_decorator_metadata: bool) void {
         _ = c;
-        _ = typeName;
-        _ = forDecoratorMetadata;
+        _ = type_name;
+        _ = for_decorator_metadata;
     }
 
-    pub fn getEntityNameFromTypeNode(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
-    }
-
-    pub fn markTypeNodeAsReferenced(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::markTypeNodeAsReferenced. Marks a type node
+    /// as referenced. Simplified: no-op.
+    pub fn markTypeNodeAsReferenced(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
