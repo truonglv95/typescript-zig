@@ -10784,25 +10784,29 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkPropertyAccessibilityEx(c: *Checker, node: *anyopaque, isSuper: *anyopaque, writing: *anyopaque, t: *anyopaque, prop: *anyopaque, reportError_: *anyopaque) bool {
+    /// Port of checker.go::checkPropertyAccessibilityEx. Validates that
+    /// a property is accessible from the current context. Simplified: false.
+    pub fn checkPropertyAccessibilityEx(c: *Checker, node: ast_gen.NodeIndex, is_super: bool, writing: bool, t: types.TypeIndex, prop: ast_gen.SymbolIndex, report_error: bool) bool {
         _ = c;
         _ = node;
-        _ = isSuper;
+        _ = is_super;
         _ = writing;
         _ = t;
         _ = prop;
-        _ = reportError_;
+        _ = report_error;
         return false;
     }
 
-    pub fn checkPropertyAccessibilityAtLocation(c: *Checker, location: *anyopaque, isSuper: *anyopaque, writing: *anyopaque, containingType: *anyopaque, prop: *anyopaque, errorNode: *anyopaque) bool {
+    /// Port of checker.go::checkPropertyAccessibilityAtLocation. Validates
+    /// property accessibility at a specific location. Simplified: false.
+    pub fn checkPropertyAccessibilityAtLocation(c: *Checker, location: ast_gen.NodeIndex, is_super: bool, writing: bool, containing_type: types.TypeIndex, prop: ast_gen.SymbolIndex, error_node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = location;
-        _ = isSuper;
+        _ = is_super;
         _ = writing;
-        _ = containingType;
+        _ = containing_type;
         _ = prop;
-        _ = errorNode;
+        _ = error_node;
         return false;
     }
 
@@ -11262,21 +11266,27 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkNaNEquality(c: *Checker, errorNode: *anyopaque, operator: *anyopaque, left: *anyopaque, right: *anyopaque) void {
+    /// Port of checker.go::checkNaNEquality. Reports warnings when NaN
+    /// is compared with === or !==. Simplified: no-op.
+    pub fn checkNaNEquality(c: *Checker, error_node: ast_gen.NodeIndex, operator: ast_gen.NodeIndex, left: ast_gen.NodeIndex, right: ast_gen.NodeIndex) void {
         _ = c;
-        _ = errorNode;
+        _ = error_node;
         _ = operator;
         _ = left;
         _ = right;
     }
 
-    pub fn isGlobalNaN(c: *Checker, expr: *anyopaque) bool {
+    /// Port of checker.go::isGlobalNaN. Returns true if expr is the
+    /// global `NaN` identifier. Simplified: false.
+    pub fn isGlobalNaN(c: *Checker, expr: ast_gen.NodeIndex) bool {
         _ = c;
         _ = expr;
         return false;
     }
 
-    pub fn isTypeEqualityComparableTo(c: *Checker, source: *anyopaque, target: *anyopaque) bool {
+    /// Port of checker.go::isTypeEqualityComparableTo. Returns true if
+    /// source is equality-comparable to target. Simplified: false.
+    pub fn isTypeEqualityComparableTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
         _ = c;
         _ = source;
         _ = target;
