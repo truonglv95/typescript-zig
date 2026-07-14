@@ -13706,16 +13706,22 @@ pub const Checker = struct {
         return c.anyTypeIndex orelse 0;
     }
 
-    pub fn createPromiseType(c: *Checker, promisedType: *anyopaque) *anyopaque {
-        _ = c;
-        _ = promisedType;
-        return undefined;
+    pub fn createPromiseType(c: *Checker, promisedType: ast_gen.NodeIndex) types.TypeIndex {
+        if (promisedType == 0) return c.anyTypeIndex orelse 0;
+        const sym = resolveName(c, null, "Promise", @import("../ast/symbol.zig").SymbolFlags.Class, null, false, false);
+        if (sym == 0 or sym == c.unknownSymbol) return c.anyTypeIndex orelse 0;
+        const target = c.getDeclaredTypeOfSymbol(sym);
+        if (target == 0) return c.anyTypeIndex orelse 0;
+        return c.createTypeReferenceEx(target, &[_]types.TypeIndex{promisedType}, 0) catch (c.anyTypeIndex orelse 0);
     }
 
-    pub fn createPromiseLikeType(c: *Checker, promisedType: *anyopaque) *anyopaque {
-        _ = c;
-        _ = promisedType;
-        return undefined;
+    pub fn createPromiseLikeType(c: *Checker, promisedType: ast_gen.NodeIndex) types.TypeIndex {
+        if (promisedType == 0) return c.anyTypeIndex orelse 0;
+        const sym = resolveName(c, null, "PromiseLike", @import("../ast/symbol.zig").SymbolFlags.Interface, null, false, false);
+        if (sym == 0 or sym == c.unknownSymbol) return c.anyTypeIndex orelse 0;
+        const target = c.getDeclaredTypeOfSymbol(sym);
+        if (target == 0) return c.anyTypeIndex orelse 0;
+        return c.createTypeReferenceEx(target, &[_]types.TypeIndex{promisedType}, 0) catch (c.anyTypeIndex orelse 0);
     }
 
     pub fn createPromiseReturnType(c: *Checker, fn_: *anyopaque, promisedType: *anyopaque) *anyopaque {
@@ -16657,7 +16663,7 @@ pub const Checker = struct {
         if (parentKind == .ElementAccessExpression and ast_utils.getExpressionOfNode(ast_data, parent) == node) {
             const parentNode = ast_data.getNode(parent).ElementAccessExpression;
             if (c.someType(t, isGenericTypeWithoutNullableConstraintMap, {})) {
-                if (c.isGenericIndexType(@intCast(@intFromPtr(c.getTypeOfExpression(@ptrFromInt(parentNode.ArgumentExpression)))))) {
+                if (c.isGenericIndexType(c.getTypeOfExpression(parentNode.ArgumentExpression))) {
                     return false;
                 }
             }
@@ -17354,8 +17360,8 @@ pub fn checkSourceElementWorker(c: *Checker, node_idx: ast_gen.NodeIndex) void {
         .ImportEqualsDeclaration => checkImportEqualsDeclaration(c, node_idx),
         .ExportDeclaration => checkExportDeclaration(c, node_idx),
         .ExportAssignment => checkExportAssignment(c, node_idx),
-        .EmptyStatement => checkGrammarStatementInAmbientContext(c, node_idx),
-        .DebuggerStatement => checkGrammarStatementInAmbientContext(c, node_idx),
+        .EmptyStatement => _ = checkGrammarStatementInAmbientContext(c, node_idx),
+        .DebuggerStatement => _ = checkGrammarStatementInAmbientContext(c, node_idx),
         .MissingDeclaration => checkMissingDeclaration(c, node_idx),
         .JSDocNonNullableType, .JSDocNullableType, .JSDocAllType, .JSDocTypeLiteral => checkJSDocType(c, node_idx),
         else => {},
@@ -17416,7 +17422,7 @@ pub fn checkBlock(c: *Checker, node_idx: ast_gen.NodeIndex) void {
 pub fn checkBreakOrContinueStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     // Port of checker.go::checkBreakOrContinueStatement.
     // Checks grammar for break/continue in ambient context.
-    _ = c.checkGrammarStatementInAmbientContext(node_idx);
+    _ = checkGrammarStatementInAmbientContext(c, node_idx);
 }
 pub fn checkClassDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const cd = c.binder.ast.nodes.get(node_idx).ClassDeclaration;
@@ -17461,7 +17467,7 @@ pub fn checkSpreadAssignment(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     _ = checkExpression(c, node.Expression);
 }
 pub fn checkDoStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    checkGrammarStatementInAmbientContext(c, node_idx);
+    _ = checkGrammarStatementInAmbientContext(c, node_idx);
     const node = c.binder.ast.getNode(node_idx).DoStatement;
     if (node.Statement != 0) checkSourceElement(c, node.Statement);
     _ = c.checkTruthinessExpression(node.Expression, CheckMode.Normal);
@@ -17492,7 +17498,7 @@ pub fn checkExportDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkExpressionStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    checkGrammarStatementInAmbientContext(c, node_idx);
+    _ = checkGrammarStatementInAmbientContext(c, node_idx);
     const expr = c.binder.ast.nodes.get(node_idx).ExpressionStatement.Expression;
     _ = checkExpression(c, expr);
 }
@@ -18036,7 +18042,7 @@ pub fn checkVariableDeclarationList(c: *Checker, node_idx: ast_gen.NodeIndex) vo
     }
 }
 pub fn checkWhileStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    checkGrammarStatementInAmbientContext(c, node_idx);
+    _ = checkGrammarStatementInAmbientContext(c, node_idx);
     const node = c.binder.ast.getNode(node_idx).WhileStatement;
     _ = c.checkTruthinessExpression(node.Expression, CheckMode.Normal);
     if (node.Statement != 0) checkSourceElement(c, node.Statement);
@@ -18313,7 +18319,7 @@ pub fn checkExpressionWorker(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode
             return c.anyTypeIndex orelse 0;
         },
         .EmptyStatement => {
-            checkGrammarStatementInAmbientContext(c, node_idx);
+            _ = checkGrammarStatementInAmbientContext(c, node_idx);
             return c.anyTypeIndex orelse 0;
         },
         .TemplateExpression => {
