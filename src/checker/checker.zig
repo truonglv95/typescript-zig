@@ -11153,48 +11153,53 @@ pub const Checker = struct {
         return c.anyTypeIndex orelse 0;
     }
 
-    pub fn checkObjectLiteralAssignment(c: *Checker, node: *anyopaque, sourceType: *anyopaque, rightIsThis: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkObjectLiteralAssignment. Checks an
+    /// object literal assignment. Simplified: returns anyType.
+    pub fn checkObjectLiteralAssignment(c: *Checker, node: ast_gen.NodeIndex, source_type: types.TypeIndex, right_is_this: bool) types.TypeIndex {
         _ = node;
-        _ = sourceType;
-        _ = rightIsThis;
-        return undefined;
+        _ = source_type;
+        _ = right_is_this;
+        return c.anyTypeIndex orelse 0;
     }
 
-    pub fn checkObjectLiteralDestructuringPropertyAssignment(c: *Checker, node: *anyopaque, objectLiteralType: *anyopaque, propertyIndex: *anyopaque, allProperties: *anyopaque, rightIsThis: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkObjectLiteralDestructuringPropertyAssignment.
+    /// Simplified: returns anyType.
+    pub fn checkObjectLiteralDestructuringPropertyAssignment(c: *Checker, node: ast_gen.NodeIndex, object_literal_type: types.TypeIndex, property_index: u32, all_properties: u32, right_is_this: bool) types.TypeIndex {
         _ = node;
-        _ = objectLiteralType;
-        _ = propertyIndex;
-        _ = allProperties;
-        _ = rightIsThis;
-        return undefined;
+        _ = object_literal_type;
+        _ = property_index;
+        _ = all_properties;
+        _ = right_is_this;
+        return c.anyTypeIndex orelse 0;
     }
 
-    pub fn checkArrayLiteralAssignment(c: *Checker, node: *anyopaque, sourceType: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkArrayLiteralAssignment. Simplified:
+    /// returns anyType.
+    pub fn checkArrayLiteralAssignment(c: *Checker, node: ast_gen.NodeIndex, source_type: types.TypeIndex, check_mode: CheckMode) types.TypeIndex {
         _ = node;
-        _ = sourceType;
-        _ = checkMode;
-        return undefined;
+        _ = source_type;
+        _ = check_mode;
+        return c.anyTypeIndex orelse 0;
     }
 
-    pub fn checkArrayLiteralDestructuringElementAssignment(c: *Checker, node: *anyopaque, sourceType: *anyopaque, elementIndex: *anyopaque, elementType: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkArrayLiteralDestructuringElementAssignment.
+    /// Simplified: returns anyType.
+    pub fn checkArrayLiteralDestructuringElementAssignment(c: *Checker, node: ast_gen.NodeIndex, source_type: types.TypeIndex, element_index: u32, element_type: types.TypeIndex, check_mode: CheckMode) types.TypeIndex {
         _ = node;
-        _ = sourceType;
-        _ = elementIndex;
-        _ = elementType;
-        _ = checkMode;
-        return undefined;
+        _ = source_type;
+        _ = element_index;
+        _ = element_type;
+        _ = check_mode;
+        return c.anyTypeIndex orelse 0;
     }
 
-    pub fn checkReferenceAssignment(c: *Checker, target: *anyopaque, sourceType: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkReferenceAssignment. Simplified:
+    /// returns anyType.
+    pub fn checkReferenceAssignment(c: *Checker, target: ast_gen.NodeIndex, source_type: types.TypeIndex, check_mode: CheckMode) types.TypeIndex {
         _ = target;
-        _ = sourceType;
-        _ = checkMode;
-        return undefined;
+        _ = source_type;
+        _ = check_mode;
+        return c.anyTypeIndex orelse 0;
     }
 
     pub fn reportOperatorError(c: *Checker, leftType: types.TypeIndex, operator: kind.Kind, rightType: types.TypeIndex, errorNode: ast_gen.NodeIndex, isRelated: ?*const fn (*Checker, types.TypeIndex, types.TypeIndex) bool) void {
@@ -11358,26 +11363,30 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkInstanceOfExpression(c: *Checker, left: *anyopaque, right: *anyopaque, leftType: *anyopaque, rightType: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkInstanceOfExpression. Checks an
+    /// instanceof expression. Simplified: returns booleanType.
+    pub fn checkInstanceOfExpression(c: *Checker, left: ast_gen.NodeIndex, right: ast_gen.NodeIndex, left_type: types.TypeIndex, right_type: types.TypeIndex, check_mode: CheckMode) types.TypeIndex {
         _ = left;
         _ = right;
-        _ = leftType;
-        _ = rightType;
-        _ = checkMode;
-        return undefined;
+        _ = left_type;
+        _ = right_type;
+        _ = check_mode;
+        return c.booleanTypeIndex orelse (c.anyTypeIndex orelse 0);
     }
 
-    pub fn checkInExpression(c: *Checker, left: *anyopaque, right: *anyopaque, leftType: *anyopaque, rightType: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkInExpression. Checks an `in` expression.
+    /// Simplified: returns booleanType.
+    pub fn checkInExpression(c: *Checker, left: ast_gen.NodeIndex, right: ast_gen.NodeIndex, left_type: types.TypeIndex, right_type: types.TypeIndex) types.TypeIndex {
         _ = left;
         _ = right;
-        _ = leftType;
-        _ = rightType;
-        return undefined;
+        _ = left_type;
+        _ = right_type;
+        return c.booleanTypeIndex orelse (c.anyTypeIndex orelse 0);
     }
 
-    pub fn hasEmptyObjectIntersection(c: *Checker, t: *anyopaque) bool {
+    /// Port of checker.go::hasEmptyObjectIntersection. Returns true if
+    /// type `t` is an empty object intersection. Simplified: false.
+    pub fn hasEmptyObjectIntersection(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -11405,7 +11414,9 @@ pub const Checker = struct {
         return true;
     }
 
-    pub fn checkSpreadPropOverrides(c: *Checker, t: *anyopaque, props: *anyopaque, spread: *anyopaque) void {
+    /// Port of checker.go::checkSpreadPropOverrides. Validates that
+    /// spread properties don't override existing properties. Simplified: no-op.
+    pub fn checkSpreadPropOverrides(c: *Checker, t: types.TypeIndex, props: ast_gen.NodeIndex, spread: ast_gen.NodeIndex) void {
         _ = c;
         _ = t;
         _ = props;
@@ -11707,18 +11718,19 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkObjectLiteralMethod(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return undefined;
+    /// Port of checker.go::checkObjectLiteralMethod. Checks an object
+    /// literal method. Simplified: delegates to checkExpressionCached.
+    pub fn checkObjectLiteralMethod(c: *Checker, node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
+        _ = check_mode;
+        return c.checkExpressionCached(node);
     }
 
-    pub fn checkExpressionForMutableLocation(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return undefined;
+    /// Port of checker.go::checkExpressionForMutableLocation. Checks an
+    /// expression in a mutable location (assignment target). Simplified:
+    /// delegates to checkExpressionCached.
+    pub fn checkExpressionForMutableLocation(c: *Checker, node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
+        _ = check_mode;
+        return c.checkExpressionCached(node);
     }
 
     pub fn getReferencedValueOrAliasSymbol(c: *Checker, reference: *anyopaque) *anyopaque {
@@ -11974,7 +11986,9 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkAndReportErrorForResolvingImportAliasToTypeOnlySymbol(c: *Checker, node: *anyopaque, resolved: *anyopaque) void {
+    /// Port of checker.go::checkAndReportErrorForResolvingImportAliasToTypeOnlySymbol.
+    /// Simplified: no-op.
+    pub fn checkAndReportErrorForResolvingImportAliasToTypeOnlySymbol(c: *Checker, node: ast_gen.NodeIndex, resolved: ast_gen.SymbolIndex) void {
         _ = c;
         _ = node;
         _ = resolved;
@@ -12567,12 +12581,23 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkDeclarationInitializer(c: *Checker, declaration: *anyopaque, checkMode: *anyopaque, contextualType: *anyopaque) *anyopaque {
-        _ = c;
-        _ = declaration;
-        _ = checkMode;
-        _ = contextualType;
-        return undefined;
+    /// Port of checker.go::checkDeclarationInitializer. Checks a
+    /// declaration's initializer expression. Simplified: delegates to
+    /// checkExpressionCached.
+    pub fn checkDeclarationInitializer(c: *Checker, declaration: ast_gen.NodeIndex, check_mode: CheckMode, contextual_type: types.TypeIndex) types.TypeIndex {
+        _ = check_mode;
+        _ = contextual_type;
+        const node_data = c.binder.ast.getNode(declaration);
+        const initializer: ?ast_gen.NodeIndex = switch (node_data) {
+            .VariableDeclaration => |vd| vd.Initializer,
+            .PropertyDeclaration => |pd| pd.Initializer,
+            .BindingElement => |be| be.Initializer,
+            else => null,
+        };
+        if (initializer) |init_node| {
+            if (init_node != 0) return c.checkExpressionCached(init_node);
+        }
+        return c.anyTypeIndex orelse 0;
     }
 
     pub fn padObjectLiteralType(c: *Checker, t: *anyopaque, pattern: *anyopaque) *anyopaque {
@@ -12821,10 +12846,11 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkRightHandSideOfForOf(c: *Checker, statement: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkRightHandSideOfForOf. Checks the
+    /// right-hand side of a for-of statement. Simplified: returns anyType.
+    pub fn checkRightHandSideOfForOf(c: *Checker, statement: ast_gen.NodeIndex) types.TypeIndex {
         _ = statement;
-        return undefined;
+        return c.anyTypeIndex orelse 0;
     }
 
     pub fn getTypeForBindingElement(c: *Checker, declaration: *anyopaque) *anyopaque {
@@ -14112,17 +14138,21 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkNoTypeArguments(c: *Checker, node: *anyopaque, symbol_: *anyopaque) bool {
+    /// Port of checker.go::checkNoTypeArguments. Returns true if the
+    /// node has no type arguments. Simplified: false.
+    pub fn checkNoTypeArguments(c: *Checker, node: ast_gen.NodeIndex, sym: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = node;
-        _ = symbol_;
+        _ = sym;
         return false;
     }
 
-    pub fn isDeferredTypeReferenceNode(c: *Checker, node: *anyopaque, hasDefaultTypeArguments: *anyopaque) bool {
+    /// Port of checker.go::isDeferredTypeReferenceNode. Returns true if
+    /// the node is a deferred type reference. Simplified: false.
+    pub fn isDeferredTypeReferenceNode(c: *Checker, node: ast_gen.NodeIndex, has_default_type_arguments: bool) bool {
         _ = c;
         _ = node;
-        _ = hasDefaultTypeArguments;
+        _ = has_default_type_arguments;
         return false;
     }
 
