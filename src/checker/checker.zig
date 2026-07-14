@@ -9811,9 +9811,13 @@ pub const Checker = struct {
         return undefined;
     }
 
+    /// Port of checker.go::checkImportCallExpression. Checks an
+    /// `import(...)` expression. Returns Promise<any> for dynamic imports.
     pub fn checkImportCallExpression(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = node;
-        return c.anyTypeIndex orelse 0;
+        // import() returns Promise<any>. If Promise type is available,
+        // create Promise<any>; otherwise return anyType.
+        return c.createPromiseType(c.anyTypeIndex orelse 0);
     }
 
     pub fn checkDeprecatedSignature(c: *Checker, sig: types.SignatureIndex, node: ast_gen.NodeIndex) void {
@@ -10424,9 +10428,14 @@ pub const Checker = struct {
         return c.checkExpressionCached(node);
     }
 
+    /// Port of checker.go::checkNonNullChain. Checks a non-null chain
+    /// expression (a?.b!). Delegates to checkExpressionCached for the
+    /// operand, then removes null/undefined from the type.
     pub fn checkNonNullChain(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
-        _ = node;
-        return c.anyTypeIndex orelse 0;
+        const t = c.checkExpressionCached(node);
+        if (t == 0 or t >= c.typesList.items.len) return c.anyTypeIndex orelse 0;
+        // Remove null and undefined from the type.
+        return c.getNonNullableType(t);
     }
 
     pub fn getInstantiationExpressionType(c: *Checker, exprType: *anyopaque, node: *anyopaque) *anyopaque {
@@ -10436,15 +10445,16 @@ pub const Checker = struct {
         return undefined;
     }
 
-    /// Port of checker.go::checkNewTargetMetaProperty. Checks a
-    /// new.target expression. Simplified: returns anyType.
+    /// Port of checker.go::checkNewTargetMetaProperty. Returns the type
+    /// of `new.target`. In a constructor, this is the constructor function
+    /// type or undefined. Simplified: returns anyType.
     pub fn checkNewTargetMetaProperty(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = node;
         return c.anyTypeIndex orelse 0;
     }
 
-    /// Port of checker.go::checkImportMetaProperty. Checks an
-    /// import.meta expression. Simplified: returns anyType.
+    /// Port of checker.go::checkImportMetaProperty. Returns the type of
+    /// `import.meta`. Simplified: returns anyType.
     pub fn checkImportMetaProperty(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = node;
         return c.anyTypeIndex orelse 0;
@@ -11169,60 +11179,68 @@ pub const Checker = struct {
         }
     }
 
+    /// Port of checker.go::checkDestructuringAssignment. Checks a
+    /// destructuring assignment (e.g., `[a, b] = arr`). Returns the
+    /// source type — the assignment doesn't change the type.
     pub fn checkDestructuringAssignment(c: *Checker, node: ast_gen.NodeIndex, sourceType: types.TypeIndex, checkMode: CheckMode, rightIsThis: bool) types.TypeIndex {
         _ = node;
-        _ = sourceType;
         _ = checkMode;
         _ = rightIsThis;
+        if (sourceType != 0) return sourceType;
         return c.anyTypeIndex orelse 0;
     }
 
     /// Port of checker.go::checkObjectLiteralAssignment. Checks an
-    /// object literal assignment. Simplified: returns anyType.
+    /// object literal assignment. Returns the source type.
     pub fn checkObjectLiteralAssignment(c: *Checker, node: ast_gen.NodeIndex, source_type: types.TypeIndex, right_is_this: bool) types.TypeIndex {
         _ = node;
-        _ = source_type;
         _ = right_is_this;
+        if (source_type != 0) return source_type;
         return c.anyTypeIndex orelse 0;
     }
 
     /// Port of checker.go::checkObjectLiteralDestructuringPropertyAssignment.
-    /// Simplified: returns anyType.
+    /// Returns the source type.
     pub fn checkObjectLiteralDestructuringPropertyAssignment(c: *Checker, node: ast_gen.NodeIndex, object_literal_type: types.TypeIndex, property_index: u32, all_properties: u32, right_is_this: bool) types.TypeIndex {
         _ = node;
-        _ = object_literal_type;
         _ = property_index;
         _ = all_properties;
         _ = right_is_this;
+        if (object_literal_type != 0) return object_literal_type;
         return c.anyTypeIndex orelse 0;
     }
 
-    /// Port of checker.go::checkArrayLiteralAssignment. Simplified:
-    /// returns anyType.
+    /// Port of checker.go::checkArrayLiteralAssignment. Returns
+    /// the source type.
     pub fn checkArrayLiteralAssignment(c: *Checker, node: ast_gen.NodeIndex, source_type: types.TypeIndex, check_mode: CheckMode) types.TypeIndex {
         _ = node;
-        _ = source_type;
         _ = check_mode;
+        if (source_type != 0) return source_type;
         return c.anyTypeIndex orelse 0;
     }
 
     /// Port of checker.go::checkArrayLiteralDestructuringElementAssignment.
-    /// Simplified: returns anyType.
+    /// Returns the element type from the source array.
     pub fn checkArrayLiteralDestructuringElementAssignment(c: *Checker, node: ast_gen.NodeIndex, source_type: types.TypeIndex, element_index: u32, element_type: types.TypeIndex, check_mode: CheckMode) types.TypeIndex {
         _ = node;
-        _ = source_type;
         _ = element_index;
-        _ = element_type;
         _ = check_mode;
+        if (element_type != 0) return element_type;
+        // Try to extract element type from source array.
+        if (source_type != 0 and source_type < c.typesList.items.len) {
+            if (c.typesList.items[source_type].data == .Array) {
+                return c.typesList.items[source_type].data.Array.elementType;
+            }
+        }
         return c.anyTypeIndex orelse 0;
     }
 
-    /// Port of checker.go::checkReferenceAssignment. Simplified:
-    /// returns anyType.
+    /// Port of checker.go::checkReferenceAssignment. Returns the
+    /// source type (assignment doesn't change type).
     pub fn checkReferenceAssignment(c: *Checker, target: ast_gen.NodeIndex, source_type: types.TypeIndex, check_mode: CheckMode) types.TypeIndex {
         _ = target;
-        _ = source_type;
         _ = check_mode;
+        if (source_type != 0) return source_type;
         return c.anyTypeIndex orelse 0;
     }
 
@@ -12001,8 +12019,12 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveExternalModuleTypeByLiteral(c: *Checker, name_: ast_gen.NodeIndex) types.TypeIndex {
-        _ = name_;
+    /// Port of checker.go::resolveExternalModuleTypeByLiteral.
+    /// Resolves an external module type by its string literal name.
+    /// Simplified: returns anyType (full implementation requires
+    /// module resolution).
+    pub fn resolveExternalModuleTypeByLiteral(c: *Checker, name_node: ast_gen.NodeIndex) types.TypeIndex {
+        _ = name_node;
         return c.anyTypeIndex orelse 0;
     }
 
@@ -12875,9 +12897,22 @@ pub const Checker = struct {
     }
 
     /// Port of checker.go::checkRightHandSideOfForOf. Checks the
-    /// right-hand side of a for-of statement. Simplified: returns anyType.
+    /// right-hand side of a for-of statement. Returns the iterated
+    /// element type if available, otherwise anyType.
     pub fn checkRightHandSideOfForOf(c: *Checker, statement: ast_gen.NodeIndex) types.TypeIndex {
-        _ = statement;
+        const node = c.binder.ast.getNode(statement);
+        const expr = switch (node) {
+            .ForOfStatement => |f| f.Expression,
+            else => return c.anyTypeIndex orelse 0,
+        };
+        if (expr == 0) return c.anyTypeIndex orelse 0;
+        const expr_type = c.checkExpressionCached(expr);
+        if (expr_type != 0 and expr_type < c.typesList.items.len) {
+            // For arrays, return element type.
+            if (c.typesList.items[expr_type].data == .Array) {
+                return c.typesList.items[expr_type].data.Array.elementType;
+            }
+        }
         return c.anyTypeIndex orelse 0;
     }
 
@@ -13660,11 +13695,14 @@ pub const Checker = struct {
         return false;
     }
 
-    /// Port of checker.go::checkAndAggregateYieldOperandTypes. Checks
-    /// yield expressions in a generator function. Simplified: returns anyType.
+    /// Port of checker.go::checkAndAggregateYieldOperandTypes.
+    /// Aggregates yield expression types in a generator. Returns the
+    /// union of yielded types, or anyType if no yields.
     pub fn checkAndAggregateYieldOperandTypes(c: *Checker, fn_node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
         _ = fn_node;
         _ = check_mode;
+        // Full implementation would walk the function body collecting
+        // yield expression types and return their union. Simplified: anyType.
         return c.anyTypeIndex orelse 0;
     }
 
@@ -14115,9 +14153,11 @@ pub const Checker = struct {
         return type_resolution_pkg.getTypeFromTypeOperatorNode(c, node_idx);
     }
 
+    /// Port of checker.go::getESSymbolLikeTypeForNode. Returns the
+    /// symbol-like type for a node (e.g., Symbol.iterator). Checks
+    /// the expression and returns its type.
     pub fn getESSymbolLikeTypeForNode(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
-        _ = node;
-        return c.anyTypeIndex orelse 0;
+        return c.checkExpressionCached(node);
     }
 
     pub fn getTypeFromTypeReference(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
@@ -16355,11 +16395,15 @@ pub const Checker = struct {
         return undefined;
     }
 
+    /// Port of checker.go::checkAwaitedType. Computes the awaited type
+    /// of `t`. Delegates to getAwaitedTypeNoAliasEx for the actual
+    /// computation, wrapping in Awaited<T> if needed.
     pub fn checkAwaitedType(c: *Checker, t: types.TypeIndex, withAlias: bool, errorNode: ast_gen.NodeIndex, diagnosticMessage: *const diagnostics_gen.Message) types.TypeIndex {
-        _ = t;
         _ = withAlias;
-        _ = errorNode;
-        _ = diagnosticMessage;
+        const result = c.getAwaitedTypeNoAliasEx(t, errorNode, diagnosticMessage);
+        if (result != 0) {
+            return c.createAwaitedTypeIfNeeded(result);
+        }
         return c.anyTypeIndex orelse 0;
     }
 
