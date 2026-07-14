@@ -1,11 +1,11 @@
-const std = @import("std");
-
 //! Build info reader for incremental compilation.
 //!
 //! Port of `internal/execute/incremental/incremental.go` (56 LOC).
 //!
 //! Reads `.tsbuildinfo` files and deserializes them into `BuildInfo`
 //! structs for incremental compilation.
+
+const std = @import("std");
 
 const compiler = @import("../../compiler/compiler.zig");
 const vfs = @import("../../vfs/vfs.zig");

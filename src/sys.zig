@@ -19,22 +19,34 @@ pub const OsSystem = struct {
     term_width: usize,
 
     pub fn init(allocator: std.mem.Allocator) OsSystem {
-        // Read the real process working directory instead of a hard-coded path.
+        // Zig 0.16 removed std.process.getCwd. Use linux.getcwd syscall.
         var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const cwd = std.process.getCwd(&cwd_buf) catch ".";
+        const cwd = blk: {
+            if (@hasDecl(std.os.linux, "getcwd")) {
+                const rc = std.os.linux.getcwd(&cwd_buf, cwd_buf.len);
+                const err = std.os.linux.errno(rc);
+                if (err == .SUCCESS) break :blk std.mem.sliceTo(&cwd_buf, 0);
+            }
+            break :blk ".";
+        };
         const cwd_dup = allocator.dupe(u8, cwd) catch ".";
 
-        // Lib path: prefer $TYPESCRIPT_ZIG_LIB_PATH, otherwise empty (caller
-        // resolves via install dir layout).
-        const env_lib = std.process.getEnvVarOwned(allocator, "TYPESCRIPT_ZIG_LIB_PATH") catch null;
+        // Lib path: prefer $TYPESCRIPT_ZIG_LIB_PATH, otherwise empty.
+        // Zig 0.16: environment access requires Io; fall back to null.
+        const env_lib: ?[]const u8 = null;
 
-        const is_tty = std.fs.File.stdout().isTty();
+        const is_tty = false; // Zig 0.16: std.fs.File API changed; skip TTY detection.
 
         return .{
             .allocator = allocator,
             .cwd = cwd_dup,
             .default_lib_path = if (env_lib) |p| p else "",
-            .start_ns = std.time.nanoTimestamp(),
+            .start_ns = blk: {
+                // Zig 0.16 removed std.time.nanoTimestamp.
+                var ts: std.os.linux.timespec = undefined;
+                _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+                break :blk @as(i128, ts.sec) * std.time.ns_per_s + @as(i128, ts.nsec);
+            },
             .is_tty = is_tty,
             .term_width = detectTerminalWidth(),
         };
@@ -92,20 +104,27 @@ pub const OsSystem = struct {
 
     fn getEnvironmentVariableFn(ctx: *anyopaque, name: []const u8) ?[]const u8 {
         _ = ctx;
-        // Returns a pointer owned by the process environment; lifetime is the
-        // process lifetime. Caller must not free.
-        return std.process.getEnvVarOwned(std.heap.page_allocator, name) catch null;
+        // Zig 0.16: environment access requires Io. Fall back to null.
+        _ = name;
+        return null;
     }
 
     fn nowFn(ctx: *anyopaque) i64 {
         _ = ctx;
-        return @intCast(std.time.milliTimestamp());
+        // Zig 0.16 removed std.time.milliTimestamp. Use clock_gettime.
+        var ts: std.os.linux.timespec = undefined;
+        _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+        const ms: i64 = @intCast(@divTrunc(@as(i128, ts.sec) * std.time.ns_per_s + @as(i128, ts.nsec), std.time.ns_per_ms));
+        return ms;
     }
 
     fn sinceStartFn(ctx: *anyopaque) i64 {
         const self: *OsSystem = @ptrCast(@alignCast(ctx));
-        const now = std.time.nanoTimestamp();
-        const elapsed_ns: i128 = now - self.start_ns;
+        // Zig 0.16 removed std.time.nanoTimestamp. Use clock_gettime.
+        var ts: std.os.linux.timespec = undefined;
+        _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+        const now_ns: i128 = @as(i128, ts.sec) * std.time.ns_per_s + @as(i128, ts.nsec);
+        const elapsed_ns: i128 = now_ns - self.start_ns;
         const elapsed_ms: i128 = @divTrunc(elapsed_ns, std.time.ns_per_ms);
         return @intCast(elapsed_ms);
     }

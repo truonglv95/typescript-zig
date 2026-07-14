@@ -1,5 +1,3 @@
-const std = @import("std");
-
 //! Argument arity error reporting.
 //!
 //! Port of `internal/checker/checker.go::getArgumentArityError` and its
@@ -9,6 +7,8 @@ const std = @import("std");
 //! These functions report "Expected N arguments but got M" style diagnostics
 //! when a call expression's argument count does not match any candidate
 //! signature's parameter count.
+
+const std = @import("std");
 
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
@@ -81,7 +81,6 @@ pub fn isPromiseResolveArityError(c: *Checker, node: ast_gen.NodeIndex) bool {
     //   - `decl.Parent.Parent.Expression` is Identifier "Promise"
     // For now, conservatively return false so callers fall back to the
     // generic "Expected 0 arguments but got 1" message.
-    _ = c;
     return false;
 }
 

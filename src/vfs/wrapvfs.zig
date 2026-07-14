@@ -1,5 +1,5 @@
 const std = @import("std");
-const vfs = @import("../vfs.zig");
+const vfs = @import("vfs.zig");
 
 //! Wrapping VFS that allows per-method overrides.
 //!

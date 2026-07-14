@@ -29,17 +29,12 @@ pub fn testDataPath(allocator: std.mem.Allocator) ![]const u8 {
 /// tests that depend on `tests/cases/conformance/` should be skipped.
 pub fn typeScriptSubmoduleExists(allocator: std.mem.Allocator) !bool {
     _ = allocator;
-    const path = "./submodule/typescript-go/_submodules/TypeScript";
-    var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return false;
-    defer dir.close();
-    var iter = dir.iterate();
-    // We need an Io instance for Zig 0.16's API; fall back to assuming
-    // exists if the directory opens successfully and has at least one entry.
-    // The full iterate API requires an Io param in 0.16, so we use a simpler
-    // stat-based check: if the directory contains a `tests/` subdir, it's
-    // been checked out.
-    var test_dir = std.fs.cwd().openDir("./submodule/typescript-go/_submodules/TypeScript/tests", .{}) catch return false;
-    test_dir.close();
+    // Zig 0.16: use linux.openat with O_RDONLY | O_DIRECTORY.
+    const path = "./submodule/typescript-go/_submodules/TypeScript/tests";
+    const rc = std.os.linux.openat(std.os.linux.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, 0);
+    const err = std.os.linux.errno(rc);
+    if (err != .SUCCESS) return false;
+    _ = std.os.linux.close(@intCast(rc));
     return true;
 }
 

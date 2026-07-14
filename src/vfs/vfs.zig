@@ -1,5 +1,3 @@
-const std = @import("std");
-
 //! Virtual filesystem abstraction.
 //!
 //! Port of `internal/vfs/vfs.go` (88 LOC).
@@ -13,6 +11,8 @@ const std = @import("std");
 //! - `iovfs` — wraps an `io/fs`-style filesystem
 //! - `vfsmock` — mock for testing
 //! - `vfstest` — in-memory map filesystem for testing
+
+const std = @import("std");
 
 /// Information about a file (port of Go's `fs.FileInfo`).
 pub const FileInfo = struct {

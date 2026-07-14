@@ -1,5 +1,3 @@
-const std = @import("std");
-
 //! Class property member override checking.
 //!
 //! Port of `internal/checker/checker.go::checkKindsOfPropertyMemberOverrides`.
@@ -8,6 +6,8 @@ const std = @import("std");
 //! their base-class counterparts (property vs accessor vs method), and
 //! reports "non-abstract class does not implement inherited abstract
 //! member" errors for unimplemented abstract members.
+
+const std = @import("std");
 
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
@@ -48,7 +48,7 @@ pub fn checkKindsOfPropertyMemberOverrides(c: *Checker, t: types.TypeIndex, base
     }
 
     const base_properties = c.getPropertiesOfType(base_type);
-    base_property_loop: for (base_properties) |base_property| {
+    for (base_properties) |base_property| {
         const base_sym = c.getTargetSymbol(base_property);
         if (base_sym == 0 or base_sym >= c.binder.symbols.items.len) continue;
         const base_sym_obj = c.binder.symbols.items[base_sym];

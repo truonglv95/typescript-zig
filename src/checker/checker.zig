@@ -3192,7 +3192,7 @@ pub const Checker = struct {
                 _ = try self.checkExpressionAdHoc(ce.Condition);
                 const trueType = try self.checkExpressionAdHoc(ce.WhenTrue);
                 const falseType = try self.checkExpressionAdHoc(ce.WhenFalse);
-                return try self.getUnionType(trueType, falseType);
+                return try self.getUnionTypeTwo(trueType, falseType);
             },
 
             // Function types
@@ -3658,7 +3658,7 @@ pub const Checker = struct {
 
         // Logical operators: union of operand types
         if (opNode == .BarBarToken or opNode == .AmpersandAmpersandToken or opNode == .QuestionQuestionToken) {
-            return try self.getUnionType(leftTypeIdx, rightTypeIdx);
+            return try self.getUnionTypeTwo(leftTypeIdx, rightTypeIdx);
         }
 
         // Comparison operators: always return boolean
@@ -3706,10 +3706,10 @@ pub const Checker = struct {
     }
 
     // =========================================================================
-    // getUnionType - tạo union của 2 types
+    // getUnionTypeTwo - tạo union của 2 types (private helper)
     // =========================================================================
 
-    fn getUnionType(self: *Checker, typeA: u32, typeB: u32) !u32 {
+    fn getUnionTypeTwo(self: *Checker, typeA: u32, typeB: u32) !u32 {
         return self.createUnionType(&.{ typeA, typeB });
     }
 
@@ -11043,8 +11043,8 @@ pub const Checker = struct {
     /// Conservative implementation: handles the common cases (any, unknown,
     /// never, primitive right side, generic object types). Full property
     /// merging with synthetic symbols is deferred to Phase 1.2.
-    pub fn getSpreadType(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, symbol: ast_gen.SymbolIndex, object_flags: u32, readonly: bool) types.TypeIndex {
-        _ = symbol;
+    pub fn getSpreadType(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, sym: ast_gen.SymbolIndex, object_flags: u32, readonly: bool) types.TypeIndex {
+        _ = sym;
         _ = object_flags;
         _ = readonly;
 
@@ -11093,6 +11093,7 @@ pub const Checker = struct {
     /// `IndexInfo` with the readonly flag set to `readonly`, or returns
     /// `info` unchanged if it already matches.
     pub fn getIndexInfoWithReadonly(c: *Checker, info: types.IndexInfo, readonly: bool) types.IndexInfo {
+        _ = c;
         if (info.isReadonly != readonly) {
             return .{
                 .keyType = info.keyType,
@@ -11252,7 +11253,6 @@ pub const Checker = struct {
             .PropertyAccessExpression, .ElementAccessExpression => {
                 // Requires resolveEntityName; conservative: return false.
                 // TODO(phase1.2): wire resolveEntityName + check SymbolFlags.Enum.
-                _ = c;
                 return false;
             },
             else => return false,
@@ -11275,7 +11275,6 @@ pub const Checker = struct {
                         if (type_kind == .TypeReference) {
                             // Check if type is `const` identifier
                             // Conservative: assume yes if Type is Identifier "const"
-                            _ = c;
                             return true;
                         }
                     }
@@ -14182,7 +14181,6 @@ pub const Checker = struct {
         // Freshable types are StringLiteral/NumberLiteral/BooleanLiteral/BigIntLiteral.
         // Without a `freshType` field on LiteralType data, we conservatively
         // return false. TODO(phase1.2): add freshType tracking.
-        _ = c;
         return false;
     }
 
@@ -14290,7 +14288,6 @@ pub const Checker = struct {
     /// Port of `checker.go::mapTypeEx`. Applies `mapFn` to `t`, descending
     /// into union constituents. `no_reductions` is currently ignored.
     pub fn mapTypeEx(c: *Checker, t: types.TypeIndex, comptime mapFn: anytype, ctx: anytype, no_reductions: bool) types.TypeIndex {
-        _ = no_reductions;
         const flags = c.getTypeFlags(t);
         if ((flags & types.TypeFlags.Never) != 0) return t;
         if ((flags & types.TypeFlags.Union) == 0) return mapFn(c, t, ctx);
@@ -15236,7 +15233,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn removeMissingOrUndefinedType(c: *Checker, t: *anyopaque) *anyopaque {
+    pub fn removeMissingOrUndefinedTypeStub(c: *Checker, t: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         return undefined;
@@ -15900,7 +15897,6 @@ pub const Checker = struct {
         // Requires global Awaited symbol + alias tracking; conservative
         // false until those are wired. TODO(phase1.2): wire
         // getGlobalAwaitedSymbolOrNil + alias.symbol + alias.typeArguments.
-        _ = c;
         return false;
     }
 
@@ -16117,7 +16113,7 @@ pub const Checker = struct {
 
             const contextualType = c.getContextualType(node, contextFlags);
             if (contextualType != 0) {
-                return !c.isGenericType(@ptrFromInt(contextualType));
+                return !c.isGenericType(contextualType);
             }
         }
         return false;
@@ -18149,15 +18145,15 @@ pub fn checkSuperExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.Type
     // Walk up to find the containing class/constructor/method.
     var container: ast_gen.NodeIndex = parent;
     while (container != 0) {
-        const kind = tree.getNodeKind(container);
-        if (kind == .Constructor or kind == .MethodDeclaration or
-            kind == .GetAccessor or kind == .SetAccessor or
-            kind == .PropertyDeclaration or kind == .ClassStaticBlockDeclaration)
+        const container_kind = tree.getNodeKind(container);
+        if (container_kind == .Constructor or container_kind == .MethodDeclaration or
+            container_kind == .GetAccessor or container_kind == .SetAccessor or
+            container_kind == .PropertyDeclaration or container_kind == .ClassStaticBlockDeclaration)
         {
             break;
         }
-        if (kind == .ClassDeclaration or kind == .ClassExpression or
-            kind == .ObjectLiteralExpression)
+        if (container_kind == .ClassDeclaration or container_kind == .ClassExpression or
+            container_kind == .ObjectLiteralExpression)
         {
             break;
         }

@@ -1235,10 +1235,6 @@ pub fn isLocalName(context: anytype, node: ast.NodeIndex) bool {
     _ = node;
     return false;
 }
-pub fn isClassLike(tree: *ast.Ast, node: ast.NodeIndex) bool {
-    const k = getKind(tree, node);
-    return k == .ClassDeclaration or k == .ClassExpression;
-}
 pub fn isIdentifier(tree: *ast.Ast, node: ast.NodeIndex) bool {
     if (node == 0) return false;
     return tree.getNode(node) == .Identifier;

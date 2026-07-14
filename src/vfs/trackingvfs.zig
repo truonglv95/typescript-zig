@@ -1,5 +1,5 @@
 const std = @import("std");
-const vfs = @import("../vfs.zig");
+const vfs = @import("vfs.zig");
 
 //! Tracking VFS that records every file path accessed.
 //!

@@ -1,12 +1,12 @@
-const std = @import("std");
-const vfs = @import("../vfs.zig");
-
 //! In-memory VFS backed by a map.
 //!
 //! Port of `internal/vfs/iovfs/iofs.go` (222 LOC) + vfstest map concept.
 //!
 //! Wraps a `std.StringHashMap` of path -> content. Used for testing
 //! and for LSP overlay filesystems (unsaved file changes).
+
+const std = @import("std");
+const vfs = @import("vfs.zig");
 
 /// An in-memory filesystem backed by a string map.
 /// Port of Go's vfstest map filesystem.

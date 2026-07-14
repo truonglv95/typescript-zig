@@ -1,5 +1,3 @@
-const std = @import("std");
-
 //! Smoke test — verifies the end-to-end compiler pipeline works for a simple
 //! TypeScript file without requiring the upstream TypeScript submodule.
 //!
@@ -10,6 +8,8 @@ const std = @import("std");
 //! each stage runs without crashing and produces non-empty output. Real
 //! correctness is covered by the conformance baseline runner in
 //! `compiler_runner_test.zig` (which requires the TypeScript submodule).
+
+const std = @import("std");
 
 const parser = @import("../parser/parser.zig");
 const binder = @import("../binder/binder.zig");

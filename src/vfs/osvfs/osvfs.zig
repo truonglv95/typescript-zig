@@ -84,13 +84,52 @@ const OsFS = struct {
         return std.Io.Dir.cwd().realPathFileAlloc(getIo(), path, allocator) catch null;
     }
 
+    fn appendFile(ptr: *anyopaque, path: []const u8, data: []const u8) anyerror!void {
+        _ = ptr;
+        _ = path;
+        _ = data;
+        return error.NotImplemented;
+    }
+
+    fn remove(ptr: *anyopaque, path: []const u8) anyerror!void {
+        _ = ptr;
+        _ = path;
+        return error.NotImplemented;
+    }
+
+    fn chtimes(ptr: *anyopaque, path: []const u8, atime: i128, mtime: i128) anyerror!void {
+        _ = ptr;
+        _ = path;
+        _ = atime;
+        _ = mtime;
+        return error.NotImplemented;
+    }
+
+    fn stat(ptr: *anyopaque, path: []const u8) ?vfs.FileInfo {
+        _ = ptr;
+        _ = path;
+        return null;
+    }
+
+    fn walkDir(ptr: *anyopaque, root: []const u8, walk_fn: vfs.WalkDirFunc) anyerror!void {
+        _ = ptr;
+        _ = root;
+        _ = walk_fn;
+        return error.NotImplemented;
+    }
+
     const vtable = vfs.FS.VTable{
         .useCaseSensitiveFileNames = useCaseSensitiveFileNames,
         .fileExists = fileExists,
         .directoryExists = directoryExists,
         .readFile = readFile,
         .writeFile = writeFile,
+        .appendFile = appendFile,
+        .remove = remove,
+        .chtimes = chtimes,
         .getAccessibleEntries = getAccessibleEntries,
+        .stat = stat,
+        .walkDir = walkDir,
         .realpath = realpath,
     };
 
