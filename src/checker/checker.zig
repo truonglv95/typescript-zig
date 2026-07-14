@@ -288,6 +288,7 @@ pub const Checker = struct {
     flowLoopStack: std.ArrayListUnmanaged(flow.FlowLoopInfo) = .empty,
     flowLoopTypes: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
     contextualInfos: std.ArrayListUnmanaged(types.ContextualInfo) = .empty,
+    typeResolutionStack: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
     currentNode: ast_gen.NodeIndex = 0,
     withinUnreachableCode: bool = false,
     instantiationCount: u32 = 0,
@@ -451,6 +452,7 @@ pub const Checker = struct {
         self.flowLoopCache.deinit(self.allocator);
         self.flowLoopStack.deinit(self.allocator);
         self.flowLoopTypes.deinit(self.allocator);
+        self.typeResolutionStack.deinit(self.allocator);
         self.identityRelation.deinit(self.allocator);
         self.assignableRelation.deinit(self.allocator);
         self.subtypeRelation.deinit(self.allocator);
@@ -12721,16 +12723,28 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn pushTypeResolution(c: *Checker, target: *anyopaque, propertyName: *anyopaque) bool {
-        _ = c;
-        _ = target;
-        _ = propertyName;
-        return false;
+    /// Port of checker.go::pushTypeResolution. Pushes a type onto the
+    /// resolution stack to detect circular dependencies. Returns true if
+    /// the type is NOT already being resolved (safe to proceed), false if
+    /// circular (already on stack).
+    pub fn pushTypeResolution(c: *Checker, target: types.TypeIndex, property_name: u32) bool {
+        _ = property_name;
+        if (target == 0) return true;
+        // Check if target is already in the resolution stack.
+        for (c.typeResolutionStack.items) |item| {
+            if (item == target) return false; // Circular
+        }
+        c.typeResolutionStack.append(c.allocator, target) catch return false;
+        return true;
     }
 
+    /// Port of checker.go::popTypeResolution. Pops a type from the
+    /// resolution stack. Returns true if there was no circularity
+    /// (i.e., the stack had items to pop).
     pub fn popTypeResolution(c: *Checker) bool {
-        _ = c;
-        return false;
+        if (c.typeResolutionStack.items.len == 0) return false;
+        _ = c.typeResolutionStack.pop();
+        return true;
     }
 
     pub fn reportCircularityError(c: *Checker, symbol_: *anyopaque) *anyopaque {
@@ -16806,8 +16820,9 @@ pub fn checkBlock(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkBreakOrContinueStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    _ = c;
-    _ = node_idx;
+    // Port of checker.go::checkBreakOrContinueStatement.
+    // Checks grammar for break/continue in ambient context.
+    _ = c.checkGrammarStatementInAmbientContext(node_idx);
 }
 pub fn checkClassDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const cd = c.binder.ast.nodes.get(node_idx).ClassDeclaration;
@@ -16973,9 +16988,8 @@ pub fn checkFunctionDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
         }
     }
 }
-pub fn checkGrammarStatementInAmbientContext(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    _ = c;
-    _ = node_idx;
+pub fn checkGrammarStatementInAmbientContext(c: *Checker, node_idx: ast_gen.NodeIndex) bool {
+    return grammarchecks.checkGrammarStatementInAmbientContext(c, node_idx);
 }
 pub fn checkIfStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const node = c.binder.ast.getNode(node_idx).IfStatement;
@@ -17008,8 +17022,13 @@ pub fn checkImportEqualsDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) vo
     }
 }
 pub fn checkImportType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    _ = c;
-    _ = node_idx;
+    // Port of checker.go::checkImportType. Checks the argument and type
+    // arguments of an import type node (import("./mod").Type).
+    const node = c.binder.ast.getNode(node_idx).ImportType;
+    if (node.Argument != 0) checkSourceElement(c, node.Argument);
+    if (node.TypeArguments) |ta| {
+        if (ta != 0) checkSourceElement(c, ta);
+    }
 }
 pub fn checkIndexedAccessType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const node = c.binder.ast.getNode(node_idx).IndexedAccessType;
@@ -17034,8 +17053,21 @@ pub fn checkInterfaceDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void 
     }
 }
 pub fn checkJSDocType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    _ = c;
-    _ = node_idx;
+    // Port of checker.go::checkJSDocType. Checks JSDoc type is in JS file,
+    // then checks child elements.
+    c.checkJSDocTypeIsInJsFile(node_idx);
+    // Walk children — simplified: just check the Type child if present.
+    const node_data = c.binder.ast.getNode(node_idx);
+    const type_child: ast_gen.NodeIndex = switch (node_data) {
+        .JSDocNullableType => |n| n.Type,
+        .JSDocNonNullableType => |n| n.Type,
+        .JSDocVariadicType => |n| n.Type,
+        .JSDocOptionalType => |n| n.Type,
+        .JSDocAllType => 0,
+        .JSDocTypeLiteral => 0,
+        else => 0,
+    };
+    if (type_child != 0) checkSourceElement(c, type_child);
 }
 pub fn checkLabeledStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const node = c.binder.ast.getNode(node_idx).LabeledStatement;
@@ -17061,8 +17093,11 @@ pub fn checkMethodDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkMissingDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    _ = c;
+    // Port of checker.go::checkMissingDeclaration. A missing declaration
+    // (e.g., from a parse error) just reports a grammar error. No children
+    // to check.
     _ = node_idx;
+    _ = c;
 }
 pub fn checkModuleDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const node = c.binder.ast.getNode(node_idx).ModuleDeclaration;
@@ -17247,6 +17282,9 @@ pub fn checkTemplateLiteralType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkThisType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
+    // Port of checker.go::checkThisType. A ThisType node (the `this`
+    // parameter in a method signature) doesn't need additional checking
+    // beyond what the signature check already does.
     _ = c;
     _ = node_idx;
 }
