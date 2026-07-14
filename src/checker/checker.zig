@@ -8260,9 +8260,24 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkTypeReferenceOrImport(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
+    /// Port of checker.go::checkTypeReferenceOrImport. Checks a type
+    /// reference or import type node for type argument constraints.
+    /// Simplified: checks type arguments if present.
+    pub fn checkTypeReferenceOrImport(c: *Checker, node: ast_gen.NodeIndex) void {
+        if (node == 0) return;
+        const node_data = c.binder.ast.getNode(node);
+        const type_args: ?ast_gen.NodeIndex = switch (node_data) {
+            .TypeReference => |tr| tr.TypeArguments,
+            .ImportType => |it| it.TypeArguments,
+            .ExpressionWithTypeArguments => |ewa| ewa.TypeArguments,
+            else => null,
+        };
+        if (type_args) |ta| {
+            if (ta != 0) {
+                const args = c.binder.ast.getNodeList(ta);
+                c.checkSourceElements(args);
+            }
+        }
     }
 
     pub fn checkTypeArgumentConstraints(c: *Checker, node: *anyopaque, typeParameters: *anyopaque) bool {
@@ -8292,10 +8307,13 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkObjectTypeForDuplicateDeclarations(c: *Checker, node: *anyopaque, checkPrivateNames: *anyopaque) void {
+    /// Port of checker.go::checkObjectTypeForDuplicateDeclarations.
+    /// Reports errors for duplicate member declarations in an object
+    /// type (class, interface, object literal). Simplified: no-op.
+    pub fn checkObjectTypeForDuplicateDeclarations(c: *Checker, node: ast_gen.NodeIndex, check_private_names: bool) void {
         _ = c;
         _ = node;
-        _ = checkPrivateNames;
+        _ = check_private_names;
     }
 
     pub fn reportDuplicateMemberErrors(c: *Checker, node: *anyopaque, name_: *anyopaque, checkStatic: *anyopaque, isStatic: *anyopaque, message: *anyopaque) void {
@@ -8468,9 +8486,12 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn checkTypeParameterListsIdentical(c: *Checker, symbol_: *anyopaque) void {
+    /// Port of checker.go::checkTypeParameterListsIdentical. Validates
+    /// that all declarations of a generic symbol have identical type
+    /// parameter lists. Simplified: no-op.
+    pub fn checkTypeParameterListsIdentical(c: *Checker, sym: ast_gen.SymbolIndex) void {
         _ = c;
-        _ = symbol_;
+        _ = sym;
     }
 
     pub fn getClassOrInterfaceDeclarationsOfSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
@@ -8595,12 +8616,18 @@ pub const Checker = struct {
         _ = checkInfo;
     }
 
-    pub fn checkClassOrInterfaceForDuplicateIndexSignatures(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkClassOrInterfaceForDuplicateIndexSignatures.
+    /// Reports errors for duplicate index signatures in class/interface.
+    /// Simplified: no-op.
+    pub fn checkClassOrInterfaceForDuplicateIndexSignatures(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
 
-    pub fn checkTypeForDuplicateIndexSignatures(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkTypeForDuplicateIndexSignatures.
+    /// Reports errors for duplicate index signatures in a type.
+    /// Simplified: no-op.
+    pub fn checkTypeForDuplicateIndexSignatures(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
@@ -8824,7 +8851,10 @@ pub const Checker = struct {
         _ = nextType;
     }
 
-    pub fn checkVarDeclaredNamesNotShadowed(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkVarDeclaredNamesNotShadowed. Reports
+    /// errors when var-declared names shadow block-scoped declarations.
+    /// Simplified: no-op — full implementation requires scope analysis.
+    pub fn checkVarDeclaredNamesNotShadowed(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
@@ -9214,9 +9244,13 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkTypeNameIsReserved(c: *Checker, name_: *anyopaque, message: *anyopaque) void {
+    /// Port of checker.go::checkTypeNameIsReserved. Reports an error if
+    /// a type name is a reserved keyword (e.g., `type Any = string`).
+    /// Simplified: no-op — full implementation checks against reserved
+    /// type name list.
+    pub fn checkTypeNameIsReserved(c: *Checker, name_node: ast_gen.NodeIndex, message: ?*const diagnostics_gen.Message) void {
         _ = c;
-        _ = name_;
+        _ = name_node;
         _ = message;
     }
 
@@ -9456,6 +9490,11 @@ pub const Checker = struct {
         return t;
     }
 
+    /// Port of checker.go::checkConstEnumAccess. Reports an error if a
+    /// const enum is accessed outside of a property/index access or typeof
+    /// chain (when isolatedModules is not enabled and not in a JS file).
+    /// Simplified: no-op — full implementation requires compilerOptions
+    /// and isConstEnumSymbol checks.
     pub fn checkConstEnumAccess(c: *Checker, node_idx: ast_gen.NodeIndex, t: types.TypeIndex) void {
         _ = c;
         _ = node_idx;
@@ -10115,7 +10154,10 @@ pub const Checker = struct {
         _ = name_;
     }
 
-    pub fn checkWeakMapSetCollision(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkWeakMapSetCollision. Reports errors when
+    /// a declaration name collides with WeakMap/WeakSet in generated code.
+    /// Simplified: no-op.
+    pub fn checkWeakMapSetCollision(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
@@ -10132,7 +10174,10 @@ pub const Checker = struct {
         _ = name_;
     }
 
-    pub fn checkReflectCollision(c: *Checker, node: *anyopaque) void {
+    /// Port of checker.go::checkReflectCollision. Reports errors when
+    /// a declaration name collides with `Reflect` in generated code.
+    /// Simplified: no-op.
+    pub fn checkReflectCollision(c: *Checker, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = node;
     }
@@ -10172,10 +10217,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkDeleteExpressionMustBeOptional(c: *Checker, expr: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex) void {
+    /// Port of checker.go::checkDeleteExpressionMustBeOptional. Reports
+    /// an error if a `delete` operator is used on a non-optional property.
+    /// Simplified: no-op — full implementation requires isOptionalType.
+    pub fn checkDeleteExpressionMustBeOptional(c: *Checker, expr: ast_gen.NodeIndex, sym: ast_gen.SymbolIndex) void {
         _ = c;
         _ = expr;
-        _ = symbol_;
+        _ = sym;
     }
 
     pub fn checkTruthinessExpression(c: *Checker, node: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
@@ -11046,13 +11094,20 @@ pub const Checker = struct {
         return .Sometimes; // TODO: Implement getSyntacticTruthySemantics fully
     }
 
+    /// Port of checker.go::checkNullishCoalesceOperands. Validates that
+    /// the left operand of a ?? operator is not nullable (to catch
+    /// unnecessary ?? usage) and that the right operand is not void.
+    /// Simplified: no-op — full implementation requires type facts.
     pub fn checkNullishCoalesceOperands(c: *Checker, left: ast_gen.NodeIndex, right: ast_gen.NodeIndex) void {
         _ = c;
         _ = left;
         _ = right;
     }
 
-    pub fn checkNullishCoalesceOperandLeft(c: *Checker, left: *anyopaque) void {
+    /// Port of checker.go::checkNullishCoalesceOperandLeft. Reports an
+    /// error if the left operand of ?? is always null/undefined.
+    /// Simplified: no-op.
+    pub fn checkNullishCoalesceOperandLeft(c: *Checker, left: ast_gen.NodeIndex) void {
         _ = c;
         _ = left;
     }
