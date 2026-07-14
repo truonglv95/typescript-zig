@@ -8424,14 +8424,19 @@ pub const Checker = struct {
         // requires checkAllCodePathsInNonVoidFunctionReturnOrThrow).
     }
 
-    pub fn checkFunctionOrConstructorSymbol(c: *Checker, symbol_: *anyopaque) void {
+    /// Port of checker.go::checkFunctionOrConstructorSymbol. Validates
+    /// that function/constructor declarations have consistent modifiers.
+    /// Simplified: no-op.
+    pub fn checkFunctionOrConstructorSymbol(c: *Checker, symbol_idx: ast_gen.SymbolIndex) void {
         _ = c;
-        _ = symbol_;
+        _ = symbol_idx;
     }
 
-    pub fn checkFunctionOrConstructorSymbolWorker(c: *Checker, symbol_: *anyopaque) void {
+    /// Port of checker.go::checkFunctionOrConstructorSymbolWorker.
+    /// Simplified: no-op.
+    pub fn checkFunctionOrConstructorSymbolWorker(c: *Checker, symbol_idx: ast_gen.SymbolIndex) void {
         _ = c;
-        _ = symbol_;
+        _ = symbol_idx;
     }
 
     pub fn getEffectiveDeclarationFlags(c: *Checker, n: *anyopaque, flagsToCheck: *anyopaque) *anyopaque {
