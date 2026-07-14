@@ -8534,14 +8534,17 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkReturnExpression(c: *Checker, container: *anyopaque, unwrappedReturnType: *anyopaque, node: *anyopaque, expr: *anyopaque, exprType: *anyopaque, inConditionalExpression: *anyopaque) void {
+    /// Port of checker.go::checkReturnExpression. Validates that a
+    /// return expression's type is assignable to the function's return type.
+    /// Simplified: no-op (full implementation requires flow analysis).
+    pub fn checkReturnExpression(c: *Checker, container: ast_gen.NodeIndex, unwrapped_return_type: types.TypeIndex, node: ast_gen.NodeIndex, expr: ast_gen.NodeIndex, expr_type: types.TypeIndex, in_conditional_expression: bool) void {
         _ = c;
         _ = container;
-        _ = unwrappedReturnType;
+        _ = unwrapped_return_type;
         _ = node;
         _ = expr;
-        _ = exprType;
-        _ = inConditionalExpression;
+        _ = expr_type;
+        _ = in_conditional_expression;
     }
 
     /// Port of checker.go::checkClassLikeDeclaration. Checks a class
@@ -8959,9 +8962,11 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkVariableLikeDeclaration(c: *Checker, node: *anyopaque) void {
-        _ = c;
-        _ = node;
+    /// Port of checker.go::checkVariableLikeDeclaration. Checks a
+    /// variable, parameter, or property declaration. Simplified: delegates
+    /// to checkSourceElement.
+    pub fn checkVariableLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) void {
+        checkSourceElement(c, node);
     }
 
     pub fn errorNextVariableOrPropertyDeclarationMustHaveSameType(c: *Checker, firstDeclaration: *anyopaque, firstType: *anyopaque, nextDeclaration: *anyopaque, nextType: *anyopaque) void {
@@ -8997,13 +9002,19 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn checkIteratedTypeOrElementType(c: *Checker, use: *anyopaque, inputType: *anyopaque, sentType: *anyopaque, errorNode: *anyopaque) *anyopaque {
-        _ = c;
+    /// Port of checker.go::checkIteratedTypeOrElementType. Returns the
+    /// iterated type or element type of `inputType`. Simplified: returns
+    /// anyType (full implementation in getIteratedTypeOrElementType).
+    pub fn checkIteratedTypeOrElementType(c: *Checker, use: u32, input_type: types.TypeIndex, sent_type: types.TypeIndex, error_node: ast_gen.NodeIndex) types.TypeIndex {
         _ = use;
-        _ = inputType;
-        _ = sentType;
-        _ = errorNode;
-        return undefined;
+        _ = sent_type;
+        _ = error_node;
+        if (input_type == 0 or input_type >= c.typesList.items.len) return c.anyTypeIndex orelse 0;
+        // For array types, return the element type.
+        if (c.typesList.items[input_type].data == .Array) {
+            return c.typesList.items[input_type].data.Array.elementType;
+        }
+        return c.anyTypeIndex orelse 0;
     }
 
     /// Port of `checker.go::getIteratedTypeOrElementType`. Returns the
@@ -9968,13 +9979,15 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkTypeArguments(c: *Checker, signature: *anyopaque, typeArgumentNodes: *anyopaque, reportErrors: *anyopaque, headMessage: *anyopaque) *anyopaque {
+    /// Port of checker.go::checkTypeArguments. Validates type arguments
+    /// against type parameter constraints. Simplified: returns false.
+    pub fn checkTypeArguments(c: *Checker, signature: types.SignatureIndex, type_argument_nodes: ast_gen.NodeIndex, report_errors: bool, head_message: ?*const diagnostics_gen.Message) bool {
         _ = c;
         _ = signature;
-        _ = typeArgumentNodes;
-        _ = reportErrors;
-        _ = headMessage;
-        return undefined;
+        _ = type_argument_nodes;
+        _ = report_errors;
+        _ = head_message;
+        return false;
     }
 
     pub fn isSignatureApplicable(c: *Checker, node: *anyopaque, args: *anyopaque, signature: *anyopaque, relation: *anyopaque, checkMode: *anyopaque, reportErrors: *anyopaque, diagnosticOutput: *anyopaque) bool {
@@ -13632,11 +13645,12 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn checkAndAggregateYieldOperandTypes(c: *Checker, fn_: *anyopaque, checkMode: *anyopaque) *anyopaque {
-        _ = c;
-        _ = fn_;
-        _ = checkMode;
-        return undefined;
+    /// Port of checker.go::checkAndAggregateYieldOperandTypes. Checks
+    /// yield expressions in a generator function. Simplified: returns anyType.
+    pub fn checkAndAggregateYieldOperandTypes(c: *Checker, fn_node: ast_gen.NodeIndex, check_mode: CheckMode) types.TypeIndex {
+        _ = fn_node;
+        _ = check_mode;
+        return c.anyTypeIndex orelse 0;
     }
 
     pub fn createPromiseType(c: *Checker, promisedType: *anyopaque) *anyopaque {
@@ -13721,20 +13735,25 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkIfExpressionRefinesAnyParameter(c: *Checker, fn_: *anyopaque, expr: *anyopaque) *anyopaque {
+    /// Port of checker.go::checkIfExpressionRefinesAnyParameter.
+    /// Checks if an if expression refines any parameter type. Simplified:
+    /// returns false (0).
+    pub fn checkIfExpressionRefinesAnyParameter(c: *Checker, fn_node: ast_gen.NodeIndex, expr: ast_gen.NodeIndex) bool {
         _ = c;
-        _ = fn_;
+        _ = fn_node;
         _ = expr;
-        return undefined;
+        return false;
     }
 
-    pub fn checkIfExpressionRefinesParameter(c: *Checker, fn_: *anyopaque, expr: *anyopaque, param: *anyopaque, initType: *anyopaque) *anyopaque {
+    /// Port of checker.go::checkIfExpressionRefinesParameter. Checks
+    /// if an if expression refines a specific parameter. Simplified: false.
+    pub fn checkIfExpressionRefinesParameter(c: *Checker, fn_node: ast_gen.NodeIndex, expr: ast_gen.NodeIndex, param: ast_gen.NodeIndex, init_type: types.TypeIndex) bool {
         _ = c;
-        _ = fn_;
+        _ = fn_node;
         _ = expr;
         _ = param;
-        _ = initType;
-        return undefined;
+        _ = init_type;
+        return false;
     }
 
     pub fn addOptionalTypeMarker(c: *Checker, t: *anyopaque) *anyopaque {
@@ -15866,11 +15885,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn checkGeneratorInstantiationAssignabilityToReturnType(c: *Checker, returnType: *anyopaque, functionFlags: *anyopaque, errorNode: *anyopaque) bool {
+    /// Port of checker.go::checkGeneratorInstantiationAssignabilityToReturnType.
+    /// Validates that a generator's instantiation is assignable to the return
+    /// type. Simplified: false.
+    pub fn checkGeneratorInstantiationAssignabilityToReturnType(c: *Checker, return_type: types.TypeIndex, function_flags: u32, error_node: ast_gen.NodeIndex) bool {
         _ = c;
-        _ = returnType;
-        _ = functionFlags;
-        _ = errorNode;
+        _ = return_type;
+        _ = function_flags;
+        _ = error_node;
         return false;
     }
 
