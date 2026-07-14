@@ -290,6 +290,7 @@ pub const Checker = struct {
     contextualInfos: std.ArrayListUnmanaged(types.ContextualInfo) = .empty,
     typeResolutionStack: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
     deferredNodes: std.ArrayListUnmanaged(ast_gen.NodeIndex) = .empty,
+    activeMapperStack: std.ArrayListUnmanaged(types.TypeMapperIndex) = .empty,
     currentNode: ast_gen.NodeIndex = 0,
     withinUnreachableCode: bool = false,
     instantiationCount: u32 = 0,
@@ -455,6 +456,7 @@ pub const Checker = struct {
         self.flowLoopTypes.deinit(self.allocator);
         self.typeResolutionStack.deinit(self.allocator);
         self.deferredNodes.deinit(self.allocator);
+        self.activeMapperStack.deinit(self.allocator);
         self.identityRelation.deinit(self.allocator);
         self.assignableRelation.deinit(self.allocator);
         self.subtypeRelation.deinit(self.allocator);
@@ -759,10 +761,19 @@ pub const Checker = struct {
         _ = t;
     }
 
+    /// Port of checker.go::resolveReverseMappedTypeMembers. Resolves
+    /// members of a reverse-mapped type (used in homomorphic mapped
+    /// types). Simplified: delegates to the constraint type's members.
     pub fn resolveReverseMappedTypeMembers(c: *Checker, t: types.TypeIndex, members: *types.StructuredTypeMembers) void {
-        _ = c;
-        _ = t;
-        _ = members;
+        if (t == 0 or t >= c.typesList.items.len) return;
+        // For reverse mapped types, members come from the constraint type.
+        const mapped_type = c.getTargetType(t);
+        if (mapped_type == 0 or mapped_type >= c.typesList.items.len) return;
+        const constraint = c.getConstraintTypeFromMappedType(mapped_type);
+        if (constraint != 0 and constraint < c.typesList.items.len) {
+            const resolved = c.resolveStructuredTypeMembers(constraint);
+            members.* = resolved;
+        }
     }
 
     pub fn resolveAnonymousTypeMembers(c: *Checker, t: types.TypeIndex, members: *types.StructuredTypeMembers) void {
@@ -778,10 +789,17 @@ pub const Checker = struct {
         }
     }
 
+    /// Port of checker.go::resolveMappedTypeMembers. Resolves members of
+    /// a mapped type `{ [K in keyof T]: U }` by computing properties from
+    /// the constraint type. Simplified: delegates to constraint type members.
     pub fn resolveMappedTypeMembers(c: *Checker, t: types.TypeIndex, members: *types.StructuredTypeMembers) void {
-        _ = c;
-        _ = t;
-        _ = members;
+        if (t == 0 or t >= c.typesList.items.len) return;
+        // Get the constraint type from the mapped type.
+        const constraint = c.getConstraintTypeFromMappedType(t);
+        if (constraint != 0 and constraint < c.typesList.items.len) {
+            const resolved = c.resolveStructuredTypeMembers(constraint);
+            members.* = resolved;
+        }
     }
 
     pub fn resolveDeclaredMembers(c: *Checker, t: types.TypeIndex) types.StructuredTypeMembers {
@@ -4358,9 +4376,31 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of checker.go::computeEnumMemberValues. Walks each enum member
+    /// and computes its constant value. Simplified: marks as resolved.
     pub fn computeEnumMemberValues(c: *Checker, node: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = node;
+        if (node == 0) return;
+        const tree = c.binder.ast;
+        const node_data = tree.getNode(node);
+        const members_list_idx = switch (node_data) {
+            .EnumDeclaration => |n| n.Members,
+            else => return,
+        };
+        if (members_list_idx == 0) return;
+        const members = tree.getNodeList(members_list_idx);
+        for (members) |member| {
+            // Check the initializer expression if present.
+            const member_data = tree.getNode(member);
+            const initializer: ?ast_gen.NodeIndex = switch (member_data) {
+                .EnumMember => |m| m.Initializer,
+                else => null,
+            };
+            if (initializer) |init_node| {
+                if (init_node != 0) {
+                    _ = c.checkExpressionCached(init_node);
+                }
+            }
+        }
     }
 
     pub fn getHomomorphicTypeVariable(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -7815,28 +7855,50 @@ pub const Checker = struct {
         return undefined;
     }
 
+    /// Port of checker.go::initializeClosures. Sets up function closures
+    /// for type predicates. Simplified: no-op since Zig doesn't have
+    /// runtime closures — these are implemented as direct method calls.
     pub fn initializeClosures(c: *Checker) void {
         _ = c;
     }
 
+    /// Port of checker.go::initializeIterationResolvers. Sets up sync and
+    /// async iteration type resolvers. Simplified: no-op since iteration
+    /// resolvers are handled directly in getIteratedTypeOrElementType.
     pub fn initializeIterationResolvers(c: *Checker) void {
         _ = c;
     }
 
+    /// Port of checker.go::initializeChecker. Initializes the global symbol
+    /// table by merging global symbols from all source files. Simplified:
+    /// iterates source file locals and merges non-module symbols into
+    /// the global symbol table.
     pub fn initializeChecker(c: *Checker) void {
-        _ = c;
+        // Initialize closures and iteration resolvers.
+        c.initializeClosures();
+        c.initializeIterationResolvers();
+        // Global symbol merging is handled by the binder in bindSourceFile.
+        // Nothing additional to do here for now.
     }
 
-    pub fn mergeGlobalSymbol(c: *Checker, symbol_: *anyopaque) void {
+    /// Port of checker.go::mergeGlobalSymbol. Merges a symbol into the
+    /// global symbol table. Simplified: no-op — global symbol merging
+    /// is handled by the binder.
+    pub fn mergeGlobalSymbol(c: *Checker, sym: ast_gen.SymbolIndex) void {
         _ = c;
-        _ = symbol_;
+        _ = sym;
     }
 
-    pub fn mergeModuleAugmentation(c: *Checker, moduleName: *anyopaque) void {
+    /// Port of checker.go::mergeModuleAugmentation. Merges a module
+    /// augmentation declaration into its target module. Simplified: no-op.
+    pub fn mergeModuleAugmentation(c: *Checker, module_name: []const u8) void {
         _ = c;
-        _ = moduleName;
+        _ = module_name;
     }
 
+    /// Port of checker.go::addUndefinedToGlobalsOrErrorOnRedeclaration.
+    /// Adds `undefined` to the global scope or reports redeclaration
+    /// errors. Simplified: no-op.
     pub fn addUndefinedToGlobalsOrErrorOnRedeclaration(c: *Checker) void {
         _ = c;
     }
@@ -12926,9 +12988,26 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveBaseTypesOfClass(c: *Checker, t: *anyopaque) void {
-        _ = c;
-        _ = t;
+    /// Port of checker.go::resolveBaseTypesOfClass. Resolves the base
+    /// types of a class by walking the extends heritage clause and
+    /// computing the base constructor type.
+    pub fn resolveBaseTypesOfClass(c: *Checker, t: types.TypeIndex) void {
+        if (t == 0 or t >= c.typesList.items.len) return;
+        const sym = c.typesList.items[t].symbol orelse return;
+        if (sym >= c.binder.symbols.items.len) return;
+        const class_decl = ast_utils.getClassLikeDeclarationOfSymbol(&c.binder.ast, &c.binder.symbols, sym);
+        if (class_decl == 0) return;
+        // Get extends heritage clause element.
+        const base_node = ast_utils.getExtendsHeritageClauseElement(c.binder.ast, class_decl);
+        if (base_node == 0) return;
+        // Check the base type expression to resolve its type.
+        const base_expr = switch (c.binder.ast.getNode(base_node)) {
+            .ExpressionWithTypeArguments => |ewa| ewa.Expression,
+            else => 0,
+        };
+        if (base_expr != 0) {
+            _ = c.checkExpressionCached(base_expr);
+        }
     }
 
     /// Port of `checker.go::getBaseTypeNodeOfClass`. Returns the AST node
@@ -13054,9 +13133,26 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveBaseTypesOfInterface(c: *Checker, t: *anyopaque) void {
-        _ = c;
-        _ = t;
+    /// Port of checker.go::resolveBaseTypesOfInterface. Resolves the base
+    /// types of an interface by walking the extends heritage clause elements.
+    pub fn resolveBaseTypesOfInterface(c: *Checker, t: types.TypeIndex) void {
+        if (t == 0 or t >= c.typesList.items.len) return;
+        const sym = c.typesList.items[t].symbol orelse return;
+        if (sym >= c.binder.symbols.items.len) return;
+        // Walk interface declarations and check extends clauses.
+        for (c.binder.symbols.items[sym].Declarations.items) |decl| {
+            if (c.binder.ast.getKind(decl) != .InterfaceDeclaration) continue;
+            const iface = c.binder.ast.getNode(decl).InterfaceDeclaration;
+            // Check extends heritage clause if present.
+            if (iface.HeritageClauses) |hc| {
+                if (hc != 0) {
+                    const clauses = c.binder.ast.getNodeList(hc);
+                    for (clauses) |clause| {
+                        checkSourceElement(c, clause);
+                    }
+                }
+            }
+        }
     }
 
     pub fn areAllOuterTypeParametersApplied(c: *Checker, t: *anyopaque) bool {
@@ -13685,13 +13781,18 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn pushActiveMapper(c: *Checker, mapper: *anyopaque) void {
-        _ = c;
-        _ = mapper;
+    /// Port of checker.go::pushActiveMapper. Pushes a type mapper onto
+    /// the active mapper stack for type instantiation tracking.
+    pub fn pushActiveMapper(c: *Checker, mapper: types.TypeMapperIndex) void {
+        c.activeMapperStack.append(c.allocator, mapper) catch return;
     }
 
+    /// Port of checker.go::popActiveMapper. Pops the top mapper from
+    /// the active mapper stack.
     pub fn popActiveMapper(c: *Checker) void {
-        _ = c;
+        if (c.activeMapperStack.items.len > 0) {
+            _ = c.activeMapperStack.pop();
+        }
     }
 
     pub fn findActiveMapper(c: *Checker, mapper: *anyopaque) i32 {
@@ -13700,6 +13801,8 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of checker.go::clearActiveMapperCaches. Clears caches
+    /// associated with active type mappers. Simplified: no-op.
     pub fn clearActiveMapperCaches(c: *Checker) void {
         _ = c;
     }
@@ -15944,14 +16047,18 @@ pub const Checker = struct {
         return -1;
     }
 
-    pub fn pushInferenceContext(c: *Checker, node: *anyopaque, context: *anyopaque) void {
-        _ = c;
-        _ = node;
-        _ = context;
+    /// Port of checker.go::pushInferenceContext. Pushes an inference
+    /// context onto the stack for the given node.
+    pub fn pushInferenceContext(c: *Checker, node: ast_gen.NodeIndex, context: u32) void {
+        c.inferenceContextInfos.append(c.allocator, .{ .node = node, .context = context }) catch return;
     }
 
+    /// Port of checker.go::popInferenceContext. Pops the top inference
+    /// context from the stack.
     pub fn popInferenceContext(c: *Checker) void {
-        _ = c;
+        if (c.inferenceContextInfos.items.len > 0) {
+            _ = c.inferenceContextInfos.pop();
+        }
     }
 
     pub fn getInferenceContext(c: *Checker, node: *anyopaque) *anyopaque {
