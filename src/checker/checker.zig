@@ -4824,9 +4824,21 @@ pub const Checker = struct {
     }
 
     pub fn getSymbolForPrivateIdentifierExpression(c: *Checker, expr: ast_gen.NodeIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = expr;
-        return 0;
+        // Go: links := c.symbolNodeLinks.Get(node)
+        //   if links.resolvedSymbol == nil {
+        //     links.resolvedSymbol = c.lookupSymbolForPrivateIdentifierDeclaration(node.Text(), node)
+        //   }
+        //   return links.resolvedSymbol
+        if (c.symbolNodeLinks.get(expr)) |links| {
+            if (links.resolvedSymbol != 0) return links.resolvedSymbol;
+        }
+        const text = ast_utils.getTextOfNode(c.binder.ast, expr);
+        const sym = c.lookupSymbolForPrivateIdentifierDeclaration(text, expr);
+        // Cache result
+        var entry = c.symbolNodeLinks.getOrPut(c.allocator, expr) catch return sym;
+        if (!entry.found_existing) entry.value_ptr.* = .{};
+        entry.value_ptr.resolvedSymbol = sym;
+        return sym;
     }
 
     pub fn getTypeOfPropertyOfType(c: *Checker, t: types.TypeIndex, name: []const u8) types.TypeIndex {
