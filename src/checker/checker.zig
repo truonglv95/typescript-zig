@@ -7869,9 +7869,23 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getGlobalTypeDeclaration(symbol_: *anyopaque) *anyopaque {
-        _ = symbol_;
-        return undefined;
+    pub fn getGlobalTypeDeclaration(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.NodeIndex {
+        // Go: for _, declaration := range symbol.Declarations {
+        //   switch declaration.Kind {
+        //     case KindClassDeclaration, KindInterfaceDeclaration, KindEnumDeclaration, KindTypeAliasDeclaration: return declaration
+        //   }
+        // }
+        // return nil
+        const sym = c.binder.symbols.items[symbol_];
+        for (sym.Declarations.items) |decl| {
+            if (decl == 0) continue;
+            const k = c.binder.ast.getKind(decl);
+            switch (k) {
+                .ClassDeclaration, .InterfaceDeclaration, .EnumDeclaration, .TypeAliasDeclaration => return decl,
+                else => {},
+            }
+        }
+        return 0;
     }
 
     /// Port of checker.go::initializeClosures. Sets up function closures
@@ -8061,10 +8075,39 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getSuggestedLibForNonExistentName(c: *Checker, name_: *anyopaque) *anyopaque {
+    pub fn getSuggestedLibForNonExistentName(c: *Checker, name_: []const u8) ?[]const u8 {
+        // Go: featureMap := getFeatureMap()
+        //   if typeFeatures, ok := featureMap[name]; ok { return typeFeatures[0].lib }
+        //   return ""
+        // Simplified port with the most common entries.
         _ = c;
-        _ = name_;
-        return undefined;
+        if (std.mem.eql(u8, name_, "Array")) return "es2015";
+        if (std.mem.eql(u8, name_, "Iterator")) return "es2015";
+        if (std.mem.eql(u8, name_, "AsyncIterator")) return "es2015";
+        if (std.mem.eql(u8, name_, "ArrayBuffer")) return "es2024";
+        if (std.mem.eql(u8, name_, "Atomics")) return "es2017";
+        if (std.mem.eql(u8, name_, "BigInt")) return "es2020";
+        if (std.mem.eql(u8, name_, "Date")) return "es5";
+        if (std.mem.eql(u8, name_, "Error")) return "es5";
+        if (std.mem.eql(u8, name_, "Map")) return "es2015";
+        if (std.mem.eql(u8, name_, "Set")) return "es2015";
+        if (std.mem.eql(u8, name_, "Promise")) return "es2015";
+        if (std.mem.eql(u8, name_, "Proxy")) return "es2015";
+        if (std.mem.eql(u8, name_, "Reflect")) return "es2015";
+        if (std.mem.eql(u8, name_, "RegExp")) return "es5";
+        if (std.mem.eql(u8, name_, "Symbol")) return "es2015";
+        if (std.mem.eql(u8, name_, "WeakMap")) return "es2015";
+        if (std.mem.eql(u8, name_, "WeakSet")) return "es2015";
+        if (std.mem.eql(u8, name_, "String")) return "es5";
+        if (std.mem.eql(u8, name_, "Number")) return "es5";
+        if (std.mem.eql(u8, name_, "Boolean")) return "es5";
+        if (std.mem.eql(u8, name_, "Object")) return "es5";
+        if (std.mem.eql(u8, name_, "Function")) return "es5";
+        if (std.mem.eql(u8, name_, "Math")) return "es5";
+        if (std.mem.eql(u8, name_, "JSON")) return "es5";
+        if (std.mem.eql(u8, name_, "Intl")) return "es5";
+        if (std.mem.eql(u8, name_, "console")) return "dom";
+        return null;
     }
 
     pub fn getSuggestedSymbolForNonexistentSymbol(c: *Checker, location: *anyopaque, outerName: *anyopaque, meaning: *anyopaque) *anyopaque {
@@ -8075,9 +8118,27 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getPrimitiveTypeAliasSuggestions(symbols: *anyopaque) *anyopaque {
-        _ = symbols;
-        return undefined;
+    pub fn getPrimitiveTypeAliasSuggestions(c: *Checker, symbols: *symbol.SymbolTable) ?ast_gen.SymbolIndex {
+        // Go: for builtinName, suggestion := range primitiveTypeAliasSuggestions() {
+        //   if _, ok := symbols[builtinName]; ok { yield suggestion }
+        // }
+        // Simplified port: yields the first matching primitive alias suggestion.
+        // The mapping is builtin -> primitive name.
+        const pairs = [_]struct { builtin: []const u8, primitive: []const u8 }{
+            .{ .builtin = "String", .primitive = "string" },
+            .{ .builtin = "Number", .primitive = "number" },
+            .{ .builtin = "Boolean", .primitive = "boolean" },
+            .{ .builtin = "Object", .primitive = "object" },
+            .{ .builtin = "BigInt", .primitive = "bigint" },
+            .{ .builtin = "Symbol", .primitive = "symbol" },
+        };
+        for (pairs) |p| {
+            if (symbols.get(p.builtin)) |sym_idx| {
+                _ = c;
+                return sym_idx;
+            }
+        }
+        return null;
     }
 
     pub fn getSuggestionForSymbolNameLookup(c: *Checker, symbols: *anyopaque, name_: *anyopaque, meaning: *anyopaque) *anyopaque {
