@@ -11116,15 +11116,35 @@ pub const Checker = struct {
     }
 
     pub fn getRestTypeOfSignature(c: *Checker, signature: types.SignatureIndex) types.TypeIndex {
-        _ = c;
-        _ = signature;
-        return 0;
+        // Go: return core.OrElse(c.tryGetRestTypeOfSignature(signature), c.anyType)
+        const rest = c.tryGetRestTypeOfSignature(signature);
+        if (rest != 0) return rest;
+        return c.anyTypeIndex orelse 0;
     }
 
     pub fn tryGetRestTypeOfSignature(c: *Checker, signature: types.SignatureIndex) types.TypeIndex {
-        _ = c;
-        _ = signature;
-        return 0;
+        // Go: if !signatureHasRestParameter(signature) { return nil }
+        //   restType := c.getTypeOfSymbol(signature.parameters[len(signature.parameters)-1])
+        //   if isTupleType(restType) {
+        //     restType = c.getRestTypeOfTupleType(restType)
+        //     if restType == nil { return nil }
+        //   }
+        //   return c.getIndexTypeOfType(restType, c.numberType)
+        const sig = c.signatures.items[signature];
+        if ((sig.flags & types.SignatureFlags.HasRestParameter) == 0) return 0;
+        if (sig.parametersLen == 0) return 0;
+        // Get last parameter symbol
+        const last_param = c.signatureParameters.items[sig.parametersStart + sig.parametersLen - 1];
+        if (last_param == 0) return 0;
+        var rest_type = c.getTypeOfSymbol(last_param) catch 0;
+        if (rest_type == 0) return 0;
+        // Check if tuple type
+        if ((c.typesList.items[rest_type].objectFlags & types.ObjectFlags.Tuple) != 0) {
+            rest_type = c.getRestTypeOfTupleType(rest_type);
+            if (rest_type == 0) return 0;
+        }
+        // getIndexTypeOfType not yet wired; use getIndexType as fallback
+        return c.getIndexType(rest_type);
     }
 
     /// Port of checker.go::reportCallResolutionErrors. Reports call
