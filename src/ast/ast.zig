@@ -240,6 +240,9 @@ pub const Ast = struct {
 
     /// Lấy một Node tại index cụ thể.
     pub fn getNode(self: *Ast, index: NodeIndex) ast_gen.NodeData {
+        if (index == 0 or index >= self.nodes.len) {
+            return .{ .MissingDeclaration = .{ .Flags = 0, .Symbol = 0, .modifiers = null, .modifierFlags = 0 } };
+        }
         return self.nodes.get(index);
     }
 

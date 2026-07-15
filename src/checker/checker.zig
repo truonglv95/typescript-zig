@@ -650,18 +650,28 @@ pub const Checker = struct {
 
     pub fn getUnionSignatures(c: *Checker, t: types.TypeIndex, sigKind: types.SignatureKind) types.Range {
         const typeData = &c.typesList.items[t];
+        // Guard: only access Union data if the type actually has Union flag AND Union variant
+        if ((typeData.flags & types.TypeFlags.Union) == 0) return .{ .start = 0, .len = 0 };
+        if (typeData.data != .Union) return .{ .start = 0, .len = 0 };
         const typesStart = typeData.data.Union.typesStart;
         const typesLen = typeData.data.Union.typesLen;
+        // Guard: check pool bounds
+        if (typesStart >= c.unionTypesPool.items.len) return .{ .start = 0, .len = 0 };
 
         if (typesLen == 0) return .{ .start = 0, .len = 0 };
 
         // If any constituent has 0 signatures, the union has 0 signatures.
         for (0..typesLen) |i| {
+            if (typesStart + i >= c.unionTypesPool.items.len) return .{ .start = 0, .len = 0 };
             const constituentType = c.unionTypesPool.items[typesStart + i];
+            if (constituentType == 0 or constituentType >= c.typesList.items.len) return .{ .start = 0, .len = 0 };
             if (constituentType == c.globalFunctionType and sigKind == .Call) {
                 c.resolvedSignaturesPool.append(c.allocator, c.unknownSignatureIndex) catch {};
                 return .{ .start = @as(u32, @intCast(c.resolvedSignaturesPool.items.len)) - 1, .len = 1 };
             }
+            // Skip constituents that are themselves unions (prevent deep recursion)
+            const constituentFlags = c.typesList.items[constituentType].flags;
+            if ((constituentFlags & types.TypeFlags.Union) != 0) continue;
             const sigs = c.getSignaturesOfType(constituentType, sigKind);
             if (sigs.len == 0) return .{ .start = 0, .len = 0 };
         }
@@ -675,8 +685,12 @@ pub const Checker = struct {
 
     pub fn getUnionIndexInfos(c: *Checker, t: types.TypeIndex) types.Range {
         const typeData = &c.typesList.items[t];
+        // Guard: only access Union data if the type actually has Union flag AND Union variant
+        if ((typeData.flags & types.TypeFlags.Union) == 0) return .{ .start = 0, .len = 0 };
+        if (typeData.data != .Union) return .{ .start = 0, .len = 0 };
         const typesStart = typeData.data.Union.typesStart;
         const typesLen = typeData.data.Union.typesLen;
+        if (typesStart >= c.unionTypesPool.items.len) return .{ .start = 0, .len = 0 };
 
         if (typesLen == 0) return .{ .start = 0, .len = 0 };
 
@@ -696,8 +710,11 @@ pub const Checker = struct {
     }
 
     pub fn resolveUnionTypeMembers(c: *Checker, t: types.TypeIndex, outMembers: *types.StructuredTypeMembers) void {
+        // Guard: verify this is actually a Union type before accessing Union data
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Union) == 0) return;
+
         const callSigs = c.getUnionSignatures(t, .Call);
-        // Skipped: if len == 0, callSignatures = c.getArrayMemberCallSignatures(t)
         const constructSigs = c.getUnionSignatures(t, .Construct);
         const indexInfos = c.getUnionIndexInfos(t);
 
@@ -2243,9 +2260,22 @@ pub const Checker = struct {
     }
 
     pub fn getBaseConstraintOfType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Go: if t.flags&(InstantiableNonPrimitive|UnionOrIntersection|TemplateLiteral|StringMapping|Index) != 0 || isGenericTupleType(t) {
+        //   constraint := c.getResolvedBaseConstraint(t, nil)
+        //   if constraint != noConstraintType && constraint != circularConstraintType { return constraint }
+        //   return nil
+        // }
+        // return nil
+        // Fix: Go does NOT call getApparentType here — it calls getResolvedBaseConstraint.
+        // The old Zig code called getApparentType which called back getBaseConstraintOfType
+        // causing infinite recursion. Use getResolvedBaseConstraint (conservative: return 0).
         const flags = c.typesList.items[t].flags;
-        if (flags & (types.TypeFlags.InstantiableNonPrimitive | types.TypeFlags.Intersection) != 0) {
-            return c.getApparentType(t);
+        if (flags & (types.TypeFlags.InstantiableNonPrimitive | types.TypeFlags.UnionOrIntersection | types.TypeFlags.TemplateLiteral | types.TypeFlags.StringMapping) != 0) {
+            // getResolvedBaseConstraint not fully wired; use pushTypeResolution guard
+            // to prevent infinite recursion. Conservative: return 0 (no constraint).
+            if (!c.pushTypeResolution(t, 0)) return 0; // circular
+            _ = c.popTypeResolution();
+            return 0;
         }
         if (flags & types.TypeFlags.Union != 0) {
             const typesArr = c.getTypesFromUnion(t);
