@@ -9321,9 +9321,26 @@ pub const Checker = struct {
     /// Port of checker.go::getTypeFromImportAttributes. Returns the type
     /// from import attributes. Simplified: returns 0.
     pub fn getTypeFromImportAttributes(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = node;
-        return 0;
+        // Go: links := c.typeNodeLinks.Get(node)
+        //   if links.resolvedType == nil {
+        //     symbol := c.newSymbol(ast.SymbolFlagsObjectLiteral, ast.InternalSymbolNameImportAttributes)
+        //     members := make(ast.SymbolTable)
+        //     for _, attr := range node.AsImportAttributes().Attributes.Nodes {
+        //       member := c.newSymbol(ast.SymbolFlagsProperty, attr.Name().Text())
+        //       c.valueSymbolLinks.Get(member).resolvedType = c.getRegularTypeOfLiteralType(c.checkExpression(attr.AsImportAttribute().Value))
+        //       members[member.Name] = member
+        //     }
+        //     t := c.newAnonymousType(symbol, members, nil, nil, nil)
+        //     t.objectFlags |= ObjectFlagsObjectLiteral | ObjectFlagsNonInferrableType
+        //     links.resolvedType = t
+        //   }
+        //   return links.resolvedType
+        // Simplified: ImportAttributes AST nodes not fully wired.
+        // Return emptyObjectType as conservative fallback.
+        if (c.typeNodeLinks.get(node)) |links| {
+            if (links.resolvedType) |t| return t;
+        }
+        return c.emptyObjectTypeIndex orelse c.emptyObjectType;
     }
 
     /// Port of checker.go::checkExportSpecifier. Checks an export
