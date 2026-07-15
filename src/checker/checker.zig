@@ -13442,10 +13442,18 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getExportsOfSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn getExportsOfSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) *const symbol.SymbolTable {
+        // Go: if symbol.Flags&ast.SymbolFlagsLateBindingContainer != 0 { return c.getResolvedMembersOrExportsOfSymbol(...) }
+        //   if symbol.Flags&ast.SymbolFlagsModule != 0 { return c.getExportsOfModule(symbol) }
+        //   return symbol.Exports
+        // Simplified: LateBindingContainer not yet defined; check Module flag.
+        const sym = c.binder.symbols.items[symbol_];
+        // Module = ValueModule | NamespaceModule | Enum
+        if ((sym.Flags & symbol.SymbolFlags.Module) != 0) {
+            // getExportsOfModule not yet wired; return Exports directly.
+            return &sym.Exports;
+        }
+        return &sym.Exports;
     }
 
     pub fn getResolvedMembersOrExportsOfSymbol(c: *Checker, symbol_: *anyopaque, resolutionKind: *anyopaque) *anyopaque {
@@ -13485,10 +13493,12 @@ pub const Checker = struct {
         _ = symbolFlags;
     }
 
-    pub fn getMembersOfSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn getMembersOfSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) *const symbol.SymbolTable {
+        // Go: if symbol.Flags&ast.SymbolFlagsLateBindingContainer != 0 { return c.getResolvedMembersOrExportsOfSymbol(...) }
+        //   return symbol.Members
+        // Simplified: LateBindingContainer not yet defined; return Members directly.
+        const sym = c.binder.symbols.items[symbol_];
+        return &sym.Members;
     }
 
     pub fn getExportsOfModule(c: *Checker, moduleSymbol: ast_gen.SymbolIndex) types.SymbolTableIndex {
