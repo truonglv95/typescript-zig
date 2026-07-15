@@ -11513,9 +11513,35 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isInParameterInitializerBeforeContainingFunction(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
+    pub fn isInParameterInitializerBeforeContainingFunction(c: *Checker, node_in: ast_gen.NodeIndex) bool {
+        // Go: inBindingInitializer := false
+        //   for node.Parent != nil && !ast.IsFunctionLike(node.Parent) {
+        //     if ast.IsParameterDeclaration(node.Parent) {
+        //       if inBindingInitializer || node.Parent.Initializer() == node { return true }
+        //     }
+        //     if ast.IsBindingElement(node.Parent) && node.Parent.Initializer() == node {
+        //       inBindingInitializer = true
+        //     }
+        //     node = node.Parent
+        //   }
+        //   return false
+        var in_binding_initializer = false;
+        var node = node_in;
+        while (true) {
+            const parent = c.binder.ast.getNodeParent(node);
+            if (parent == 0) break;
+            if (ast_utils.isFunctionLikeNode(c.binder.ast, parent)) break;
+            if (ast_utils.isParameterDeclaration(c.binder.ast, parent)) {
+                if (in_binding_initializer) return true;
+                const param_init: ?ast_gen.NodeIndex = c.binder.ast.getNode(parent).Parameter.Initializer;
+                if (param_init != null and param_init.? == node) return true;
+            }
+            if (ast_utils.isBindingElement(c.binder.ast, parent)) {
+                const be_init: ?ast_gen.NodeIndex = c.binder.ast.getNode(parent).BindingElement.Initializer;
+                if (be_init != null and be_init.? == node) in_binding_initializer = true;
+            }
+            node = parent;
+        }
         return false;
     }
 

@@ -1859,10 +1859,9 @@ pub fn hasPropertyAccessExpressionWithName(a: anytype, b: anytype, c: anytype) b
     _ = c;
     return false;
 }
-pub fn isParameterDeclaration(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
-    return false; // Stub
+pub fn isParameterDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    return tree.getNodeKind(node) == .Parameter;
 }
 
 pub fn isStatement(tree: *ast_pkg.Ast, node: ast_gen.NodeIndex) bool {
@@ -2170,10 +2169,9 @@ pub fn isOptionalChain(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     }
     return false;
 }
-pub fn isBindingElement(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
-    return false;
+pub fn isBindingElement(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    return tree.getNodeKind(node) == .BindingElement;
 }
 pub fn getDotDotDotTokenOfNode(a: anytype, b: anytype) ast.NodeIndex {
     _ = a;
