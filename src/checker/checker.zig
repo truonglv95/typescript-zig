@@ -11385,11 +11385,34 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isAritySmaller(c: *Checker, signature: types.SignatureIndex, target: types.TypeIndex) bool {
-        _ = c;
-        _ = signature;
-        _ = target;
-        return false;
+    pub fn isAritySmaller(c: *Checker, signature: types.SignatureIndex, target: ast_gen.NodeIndex) bool {
+        // Go: parameters := target.Parameters()
+        //   targetParameterCount := 0
+        //   for targetParameterCount < len(parameters) {
+        //     param := parameters[targetParameterCount]
+        //     if param.Initializer() != nil || param.QuestionToken() != nil || hasDotDotDotToken(param) { break }
+        //     targetParameterCount++
+        //   }
+        //   if len(parameters) != 0 && ast.IsThisParameter(parameters[0]) { targetParameterCount-- }
+        //   return targetParameterCount < c.getParameterCount(signature)
+        // Simplified: compare parameter count of target with signature
+        // Count target parameters (required, non-optional, non-rest)
+        if (target == 0) return false;
+        var target_param_count: u32 = 0;
+        const target_kind = c.binder.ast.getKind(target);
+        if (target_kind == .CallExpression or target_kind == .NewExpression) {
+            const args_list: ast_gen.NodeListIndex = switch (c.binder.ast.getNode(target)) {
+                .CallExpression => |n| n.Arguments,
+                .NewExpression => |n| n.Arguments,
+                else => 0,
+            };
+            if (args_list != 0) {
+                target_param_count = @intCast(c.binder.ast.getNodeList(args_list).len);
+            }
+        }
+        // Check if signature has fewer required params than target arg count
+        const sig = c.signatures.items[signature];
+        return sig.parametersLen < target_param_count;
     }
 
     pub fn assignContextualParameterTypes(c: *Checker, sig: types.SignatureIndex, context: types.TypeIndex) void {
@@ -11565,17 +11588,36 @@ pub const Checker = struct {
     }
 
     pub fn isSameScopedBindingElement(c: *Checker, node: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        _ = declaration;
+        // Go: if ast.IsBindingElement(declaration) {
+        //   bindingElement := ast.FindAncestor(node, ast.IsBindingElement)
+        //   return bindingElement != nil && ast.GetRootDeclaration(bindingElement) == ast.GetRootDeclaration(declaration)
+        // }
+        // return false
+        if (!ast_utils.isBindingElement(c.binder.ast, declaration)) return false;
+        // Find ancestor of node that is a BindingElement
+        var current = node;
+        while (current != 0) {
+            if (ast_utils.isBindingElement(c.binder.ast, current)) {
+                // Compare root declarations — simplified: just compare node identity
+                return current == declaration;
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
         return false;
     }
 
-    pub fn removeOptionalityFromDeclaredType(c: *Checker, declaredType: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = declaredType;
-        _ = declaration;
-        return 0;
+    pub fn removeOptionalityFromDeclaredType(c: *Checker, declaredType: types.TypeIndex, declaration: ast_gen.NodeIndex) types.TypeIndex {
+        // Go: removeUndefined := c.strictNullChecks && ast.IsParameterDeclaration(declaration) &&
+        //   declaration.Initializer() != nil && c.hasTypeFacts(declaredType, TypeFactsIsUndefined) &&
+        //   !c.parameterInitializerContainsUndefined(declaration)
+        // if removeUndefined { return c.getTypeWithFacts(declaredType, TypeFactsNEUndefined) }
+        // return declaredType
+        if (!c.strictNullChecks) return declaredType;
+        if (!ast_utils.isParameterDeclaration(c.binder.ast, declaration)) return declaredType;
+        const init_node: ?ast_gen.NodeIndex = c.binder.ast.getNode(declaration).Parameter.Initializer;
+        if (init_node == null) return declaredType;
+        // hasTypeFacts and getTypeWithFacts not fully wired — return declaredType
+        return declaredType;
     }
 
     pub fn parameterInitializerContainsUndefined(c: *Checker, declaration: ast_gen.NodeIndex) bool {
@@ -11811,9 +11853,23 @@ pub const Checker = struct {
     }
 
     pub fn isMethodAccessForCall(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        // Go: for ast.IsParenthesizedExpression(node.Parent) { node = node.Parent }
+        //   return ast.IsCallOrNewExpression(node.Parent) && node.Parent.Expression() == node
+        var current = node;
+        var parent = c.binder.ast.getNodeParent(current);
+        while (parent != 0 and c.binder.ast.getKind(parent) == .ParenthesizedExpression) {
+            current = parent;
+            parent = c.binder.ast.getNodeParent(current);
+        }
+        if (parent == 0) return false;
+        const pk = c.binder.ast.getKind(parent);
+        if (pk != .CallExpression and pk != .NewExpression) return false;
+        const expr: ast_gen.NodeIndex = switch (c.binder.ast.getNode(parent)) {
+            .CallExpression => |n| n.Expression,
+            .NewExpression => |n| n.Expression,
+            else => return false,
+        };
+        return expr == current;
     }
 
     pub fn lookupSymbolForPrivateIdentifierDeclaration(c: *Checker, propName: []const u8, location: ast_gen.NodeIndex) ast_gen.SymbolIndex {
@@ -14595,21 +14651,85 @@ pub const Checker = struct {
         return c.getTypeOfSymbol(symbol_) catch (c.anyTypeIndex orelse 0);
     }
 
-    pub fn getBaseTypeVariableOfClass(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = symbol_;
+    pub fn getBaseTypeVariableOfClass(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        // Go: baseConstructorType := c.getBaseConstructorTypeOfClass(c.getDeclaredTypeOfClassOrInterface(symbol))
+        //   switch {
+        //   case baseConstructorType.flags&TypeFlagsTypeVariable != 0: return baseConstructorType
+        //   case baseConstructorType.flags&TypeFlagsIntersection != 0:
+        //     return core.Find(baseConstructorType.Types(), func(t *Type) bool { return t.flags&TypeFlagsTypeVariable != 0 })
+        //   }
+        //   return nil
+        const class_type = c.getDeclaredTypeOfClassOrInterface(symbol_);
+        if (class_type == 0) return 0;
+        const base_ctor = c.getBaseConstructorTypeOfClass(class_type);
+        if (base_ctor == 0) return 0;
+        const base_flags = c.typesList.items[base_ctor].flags;
+        if ((base_flags & types.TypeFlags.TypeVariable) != 0) return base_ctor;
+        if ((base_flags & types.TypeFlags.Intersection) != 0) {
+            const constituents = c.getTypesFromIntersection(base_ctor);
+            for (constituents) |ct| {
+                if ((c.typesList.items[ct].flags & types.TypeFlags.TypeVariable) != 0) return ct;
+            }
+        }
         return 0;
     }
 
     pub fn getBaseConstructorTypeOfClass(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        // Go: data := t.AsInterfaceType()
+        //   if data.resolvedBaseConstructorType != nil { return data.resolvedBaseConstructorType }
+        //   baseTypeNode := getBaseTypeNodeOfClass(t)
+        //   if baseTypeNode == nil { data.resolvedBaseConstructorType = c.undefinedType; return data.resolvedBaseConstructorType }
+        //   if !c.pushTypeResolution(t, ...) { return c.errorType }
+        //   baseConstructorType := c.checkExpression(baseTypeNode.Expression())
+        //   ... resolveStructuredTypeMembers, popTypeResolution, isConstructorType check ...
+        //   data.resolvedBaseConstructorType = baseConstructorType
+        //   return data.resolvedBaseConstructorType
+        // Simplified: get base type node, check expression, return type.
+        const base_type_node = c.getBaseTypeNodeOfClass(t);
+        if (base_type_node == 0) return c.undefinedTypeIndex orelse 0;
+        if (!c.pushTypeResolution(t, 0)) return c.errorTypeIndex orelse 0;
+        const base_expr: ast_gen.NodeIndex = switch (c.binder.ast.getNode(base_type_node)) {
+            .ExpressionWithTypeArguments => |n| n.Expression,
+            else => 0,
+        };
+        if (base_expr == 0) {
+            _ = c.popTypeResolution();
+            return c.errorTypeIndex orelse 0;
+        }
+        const base_ctor_type = c.checkExpression(base_expr) catch {
+            _ = c.popTypeResolution();
+            return c.errorTypeIndex orelse 0;
+        };
+        _ = c.popTypeResolution();
+        return base_ctor_type;
     }
 
     pub fn getConstraintFromTypeParameter(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
+        // Go: if t.flags&TypeFlagsTypeParameter == 0 { return nil }
+        //   tp := t.AsTypeParameter()
+        //   if tp.constraint == nil {
+        //     var constraint *Type
+        //     if tp.target != nil { constraint = c.instantiateType(c.getConstraintOfTypeParameter(tp.target), tp.mapper) }
+        //     else {
+        //       constraintDeclaration := c.getConstraintDeclaration(t)
+        //       if constraintDeclaration != nil {
+        //         constraint = c.getTypeFromTypeNode(constraintDeclaration)
+        //         if constraint.flags&TypeFlagsAny != 0 && !c.isErrorType(constraint) {
+        //           if ast.IsMappedTypeNode(constraintDeclaration.Parent.Parent) { constraint = c.stringNumberSymbolType }
+        //           else { constraint = c.unknownType }
+        //         }
+        //       } else { constraint = c.getInferredTypeParameterConstraint(t, false) }
+        //     }
+        //     if constraint == nil { constraint = c.noConstraintType }
+        //     tp.constraint = constraint
+        //   }
+        //   if tp.constraint != c.noConstraintType { return tp.constraint }
+        //   return nil
+        if ((c.typesList.items[t].flags & types.TypeFlags.TypeParameter) == 0) return 0;
+        // Use existing getConstraintOfTypeParameter which resolves and caches
+        if (c.getConstraintOfTypeParameter(t)) |constraint| {
+            return constraint;
+        }
         return 0;
     }
 
