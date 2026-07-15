@@ -8404,10 +8404,26 @@ pub const Checker = struct {
         _ = return_type_node;
     }
 
-    pub fn findFirstSuperCall(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn findFirstSuperCall(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: visit(node) — switch { case isSuperCall(node): superCall = node; return true
+        //   case IsFunctionLike(node): return false }
+        //   return node.ForEachChild(visit)
+        if (node == 0) return 0;
+        // isSuperCall: IsCallExpression(node) && node.Expression().Kind == KindSuperKeyword
+        const node_kind = c.binder.ast.getKind(node);
+        if (node_kind == .CallExpression) {
+            const expr = c.binder.ast.getNode(node).CallExpression.Expression;
+            if (expr != 0 and c.binder.ast.getKind(expr) == .SuperKeyword) return node;
+        }
+        // Skip recursion into nested function-like nodes
+        if (ast_utils.isFunctionLike(node_kind)) return 0;
+        // ForEachChild: recurse
+        const children = c.binder.ast.getChildren(node) catch return 0;
+        for (children) |child| {
+            const found = findFirstSuperCall(c, child);
+            if (found != 0) return found;
+        }
+        return 0;
     }
 
     pub fn isInstancePropertyWithInitializerOrPrivateIdentifierProperty(c: *Checker, n: ast_gen.NodeIndex) bool {
@@ -8730,10 +8746,20 @@ pub const Checker = struct {
         _ = sym;
     }
 
-    pub fn getClassOrInterfaceDeclarationsOfSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn getClassOrInterfaceDeclarationsOfSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) []const ast_gen.NodeIndex {
+        // Go: return core.Filter(symbol.Declarations, func(d *ast.Node) bool {
+        //   return ast.IsClassDeclaration(d) || ast.IsInterfaceDeclaration(d)
+        // })
+        const sym = c.binder.symbols.items[symbol_];
+        var result = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        for (sym.Declarations.items) |decl| {
+            if (decl == 0) continue;
+            const k = c.binder.ast.getKind(decl);
+            if (k == .ClassDeclaration or k == .InterfaceDeclaration) {
+                result.append(c.allocator, decl) catch return &[_]ast_gen.NodeIndex{};
+            }
+        }
+        return result.toOwnedSlice(c.allocator) catch &[_]ast_gen.NodeIndex{};
     }
 
     pub fn areTypeParametersIdentical(c: *Checker, declarations: *anyopaque, targetParameters: *anyopaque, getTypeParameterDeclarations: *anyopaque) bool {
@@ -14603,9 +14629,20 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSymbolPath(symbol_: *anyopaque) *anyopaque {
-        _ = symbol_;
-        return undefined;
+    pub fn getSymbolPath(c: *Checker, symbol_: ast_gen.SymbolIndex) []const u8 {
+        // Go: if symbol.Parent != nil { return getSymbolPath(symbol.Parent) + "." + symbol.Name }
+        //     return symbol.Name
+        const sym = c.binder.symbols.items[symbol_];
+        if (sym.Parent) |parent| {
+            const parent_path = getSymbolPath(c, parent);
+            const total_len = parent_path.len + 1 + sym.Name.len;
+            const buf = c.allocator.alloc(u8, total_len) catch return sym.Name;
+            std.mem.copyForwards(u8, buf[0..parent_path.len], parent_path);
+            buf[parent_path.len] = '.';
+            std.mem.copyForwards(u8, buf[parent_path.len + 1 ..], sym.Name);
+            return buf;
+        }
+        return sym.Name;
     }
 
     pub fn getTypeReferenceType(c: *Checker, node: *anyopaque, symbol_: *anyopaque) *anyopaque {
@@ -14758,9 +14795,24 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTypeReferenceName(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
+    pub fn getTypeReferenceName(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: switch node.Kind {
+        //   case KindTypeReference: return node.AsTypeReferenceNode().TypeName
+        //   case KindExpressionWithTypeArguments:
+        //     expr := node.Expression()
+        //     if ast.IsEntityNameExpression(expr) { return expr }
+        // }
+        // return nil
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .TypeReference => return c.binder.ast.getNode(node).TypeReference.TypeName,
+            .ExpressionWithTypeArguments => {
+                const expr = c.binder.ast.getNode(node).ExpressionWithTypeArguments.Expression;
+                if (expr != 0 and ast_utils.isEntityNameExpression(c.binder.ast, expr)) return expr;
+            },
+            else => {},
+        }
+        return 0;
     }
 
     pub fn getOuterTypeParametersOfClassOrInterface(c: *Checker, symbol_: *anyopaque) *anyopaque {
@@ -15763,9 +15815,20 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIndexNodeForAccessExpression(accessNode: *anyopaque) *anyopaque {
-        _ = accessNode;
-        return undefined;
+    pub fn getIndexNodeForAccessExpression(c: *Checker, accessNode: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: switch accessNode.Kind {
+        //   case KindElementAccessExpression: return accessNode.AsElementAccessExpression().ArgumentExpression
+        //   case KindIndexedAccessType: return accessNode.AsIndexedAccessTypeNode().IndexType
+        //   case KindComputedPropertyName: return accessNode.Expression()
+        // }
+        // return accessNode
+        const node_data = c.binder.ast.getNode(accessNode);
+        switch (node_data) {
+            .ElementAccessExpression => |n| return n.ArgumentExpression,
+            .IndexedAccessType => |n| return n.IndexType,
+            .ComputedPropertyName => |n| return n.Expression,
+            else => return accessNode,
+        }
     }
 
     pub fn errorIfWritingToReadonlyIndex(c: *Checker, indexInfo: *anyopaque, objectType: *anyopaque, accessExpression: *anyopaque) void {
