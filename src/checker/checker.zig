@@ -8347,9 +8347,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isInstancePropertyWithInitializerOrPrivateIdentifierProperty(n: *anyopaque) bool {
-        _ = n;
-        return false;
+    pub fn isInstancePropertyWithInitializerOrPrivateIdentifierProperty(c: *Checker, n: ast_gen.NodeIndex) bool {
+        // Go: return ast.IsPrivateIdentifierClassElementDeclaration(n) || ast.IsPropertyDeclaration(n) && !ast.IsStatic(n) && n.Initializer() != nil
+        if (ast_utils.isPrivateIdentifierClassElementDeclaration(c.binder.ast, n)) return true;
+        if (!ast_utils.isPropertyDeclaration(c.binder.ast, n)) return false;
+        if (ast_utils.isStatic(c.binder.ast, n)) return false;
+        const init_node: ?ast_gen.NodeIndex = c.binder.ast.getNode(n).PropertyDeclaration.Initializer;
+        return init_node != null;
     }
 
     pub fn superCallIsRootLevelInConstructor(superCall: *anyopaque, body: *anyopaque) bool {
@@ -10801,8 +10805,18 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn hasCommonDomTypeName(t: *anyopaque) bool {
-        _ = t;
+    pub fn hasCommonDomTypeName(c: *Checker, t: types.TypeIndex) bool {
+        // Go: if t.symbol == nil { return false }
+        //   name := t.symbol.Name
+        //   return name == "EventTarget" || name == "Node" || name == "Element" ||
+        //     strings.HasPrefix(name, "HTML") && strings.HasSuffix(name, "Element")
+        const ty = c.typesList.items[t];
+        const sym_idx = ty.symbol orelse return false;
+        const name = c.binder.symbols.items[sym_idx].Name;
+        if (std.mem.eql(u8, name, "EventTarget")) return true;
+        if (std.mem.eql(u8, name, "Node")) return true;
+        if (std.mem.eql(u8, name, "Element")) return true;
+        if (std.mem.startsWith(u8, name, "HTML") and std.mem.endsWith(u8, name, "Element")) return true;
         return false;
     }
 
@@ -15017,24 +15031,24 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getStringLiteralValue(t: *anyopaque) *anyopaque {
-        _ = t;
-        return undefined;
+    pub fn getStringLiteralValue(c: *Checker, t: types.TypeIndex) []const u8 {
+        // Go: return t.AsLiteralType().value.(string)
+        return c.typesList.items[t].data.StringLiteral.text;
     }
 
-    pub fn getNumberLiteralValue(t: *anyopaque) *anyopaque {
-        _ = t;
-        return undefined;
+    pub fn getNumberLiteralValue(c: *Checker, t: types.TypeIndex) f64 {
+        // Go: return t.AsLiteralType().value.(jsnum.Number)
+        return c.typesList.items[t].data.NumberLiteral.value;
     }
 
-    pub fn getBigIntLiteralValue(t: *anyopaque) *anyopaque {
-        _ = t;
-        return undefined;
+    pub fn getBigIntLiteralValue(c: *Checker, t: types.TypeIndex) []const u8 {
+        // Go: return t.AsLiteralType().value.(jsnum.PseudoBigInt)
+        return c.typesList.items[t].data.BigIntLiteral.text;
     }
 
-    pub fn getBooleanLiteralValue(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn getBooleanLiteralValue(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.AsLiteralType().value.(bool)
+        return c.typesList.items[t].data.BooleanLiteral.value;
     }
 
     pub fn getEnumLiteralType(c: *Checker, value: *anyopaque, enumSymbol: *anyopaque, symbol_: *anyopaque) *anyopaque {

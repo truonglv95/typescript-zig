@@ -2360,6 +2360,34 @@ pub fn isPropertyDeclaration(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool 
     return tree.getNode(nodeIndex) == .PropertyDeclaration;
 }
 
+pub fn isMethodDeclaration(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    if (nodeIndex == 0) return false;
+    return tree.getNode(nodeIndex) == .MethodDeclaration;
+}
+
+pub fn isMethodOrAccessor(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    if (nodeIndex == 0) return false;
+    const k = tree.getNodeKind(nodeIndex);
+    return k == .MethodDeclaration or k == .GetAccessor or k == .SetAccessor;
+}
+
+/// Port of ast.IsPrivateIdentifierClassElementDeclaration.
+/// Returns true if `node` is a property/method/accessor whose name is a
+/// private identifier (e.g. `#foo`).
+pub fn isPrivateIdentifierClassElementDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    if (!isPropertyDeclaration(tree, node) and !isMethodOrAccessor(tree, node)) return false;
+    const name_idx: ast_gen.NodeIndex = switch (tree.getNode(node)) {
+        .PropertyDeclaration => |n| n.name,
+        .MethodDeclaration => |n| n.name,
+        .GetAccessor => |n| n.name,
+        .SetAccessor => |n| n.name,
+        else => return false,
+    };
+    if (name_idx == 0) return false;
+    return isPrivateIdentifier(tree, name_idx);
+}
+
 /// Returns the heritage clause of `class_node` matching token kind `k`
 /// (e.g. `.ExtendsKeyword`, `.ImplementsKeyword`), or null if absent.
 /// Port of `ast.GetHeritageClause`.
@@ -2410,9 +2438,8 @@ pub fn getClassLikeDeclarationOfSymbol(tree: *ast.Ast, symbols: *const std.Array
     }
     return 0;
 }
-pub fn isPrivateIdentifier(a: anytype) bool {
-    _ = a;
-    return false;
+pub fn isPrivateIdentifier(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getNodeKind(node) == .PrivateIdentifier;
 }
 pub fn canHaveDecorators(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const nodeKind = getKind(tree, nodeIndex);

@@ -841,7 +841,7 @@ pub const LegacyDecoratorsTransformer = struct {
     fn getExpressionForPropertyName(self: *LegacyDecoratorsTransformer, tx: *transformers.Transformer, member: ast.NodeIndex, generateNameForComputedPropertyName: bool) ast.NodeIndex {
         _ = self;
         const name = ast_utils.name(tx.emitContext.tree, member);
-        if (ast_utils.isPrivateIdentifier(name)) {
+        if (ast_utils.isPrivateIdentifier(tx.emitContext.tree, name)) {
             return tx.factory.newIdentifier("");
         } else if (ast_utils.isComputedPropertyName(tx.visitor.tree, name)) {
             if (generateNameForComputedPropertyName and !ast_utils.isSimpleInlineableExpression(ast_utils.expression(tx.emitContext.tree, name))) {
