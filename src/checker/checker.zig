@@ -12009,14 +12009,34 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getFirstDeclaration(symbol_: *anyopaque) *anyopaque {
-        _ = symbol_;
-        return undefined;
+    pub fn getFirstDeclaration(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.NodeIndex {
+        // Go: if len(symbol.Declarations) > 0 { return symbol.Declarations[0] }; return nil
+        const sym = c.binder.symbols.items[symbol_];
+        if (sym.Declarations.items.len > 0) return sym.Declarations.items[0];
+        return 0;
     }
 
-    pub fn getExcludedSymbolFlags(flags: *anyopaque) *anyopaque {
-        _ = flags;
-        return undefined;
+    pub fn getExcludedSymbolFlags(flags: u32) u32 {
+        // Go: bit-by-bit | of each kind's *Excludes flag, then clear Method if ReplaceableByMethod
+        var result: u32 = 0;
+        if ((flags & symbol.SymbolFlags.BlockScopedVariable) != 0) result |= symbol.SymbolFlags.BlockScopedVariableExcludes;
+        if ((flags & symbol.SymbolFlags.FunctionScopedVariable) != 0) result |= symbol.SymbolFlags.FunctionScopedVariableExcludes;
+        if ((flags & symbol.SymbolFlags.Property) != 0) result |= symbol.SymbolFlags.PropertyExcludes;
+        if ((flags & symbol.SymbolFlags.EnumMember) != 0) result |= symbol.SymbolFlags.EnumMemberExcludes;
+        if ((flags & symbol.SymbolFlags.Function) != 0) result |= symbol.SymbolFlags.FunctionExcludes;
+        if ((flags & symbol.SymbolFlags.Class) != 0) result |= symbol.SymbolFlags.ClassExcludes;
+        if ((flags & symbol.SymbolFlags.Interface) != 0) result |= symbol.SymbolFlags.InterfaceExcludes;
+        if ((flags & symbol.SymbolFlags.RegularEnum) != 0) result |= symbol.SymbolFlags.RegularEnumExcludes;
+        if ((flags & symbol.SymbolFlags.ConstEnum) != 0) result |= symbol.SymbolFlags.ConstEnumExcludes;
+        if ((flags & symbol.SymbolFlags.ValueModule) != 0) result |= symbol.SymbolFlags.ValueModuleExcludes;
+        if ((flags & symbol.SymbolFlags.Method) != 0) result |= symbol.SymbolFlags.MethodExcludes;
+        if ((flags & symbol.SymbolFlags.GetAccessor) != 0) result |= symbol.SymbolFlags.GetAccessorExcludes;
+        if ((flags & symbol.SymbolFlags.SetAccessor) != 0) result |= symbol.SymbolFlags.SetAccessorExcludes;
+        if ((flags & symbol.SymbolFlags.TypeParameter) != 0) result |= symbol.SymbolFlags.TypeParameterExcludes;
+        if ((flags & symbol.SymbolFlags.TypeAlias) != 0) result |= symbol.SymbolFlags.TypeAliasExcludes;
+        if ((flags & symbol.SymbolFlags.Alias) != 0) result |= symbol.SymbolFlags.AliasExcludes;
+        if ((flags & symbol.SymbolFlags.Assignment) != 0) result &= ~symbol.SymbolFlags.Method; // ~ReplaceableByMethod semantics
+        return result;
     }
 
     pub fn cloneSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
@@ -13903,29 +13923,131 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isThisless(symbol_: *anyopaque) bool {
-        _ = symbol_;
-        return false;
+    pub fn isThisless(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        // Go: if len(symbol.Declarations) == 1 {
+        //   declaration := symbol.Declarations[0]
+        //   switch declaration.Kind {
+        //     case KindParameter: return isThislessVariableLikeDeclaration(declaration)
+        //     case KindPropertyDeclaration, KindPropertySignature: return isThislessVariableLikeDeclaration(declaration)
+        //     case KindMethodDeclaration, KindMethodSignature, KindConstructor, KindGetAccessor, KindSetAccessor: return isThislessFunctionLikeDeclaration(declaration)
+        //   }
+        // }
+        // return false
+        const sym = c.binder.symbols.items[symbol_];
+        if (sym.Declarations.items.len != 1) return false;
+        const decl = sym.Declarations.items[0];
+        if (decl == 0) return false;
+        const decl_kind = c.binder.ast.getKind(decl);
+        switch (decl_kind) {
+            .Parameter, .PropertyDeclaration, .PropertySignature => return isThislessVariableLikeDeclaration(c, decl),
+            .MethodDeclaration, .MethodSignature, .Constructor, .GetAccessor, .SetAccessor => return isThislessFunctionLikeDeclaration(c, decl),
+            else => return false,
+        }
     }
 
-    pub fn isThislessVariableLikeDeclaration(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isThislessVariableLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: typeNode := node.Type(); if typeNode != nil { return isThislessType(typeNode) }; return node.Initializer() == nil
+        const type_node: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(node)) {
+            .Parameter => |n| n.Type,
+            .VariableDeclaration => |n| n.Type,
+            .PropertyDeclaration => |n| n.Type,
+            .PropertySignature => |n| n.Type,
+            else => null,
+        };
+        if (type_node) |t| return isThislessType(c, t);
+        const initializer: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(node)) {
+            .Parameter => |n| n.Initializer,
+            .VariableDeclaration => |n| n.Initializer,
+            .PropertyDeclaration => |n| n.Initializer,
+            .PropertySignature => |n| n.Initializer,
+            else => null,
+        };
+        return initializer == null;
     }
 
-    pub fn isThislessType(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isThislessType(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: switch node.Kind {
+        //   case AnyKeyword, UnknownKeyword, StringKeyword, NumberKeyword, BigIntKeyword, BooleanKeyword,
+        //     SymbolKeyword, ObjectKeyword, VoidKeyword, UndefinedKeyword, NeverKeyword, LiteralType: return true
+        //   case ArrayType: return isThislessType(node.ElementType)
+        //   case TypeReference: return core.Every(node.TypeArguments(), isThislessType)
+        // }
+        // return false
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .AnyKeyword, .UnknownKeyword, .StringKeyword, .NumberKeyword, .BigIntKeyword, .BooleanKeyword,
+            .SymbolKeyword, .ObjectKeyword, .VoidKeyword, .UndefinedKeyword, .NeverKeyword, .LiteralType => return true,
+            .ArrayType => {
+                const elem = c.binder.ast.getNode(node).ArrayType.ElementType;
+                return isThislessType(c, elem);
+            },
+            .TypeReference => {
+                const type_args = c.binder.ast.getNode(node).TypeReference.TypeArguments orelse return true;
+                const args = c.binder.ast.getNodeList(type_args);
+                for (args) |arg| {
+                    if (arg != 0 and !isThislessType(c, arg)) return false;
+                }
+                return true;
+            },
+            else => return false,
+        }
     }
 
-    pub fn isThislessFunctionLikeDeclaration(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isThislessFunctionLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: returnType := node.Type()
+        //   return (IsConstructorDeclaration(node) || returnType != nil && isThislessType(returnType)) &&
+        //     Every(node.Parameters(), isThislessVariableLikeDeclaration) &&
+        //     Every(node.TypeParameters(), isThislessTypeParameter)
+        const node_kind = c.binder.ast.getKind(node);
+        const return_type: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(node)) {
+            .FunctionDeclaration => |n| n.Type,
+            .MethodDeclaration => |n| n.Type,
+            .Constructor => |n| n.Type,
+            .GetAccessor => |n| n.Type,
+            .SetAccessor => |n| n.Type,
+            else => null,
+        };
+        const return_ok = ast_utils.isConstructorDeclaration(c.binder.ast, node) or
+            (return_type != null and isThislessType(c, return_type.?));
+        if (!return_ok) return false;
+
+        const parameters: ?ast_gen.NodeListIndex = switch (c.binder.ast.getNode(node)) {
+            .FunctionDeclaration => |n| n.Parameters,
+            .MethodDeclaration => |n| n.Parameters,
+            .Constructor => |n| n.Parameters,
+            .GetAccessor => |n| n.Parameters,
+            .SetAccessor => |n| n.Parameters,
+            else => null,
+        };
+        if (parameters) |p| {
+            for (c.binder.ast.getNodeList(p)) |param| {
+                if (param != 0 and !isThislessVariableLikeDeclaration(c, param)) return false;
+            }
+        }
+
+        const type_params: ?ast_gen.NodeListIndex = switch (c.binder.ast.getNode(node)) {
+            .FunctionDeclaration => |n| n.TypeParameters,
+            .MethodDeclaration => |n| n.TypeParameters,
+            .Constructor => |n| n.TypeParameters,
+            .GetAccessor => |n| n.TypeParameters,
+            .SetAccessor => |n| n.TypeParameters,
+            else => null,
+        };
+        if (type_params) |tp| {
+            for (c.binder.ast.getNodeList(tp)) |tparam| {
+                if (tparam != 0 and !isThislessTypeParameter(c, tparam)) return false;
+            }
+        }
+        _ = node_kind;
+        return true;
     }
 
-    pub fn isThislessTypeParameter(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isThislessTypeParameter(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: constraint := node.AsTypeParameterDeclaration().Constraint
+        //   return constraint == nil || isThislessType(constraint)
+        const constraint = c.binder.ast.getNode(node).TypeParameter.Constraint;
+        if (constraint == null) return true;
+        return isThislessType(c, constraint.?);
     }
 
     pub fn getDefaultConstructSignatures(c: *Checker, classType: *anyopaque) *anyopaque {
@@ -14081,9 +14203,10 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isConflictingPrivateProperty(prop: *anyopaque) bool {
-        _ = prop;
-        return false;
+    pub fn isConflictingPrivateProperty(c: *Checker, prop: ast_gen.SymbolIndex) bool {
+        // Go: return prop.ValueDeclaration == nil && prop.CheckFlags&ast.CheckFlagsContainsPrivate != 0
+        const sym = c.binder.symbols.items[prop];
+        return sym.ValueDeclaration == null and (sym.CheckFlags & types.CheckFlags.ContainsPrivate) != 0;
     }
 
     pub fn getEffectiveTypeArguments(c: *Checker, node: *anyopaque, typeParameters: *anyopaque) *anyopaque {
@@ -14385,8 +14508,15 @@ pub const Checker = struct {
         return type_resolution_pkg.getTypeFromTypeAliasReference(c, node_idx, symbol_);
     }
 
-    pub fn isLocalTypeAlias(symbol_: *anyopaque) bool {
-        _ = symbol_;
+    pub fn isLocalTypeAlias(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        // Go: declaration := core.Find(symbol.Declarations, isTypeAlias)
+        //   return declaration != nil && ast.GetContainingFunction(declaration) != nil
+        const sym = c.binder.symbols.items[symbol_];
+        for (sym.Declarations.items) |decl| {
+            if (decl != 0 and c.binder.ast.getKind(decl) == .TypeAliasDeclaration) {
+                return ast_utils.getContainingFunction(c.binder.ast, decl) != 0;
+            }
+        }
         return false;
     }
 
@@ -14682,9 +14812,11 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isUnaryTupleTypeNode(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isUnaryTupleTypeNode(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: return ast.IsTupleTypeNode(node) && len(node.Elements()) == 1
+        if (c.binder.ast.getKind(node) != .TupleType) return false;
+        const elements = c.binder.ast.getNodeList(c.binder.ast.getNode(node).TupleType.Elements);
+        return elements.len == 1;
     }
 
     pub fn newType_stub(c: *Checker, flags: *anyopaque, objectFlags: *anyopaque, data: *anyopaque) *anyopaque {
