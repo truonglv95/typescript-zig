@@ -368,6 +368,7 @@ pub const Checker = struct {
     typeToStringNodebuilder: ?*nodebuilder.NodeBuilder = null,
     ownedDiagnosticArgs: std.ArrayListUnmanaged([]const []const u8) = .empty,
     ownedStrings: std.ArrayListUnmanaged([]const u8) = .empty,
+    suggestionDiagnostics: std.ArrayListUnmanaged(diagnostics.Diagnostic) = .empty,
 
     typeNodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.TypeNodeLinks) = .empty,
     symbolNodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.SymbolNodeLinks) = .empty,
@@ -10109,9 +10110,16 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isTemplateLiteralContextualType(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
+    pub fn isTemplateLiteralContextualType(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.flags&(TypeFlagsStringLiteral|TypeFlagsTemplateLiteral) != 0 ||
+        //   t.flags&TypeFlagsInstantiableNonPrimitive != 0 &&
+        //   c.maybeTypeOfKind(core.OrElse(c.getBaseConstraintOfType(t), c.unknownType), TypeFlagsStringLike)
+        const ty = c.typesList.items[t];
+        if ((ty.flags & (types.TypeFlags.StringLiteral | types.TypeFlags.TemplateLiteral)) != 0) return true;
+        if ((ty.flags & types.TypeFlags.InstantiableNonPrimitive) != 0) {
+            // getBaseConstraintOfType + maybeTypeOfKind not fully wired;
+            // conservative false.
+        }
         return false;
     }
 
@@ -10192,10 +10200,11 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn hasNumericPropertyNames(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        return false;
+    pub fn hasNumericPropertyNames(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return len(c.getIndexInfosOfType(t)) == 1 && c.getIndexInfoOfType(t, c.numberType) != nil
+        const infos = c.getIndexInfosOfType(t);
+        if (infos.len != 1) return false;
+        return c.getIndexInfoOfType(t, c.numberTypeIndex orelse 0) != null;
     }
 
     pub fn checkIndexedAccessIndexType(c: *Checker, t: types.TypeIndex, accessNode: ast_gen.NodeIndex) types.TypeIndex {
@@ -12242,9 +12251,14 @@ pub const Checker = struct {
         _ = c;
     }
 
-    pub fn addSuggestionDiagnostic(c: *Checker, diagnostic: *anyopaque) void {
-        _ = c;
-        _ = diagnostic;
+    pub fn addSuggestionDiagnostic(c: *Checker, diagnostic: diagnostics.Diagnostic) void {
+        // Go: if c.serializationLevel < maxSerializationLevel {
+        //   c.suggestionDiagnostics.Add(diagnostic)
+        // }
+        const max_serialization_level: u32 = 100;
+        if (c.serializationLevel < max_serialization_level) {
+            c.suggestionDiagnostics.append(c.allocator, diagnostic) catch {};
+        }
     }
 
     pub fn @"error"(c: *Checker, location: *anyopaque, message: *anyopaque) *anyopaque {
