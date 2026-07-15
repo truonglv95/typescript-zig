@@ -11121,9 +11121,15 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn someSignature(signatures: []const types.SignatureIndex, f: *anyopaque) bool {
-        _ = signatures;
-        _ = f;
+    /// Port of `checker.go::someSignature`. Returns true if any signature
+    /// in `signatures` satisfies `f`. (Composite signature handling
+    /// simplified — just iterates the top-level signatures.)
+    pub fn someSignature(c: *Checker, signatures: []const types.SignatureIndex, comptime f: anytype, ctx: anytype) bool {
+        for (signatures) |sig_idx| {
+            if (sig_idx >= c.signatures.items.len) continue;
+            const sig = &c.signatures.items[sig_idx];
+            if (f(c, sig, ctx)) return true;
+        }
         return false;
     }
 
