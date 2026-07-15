@@ -18578,10 +18578,27 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::checkComputedPropertyName`. Returns the type
+    /// of a computed property name expression, reporting an error if the
+    /// type is not string/number/symbol/any.
     pub fn checkComputedPropertyName(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = node;
-        return undefined;
+        if (node == 0) return c.errorTypeIndex orelse 0;
+        const expr = c.binder.ast.getNode(node).ComputedPropertyName.Expression;
+        if (expr == 0) return c.errorTypeIndex orelse 0;
+        const t = checkExpression(c, expr);
+        if (t == 0) return c.errorTypeIndex orelse 0;
+        const flags = c.typesList.items[t].flags;
+        // Allow string/number/symbol/any and unions thereof.
+        if ((flags & types.TypeFlags.Nullable) != 0) {
+            c.reportError(node, &diagnostics_gen.A_computed_property_name_must_be_of_type_string_number_symbol_or_any);
+            return c.errorTypeIndex orelse 0;
+        }
+        if (!c.isTypeAssignableToKind(t, types.TypeFlags.StringLike | types.TypeFlags.NumberLike | types.TypeFlags.ESSymbolLike) and
+            !c.isTypeAssignableTo(t, c.stringNumberSymbolType))
+        {
+            c.reportError(node, &diagnostics_gen.A_computed_property_name_must_be_of_type_string_number_symbol_or_any);
+        }
+        return t;
     }
 
     /// Port of `checker.go::isNoInferType`. Returns true if `t` is a
