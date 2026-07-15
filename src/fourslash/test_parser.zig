@@ -26,30 +26,7 @@ const lsconv = struct {
     }
 };
 
-const testrunner = struct {
-    pub const ParseTestFilesOptions = struct {
-        allowImplicitFirstFile: bool,
-    };
-
-    pub fn parseTestFilesAndSymlinksWithOptions(
-        allocator: std.mem.Allocator,
-        contents: []const u8,
-        fileName: []const u8,
-        parseContent: anytype,
-        options: ParseTestFilesOptions,
-    ) !struct {
-        files: []const TestFileWithMarkers,
-        symlinks: std.StringHashMap([]const u8),
-        globalOptions: std.StringHashMap([]const u8),
-    } {
-        _ = allocator;
-        _ = contents;
-        _ = fileName;
-        _ = parseContent;
-        _ = options;
-        return error.NotImplemented;
-    }
-};
+const testrunner = @import("../testrunner/test_case_parser.zig");
 
 pub const MarkerIndex = u32;
 
@@ -146,6 +123,7 @@ pub fn parseTestData(allocator: std.mem.Allocator, contents: []const u8, fileNam
     var ranges = std.ArrayList(RangeMarker).init(allocator);
 
     const parsed = try testrunner.parseTestFilesAndSymlinksWithOptions(
+        TestFileWithMarkers,
         allocator,
         contents,
         fileName,

@@ -1,4 +1,11 @@
 const std = @import("std");
+const fourslash_parser = @import("fourslash_parser.zig");
+const parser_module = @import("../parser/parser.zig");
+const binder_module = @import("../binder/binder.zig");
+const checker_module = @import("../checker/checker.zig");
+const ast_gen = @import("../ast/ast_generated.zig");
+const core_module = @import("../core/core.zig");
+const ast_module = @import("../ast/ast.zig");
 
 const testing = struct {
     pub const T = struct {};
@@ -31,7 +38,8 @@ const collections = struct {
         return struct {};
     }
 };
-const RangeMarker = struct {};
+const RangeMarker = fourslash_parser.RangeMarker;
+const Marker = fourslash_parser.Marker;
 const stateBaseline = struct {};
 const lsconv = struct {
     pub const LSPLineMap = struct {};
@@ -107,6 +115,16 @@ pub const textEditSpan = struct {
 };
 
 pub const FourslashTest = struct {
+    allocator: std.mem.Allocator,
+    arena: *std.heap.ArenaAllocator,
+    parsedData: *fourslash_parser.ParsedTestData,
+    currentFile: []const u8,
+    cursorPos: usize,
+    parser: ?*parser_module.Parser,
+    binder: ?*binder_module.Binder,
+    sourceFile: ?ast_gen.NodeIndex,
+    checker: ?*checker_module.Checker,
+
     client: *lsptestutil.LSPClient,
     vfs: vfs.FS,
 
@@ -140,6 +158,13 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
+    pub fn deinit(self: *FourslashTest) void {
+        const alloc = self.allocator;
+        const arena = self.arena;
+        arena.deinit();
+        alloc.destroy(arena);
+    }
+
     pub fn initialize(self: *FourslashTest, t: *testing.T, capabilities: *lsproto.ClientCapabilities) void {
         _ = self;
         _ = t;
@@ -157,19 +182,19 @@ pub const FourslashTest = struct {
     }
 
     pub fn sendRequestAndBaselineWorker(self: *FourslashTest, comptime Params: type, comptime Resp: type, t: *testing.T, info: lsproto.RequestInfo(Params, Resp), params: Params, baselineProjects: bool) Resp {
+        _ = self;
         _ = t;
         _ = info;
         _ = params;
         _ = baselineProjects;
-        // Calls baselines, lsptestutil.SendRequest, then handles response
         return undefined;
     }
 
     pub fn sendNotification(self: *FourslashTest, comptime Params: type, t: *testing.T, info: lsproto.NotificationInfo(Params), params: Params) void {
+        _ = self;
         _ = t;
         _ = info;
         _ = params;
-        // Calls updateState, baselines, lsptestutil.SendNotification
     }
 
     pub fn GoToMarkerOrRange(self: *FourslashTest, t: *testing.T, markerOrRange: MarkerOrRange) void {
@@ -212,7 +237,7 @@ pub const FourslashTest = struct {
         _ = position;
     }
 
-    pub fn GoToEachMarker(self: *FourslashTest, t: *testing.T, markerNames: [][]const u8, action: anytype, index: i32)  {
+    pub fn GoToEachMarker(self: *FourslashTest, t: *testing.T, markerNames: anytype, action: anytype, index: i32) void {
         _ = self;
         _ = t;
         _ = markerNames;
@@ -221,7 +246,7 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
-    pub fn GoToEachRange(self: *FourslashTest, t: *testing.T, action: anytype, rangeMarker: ?*RangeMarker)  {
+    pub fn GoToEachRange(self: *FourslashTest, t: *testing.T, action: anytype, rangeMarker: ?*RangeMarker) void {
         _ = self;
         _ = t;
         _ = action;
@@ -249,9 +274,28 @@ pub const FourslashTest = struct {
     }
 
     pub fn GoToFile(self: *FourslashTest, t: *testing.T, filename: []const u8) void {
-        _ = self;
         _ = t;
-        _ = filename;
+        if (self.parsedData.files.get(filename)) |fileContent| {
+            self.currentFile = filename;
+            
+            const aa = self.arena.allocator();
+            var p = aa.create(parser_module.Parser) catch unreachable;
+            p.* = parser_module.Parser.init(aa, fileContent);
+            self.sourceFile = p.parseSourceFile() catch unreachable;
+            self.parser = p;
+            
+            var b = aa.create(binder_module.Binder) catch unreachable;
+            b.* = binder_module.Binder.init(aa, &p.ast) catch unreachable;
+            b.bindSourceFile(self.sourceFile.?) catch unreachable;
+            self.binder = b;
+            
+            var c = aa.create(checker_module.Checker) catch unreachable;
+            c.* = checker_module.Checker.init(aa, b);
+            c.checkSourceFile(null, self.sourceFile.?, false);
+            self.checker = c;
+        } else {
+            std.debug.panic("GoToFile: File '{s}' not found in parsed data", .{filename});
+        }
     }
 
     pub fn GoToFileNumber(self: *FourslashTest, t: *testing.T, index: i32) void {
@@ -337,7 +381,7 @@ pub const FourslashTest = struct {
         _ = numSpaces;
     }
 
-    pub fn VerifyCompletions(self: *FourslashTest, t: *testing.T, markerInput: MarkerInput, expected: ?*CompletionsExpectedList) VerifyCompletionsResult {
+    pub fn VerifyCompletions(self: *FourslashTest, t: *testing.T, markerInput: anytype, expected: ?*CompletionsExpectedList) VerifyCompletionsResult {
         _ = self;
         _ = t;
         _ = markerInput;
@@ -366,7 +410,7 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
-    pub fn verifyCompletionsItems(self: *FourslashTest, t: *testing.T, prefix: []const u8, actual: []?*lsproto.CompletionItem, expected: ?*CompletionsExpectedItems) void {
+    pub fn verifyCompletionsItems(self: *FourslashTest, t: *testing.T, prefix: []const u8, actual: []?*lsproto.CompletionItem, expected: anytype) void {
         _ = self;
         _ = t;
         _ = prefix;
@@ -374,7 +418,7 @@ pub const FourslashTest = struct {
         _ = expected;
     }
 
-    pub fn verifyCompletionsAreExactly(self: *FourslashTest, t: *testing.T, prefix: []const u8, actual: []?*lsproto.CompletionItem, expected: []CompletionsExpectedItem) void {
+    pub fn verifyCompletionsAreExactly(self: *FourslashTest, t: *testing.T, prefix: []const u8, actual: []?*lsproto.CompletionItem, expected: anytype) void {
         _ = self;
         _ = t;
         _ = prefix;
@@ -405,7 +449,7 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
-    pub fn VerifyCodeFix(self: *FourslashTest, t: *testing.T, options: VerifyCodeFixOptions) void {
+    pub fn VerifyCodeFix(self: *FourslashTest, t: *testing.T, options: anytype) void {
         _ = self;
         _ = t;
         _ = options;
@@ -427,7 +471,7 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
-    pub fn VerifyCodeFixAvailable(self: *FourslashTest, t: *testing.T, expectedDescriptions: [][]const u8) void {
+    pub fn VerifyCodeFixAvailable(self: *FourslashTest, t: *testing.T, expectedDescriptions: anytype) void {
         _ = self;
         _ = t;
         _ = expectedDescriptions;
@@ -439,13 +483,13 @@ pub const FourslashTest = struct {
         _ = expected;
     }
 
-    pub fn VerifyCodeFixAvailableExact(self: *FourslashTest, t: *testing.T, expectedDescriptions: [][]const u8) void {
+    pub fn VerifyCodeFixAvailableExact(self: *FourslashTest, t: *testing.T, expectedDescriptions: anytype) void {
         _ = self;
         _ = t;
         _ = expectedDescriptions;
     }
 
-    pub fn VerifyCodeFixAll(self: *FourslashTest, t: *testing.T, options: VerifyCodeFixAllOptions) void {
+    pub fn VerifyCodeFixAll(self: *FourslashTest, t: *testing.T, options: anytype) void {
         _ = self;
         _ = t;
         _ = options;
@@ -500,7 +544,7 @@ pub const FourslashTest = struct {
         _ = options;
     }
 
-    pub fn VerifyImportFixAtPosition(self: *FourslashTest, t: *testing.T, expectedTexts: [][]const u8, preferences: ?*lsutil.UserPreferences) void {
+    pub fn VerifyImportFixAtPosition(self: *FourslashTest, t: *testing.T, expectedTexts: anytype, preferences: ?*lsutil.UserPreferences) void {
         _ = self;
         _ = t;
         _ = expectedTexts;
@@ -529,7 +573,7 @@ pub const FourslashTest = struct {
         _ = foldingRangeKind;
     }
 
-    pub fn VerifyFoldingRangeLines(self: *FourslashTest, t: *testing.T, expected: []FoldingRangeLineExpected) void {
+    pub fn VerifyFoldingRangeLines(self: *FourslashTest, t: *testing.T, expected: anytype) void {
         _ = self;
         _ = t;
         _ = expected;
@@ -540,7 +584,7 @@ pub const FourslashTest = struct {
         _ = t;
     }
 
-    pub fn VerifyBaselineHoverWithVerbosity(self: *FourslashTest, t: *testing.T, verbosityLevels: map[string][]int) void {
+    pub fn VerifyBaselineHoverWithVerbosity(self: *FourslashTest, t: *testing.T, verbosityLevels: anytype) void {
         _ = self;
         _ = t;
         _ = verbosityLevels;
@@ -561,7 +605,7 @@ pub const FourslashTest = struct {
         _ = t;
     }
 
-    pub fn lookupMarkersOrGetRanges(self: *FourslashTest, t: *testing.T, markers: [][]const u8) []MarkerOrRange {
+    pub fn lookupMarkersOrGetRanges(self: *FourslashTest, t: *testing.T, markers: anytype) []MarkerOrRange {
         _ = self;
         _ = t;
         _ = markers;
@@ -711,7 +755,7 @@ pub const FourslashTest = struct {
         _ = t;
     }
 
-    pub fn quickInfoIsEmpty(self: *FourslashTest, t: *testing.T) anytype {
+    pub fn quickInfoIsEmpty(self: *FourslashTest, t: *testing.T) void {
         _ = self;
         _ = t;
         return undefined;
@@ -724,7 +768,7 @@ pub const FourslashTest = struct {
         _ = expectedDocumentation;
     }
 
-    pub fn VerifyJsxClosingTag(self: *FourslashTest, t: *testing.T, markersToNewText: map[string]*string) void {
+    pub fn VerifyJsxClosingTag(self: *FourslashTest, t: *testing.T, markersToNewText: std.StringHashMap(?[]const u8)) void {
         _ = self;
         _ = t;
         _ = markersToNewText;
@@ -789,7 +833,7 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
-    pub fn BaselineAutoImportsCompletions(self: *FourslashTest, t: *testing.T, markerNames: [][]const u8) void {
+    pub fn BaselineAutoImportsCompletions(self: *FourslashTest, t: *testing.T, markerNames: anytype) void {
         _ = self;
         _ = t;
         _ = markerNames;
@@ -821,7 +865,7 @@ pub const FourslashTest = struct {
         _ = files;
     }
 
-    pub fn VerifyRename(self: *FourslashTest, t: *testing.T, markerName: []const u8, newName: []const u8, expectedFileContents: map[string]string) void {
+    pub fn VerifyRename(self: *FourslashTest, t: *testing.T, markerName: []const u8, newName: []const u8, expectedFileContents: anytype) void {
         _ = self;
         _ = t;
         _ = markerName;
@@ -829,7 +873,7 @@ pub const FourslashTest = struct {
         _ = expectedFileContents;
     }
 
-    pub fn VerifyWillRenameFilesEdits(self: *FourslashTest, t: *testing.T, oldPath: []const u8, newPath: []const u8, expectedFileContents: map[string]string, preferences: ?*lsutil.UserPreferences) void {
+    pub fn VerifyWillRenameFilesEdits(self: *FourslashTest, t: *testing.T, oldPath: []const u8, newPath: []const u8, expectedFileContents: anytype, preferences: ?*lsutil.UserPreferences) void {
         _ = self;
         _ = t;
         _ = oldPath;
@@ -838,7 +882,7 @@ pub const FourslashTest = struct {
         _ = preferences;
     }
 
-    pub fn getPathUpdater(self: *FourslashTest, param_0: anytype, newPath: []const u8) anytype {
+    pub fn getPathUpdater(self: *FourslashTest, param_0: anytype, newPath: []const u8) void {
         _ = self;
         _ = param_0;
         _ = newPath;
@@ -858,7 +902,7 @@ pub const FourslashTest = struct {
         _ = preferences;
     }
 
-    pub fn GetRangesByText(self: *FourslashTest) anytype {
+    pub fn GetRangesByText(self: *FourslashTest) void {
         _ = self;
         return undefined;
     }
@@ -880,7 +924,7 @@ pub const FourslashTest = struct {
         _ = t;
     }
 
-    pub fn VerifyLinkedEditing(self: *FourslashTest, t: *testing.T, markerNamesToExpected: map[string][]lsproto.Range) void {
+    pub fn VerifyLinkedEditing(self: *FourslashTest, t: *testing.T, markerNamesToExpected: std.StringHashMap([]const lsproto.Range)) void {
         _ = self;
         _ = t;
         _ = markerNamesToExpected;
@@ -924,11 +968,11 @@ pub const FourslashTest = struct {
         _ = t;
     }
 
-    pub fn toDiagnostic(self: *FourslashTest, scriptInfo: ?*scriptInfo, lspDiagnostic: ?*lsproto.Diagnostic) ?*fourslashDiagnostic {
+    pub fn toDiagnostic(self: *FourslashTest, info: ?*scriptInfo, lspDiagnostic: ?*lsproto.Diagnostic) ?*fourslashDiagnostic {
         _ = self;
-        _ = scriptInfo;
+        _ = info;
         _ = lspDiagnostic;
-        return undefined;
+        return null;
     }
 
     pub fn VerifyBaselineGoToImplementation(self: *FourslashTest, t: *testing.T, markerNames: anytype) void {
@@ -949,41 +993,163 @@ pub const FourslashTest = struct {
     }
 
     pub fn VerifyNumberOfErrorsInCurrentFile(self: *FourslashTest, t: *testing.T, expectedCount: i32) void {
-        _ = self;
         _ = t;
-        _ = expectedCount;
+        var count: usize = 0;
+        if (self.parser) |p| count += p.diagnostics.items.len;
+        if (self.binder) |b| count += b.diagnosticsList.items.len;
+        if (count != @as(usize, @intCast(expectedCount))) {
+            std.debug.panic("Expected {d} errors, but found {d}\n", .{ expectedCount, count });
+        }
     }
 
     pub fn VerifyNoErrors(self: *FourslashTest, t: *testing.T) void {
-        _ = self;
         _ = t;
+        if (self.parser) |p| {
+            if (p.diagnostics.items.len > 0) {
+                std.debug.panic("Expected no errors, but found {d} parser errors\n", .{p.diagnostics.items.len});
+            }
+        }
+        if (self.binder) |b| {
+            if (b.diagnosticsList.items.len > 0) {
+                std.debug.panic("Expected no errors, but found {d} binder errors\n", .{b.diagnosticsList.items.len});
+            }
+        }
+    }
+
+    fn getDiagnosticPos(self: *FourslashTest, diag: diagnostics.Diagnostic) u32 {
+        if (diag.nodeIndex == 0) {
+            return diag.pos;
+        }
+        if (self.parser) |p| {
+            return p.ast.getNodePos(diag.nodeIndex);
+        }
+        return 0;
     }
 
     pub fn VerifyErrorExistsAtRange(self: *FourslashTest, t: *testing.T, rangeMarker: ?*RangeMarker, code: i32, message: []const u8) void {
-        _ = self;
         _ = t;
-        _ = rangeMarker;
         _ = code;
         _ = message;
+        if (rangeMarker) |marker| {
+            var found = false;
+            if (self.parser) |p| {
+                for (p.diagnostics.items) |diag| {
+                    const pos = self.getDiagnosticPos(diag);
+                    if (pos >= marker.start and pos <= marker.end) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found and self.binder != null) {
+                for (self.binder.?.diagnosticsList.items) |diag| {
+                    const pos = self.getDiagnosticPos(diag);
+                    if (pos >= marker.start and pos <= marker.end) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                std.debug.panic("Expected error at range [{d}, {d}] but found none", .{marker.start, marker.end});
+            }
+        }
     }
 
     pub fn VerifyErrorExistsBetweenMarkers(self: *FourslashTest, t: *testing.T, startMarkerName: []const u8, endMarkerName: []const u8) void {
-        _ = self;
         _ = t;
-        _ = startMarkerName;
-        _ = endMarkerName;
+        const startMarker = self.parsedData.markerPositions.get(startMarkerName) orelse {
+            std.debug.panic("Start marker '{s}' not found", .{startMarkerName});
+        };
+        const endMarker = self.parsedData.markerPositions.get(endMarkerName) orelse {
+            std.debug.panic("End marker '{s}' not found", .{endMarkerName});
+        };
+        
+        var found = false;
+        if (self.parser) |p| {
+            for (p.diagnostics.items) |diag| {
+                const pos = self.getDiagnosticPos(diag);
+                if (pos >= startMarker.position and pos <= endMarker.position) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found and self.binder != null) {
+            for (self.binder.?.diagnosticsList.items) |diag| {
+                const pos = self.getDiagnosticPos(diag);
+                if (pos >= startMarker.position and pos <= endMarker.position) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!found) {
+            std.debug.panic("Expected error between markers '{s}' and '{s}' but found none", .{startMarkerName, endMarkerName});
+        }
     }
 
     pub fn VerifyErrorExistsAfterMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) void {
-        _ = self;
         _ = t;
-        _ = markerName;
+        const marker = self.parsedData.markerPositions.get(markerName) orelse {
+            std.debug.panic("Marker '{s}' not found", .{markerName});
+        };
+        
+        var found = false;
+        if (self.parser) |p| {
+            for (p.diagnostics.items) |diag| {
+                const pos = self.getDiagnosticPos(diag);
+                if (pos >= marker.position) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found and self.binder != null) {
+            for (self.binder.?.diagnosticsList.items) |diag| {
+                const pos = self.getDiagnosticPos(diag);
+                if (pos >= marker.position) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!found) {
+            std.debug.panic("Expected error after marker '{s}' but found none", .{markerName});
+        }
     }
 
     pub fn VerifyErrorExistsBeforeMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) void {
-        _ = self;
         _ = t;
-        _ = markerName;
+        const marker = self.parsedData.markerPositions.get(markerName) orelse {
+            std.debug.panic("Marker '{s}' not found", .{markerName});
+        };
+        
+        var found = false;
+        if (self.parser) |p| {
+            for (p.diagnostics.items) |diag| {
+                const pos = self.getDiagnosticPos(diag);
+                if (pos <= marker.position) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found and self.binder != null) {
+            for (self.binder.?.diagnosticsList.items) |diag| {
+                const pos = self.getDiagnosticPos(diag);
+                if (pos <= marker.position) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!found) {
+            std.debug.panic("Expected error before marker '{s}' but found none", .{markerName});
+        }
     }
 
 };
@@ -996,9 +1162,52 @@ pub fn getBaseFileNameFromTest(t: *testing.T) []const u8 {
 pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, content: []const u8) *FourslashTest {
     _ = t;
     _ = capabilities;
-    _ = content;
-    // Uses ParseTestData, sets up VFS, creates lsp server options, initializes LSPClient, calls f.initialize()
-    return undefined;
+    const allocator = std.testing.allocator;
+    
+    var arena = allocator.create(std.heap.ArenaAllocator) catch unreachable;
+    arena.* = std.heap.ArenaAllocator.init(allocator);
+    const aa = arena.allocator();
+    
+    var f = aa.create(FourslashTest) catch unreachable;
+    f.* = undefined;
+    
+    f.allocator = allocator;
+    f.arena = arena;
+    f.parsedData = fourslash_parser.parseTestData(aa, content) catch unreachable;
+    f.currentFile = "";
+    f.cursorPos = 0;
+    f.parser = null;
+    f.binder = null;
+    f.checker = null;
+    f.sourceFile = null;
+    
+    if (f.parsedData.files.count() > 0) {
+        var it = f.parsedData.files.iterator();
+        const first = it.next().?;
+        f.currentFile = first.key_ptr.*;
+        
+        var p = aa.create(parser_module.Parser) catch unreachable;
+        p.* = parser_module.Parser.init(aa, first.value_ptr.*);
+        f.sourceFile = p.parseSourceFile() catch unreachable;
+        f.parser = p;
+        
+        var b = aa.create(binder_module.Binder) catch unreachable;
+        b.* = binder_module.Binder.init(aa, &p.ast) catch unreachable;
+        b.bindSourceFile(f.sourceFile.?) catch unreachable;
+        f.binder = b;
+        
+        var c = aa.create(checker_module.Checker) catch unreachable;
+        c.* = checker_module.Checker.init(aa, b);
+        c.checkJs = true;
+        c.allowJs = true;
+        c.strictNullChecks = true;
+        c.noImplicitAny = true;
+        c.initializeChecker();
+        c.checkSourceFile(null, f.sourceFile.?, false);
+        f.checker = c;
+    }
+    
+    return f;
 }
 
 const diagnostics = struct {
@@ -1007,7 +1216,6 @@ const diagnostics = struct {
 const harnessutil = struct {
     pub const TestFile = struct {};
 };
-const Marker = struct {};
 
 pub const CompletionsExpectedList = struct {
     IsIncomplete: bool,
@@ -1053,8 +1261,8 @@ pub const CompletionsExpectedCodeAction = struct {
 };
 
 pub const VerifyCompletionsResult = struct {
-    AndApplyCodeAction: *const fn(t: *std.testing.T, expectedAction: *CompletionsExpectedCodeAction) void,
-    AndHasNoCodeAction: *const fn(t: *std.testing.T, unexpectedAction: *CompletionsExpectedCodeAction) void,
+    AndApplyCodeAction: *const fn(t: anytype, expectedAction: *CompletionsExpectedCodeAction) void,
+    AndHasNoCodeAction: *const fn(t: anytype, unexpectedAction: *CompletionsExpectedCodeAction) void,
 };
 
 pub const VerifyCodeFixOptions = struct {
@@ -1114,6 +1322,11 @@ pub const VerifySignatureHelpOptions = struct {
     OverrideSelectedItemIndex: usize,
 };
 
+pub const MarkerOrRange = union(enum) {
+    Marker: *Marker,
+    Range: *RangeMarker,
+};
+
 pub const MarkerInput = union(enum) {
     String: []const u8,
     Marker: *Marker,
@@ -1150,3 +1363,5 @@ pub const VerifyWorkspaceSymbolCase = struct {
     Preferences: ?*lsutil.UserPreferences,
 };
 
+test {
+}

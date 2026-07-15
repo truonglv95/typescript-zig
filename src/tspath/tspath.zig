@@ -25,18 +25,83 @@ pub fn tryGetExtensionFromPath(path: []const u8) []const u8 {
 }
 
 pub fn getNormalizedAbsolutePath(allocator: std.mem.Allocator, fileName: []const u8, currentDirectory: []const u8) ![]const u8 {
-    var absPath: []const u8 = undefined;
-    if (std.fs.path.isAbsolute(fileName)) {
-        absPath = try allocator.dupe(u8, fileName);
+    const rootLength = getRootLength(fileName);
+    var combined: []const u8 = undefined;
+    var to_free: ?[]const u8 = null;
+    defer if (to_free) |f| allocator.free(f);
+
+    if (rootLength == 0 and currentDirectory.len > 0) {
+        combined = try combinePaths(allocator, currentDirectory, &[_][]const u8{fileName});
+        to_free = combined;
     } else {
-        if (currentDirectory.len == 0) {
-            absPath = try allocator.dupe(u8, fileName);
-        } else {
-            absPath = try std.fs.path.join(allocator, &.{ currentDirectory, fileName });
-        }
+        combined = try normalizeSlashes(allocator, fileName);
+        to_free = combined;
     }
-    // Simple normalization for now
-    return absPath;
+
+    if (hasRelativePathSegment(combined)) {
+        var components = std.ArrayList([]const u8).empty;
+        defer components.deinit(allocator);
+
+        const root_len = getRootLength(combined);
+        try components.append(allocator, combined[0..root_len]);
+
+        var i: usize = root_len;
+        while (i < combined.len) {
+            while (i < combined.len and combined[i] == '/') : (i += 1) {}
+            if (i >= combined.len) break;
+            
+            const start = i;
+            while (i < combined.len and combined[i] != '/') : (i += 1) {}
+            const comp = combined[start..i];
+            
+            if (std.mem.eql(u8, comp, "") or std.mem.eql(u8, comp, ".")) {
+                continue;
+            }
+            if (std.mem.eql(u8, comp, "..")) {
+                if (components.items.len > 1) {
+                    if (!std.mem.eql(u8, components.items[components.items.len - 1], "..")) {
+                        _ = components.pop();
+                        continue;
+                    }
+                } else if (components.items[0].len != 0) {
+                    continue; // Absolute path, can't go above root
+                }
+            }
+            try components.append(allocator, comp);
+        }
+
+        var res = std.ArrayList(u8).empty;
+        try res.appendSlice(allocator, components.items[0]);
+        if (components.items[0].len > 0 and !hasTrailingDirectorySeparator(components.items[0])) {
+            // Ensure trailing slash for root if needed, actually GetPathFromPathComponents does this
+        }
+        
+        var first = true;
+        for (components.items[1..]) |comp| {
+            if (!first or (components.items[0].len > 0 and !hasTrailingDirectorySeparator(components.items[0]))) {
+                try res.append(allocator, '/');
+            }
+            try res.appendSlice(allocator, comp);
+            first = false;
+        }
+        
+        if (res.items.len > rootLength) {
+            // Remove trailing slash
+            if (res.items.len > 0 and res.items[res.items.len - 1] == '/') {
+                _ = res.pop();
+            }
+            return res.toOwnedSlice(allocator);
+        }
+        if (res.items.len == rootLength and rootLength != 0) {
+            if (res.items.len > 0 and res.items[res.items.len - 1] != '/') {
+                try res.append(allocator, '/');
+            }
+            return res.toOwnedSlice(allocator);
+        }
+        return res.toOwnedSlice(allocator);
+    }
+
+    return allocator.dupe(u8, combined);
 }
 
 pub fn toPath(allocator: std.mem.Allocator, fileName: []const u8, basePath: ?[]const u8, useCaseSensitiveFileNames: bool) !Path {
@@ -135,14 +200,22 @@ pub fn GetAnyExtensionFromPath(path: []const u8, ext: ?*anyopaque, ignoreCase: b
 }
 
 pub fn normalizePath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    // Simple implementation for testing
-    return try normalizeSlashes(allocator, path);
+    const norm_slashes = try normalizeSlashes(allocator, path);
+    defer allocator.free(norm_slashes);
+    if (!hasRelativePathSegment(norm_slashes)) {
+        return allocator.dupe(u8, norm_slashes);
+    }
+    const normalized = try getNormalizedAbsolutePath(allocator, norm_slashes, "");
+    if (normalized.len > 0 and hasTrailingDirectorySeparator(path)) {
+        defer allocator.free(normalized);
+        return ensureTrailingDirectorySeparator(allocator, normalized);
+    }
+    return normalized;
 }
 
 pub fn GetNormalizedAbsolutePath(allocator: std.mem.Allocator, path: []const u8, currentDirectory: ?[]const u8) ![]const u8 {
-    _ = allocator;
-    _ = currentDirectory;
-    return path; // stub
+    const cur_dir = currentDirectory orelse "";
+    return getNormalizedAbsolutePath(allocator, path, cur_dir);
 }
 
 pub fn FileExtensionIs(path: []const u8, extension: []const u8) bool {
@@ -150,16 +223,75 @@ pub fn FileExtensionIs(path: []const u8, extension: []const u8) bool {
 }
 
 pub fn GetPathComponentsRelativeTo(allocator: std.mem.Allocator, from: []const u8, to: []const u8, options: anytype) ![][]const u8 {
-    _ = from;
-    _ = to;
-    _ = options;
-    return allocator.alloc([]const u8, 0);
+    const current_dir = if (@hasField(@TypeOf(options), "currentDirectory")) options.currentDirectory else "";
+    const from_components = try getNormalizedPathComponents(allocator, from, current_dir);
+    defer {
+        for (from_components) |c| allocator.free(c);
+        allocator.free(from_components);
+    }
+    
+    const to_components = try getNormalizedPathComponents(allocator, to, current_dir);
+    defer {
+        for (to_components) |c| allocator.free(c);
+        allocator.free(to_components);
+    }
+
+    var start: usize = 0;
+    const max_common = @min(from_components.len, to_components.len);
+    
+    while (start < max_common) : (start += 1) {
+        const from_comp = from_components[start];
+        const to_comp = to_components[start];
+        if (start == 0) {
+            if (compareStringsCaseInsensitive(from_comp, to_comp) != 0) break;
+        } else {
+            const cmp_opts = ComparePathsOptions{
+                .currentDirectory = current_dir,
+                .useCaseSensitiveFileNames = if (@hasField(@TypeOf(options), "ignoreCase")) !options.ignoreCase else true,
+            };
+            if (comparePaths(from_comp, to_comp, cmp_opts) != 0) break;
+        }
+    }
+
+    if (start == 0) {
+        var res = try allocator.alloc([]const u8, to_components.len);
+        for (to_components, 0..) |c, i| res[i] = try allocator.dupe(u8, c);
+        return res;
+    }
+
+    const num_dot_dots = from_components.len - start;
+    var res = try allocator.alloc([]const u8, 1 + num_dot_dots + to_components.len - start);
+    res[0] = "";
+    var i: usize = 1;
+    for (0..num_dot_dots) |_| {
+        res[i] = try allocator.dupe(u8, "..");
+        i += 1;
+    }
+    for (to_components[start..]) |comp| {
+        res[i] = try allocator.dupe(u8, comp);
+        i += 1;
+    }
+    return res;
 }
 
 pub fn GetPathFromPathComponents(allocator: std.mem.Allocator, components: [][]const u8) ![]const u8 {
-    _ = allocator;
-    _ = components;
-    return "";
+    if (components.len == 0) return allocator.dupe(u8, "");
+    const root = components[0];
+    var b = std.ArrayList(u8).empty;
+    defer b.deinit(allocator);
+    
+    try b.appendSlice(allocator, root);
+    if (root.len > 0 and !hasTrailingDirectorySeparator(root)) {
+        try b.append(allocator, '/');
+    }
+    
+    var first = true;
+    for (components[1..]) |comp| {
+        if (!first) try b.append(allocator, '/');
+        try b.appendSlice(allocator, comp);
+        first = false;
+    }
+    return b.toOwnedSlice(allocator);
 }
 
 pub const Path = []const u8;
@@ -233,15 +365,15 @@ pub fn getPathComponents(allocator: std.mem.Allocator, path: []const u8, current
 }
 
 fn pathComponents(allocator: std.mem.Allocator, path: []const u8, root_length: usize) ![][]const u8 {
-    var res = std.ArrayList([]const u8).init(allocator);
-    try res.append(try allocator.dupe(u8, path[0..root_length]));
+    var res = std.ArrayList([]const u8).empty;
+    try res.append(allocator, try allocator.dupe(u8, path[0..root_length]));
 
     var iter = std.mem.splitScalar(u8, path[root_length..], '/');
     while (iter.next()) |part| {
         if (iter.peek() == null and part.len == 0) continue;
-        try res.append(try allocator.dupe(u8, part));
+        try res.append(allocator, try allocator.dupe(u8, part));
     }
-    return res.toOwnedSlice();
+    return res.toOwnedSlice(allocator);
 }
 
 pub fn isVolumeCharacter(char: u8) bool {
@@ -501,4 +633,194 @@ pub fn hasRelativePathSegment(p: []const u8) bool {
     if (std.mem.indexOf(u8, p, "/./")) |_| return true;
     if (std.mem.eql(u8, p, "..") or std.mem.eql(u8, p, ".")) return true;
     return false;
+}
+
+
+const ignoredPaths = [_][]const u8{
+    "/node_modules/.",
+    "/.git",
+    ".#",
+};
+
+pub fn containsIgnoredPath(path: []const u8) bool {
+    for (ignoredPaths) |pattern| {
+        if (std.mem.indexOf(u8, path, pattern) != null) {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn changeAnyExtension(allocator: std.mem.Allocator, path: []const u8, ext: []const u8, extensions: []const []const u8, ignoreCase: bool) ![]const u8 {
+    _ = ignoreCase; 
+    var matched_ext: []const u8 = "";
+    if (extensions.len > 0) {
+        for (extensions) |e| {
+            if (FileExtensionIs(path, e)) {
+                matched_ext = e;
+                break;
+            }
+        }
+    } else {
+        matched_ext = std.fs.path.extension(path);
+    }
+    
+    if (matched_ext.len > 0) {
+        const result = path[0 .. path.len - matched_ext.len];
+        if (ext.len == 0) return allocator.dupe(u8, result);
+        if (std.mem.startsWith(u8, ext, ".")) {
+            return std.fmt.allocPrint(allocator, "{s}{s}", .{result, ext});
+        }
+        return std.fmt.allocPrint(allocator, "{s}.{s}", .{result, ext});
+    }
+    return allocator.dupe(u8, path);
+}
+
+pub fn changeExtension(allocator: std.mem.Allocator, path: []const u8, newExtension: []const u8) ![]const u8 {
+    return changeAnyExtension(allocator, path, newExtension, &extensionsToRemove, false);
+}
+
+pub fn changeFullExtension(allocator: std.mem.Allocator, path: []const u8, newExtension: []const u8) ![]const u8 {
+    const declExt = getDeclarationFileExtension(path);
+    if (declExt.len > 0) {
+        const ext = newExtension;
+        const prefix = if (std.mem.startsWith(u8, ext, ".")) @as([]const u8, "") else @as([]const u8, ".");
+        return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{path[0 .. path.len - declExt.len], prefix, ext});
+    }
+    return changeExtension(allocator, path, newExtension);
+}
+
+pub fn getPossibleOriginalInputExtensionForExtension(path: []const u8) []const []const u8 {
+    if (FileExtensionIs(path, ExtensionDmts) or FileExtensionIs(path, ExtensionMjs) or FileExtensionIs(path, ExtensionMts)) {
+        return &[_][]const u8{ ExtensionMts, ExtensionMjs };
+    }
+    if (FileExtensionIs(path, ExtensionDcts) or FileExtensionIs(path, ExtensionCjs) or FileExtensionIs(path, ExtensionCts)) {
+        return &[_][]const u8{ ExtensionCts, ExtensionCjs };
+    }
+    // We omit the .d.x.ts custom logic to avoid allocator need for now, 
+    // fallback to ts/js.
+    return &[_][]const u8{ ExtensionTsx, ExtensionTs, ExtensionJsx, ExtensionJs };
+}
+
+
+pub fn pathIsRelative(path: []const u8) bool {
+    if (std.mem.eql(u8, path, ".") or std.mem.eql(u8, path, "..")) return true;
+    if (path.len >= 2 and path[0] == '.' and (path[1] == '/' or path[1] == '\\')) return true;
+    if (path.len >= 3 and path[0] == '.' and path[1] == '.' and (path[2] == '/' or path[2] == '\\')) return true;
+    return false;
+}
+
+pub fn ensurePathIsNonModuleName(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    if (!pathIsAbsolute(path) and !pathIsRelative(path)) {
+        return try std.fmt.allocPrint(allocator, "./{s}", .{path});
+    }
+    return try allocator.dupe(u8, path);
+}
+
+pub fn isExternalModuleNameRelative(moduleName: []const u8) bool {
+    return pathIsRelative(moduleName) or isRootedDiskPath(moduleName);
+}
+
+pub fn containsPath(allocator: std.mem.Allocator, parent: []const u8, child: []const u8, options: ComparePathsOptions) !bool {
+    const parent_combined = try combinePaths(allocator, options.currentDirectory, &[_][]const u8{parent});
+    defer allocator.free(parent_combined);
+    
+    const child_combined = try combinePaths(allocator, options.currentDirectory, &[_][]const u8{child});
+    defer allocator.free(child_combined);
+    
+    if (parent_combined.len == 0 or child_combined.len == 0) return false;
+    if (std.mem.eql(u8, parent_combined, child_combined)) return true;
+    
+    const parent_comps = try getNormalizedPathComponents(allocator, parent_combined, "");
+    defer {
+        for (parent_comps) |c| allocator.free(c);
+        allocator.free(parent_comps);
+    }
+    const child_comps = try getNormalizedPathComponents(allocator, child_combined, "");
+    defer {
+        for (child_comps) |c| allocator.free(c);
+        allocator.free(child_comps);
+    }
+    
+    if (child_comps.len < parent_comps.len) return false;
+    
+    for (parent_comps, 0..) |pcomp, i| {
+        const ccomp = child_comps[i];
+        if (i == 0) {
+            if (compareStringsCaseInsensitive(pcomp, ccomp) != 0) return false;
+        } else {
+            if (options.useCaseSensitiveFileNames) {
+                if (!std.mem.eql(u8, pcomp, ccomp)) return false;
+            } else {
+                if (compareStringsCaseInsensitive(pcomp, ccomp) != 0) return false;
+            }
+        }
+    }
+    return true;
+}
+
+pub fn forEachAncestorDirectory(allocator: std.mem.Allocator, directory: []const u8, comptime Context: type, context: Context, callback: *const fn (ctx: Context, dir: []const u8) bool) !void {
+    var current = try allocator.dupe(u8, directory);
+    defer allocator.free(current);
+    while (true) {
+        if (callback(context, current)) {
+            return;
+        }
+        const parent = try getDirectoryPath(allocator, current);
+        if (std.mem.eql(u8, parent, current)) {
+            allocator.free(parent);
+            return;
+        }
+        allocator.free(current);
+        current = parent;
+    }
+}
+
+pub fn hasExtension(path: []const u8) bool {
+    const base = getBaseFileName(path);
+    return std.mem.indexOfScalar(u8, base, '.') != null;
+}
+
+pub const VolumePath = struct {
+    volume: []const u8,
+    rest: []const u8,
+    ok: bool,
+};
+
+pub fn splitVolumePath(allocator: std.mem.Allocator, path: []const u8) !VolumePath {
+    if (path.len >= 2 and isVolumeCharacter(path[0]) and path[1] == ':') {
+        const vol = try allocator.alloc(u8, 2);
+        vol[0] = std.ascii.toLower(path[0]);
+        vol[1] = ':';
+        return VolumePath{ .volume = vol, .rest = try allocator.dupe(u8, path[2..]), .ok = true };
+    }
+    return VolumePath{ .volume = try allocator.dupe(u8, ""), .rest = try allocator.dupe(u8, path), .ok = false };
+}
+
+pub fn startsWithDirectory(allocator: std.mem.Allocator, fileName: []const u8, directoryName: []const u8, useCaseSensitiveFileNames: bool) !bool {
+    if (directoryName.len == 0) return false;
+    const can_file = try getCanonicalFileName(allocator, fileName, useCaseSensitiveFileNames);
+    defer allocator.free(can_file);
+    const can_dir = try getCanonicalFileName(allocator, directoryName, useCaseSensitiveFileNames);
+    defer allocator.free(can_dir);
+    
+    var trimmed = can_dir;
+    if (trimmed.len > 0 and (trimmed[trimmed.len - 1] == '/' or trimmed[trimmed.len - 1] == '\\')) {
+        trimmed = trimmed[0..trimmed.len - 1];
+    }
+    
+    const prefix1 = try std.fmt.allocPrint(allocator, "{s}/", .{trimmed});
+    defer allocator.free(prefix1);
+    const prefix2 = try std.fmt.allocPrint(allocator, "{s}\\\\", .{trimmed});
+    defer allocator.free(prefix2);
+    
+    return std.mem.startsWith(u8, can_file, prefix1) or std.mem.startsWith(u8, can_file, prefix2);
+}
+
+pub fn compareNumberOfDirectorySeparators(path1: []const u8, path2: []const u8) i32 {
+    const c1 = std.mem.count(u8, path1, "/");
+    const c2 = std.mem.count(u8, path2, "/");
+    if (c1 < c2) return -1;
+    if (c1 > c2) return 1;
+    return 0;
 }

@@ -328,3 +328,5 @@ pub fn unorderedEqual(comptime T: type, a: []const T, b: []const T) bool {
 pub fn IfElse(comptime T: type, condition: bool, true_val: T, false_val: T) T {
     return if (condition) true_val else false_val;
 }
+pub const Stack = @import("stack.zig").Stack;
+pub const BFS = @import("bfs.zig").BFS;

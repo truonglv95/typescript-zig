@@ -43,6 +43,7 @@ test {
     _ = @import("lsp/document_store.zig");
     _ = @import("lsp/transport.zig");
     _ = @import("lsp/protocol_session.zig");
+    _ = @import("fourslash/fourslash.zig");
 
     // Test files that are currently buildable
     _ = @import("parser/parser_test.zig");
@@ -57,6 +58,9 @@ test {
 
     // Utilities and modules tests
     _ = @import("modulespecifiers/specifiers_test.zig");
+    
+    // Fourslash generated tests
+    _ = @import("fourslash_tests_generated.zig");
     _ = @import("compiler/commandline_test.zig");
     _ = @import("compiler/program.zig");
 
@@ -170,3 +174,5 @@ pub const diagnostics = @import("diagnostics/diagnostics.zig");
 test "refAllDecls flow" {
     std.testing.refAllDecls(@import("checker/flow.zig"));
 }
+
+

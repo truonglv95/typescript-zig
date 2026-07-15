@@ -56,7 +56,12 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    const gen_fourslash_cmd = b.addSystemCommand(&[_][]const u8{
+        "python3", "scripts/gen_fourslash_tests.py",
+    });
+
     const check_step = b.step("check", "Semantic analysis only (no codegen)");
+    check_step.dependOn(&gen_fourslash_cmd.step);
     check_step.dependOn(&check_exe.step);
 
     const lsp_exe = b.addExecutable(.{
@@ -80,8 +85,8 @@ pub fn build(b: *std.Build) void {
     const mod_tests = b.addTest(.{
         .root_module = mod,
     });
+    mod_tests.step.dependOn(&gen_fourslash_cmd.step);
     const run_mod_tests = b.addRunArtifact(mod_tests);
-
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_mod_tests.step);
 }

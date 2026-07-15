@@ -1,11 +1,11 @@
-const std = @import("std");
-
 //! Watch manager for `tsc --watch` mode.
 //!
 //! Port of `internal/execute/watchmanager/watchmanager.go` (341 LOC).
 //!
 //! Manages filesystem watches, accumulates change events, and signals
 //! when a watch cycle should run.
+
+const std = @import("std");
 
 const fswatch = @import("../../fswatch/fswatch.zig");
 

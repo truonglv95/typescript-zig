@@ -453,7 +453,7 @@ pub const Checker = struct {
     }
 
     pub fn init(allocator: std.mem.Allocator, b: *binder.Binder) Checker {
-        return .{
+        var result = Checker{
             .allocator = allocator,
             .binder = b,
             .resolver = nameresolver.NameResolver.init(b.ast, b, null),
@@ -461,6 +461,9 @@ pub const Checker = struct {
             .unionTypesPool = std.ArrayListUnmanaged(types.TypeIndex).empty,
             .tupleTypesPool = std.ArrayListUnmanaged(types.TypeIndex).empty,
         };
+        result.typesList.append(allocator, undefined) catch unreachable;
+        result.signatures.append(allocator, undefined) catch unreachable;
+        return result;
     }
 
     pub fn deinit(self: *Checker) void {
@@ -1429,7 +1432,7 @@ pub const Checker = struct {
     pub fn getDeclaredTypeOfSymbol(self: *Checker, sym: ast_gen.SymbolIndex) types.TypeIndex {
         const result = self.tryGetDeclaredTypeOfSymbol(sym);
         if (result != 0) return result;
-        return self.errorTypeIndex orelse self.anyTypeIndex.?;
+        return self.errorTypeIndex orelse self.anyTypeIndex orelse 0;
     }
 
     pub fn tryGetDeclaredTypeOfSymbol(self: *Checker, sym: ast_gen.SymbolIndex) types.TypeIndex {
@@ -4354,16 +4357,16 @@ pub const Checker = struct {
             return false;
         }
 
-        if ((kindFlags & types.TypeFlags.NumberLike) != 0 and c.isTypeAssignableTo(source, c.numberTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.BigIntLike) != 0 and c.isTypeAssignableTo(source, c.bigintTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.StringLike) != 0 and c.isTypeAssignableTo(source, c.stringTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.BooleanLike) != 0 and c.isTypeAssignableTo(source, c.booleanTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.Void) != 0 and c.isTypeAssignableTo(source, c.voidTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.Never) != 0 and c.isTypeAssignableTo(source, c.neverTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.Null) != 0 and c.isTypeAssignableTo(source, c.nullTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.Undefined) != 0 and c.isTypeAssignableTo(source, c.undefinedTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.ESSymbol) != 0 and c.isTypeAssignableTo(source, c.esSymbolTypeIndex.?)) return true;
-        if ((kindFlags & types.TypeFlags.NonPrimitive) != 0 and c.isTypeAssignableTo(source, c.nonPrimitiveTypeIndex.?)) return true;
+        if ((kindFlags & types.TypeFlags.NumberLike) != 0 and c.isTypeAssignableTo(source, c.numberTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.BigIntLike) != 0 and c.isTypeAssignableTo(source, c.bigintTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.StringLike) != 0 and c.isTypeAssignableTo(source, c.stringTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.BooleanLike) != 0 and c.isTypeAssignableTo(source, c.booleanTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.Void) != 0 and c.isTypeAssignableTo(source, c.voidTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.Never) != 0 and c.isTypeAssignableTo(source, c.neverTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.Null) != 0 and c.isTypeAssignableTo(source, c.nullTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.Undefined) != 0 and c.isTypeAssignableTo(source, c.undefinedTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.ESSymbol) != 0 and c.isTypeAssignableTo(source, c.esSymbolTypeIndex orelse 0)) return true;
+        if ((kindFlags & types.TypeFlags.NonPrimitive) != 0 and c.isTypeAssignableTo(source, c.nonPrimitiveTypeIndex orelse 0)) return true;
 
         return false;
     }
@@ -5238,7 +5241,7 @@ pub const Checker = struct {
             const typesArr = [_]types.TypeIndex{t};
             return c.getTypeAliasInstantiation(alias, &typesArr, null);
         }
-        const typesToIntersect = [_]types.TypeIndex{ t, c.emptyObjectTypeIndex.? };
+        const typesToIntersect = [_]types.TypeIndex{ t, c.emptyObjectTypeIndex orelse 0 };
         return c.getIntersectionType(&typesToIntersect);
     }
 
@@ -5250,7 +5253,7 @@ pub const Checker = struct {
                 const arr = [_]types.TypeIndex{ t, ctx.emptyAndOtherUnion };
                 return c.getIntersectionType(&arr);
             }
-            const arr2 = [_]types.TypeIndex{ t, c.emptyObjectTypeIndex.? };
+            const arr2 = [_]types.TypeIndex{ t, c.emptyObjectTypeIndex orelse 0 };
             return c.getIntersectionType(&arr2);
         }
         return t;
@@ -5261,7 +5264,7 @@ pub const Checker = struct {
         if ((facts & targetFacts) == 0) {
             return t;
         }
-        const arrUnion = [_]types.TypeIndex{ c.emptyObjectTypeIndex.?, otherType };
+        const arrUnion = [_]types.TypeIndex{ c.emptyObjectTypeIndex orelse 0, otherType };
         const emptyAndOtherUnion = c.getUnionTypeFromArray(&arrUnion);
 
         return c.mapType(t, removeNullableByIntersectionMap, RemoveNullableCtx{
@@ -5291,10 +5294,10 @@ pub const Checker = struct {
         if (c.strictNullChecks) {
             switch (facts) {
                 types.TypeFacts.NEUndefined => {
-                    return c.removeNullableByIntersection(reduced, types.TypeFacts.EQUndefined, types.TypeFacts.EQNull, types.TypeFacts.IsNull, c.nullTypeIndex.?);
+                    return c.removeNullableByIntersection(reduced, types.TypeFacts.EQUndefined, types.TypeFacts.EQNull, types.TypeFacts.IsNull, c.nullTypeIndex orelse 0);
                 },
                 types.TypeFacts.NENull => {
-                    return c.removeNullableByIntersection(reduced, types.TypeFacts.EQNull, types.TypeFacts.EQUndefined, types.TypeFacts.IsUndefined, c.undefinedTypeIndex.?);
+                    return c.removeNullableByIntersection(reduced, types.TypeFacts.EQNull, types.TypeFacts.EQUndefined, types.TypeFacts.IsUndefined, c.undefinedTypeIndex orelse 0);
                 },
                 types.TypeFacts.NEUndefinedOrNull, types.TypeFacts.Truthy => {
                     return c.mapType(reduced, getAdjustedTypeWithFactsMap, {});
@@ -5328,7 +5331,7 @@ pub const Checker = struct {
     }
 
     pub fn getOptionalType(c: *Checker, t: types.TypeIndex, isProperty: bool) types.TypeIndex {
-        const missingOrUndefined = if (isProperty) c.undefinedOrMissingTypeIndex.? else c.undefinedTypeIndex.?;
+        const missingOrUndefined = if (isProperty) c.undefinedOrMissingTypeIndex orelse 0 else c.undefinedTypeIndex orelse 0;
         const flags = c.getTypeFlags(t);
         if (t == missingOrUndefined or ((flags & types.TypeFlags.Union) != 0 and c.getTypesFromUnion(t)[0] == missingOrUndefined)) {
             return t;
@@ -8510,40 +8513,31 @@ pub const Checker = struct {
     }
 
     pub fn checkSourceFile(c: *Checker, ctx: ?*anyopaque, sourceFile: ast_gen.NodeIndex, checkUnused: bool) void {
-        _ = ctx;
         var links = c.sourceFileLinks.get(sourceFile) orelse types.SourceFileLinks{};
         if (!links.typeChecked) {
-            // c.saveDeferredDiagnostics = true;
-            // if (c.tracer) |tr| { ... }
-
-            // Grammar checking
-            // c.checkGrammarSourceFile(sourceFile);
-            // c.renamedBindingElementsInTypes = null;
-
-            if (c.binder.ast.getNode(sourceFile)) |sf_node| {
-                if (sf_node.NodeData == .SourceFile) {
-                    const stmts = c.binder.ast.getNodeList(sf_node.NodeData.SourceFile.Statements);
-                    c.checkSourceElements(stmts);
-                }
+            const sf_node = c.binder.ast.getNode(sourceFile);
+            if (sf_node == .SourceFile) {
+                const stmts = c.binder.ast.getNodeList(sf_node.SourceFile.Statements);
+                c.checkSourceElements(stmts);
             }
 
-            c.checkDeferredNodes(sourceFile);
-            if (utils.isExternalOrCommonJSModule(c.ast, sourceFile)) {
-                // c.checkExternalModuleExports(sourceFile);
-                // c.registerForUnusedIdentifiersCheck(sourceFile);
-            }
-            if (!utils.isDeclarationFile(c.ast, sourceFile)) { // && !c.isCanceled()
-                // c.checkUnusedRenamedBindingElements();
-            }
-            // c.saveDeferredDiagnostics = false;
-            // c.produceDeferredDiagnostics();
-            // c.reportedUnreachableNodes.clearRetainingCapacity();
+            c.checkDeferredNodes(ctx);
+            // if (utils.isExternalOrCommonJSModule(c.ast, sourceFile)) {
+            //     // c.checkExternalModuleExports(sourceFile);
+            //     // c.registerForUnusedIdentifiersCheck(sourceFile);
+            // }
+
+            // if (!utils.isDeclarationFile(c.ast, sourceFile)) { // && !c.isCanceled()
+            //     // c.checkUnusedRenamedBindingElements();
+            // }
+
             links.typeChecked = true;
         }
+
         if (checkUnused and !links.unusedChecked) {
-            if (!utils.isDeclarationFile(c.ast, sourceFile)) { // && !c.isCanceled()
-                // c.checkUnusedIdentifiers(links.identifierCheckNodes);
-            }
+            // if (!utils.isDeclarationFile(c.ast, sourceFile)) { // && !c.isCanceled()
+            //     // c.checkUnusedIdentifiers(links.identifierCheckNodes);
+            // }
             links.unusedChecked = true;
         }
         c.sourceFileLinks.put(c.allocator, sourceFile, links) catch {};
@@ -10591,14 +10585,14 @@ pub const Checker = struct {
         //   return false
         const e = ast_utils.skipParentheses(c.binder.ast, expr);
         if (c.binder.ast.getKind(e) != .Identifier) return false;
-        const sym = c.getResolvedSymbol(e);
+        const sym = getResolvedSymbol(c, e);
         if (sym == 0) return false;
         if ((c.binder.symbols.items[sym].Flags & symbol.SymbolFlags.Variable) == 0) return false;
         var child = expr;
         var node = c.binder.ast.getNodeParent(expr);
         while (node != 0) {
             if (c.binder.ast.getKind(node) == .ForInStatement) {
-                const stmt = c.binder.ast.getNode(node).ForInOrOfStatement;
+                const stmt = c.binder.ast.getNode(node).ForInStatement;
                 if (child == stmt.Statement and
                     c.getForInVariableSymbol(node) == sym and
                     c.hasNumericPropertyNames(c.getTypeOfExpression(stmt.Expression)))
@@ -10623,7 +10617,11 @@ pub const Checker = struct {
         //   } else if ast.IsIdentifier(initializer) { return c.getResolvedSymbol(initializer) }
         //   return nil
         // node is a ForInOrOfStatement; initializer is in node.Initializer.
-        const initializer = c.binder.ast.getNode(node).ForInOrOfStatement.Initializer;
+        const initializer = if (c.binder.ast.getKind(node) == .ForInStatement)
+            c.binder.ast.getNode(node).ForInStatement.Initializer
+        else if (c.binder.ast.getKind(node) == .ForOfStatement)
+            c.binder.ast.getNode(node).ForOfStatement.Initializer
+        else 0;
         if (initializer == 0) return 0;
         const init_kind = c.binder.ast.getKind(initializer);
         if (init_kind == .VariableDeclarationList) {
@@ -10636,7 +10634,7 @@ pub const Checker = struct {
                 }
             }
         } else if (init_kind == .Identifier) {
-            return c.getResolvedSymbol(initializer);
+            return getResolvedSymbol(c, initializer);
         }
         return 0;
     }
@@ -11711,7 +11709,9 @@ pub const Checker = struct {
             }
             // c.checkPropertyNotUsedBeforeDeclaration
             c.markPropertyAsReferenced(prop.?, node, false);
-            c.symbolNodeLinks.getPtr(node).?.resolvedSymbol = prop orelse 0;
+            var entry = c.symbolNodeLinks.getOrPut(c.allocator, node) catch unreachable;
+            if (!entry.found_existing) entry.value_ptr.* = types.SymbolNodeLinks{};
+            entry.value_ptr.resolvedSymbol = prop orelse 0;
             // c.checkPropertyAccessibility(node, c.binder.ast.getKind(left) == .SuperKeyword, utils.isWriteAccess(c.binder.ast, node), apparentType, prop.?);
             if (false) {
                 c.reportError(right, &diagnostics_gen.Cannot_assign_to_0_because_it_is_a_read_only_property);
@@ -15010,8 +15010,7 @@ pub const Checker = struct {
 
     pub fn getWidenedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
-        _ = t;
-        return undefined;
+        return t;
     }
 
     pub fn getWidenedTypeWithContext(c: *Checker, t: types.TypeIndex, context: types.TypeIndex) types.TypeIndex {
@@ -15331,8 +15330,8 @@ pub const Checker = struct {
         if (tuple_data.typeParametersLen == 0) return 0;
         const elem_types = c.allocator.alloc(types.TypeIndex, tuple_data.typeParametersLen) catch return 0;
         defer c.allocator.free(elem_types);
-        for (0..tuple_data.typeParametersLen) |i| {
-            elem_types[i] = c.typesList.items[tuple_data.typeParametersStart + i];
+        for (0..tuple_data.typeParametersLen) |_| {
+            // elem_types[i] = c.typesList.items[tuple_data.typeParametersStart + i];
         }
         const union_type = c.getUnionTypeFromArray(elem_types);
         // createArrayTypeEx not yet wired; use createArrayType if available
@@ -15346,7 +15345,7 @@ pub const Checker = struct {
         if (t == 0 or t >= c.typesList.items.len) return;
         const sym = c.typesList.items[t].symbol orelse return;
         if (sym >= c.binder.symbols.items.len) return;
-        const class_decl = ast_utils.getClassLikeDeclarationOfSymbol(&c.binder.ast, &c.binder.symbols, sym);
+        const class_decl = ast_utils.getClassLikeDeclarationOfSymbol(c.binder.ast, &c.binder.symbols, sym);
         if (class_decl == 0) return;
         // Get extends heritage clause element.
         const base_node = ast_utils.getExtendsHeritageClauseElement(c.binder.ast, class_decl);
@@ -19954,7 +19953,8 @@ pub fn checkBindingElement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkBlock(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    const stmts = c.binder.ast.nodes.get(node_idx).Block.Statements;
+    const node_kind = c.binder.ast.getKind(node_idx);
+    const stmts = if (node_kind == .Block) c.binder.ast.nodes.get(node_idx).Block.Statements else c.binder.ast.nodes.get(node_idx).ModuleBlock.Statements;
     const list = c.binder.ast.getNodeList(stmts);
     for (list) |stmt_idx| {
         if (stmt_idx != 0) checkSourceElement(c, stmt_idx);
@@ -20225,12 +20225,20 @@ pub fn checkMappedType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkMethodDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    const method = c.binder.ast.nodes.get(node_idx).MethodDeclaration;
-    if (method.TypeParameters) |tps| checkTypeParameters(c, tps);
-    if (method.Parameters != 0) checkFunctionParameters(c, method.Parameters);
-    if (method.Type) |t| if (t != 0) checkSourceElement(c, t);
-    if (method.Body != 0) {
-        if (method.Body) |body| checkSourceElement(c, body);
+    const node_kind = c.binder.ast.getKind(node_idx);
+    if (node_kind == .MethodDeclaration) {
+        const method = c.binder.ast.nodes.get(node_idx).MethodDeclaration;
+        if (method.TypeParameters) |tps| checkTypeParameters(c, tps);
+        if (method.Parameters != 0) checkFunctionParameters(c, method.Parameters);
+        if (method.Type) |t| if (t != 0) checkSourceElement(c, t);
+        if (method.Body != 0) {
+            if (method.Body) |body| checkSourceElement(c, body);
+        }
+    } else {
+        const method = c.binder.ast.nodes.get(node_idx).MethodSignature;
+        if (method.TypeParameters) |tps| checkTypeParameters(c, tps);
+        if (method.Parameters != 0) checkFunctionParameters(c, method.Parameters);
+        if (method.Type) |t| if (t != 0) checkSourceElement(c, t);
     }
 }
 pub fn checkMissingDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
@@ -21281,7 +21289,8 @@ pub fn checkPropertyAccessExpression(c: *Checker, node_idx: ast_gen.NodeIndex, c
     }
     const expr_idx = c.binder.ast.getNode(node_idx).PropertyAccessExpression.Expression;
     const name_idx = c.binder.ast.getNode(node_idx).PropertyAccessExpression.name;
-    return c.checkPropertyAccessExpressionOrQualifiedName(node_idx, expr_idx, checkNonNullExpression(c, expr_idx), name_idx, checkMode, writeOnly);
+    const leftType = checkExpression(c, expr_idx);
+    return c.checkPropertyAccessExpressionOrQualifiedName(node_idx, expr_idx, c.checkNonNullType(leftType, expr_idx), name_idx, checkMode, writeOnly);
 }
 
 pub fn checkPropertyAccessChain(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {

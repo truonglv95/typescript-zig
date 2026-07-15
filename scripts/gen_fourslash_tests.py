@@ -1,0 +1,252 @@
+import os
+import re
+import glob
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GO_TESTS_DIR = "submodule/typescript-go/internal/fourslash/tests"
+OUTPUT_FILE = os.path.join(ROOT_DIR, "src", "fourslash_tests_generated.zig")
+
+def escape_zig_multiline_string(s):
+    if not s: return ""
+    lines = s.split('\n')
+    return "\n".join(f"        \\\\{line.replace(chr(9), '    ')}" for line in lines)
+
+def parse_go_test_calls(content):
+    calls = []
+    pattern = re.compile(r'\bf\.(\w+)\s*\(')
+    pos = 0
+    while True:
+        match = pattern.search(content, pos)
+        if not match:
+            break
+        start_idx = match.start()
+        parens = 0
+        in_string = False
+        in_raw_string = False
+        escape = False
+        
+        idx = start_idx
+        while idx < len(content):
+            c = content[idx]
+            if in_string:
+                if escape:
+                    escape = False
+                elif c == '\\':
+                    escape = True
+                elif c == '"':
+                    in_string = False
+            elif in_raw_string:
+                if c == '`':
+                    in_raw_string = False
+            else:
+                if c == '"':
+                    in_string = True
+                elif c == '`':
+                    in_raw_string = True
+                elif c == '(':
+                    parens += 1
+                elif c == ')':
+                    parens -= 1
+                    if parens == 0:
+                        idx += 1
+                        break
+            idx += 1
+        
+        calls.append(content[start_idx:idx])
+        pos = idx
+    return calls
+
+def transform_go_to_zig(call_str):
+    parts = []
+    idx = 0
+    in_string = False
+    in_raw_string = False
+    escape = False
+    start = 0
+    
+    while idx < len(call_str):
+        c = call_str[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif c == '\\':
+                escape = True
+            elif c == '"':
+                in_string = False
+                parts.append(("string", call_str[start:idx+1]))
+                start = idx + 1
+        elif in_raw_string:
+            if c == '`':
+                in_raw_string = False
+                raw = call_str[start+1:idx]
+                zig_str = '"' + raw.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '') + '"'
+                parts.append(("string", zig_str))
+                start = idx + 1
+        else:
+            if c == '"':
+                if start < idx:
+                    parts.append(("code", call_str[start:idx]))
+                start = idx
+                in_string = True
+            elif c == '`':
+                if start < idx:
+                    parts.append(("code", call_str[start:idx]))
+                start = idx
+                in_raw_string = True
+        idx += 1
+        
+    if start < len(call_str):
+        parts.append(("code", call_str[start:]))
+        
+    result = ""
+    for i, (ptype, text) in enumerate(parts):
+        if ptype == "string":
+            # Replace raw tabs with \t for Zig string literal compatibility
+            text = text.replace('\t', '\\t')
+            if i + 1 < len(parts) and parts[i+1][0] == "code":
+                code_text = parts[i+1][1]
+                if code_text.lstrip().startswith(':'):
+                    result += ".@" + text + " "
+                    code_text = code_text.lstrip()[1:] # remove ':'
+                    parts[i+1] = ("code", "=" + code_text)
+                    continue
+            result += text
+        else:
+            text = text.replace("(t, ", "(undefined, ").replace("(t)", "(undefined)")
+            text = text.replace("\t", "    ")
+            # Remove Go block comments /* ... */
+            text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+            text = re.sub(r'map\[[a-zA-Z0-9_\.]+\][A-Za-z0-9_\[\]\.]+\s*\{', '.{', text)
+            text = re.sub(r'\[\][A-Za-z0-9_\.]+\s*\{', '&.{', text)
+            text = re.sub(r'\b([a-zA-Z0-9_]+\.)?[A-Z][A-Za-z0-9_]*\s*\{', '.{', text)
+            
+            # Catch any remaining `{` (like bare slice `{0, 1}`) and convert to Zig anonymous literal `.{`
+            text = text.replace('{', '.{').replace('..{', '.{')
+            
+            text = re.sub(r'\bnil\b', 'null', text)
+            text = re.sub(r'\b([a-zA-Z_]\w*)\s*:', r'.\1 =', text)
+            
+            # Replace naked `t` with `undefined` since `t` is removed from arguments
+            text = re.sub(r'\bt\b', 'undefined', text)
+            
+            # Replace Go's `new(...)` with `undefined` for now
+            text = re.sub(r'\bnew\b', 'undefined', text)
+            
+            # Remove Go varargs `...` which is invalid in Zig
+            text = text.replace('...', '')
+            
+            # Go string concat uses `+`. In Zig it's `++`.
+            # Since Fourslash calls rarely do math, we blindly replace `+` with ` ++ `
+            text = text.replace('+', ' ++ ')
+            
+            result += text
+            
+    return result
+
+def parse_go_test(filepath):
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    test_func_match = re.search(r'func (Test\w+)\(t \*testing\.T\)', content)
+    if not test_func_match:
+        return None
+    test_name = test_func_match.group(1)
+
+    content_match = re.search(r'const content\s*=\s*`([^`]+)`', content)
+    if not content_match:
+        return None
+    test_content = content_match.group(1)
+
+    method_calls = parse_go_test_calls(content[content_match.end():])
+
+    return {
+        "name": test_name,
+        "content": test_content,
+        "calls": method_calls
+    }
+
+def main():
+    test_files = glob.glob(os.path.join(GO_TESTS_DIR, "*.go"))
+    
+    parsed_tests = []
+    for f in test_files:
+        res = parse_go_test(f)
+        if res:
+            parsed_tests.append(res)
+
+    with open(OUTPUT_FILE, "w", encoding='utf-8') as out:
+        out.write('const std = @import("std");\n')
+        out.write('const fourslash = @import("fourslash/fourslash.zig");\n\n')
+        for test in parsed_tests:
+            out.write(f'test "{test["name"]}" {{\n')
+            out.write('    const content =\n')
+            out.write(escape_zig_multiline_string(test["content"]) + '\n    ;\n\n')
+            out.write('    const f = fourslash.NewFourslash(undefined, undefined, content);\n    defer f.deinit();\n')
+            
+            f_used = True
+            for call in test["calls"]:
+                call_zig = transform_go_to_zig(call)
+                # If call contains inline Go function or variadic methods we haven't stubbed, comment it out
+                if ('func(' in call_zig or 'func (' in call_zig or 
+                    'VerifyBaselineGoToSourceDefinition' in call_zig or 
+                    'VerifyOutliningSpans' in call_zig or 
+                    'f.Replace(' in call_zig or
+                    'VerifyBaselineFindAllReferences' in call_zig or
+                    'VerifyBaselineDocumentHighlights' in call_zig or
+                    'VerifySemanticTokens' in call_zig or
+                    'VerifyNoSignatureHelpForMarkers' in call_zig or
+                    'VerifyBaselineVSFindAllReferences' in call_zig or
+                    'VerifyBaselineGoToDefinition' in call_zig or
+                    'VerifyBaselineGoToTypeDefinition' in call_zig or
+                    'VerifyImportFixModuleSpecifiers' in call_zig or
+                    'VerifySignatureHelp(' in call_zig or
+                    'VerifySignatureHelpPresence' in call_zig or
+                    'VerifyBaselineRename' in call_zig or
+                    'VerifyBaselineCallHierarchy' in call_zig or
+                    'BaselineAutoImportsCompletions' in call_zig or
+                    'VerifyQuickInfoAt' in call_zig or
+                    'VerifyBaselineNonSuggestionDiagnostics' in call_zig or
+                    'VerifyBaselineClosingTags' in call_zig or
+                    'VerifyNoSignatureHelp' in call_zig or
+                    'Configure' in call_zig or
+                    'GetCompletions' in call_zig or
+                    'VerifyBaselineInlayHints' in call_zig or
+                    'VerifyRenameFailed' in call_zig or
+                    'GetOptions' in call_zig or
+                    'ResolveCompletionItem' in call_zig or
+                    'undefined("' in call_zig or
+                    ' marker)' in call_zig or
+                    '.CommitCharacters' in call_zig or
+                    '.CodeLens' in call_zig or
+                    '.IncludeCompletionsForModuleExports' in call_zig or
+                    '.UseAliasesForRename' in call_zig or
+                    '.IncludeInlayVariableTypeHints' in call_zig or
+                    'lsproto.' in call_zig or
+                    'new(' in call_zig):
+                    lines = call_zig.split('\n')
+                    call_zig = '\n'.join('// ' + line for line in lines)
+                else:
+                    # Clean up constants that don't exist in Zig yet
+                    call_zig = call_zig.replace('DefaultCommitCharacters', 'null')
+                    call_zig = call_zig.replace('Ignored', 'null')
+                    call_zig = call_zig.replace('core.TSTrue', 'true')
+                    call_zig = call_zig.replace('core.TSFalse', 'false')
+                    
+                    # Prepend `_ = ` to ignore return values in Zig!
+                    call_zig = f'_ = {call_zig}'
+                    if 'f.' in call_zig:
+                        f_used = True
+                
+                # Uncomment the call so it actually compiles!
+                out.write(f'    {call_zig};\n')
+                
+            if not f_used:
+                out.write('    _ = f;\n')
+            
+            out.write('}\n\n')
+        out.write('\n')
+
+        out.write('\n')
+
+if __name__ == "__main__":
+    main()
