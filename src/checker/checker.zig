@@ -9584,8 +9584,9 @@ pub const Checker = struct {
     /// Port of checker.go::getBuiltinIteratorReturnType. Returns the
     /// return type of a built-in iterator's next() method. Simplified: 0.
     pub fn getBuiltinIteratorReturnType(c: *Checker) types.TypeIndex {
-        _ = c;
-        return 0;
+        // Go: return core.IfElse(c.strictBuiltinIteratorReturn, c.undefinedType, c.anyType)
+        // Simplified: strictBuiltinIteratorReturn not yet wired; return anyType.
+        return c.anyTypeIndex orelse 0;
     }
 
     pub fn hasTypes(iterationTypes: ast_gen.NodeIndex) bool {
