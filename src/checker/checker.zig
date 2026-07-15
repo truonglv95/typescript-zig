@@ -18499,16 +18499,38 @@ pub const Checker = struct {
         return .{ .types = out, .inserted = true };
     }
 
-    pub fn forEachType(t: types.TypeIndex, f: *anyopaque) *anyopaque {
-        _ = t;
-        _ = f;
-        return undefined;
+    /// Port of `checker.go::forEachType`. Applies `f` to each constituent
+    /// of `t` (descending into unions). For non-union types, applies once.
+    pub fn forEachType(c: *Checker, t: types.TypeIndex, comptime f: anytype, ctx: anytype) void {
+        if (t == 0 or t >= c.typesList.items.len) return;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            for (constituents) |u| {
+                f(c, u, ctx);
+            }
+        } else {
+            f(c, t, ctx);
+        }
     }
 
-    pub fn everyContainedType(t: types.TypeIndex, f: *anyopaque) bool {
-        _ = t;
-        _ = f;
-        return false;
+    /// Port of `checker.go::everyContainedType`. Returns true if every
+    /// constituent of `t` (descending into unions and intersections)
+    /// satisfies `f`. For non-union/intersection types, applies once.
+    pub fn everyContainedType(c: *Checker, t: types.TypeIndex, comptime f: anytype, ctx: anytype) bool {
+        if (t == 0 or t >= c.typesList.items.len) return true;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.UnionOrIntersection) != 0) {
+            const constituents = if ((flags & types.TypeFlags.Union) != 0)
+                c.getTypesFromUnion(t)
+            else
+                c.getTypesFromIntersection(t);
+            for (constituents) |u| {
+                if (!c.everyContainedType(u, f, ctx)) return false;
+            }
+            return true;
+        }
+        return f(c, t, ctx);
     }
 
     /// Port of `checker.go::insertType`. (Duplicate at the file-level —
