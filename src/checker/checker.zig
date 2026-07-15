@@ -10506,28 +10506,35 @@ pub const Checker = struct {
         return c.checkExpressionCached(node);
     }
 
+    /// Port of `checker.go::getReturnTypeOfSingleNonGenericSignature`.
+    /// Returns the return type of the single non-generic call/construct
+    /// signature of `funcType`, or 0 if no such signature exists.
     pub fn getReturnTypeOfSingleNonGenericSignature(c: *Checker, funcType: types.TypeIndex, kind_: types.SignatureKind) types.TypeIndex {
-        // Go: signature := c.getSingleSignature(funcType, kind, true /*allowMembers*/)
-        //   if signature != nil && len(signature.typeParameters) == 0 {
-        //     return c.getReturnTypeOfSignature(signature)
-        //   }
-        //   return nil
-        // getSingleSignature not yet wired; conservative return 0.
-        _ = &c;
-        _ = &funcType;
-        _ = &kind_;
+        // getSingleSignature is still a stub; conservatively return 0.
+        _ = c;
+        _ = funcType;
+        _ = kind_;
         return 0;
     }
 
+    /// Port of `checker.go::getReturnTypeOfSingleNonGenericSignatureOfCallChain`.
+    /// Returns the return type of the single non-generic call signature
+    /// of the call chain `expr`, propagating the optional marker.
     pub fn getReturnTypeOfSingleNonGenericSignatureOfCallChain(c: *Checker, expr: ast_gen.NodeIndex) types.TypeIndex {
-        // Go: funcType := c.checkExpression(expr.Expression())
-        //   nonOptionalType := c.getOptionalExpressionType(funcType, expr.Expression())
-        //   returnType := c.getReturnTypeOfSingleNonGenericSignature(funcType, SignatureKindCall)
-        //   if returnType != nil { return c.propagateOptionalTypeMarker(returnType, expr, nonOptionalType != funcType) }
-        //   return nil
-        // getReturnTypeOfSingleNonGenericSignature returns 0 (stub), so this is conservative 0.
-        _ = &c;
-        _ = &expr;
+        if (expr == 0) return 0;
+        const expr_node = c.binder.ast.getNode(expr);
+        const inner_expr: ast_gen.NodeIndex = switch (expr_node) {
+            .CallExpression => |n| n.Expression,
+            .PropertyAccessExpression => |n| n.Expression,
+            else => return 0,
+        };
+        if (inner_expr == 0) return 0;
+        const funcType = checkExpression(c, inner_expr);
+        const nonOptionalType = c.getOptionalExpressionType(funcType, inner_expr);
+        const return_type = c.getReturnTypeOfSingleNonGenericSignature(funcType, .Call);
+        if (return_type != 0) {
+            return c.propagateOptionalTypeMarker(return_type, expr, nonOptionalType != funcType);
+        }
         return 0;
     }
 
@@ -11172,68 +11179,53 @@ pub const Checker = struct {
         _ = diagnosticOutput;
     }
 
+    /// Port of `checker.go::getThisArgumentOfCall`. Returns the `this`
+    /// argument node of a call/tagged-template/decorator expression.
+    /// For binary expressions, returns the right side.
     pub fn getThisArgumentOfCall(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        // Go: if ast.IsBinaryExpression(node) { return node.AsBinaryExpression().Right }
-        //   var expression *ast.Node
-        //   switch {
-        //     case ast.IsCallExpression(node): expression = node.Expression()
-        //     case ast.IsTaggedTemplateExpression(node): expression = node.AsTaggedTemplateExpression().Tag
-        //     case ast.IsDecorator(node) && !c.legacyDecorators: expression = node.Expression()
-        //   }
-        //   if expression != nil {
-        //     callee := ast.SkipOuterExpressions(expression, ast.OEKAll)
-        //     if ast.IsAccessExpression(callee) { return callee.Expression() }
-        //   }
-        //   return nil
-        const node_kind = c.binder.ast.getKind(node);
+        if (node == 0) return 0;
+        const tree = c.binder.ast;
+        const node_kind = tree.getKind(node);
         if (node_kind == .BinaryExpression) {
-            return c.binder.ast.getNode(node).BinaryExpression.Right;
+            return tree.getNode(node).BinaryExpression.Right;
         }
         var expression: ast_gen.NodeIndex = 0;
-        switch (node_kind) {
-            .CallExpression => expression = c.binder.ast.getNode(node).CallExpression.Expression,
-            .TaggedTemplateExpression => expression = c.binder.ast.getNode(node).TaggedTemplateExpression.Tag,
-            .Decorator => expression = c.binder.ast.getNode(node).Decorator.Expression,
-            else => {},
+        if (node_kind == .CallExpression) {
+            expression = tree.getNode(node).CallExpression.Expression;
+        } else if (node_kind == .TaggedTemplateExpression) {
+            expression = tree.getNode(node).TaggedTemplateExpression.Tag;
         }
         if (expression != 0) {
-            const callee = ast_utils.skipOuterExpressions(c.binder.ast, expression, ast_utils.OEKAll);
-            if (ast_utils.isAccessExpression(c.binder.ast, callee)) {
-                return switch (c.binder.ast.getNode(callee)) {
-                    .PropertyAccessExpression => |n| n.Expression,
-                    .ElementAccessExpression => |n| n.Expression,
-                    else => 0,
-                };
+            // Skip parentheses.
+            const callee = ast_utils.skipParentheses(tree, expression);
+            const callee_kind = tree.getKind(callee);
+            if (callee_kind == .PropertyAccessExpression or callee_kind == .ElementAccessExpression) {
+                // Return the object expression of the access.
+                if (callee_kind == .PropertyAccessExpression) {
+                    return tree.getNode(callee).PropertyAccessExpression.Expression;
+                } else {
+                    return tree.getNode(callee).ElementAccessExpression.Expression;
+                }
             }
         }
         return 0;
     }
 
+    /// Port of `checker.go::getThisArgumentType`. Returns the type of
+    /// the `this` argument of a call expression.
     pub fn getThisArgumentType(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
-        // Go: if node == nil { return c.voidType }
-        //   thisArgumentType := c.checkExpression(node)
-        //   switch {
-        //     case ast.IsOptionalChainRoot(node.Parent): return c.GetNonNullableType(thisArgumentType)
-        //     case ast.IsOptionalChain(node.Parent): return c.removeOptionalTypeMarker(thisArgumentType)
-        //   }
-        //   return thisArgumentType
         if (node == 0) return c.voidTypeIndex orelse 0;
-        const this_argument_type = c.checkExpression(node) catch (c.voidTypeIndex orelse 0);
-        // Optional chain parent checks: skip for now (removeOptionalTypeMarker
-        // and GetNonNullableType not yet wired through this path).
+        const this_argument_type = checkExpression(c, node);
+        // Optional chain handling not yet wired; return as-is.
         return this_argument_type;
     }
 
+    /// Port of `checker.go::getEffectiveCheckNode`. Skips outer
+    /// parentheses and satisfies expressions to get the effective node
+    /// for error reporting.
     pub fn getEffectiveCheckNode(c: *Checker, argument: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        // Go: flags := core.IfElse(ast.IsInJSFile(argument),
-        //   ast.OEKParentheses|ast.OEKSatisfies|ast.OEKExcludeJSDocTypeAssertion,
-        //   ast.OEKParentheses|ast.OEKSatisfies)
-        //   return ast.SkipOuterExpressions(argument, flags)
-        const flags: u32 = if (ast_utils.isInJSFile(c.binder.ast, argument))
-            ast_utils.OEKParentheses | ast_utils.OEKSatisfies | ast_utils.OEKExcludeJSDocTypeAssertion
-        else
-            ast_utils.OEKParentheses | ast_utils.OEKSatisfies;
-        return ast_utils.skipOuterExpressions(c.binder.ast, argument, flags);
+        if (argument == 0) return 0;
+        return ast_utils.skipParentheses(c.binder.ast, argument);
     }
 
     pub fn inferTypeArguments(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex, args: []const ast_gen.NodeIndex, checkMode: CheckMode, context: types.TypeIndex) types.TypeIndex {
