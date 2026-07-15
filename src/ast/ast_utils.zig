@@ -1728,6 +1728,35 @@ pub fn getTextOfNode(tree: *ast.Ast, node: ast.NodeIndex) []const u8 {
     return getText(tree, node);
 }
 
+/// Port of ast.GetNameOfDeclaration. Returns the name node of a declaration.
+pub fn getNameOfDeclaration(tree: *ast.Ast, node: ast.NodeIndex) ?ast.NodeIndex {
+    if (node == 0) return null;
+    const node_data = tree.getNode(node);
+    switch (node_data) {
+        .VariableDeclaration => |n| return n.name,
+        .FunctionDeclaration => |n| return n.name,
+        .ClassDeclaration => |n| return n.name,
+        .InterfaceDeclaration => |n| return n.name,
+        .TypeAliasDeclaration => |n| return n.name,
+        .EnumDeclaration => |n| return n.name,
+        .ModuleDeclaration => |n| return n.name,
+        .ImportEqualsDeclaration => |n| return n.name,
+        .ImportDeclaration => return null,
+        .ExportDeclaration => return null,
+        .ExportAssignment => return null,
+        .PropertyDeclaration => |n| return n.name,
+        .PropertySignature => |n| return n.name,
+        .MethodDeclaration => |n| return n.name,
+        .MethodSignature => |n| return n.name,
+        .GetAccessor => |n| return n.name,
+        .SetAccessor => |n| return n.name,
+        .Parameter => |n| return n.name,
+        .BindingElement => |n| return n.name,
+        .EnumMember => |n| return n.name,
+        else => return null,
+    }
+}
+
 pub fn subtreeFacts(a: anytype) u32 {
     _ = a;
     return 0;

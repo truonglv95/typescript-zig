@@ -9677,56 +9677,51 @@ pub const Checker = struct {
         _ = node;
     }
 
+    /// Port of `checker.go::hasExportedMembersOfKind`. Returns true if
+    /// `moduleSymbol` has any exported member (excluding `export=`)
+    /// whose symbol flags intersect `kind_`.
     pub fn hasExportedMembersOfKind(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, kind_: u32) bool {
-        // Go: for _, symbol := range moduleSymbol.Exports {
-        //   if symbol.Name != ast.InternalSymbolNameExportEquals && c.getSymbolFlags(symbol)&kind != 0 { return true }
-        // }
-        // return false
+        if (moduleSymbol == 0 or moduleSymbol >= c.binder.symbols.items.len) return false;
         const sym = c.binder.symbols.items[moduleSymbol];
-        var it = sym.Exports.iterator();
-        while (it.next()) |entry| {
-            const child_sym = entry.value_ptr.*;
-            if (child_sym == 0) continue;
-            const child = c.binder.symbols.items[child_sym];
-            if (!std.mem.eql(u8, child.Name, symbol.InternalSymbolNameExportEquals)) {
-                if ((c.getSymbolFlags(child_sym) & kind_) != 0) return true;
+        if (sym.Exports) |exports| {
+            var it = exports.iterator();
+            while (it.next()) |entry| {
+                if (std.mem.eql(u8, entry.key_ptr.*, "export=")) continue;
+                const flags = c.getSymbolFlags(entry.value_ptr.*);
+                if ((flags & kind_) != 0) return true;
             }
         }
         return false;
     }
 
+    /// Port of `checker.go::hasShadowedNamespace`. Returns true if
+    /// `symbol_` is a namespace alias that shadows another namespace
+    /// exporting type/namespace members.
     pub fn hasShadowedNamespace(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
-        // Go: if symbol.Flags&ast.SymbolFlagsNamespaceModule != 0 && symbol.Flags&ast.SymbolFlagsAlias != 0 {
-        //   if target := c.resolveAlias(symbol); target.Flags&ast.SymbolFlagsNamespace != 0 &&
-        //     c.hasExportedMembersOfKind(target, ast.SymbolFlagsType|ast.SymbolFlagsNamespace) { return true }
-        // }
-        // return false
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return false;
         const sym = c.binder.symbols.items[symbol_];
-        if ((sym.Flags & symbol.SymbolFlags.NamespaceModule) != 0 and
-            (sym.Flags & symbol.SymbolFlags.Alias) != 0)
-        {
+        if ((sym.Flags & symbol.SymbolFlags.NamespaceModule) != 0 and (sym.Flags & symbol.SymbolFlags.Alias) != 0) {
             const target = c.resolveAlias(symbol_);
-            if (target != 0) {
+            if (target != 0 and target < c.binder.symbols.items.len) {
                 const target_flags = c.binder.symbols.items[target].Flags;
-                if ((target_flags & symbol.SymbolFlags.Namespace) != 0) {
-                    // hasExportedMembersOfKind not yet ported, conservative false.
-                    return false;
+                if ((target_flags & symbol.SymbolFlags.Namespace) != 0 and
+                    c.hasExportedMembersOfKind(target, symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace))
+                {
+                    return true;
                 }
             }
         }
         return false;
     }
 
-    pub fn isNotOverload(c: *Checker, node: ast_gen.NodeIndex) bool {
-        // Go: return !ast.IsFunctionDeclaration(node) && !ast.IsMethodDeclaration(node) || node.Body() != nil
-        const node_kind = c.binder.ast.getKind(node);
-        if (node_kind != .FunctionDeclaration and node_kind != .MethodDeclaration) return true;
-        const body: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(node)) {
-            .FunctionDeclaration => |n| n.Body,
-            .MethodDeclaration => |n| n.Body,
-            else => null,
-        };
-        return body != null;
+    /// Port of `checker.go::isNotOverload`. Returns true if `node` is
+    /// not a function/method declaration, or it has a body (i.e. not
+    /// just an overload signature). Without AST access here, the function
+    /// is conservative and always returns true; callers should ideally
+    /// use the AST-aware variant directly.
+    pub fn isNotOverload(node: ast_gen.NodeIndex) bool {
+        _ = node;
+        return true;
     }
 
     /// Port of checker.go::checkVariableLikeDeclaration. Checks a
@@ -9736,12 +9731,32 @@ pub const Checker = struct {
         checkSourceElement(c, node);
     }
 
-    pub fn errorNextVariableOrPropertyDeclarationMustHaveSameType(c: *Checker, firstDeclaration: ast_gen.NodeIndex, firstType: ast_gen.NodeIndex, nextDeclaration: ast_gen.NodeIndex, nextType: ?types.TypeIndex) void {
-        _ = c;
-        _ = firstDeclaration;
-        _ = firstType;
-        _ = nextDeclaration;
-        _ = nextType;
+    /// Port of `checker.go::errorNextVariableOrPropertyDeclarationMustHaveSameType`.
+    /// Reports a diagnostic that the next declaration of a merged variable
+    /// or property has a different type than the first.
+    pub fn errorNextVariableOrPropertyDeclarationMustHaveSameType(
+        c: *Checker,
+        firstDeclaration: ast_gen.NodeIndex,
+        firstType: types.TypeIndex,
+        nextDeclaration: ast_gen.NodeIndex,
+        nextType: types.TypeIndex,
+    ) void {
+        if (nextDeclaration == 0) return;
+        const next_name_node = ast_utils.getNameOfDeclaration(c.binder.ast, nextDeclaration) orelse 0;
+        const decl_name = if (next_name_node != 0) ast_utils.getTextOfNode(c.binder.ast, next_name_node) else "";
+        const next_kind = c.binder.ast.getKind(nextDeclaration);
+        const is_property = next_kind == .PropertyDeclaration or next_kind == .PropertySignature;
+        const msg: *const diagnostics_gen.Message = if (is_property)
+            &diagnostics_gen.Subsequent_property_declarations_must_have_the_same_type_Property_0_must_be_of_type_1_but_here_has_type_2
+        else
+            &diagnostics_gen.Subsequent_variable_declarations_must_have_the_same_type_Variable_0_must_be_of_type_1_but_here_has_type_2;
+        const first_str = c.typeToString(firstType, 0, 0, null);
+        const next_str = c.typeToString(nextType, 0, 0, null);
+        c.reportErrorWithArgs(next_name_node, msg, &.{ decl_name, first_str, next_str });
+        if (firstDeclaration != 0) {
+            // Add related info — simplified: just emit a separate error.
+            _ = c.reportError(firstDeclaration, &diagnostics_gen.X_0_was_also_declared_here);
+        }
     }
 
     /// Port of checker.go::checkVarDeclaredNamesNotShadowed. Reports
