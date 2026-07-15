@@ -781,11 +781,17 @@ pub const Checker = struct {
         c.resolveObjectTypeMembers(t, t, 0, 0, 0, 0, outMembers);
     }
 
+    /// Port of `checker.go::resolveTupleTypeMembers`. Maps Array properties
+    /// and index signatures onto this Tuple type by delegating to
+    /// `resolveStructuredTypeMembers` of the tuple's base Array type.
     pub fn resolveTupleTypeMembers(c: *Checker, t: types.TypeIndex, outMembers: *types.StructuredTypeMembers) void {
-        _ = c;
-        _ = t;
-        _ = outMembers;
-        // TODO: Map Array properties and index signatures onto this Tuple type.
+        if (t == 0 or t >= c.typesList.items.len) return;
+        // Get the tuple's target type (the Array<T> base type).
+        const target = c.getTargetType(t);
+        if (target == 0 or target >= c.typesList.items.len) return;
+        // Resolve the base Array type's members and copy them into outMembers.
+        const base_members = c.resolveStructuredTypeMembers(target);
+        outMembers.* = base_members;
     }
 
     pub fn resolveTypeReferenceMembers(c: *Checker, t: types.TypeIndex, outMembers: *types.StructuredTypeMembers) void {
