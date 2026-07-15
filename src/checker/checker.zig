@@ -87,11 +87,39 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getContextualType(self: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = self;
-        _ = node;
-        _ = contextFlags;
-        return 0;
+    pub fn getContextualType(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
+        // Go: complex — switch on parent.Kind, delegating to many getContextualTypeFor* helpers.
+        // Simplified: handle common cases (VariableDeclaration, Parameter, PropertyDeclaration,
+        // ParenthesizedExpression, NonNullExpression) directly, return 0 for others.
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        const pk = c.binder.ast.getKind(parent);
+        switch (pk) {
+            .VariableDeclaration, .Parameter, .PropertyDeclaration, .PropertySignature, .BindingElement => {
+                // Get type annotation from declaration
+                const type_node: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(parent)) {
+                    .VariableDeclaration => |n| n.Type,
+                    .Parameter => |n| n.Type,
+                    .PropertyDeclaration => |n| n.Type,
+                    .PropertySignature => |n| n.Type,
+                    .BindingElement => null,
+                    else => null,
+                };
+                if (type_node) |tn| {
+                    if (tn != 0) return c.getTypeFromTypeNode(tn);
+                }
+                return 0;
+            },
+            .ParenthesizedExpression, .NonNullExpression => {
+                return c.getContextualType(parent, contextFlags);
+            },
+            .TypeAssertionExpression, .AsExpression => {
+                const type_node = c.binder.ast.getNode(parent).TypeAssertionExpression.Type;
+                if (type_node != 0) return c.getTypeFromTypeNode(type_node);
+                return 0;
+            },
+            else => return 0,
+        }
     }
 
     pub fn isFunctionType(c: *Checker, t: types.TypeIndex) bool {
