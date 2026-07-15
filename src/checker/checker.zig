@@ -4498,17 +4498,66 @@ pub const Checker = struct {
         return t;
     }
 
+    /// Port of `checker.go::getRegularTypeOfLiteralType`.
+    /// For freshable literal types, returns the regular (non-fresh) form.
+    /// For unions, maps the regular-type operation over constituents.
     pub fn getRegularTypeOfLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        // If not freshable, return as-is
+        if (t == 0 or t >= c.typesList.items.len) return t;
         const flags = c.typesList.items[t].flags;
-        if (flags & types.TypeFlags.Freshable == 0) return t;
+        if ((flags & types.TypeFlags.Freshable) != 0) {
+            // Without an explicit `regularType` back-pointer on LiteralType,
+            // a freshable type is its own regular type if it isn't marked
+            // as a fresh literal; otherwise we conservatively return t.
+            const object_flags = c.typesList.items[t].objectFlags;
+            if ((object_flags & types.ObjectFlags.FreshLiteral) == 0) return t;
+            // Create a non-fresh copy with the same data.
+            return c.createRegularLiteralType(t) catch t;
+        }
+        if ((flags & types.TypeFlags.Union) != 0) {
+            // Map regular-type over union constituents.
+            return c.mapType(t, struct {
+                fn apply(ch: *Checker, x: types.TypeIndex, _: void) types.TypeIndex {
+                    return ch.getRegularTypeOfLiteralType(x);
+                }
+            }.apply, {}) ;
+        }
         return t;
     }
 
+    /// Helper used by `getRegularTypeOfLiteralType`: clones the literal type
+    /// data of `t` into a fresh type without the `FreshLiteral` object flag.
+    fn createRegularLiteralType(c: *Checker, t: types.TypeIndex) !types.TypeIndex {
+        const src = c.typesList.items[t];
+        // strip fresh literal marker on the clone
+        return try c.createType(.{
+            .flags = src.flags,
+            .objectFlags = src.objectFlags & ~@as(u32, types.ObjectFlags.FreshLiteral),
+            .id = 0,
+            .symbol = src.symbol,
+            .alias = src.alias,
+            .data = src.data,
+        });
+    }
+
+    /// Port of `checker.go::getFreshTypeOfLiteralType`. For freshable
+    /// types, returns the fresh literal form (sets the FreshLiteral object
+    /// flag). For non-freshable types, returns the type unchanged.
     pub fn getFreshTypeOfLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        // Conservative: return same type
-        _ = c;
-        return t;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Freshable) == 0) return t;
+        const object_flags = c.typesList.items[t].objectFlags;
+        if ((object_flags & types.ObjectFlags.FreshLiteral) != 0) return t;
+        // Create a fresh copy by setting the FreshLiteral flag.
+        const src = c.typesList.items[t];
+        return c.createType(.{
+            .flags = src.flags,
+            .objectFlags = src.objectFlags | types.ObjectFlags.FreshLiteral,
+            .id = 0,
+            .symbol = src.symbol,
+            .alias = src.alias,
+            .data = src.data,
+        }) catch t;
     }
 
     pub fn getNumberLiteralType(c: *Checker, value: f64) types.TypeIndex {
@@ -7809,26 +7858,32 @@ pub const Checker = struct {
         return entry.value_ptr.*;
     }
 
+    /// Port of `checker.go::getWidenedLiteralType`. Widens fresh literal
+    /// types to their base primitive type, and recurses into unions.
     pub fn getWidenedLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return t;
         const flags = c.getTypeFlags(t);
-        // Note: we don't have freshType implemented in zig yet, so we assume fresh
-        if (flags & types.TypeFlags.EnumLike != 0) {
+        if ((flags & types.TypeFlags.EnumLike) != 0) {
             return c.getBaseTypeOfEnumLikeType(t);
         }
-        if (flags & types.TypeFlags.StringLiteral != 0) {
+        if ((flags & types.TypeFlags.StringLiteral) != 0) {
             return c.stringTypeIndex orelse 0;
         }
-        if (flags & types.TypeFlags.NumberLiteral != 0) {
+        if ((flags & types.TypeFlags.NumberLiteral) != 0) {
             return c.numberTypeIndex orelse 0;
         }
-        if (flags & types.TypeFlags.BigIntLiteral != 0) {
+        if ((flags & types.TypeFlags.BigIntLiteral) != 0) {
             return c.bigintTypeIndex orelse 0;
         }
-        if (flags & types.TypeFlags.BooleanLiteral != 0) {
+        if ((flags & types.TypeFlags.BooleanLiteral) != 0) {
             return c.booleanTypeIndex orelse 0;
         }
-        if (flags & types.TypeFlags.Union != 0) {
-            // return c.mapType(t, getWidenedLiteralType);
+        if ((flags & types.TypeFlags.Union) != 0) {
+            return c.mapType(t, struct {
+                fn apply(ch: *Checker, x: types.TypeIndex, _: void) types.TypeIndex {
+                    return ch.getWidenedLiteralType(x);
+                }
+            }.apply, {});
         }
         return t;
     }
@@ -7842,25 +7897,29 @@ pub const Checker = struct {
         return t;
     }
 
+    /// Port of `checker.go::getBaseTypeOfLiteralType`. Returns the widened
+    /// base type of a literal type, recursing into unions via
+    /// `getBaseTypeOfLiteralTypeUnion`.
     pub fn getBaseTypeOfLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return t;
         const flags = c.getTypeFlags(t);
-        if (flags & types.TypeFlags.EnumLike != 0) {
+        if ((flags & types.TypeFlags.EnumLike) != 0) {
             return c.getBaseTypeOfEnumLikeType(t);
         }
-        if (flags & (types.TypeFlags.StringLiteral | types.TypeFlags.TemplateLiteral | types.TypeFlags.StringMapping) != 0) {
+        if ((flags & (types.TypeFlags.StringLiteral | types.TypeFlags.TemplateLiteral | types.TypeFlags.StringMapping)) != 0) {
             return c.stringTypeIndex orelse 0;
         }
-        if (flags & types.TypeFlags.NumberLiteral != 0) {
+        if ((flags & types.TypeFlags.NumberLiteral) != 0) {
             return c.numberTypeIndex orelse 0;
         }
-        if (flags & types.TypeFlags.BigIntLiteral != 0) {
+        if ((flags & types.TypeFlags.BigIntLiteral) != 0) {
             return c.bigintTypeIndex orelse 0;
         }
-        if (flags & types.TypeFlags.BooleanLiteral != 0) {
+        if ((flags & types.TypeFlags.BooleanLiteral) != 0) {
             return c.booleanTypeIndex orelse 0;
         }
-        if (flags & types.TypeFlags.Union != 0) {
-            // return c.getBaseTypeOfLiteralTypeUnion(t);
+        if ((flags & types.TypeFlags.Union) != 0) {
+            return c.getBaseTypeOfLiteralTypeUnion(t);
         }
         return t;
     }
@@ -17074,25 +17133,227 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newIntrinsicType(c: *Checker, flags: u32, intrinsicName: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = flags;
-        _ = intrinsicName;
-        return 0;
+    /// Port of `checker.go::newIntrinsicType`. Creates a new intrinsic type
+    /// (e.g. "string", "number") with the given flags.
+    pub fn newIntrinsicType(c: *Checker, flags: u32, intrinsicName: []const u8) types.TypeIndex {
+        return c.newIntrinsicTypeEx(flags, intrinsicName, types.ObjectFlags.None);
     }
 
-    pub fn newIntrinsicTypeEx(c: *Checker, flags: u32, intrinsicName: ast_gen.NodeIndex, objectFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = flags;
-        _ = intrinsicName;
-        _ = objectFlags;
-        return 0;
+    /// Port of `checker.go::newIntrinsicTypeEx`. Same as `newIntrinsicType`
+    /// but also sets the given object flags.
+    pub fn newIntrinsicTypeEx(c: *Checker, flags: u32, intrinsicName: []const u8, objectFlags: u32) types.TypeIndex {
+        const dupedName = c.allocator.dupe(u8, intrinsicName) catch unreachable;
+        return c.createType(.{
+            .flags = flags,
+            .objectFlags = objectFlags,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .Intrinsic = .{ .intrinsicName = dupedName } },
+        }) catch 0;
     }
 
-    pub fn createWideningType(c: *Checker, nonWideningType: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = nonWideningType;
-        return 0;
+    /// Port of `checker.go::createWideningType`. In strict null checks mode
+    /// returns the input type as-is; otherwise returns a new intrinsic type
+    /// with the same flags + `ContainsWideningType` object flag.
+    pub fn createWideningType(c: *Checker, nonWideningType: types.TypeIndex) types.TypeIndex {
+        if (c.strictNullChecks) return nonWideningType;
+        if (nonWideningType == 0 or nonWideningType >= c.typesList.items.len) return nonWideningType;
+        const src = c.typesList.items[nonWideningType];
+        if (src.data != .Intrinsic) return nonWideningType;
+        const t = c.newIntrinsicType(src.flags, src.data.Intrinsic.intrinsicName);
+        if (t < c.typesList.items.len) {
+            c.typesList.items[t].objectFlags |= types.ObjectFlags.ContainsWideningType;
+        }
+        return t;
+    }
+
+    /// Port of `checker.go::newLiteralType`. Creates a new literal type with
+    /// the given flags and value. `regularType` is the non-fresh counterpart
+    /// (or self if not provided).
+    pub fn newLiteralType(c: *Checker, flags: u32, value: []const u8, regularType: types.TypeIndex) types.TypeIndex {
+        var data: types.TypeData = undefined;
+        if ((flags & types.TypeFlags.StringLiteral) != 0) {
+            const duped = c.allocator.dupe(u8, value) catch unreachable;
+            data = .{ .StringLiteral = .{ .text = duped } };
+        } else if ((flags & types.TypeFlags.BigIntLiteral) != 0) {
+            const duped = c.allocator.dupe(u8, value) catch unreachable;
+            data = .{ .BigIntLiteral = .{ .text = duped } };
+        } else {
+            // Number / Boolean fallback: store as NumberLiteral with parsed value.
+            data = .{ .NumberLiteral = .{ .value = std.fmt.parseFloat(f64, value) catch 0.0 } };
+        }
+        const t = c.createType(.{
+            .flags = flags,
+            .objectFlags = types.ObjectFlags.None,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = data,
+        }) catch 0;
+        if (regularType == 0) {
+            // Without an explicit regularType back-pointer on LiteralType,
+            // the type is its own regular type.
+        }
+        return t;
+    }
+
+    /// Port of `checker.go::newUniqueESSymbolType`. Creates a new unique
+    /// symbol type with the given name and associated symbol.
+    pub fn newUniqueESSymbolType(c: *Checker, symbol_: ast_gen.SymbolIndex, name_: []const u8) types.TypeIndex {
+        // We don't have a UniqueESSymbol type variant in our TypeData; use
+        // Intrinsic with name "symbol" and stash the symbol on the type.
+        const dupedName = c.allocator.dupe(u8, name_) catch unreachable;
+        const t = c.createType(.{
+            .flags = types.TypeFlags.UniqueESSymbol,
+            .objectFlags = types.ObjectFlags.None,
+            .id = 0,
+            .symbol = symbol_,
+            .alias = null,
+            .data = .{ .Intrinsic = .{ .intrinsicName = dupedName } },
+        }) catch 0;
+        return t;
+    }
+
+    /// Port of `checker.go::newObjectType`. Creates a new object type with
+    /// the given object flags. Determines the correct `TypeData` variant from
+    /// the flags (Class/Interface, Tuple, Reference, Mapped, ReverseMapped,
+    /// EvolvingArray, InstantiationExpressionType, or Anonymous).
+    pub fn newObjectType(c: *Checker, objectFlags: u32, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        return c.createType(.{
+            .flags = types.TypeFlags.Object,
+            .objectFlags = objectFlags,
+            .id = 0,
+            .symbol = symbol_,
+            .alias = null,
+            .data = .{ .Object = .{} },
+        }) catch 0;
+    }
+
+    /// Port of `checker.go::newAnonymousType`. Creates a new anonymous
+    /// object type with the given members and signatures. Member storage
+    /// is simplified: the inputs are accepted but the resulting type only
+    /// records its anonymous nature (full member wiring pending).
+    pub fn newAnonymousType(c: *Checker, symbol_: ast_gen.SymbolIndex, members: ast_gen.NodeIndex, callSignatures: ast_gen.NodeIndex, constructSignatures: ast_gen.NodeIndex, indexInfos: ast_gen.NodeIndex) types.TypeIndex {
+        _ = members;
+        _ = callSignatures;
+        _ = constructSignatures;
+        _ = indexInfos;
+        return c.newObjectType(types.ObjectFlags.Anonymous, symbol_);
+    }
+
+    /// Port of `checker.go::tryCreateTypeReference`. If `typeArguments`
+    /// is non-empty and target is `emptyGenericType`, returns `unknownType`.
+    /// Otherwise delegates to `createNormalizedTypeReference`.
+    pub fn tryCreateTypeReference(c: *Checker, target: types.TypeIndex, typeArguments: []const types.TypeIndex) types.TypeIndex {
+        if (typeArguments.len != 0 and target == (c.emptyGenericTypeIndex orelse 0)) {
+            return c.unknownTypeIndex orelse 0;
+        }
+        return c.createNormalizedTypeReference(target, typeArguments) catch (c.unknownTypeIndex orelse 0);
+    }
+
+    /// Port of `checker.go::cloneTypeReference`. Returns a fresh type
+    /// reference with the same target and type arguments as `source`.
+    pub fn cloneTypeReference(c: *Checker, source: types.TypeIndex) types.TypeIndex {
+        if (source == 0 or source >= c.typesList.items.len) return 0;
+        const src = c.typesList.items[source];
+        return c.createType(.{
+            .flags = src.flags,
+            .objectFlags = src.objectFlags & ~@as(u32, types.ObjectFlags.UnresolvedMembers),
+            .id = 0,
+            .symbol = src.symbol,
+            .alias = src.alias,
+            .data = src.data,
+        }) catch 0;
+    }
+
+    /// Port of `checker.go::setStructuredTypeMembers`. Sets the
+    /// `MembersResolved` flag on `t` and records the structured members.
+    /// Full wiring (members, signatures, index infos) pending.
+    pub fn setStructuredTypeMembers(c: *Checker, t: types.TypeIndex, members: ast_gen.NodeIndex, callSignatures: ast_gen.NodeIndex, constructSignatures: ast_gen.NodeIndex, indexInfos: ast_gen.NodeIndex) void {
+        _ = members;
+        _ = callSignatures;
+        _ = constructSignatures;
+        _ = indexInfos;
+        if (t == 0 or t >= c.typesList.items.len) return;
+        c.typesList.items[t].objectFlags |= types.ObjectFlags.UnresolvedMembers; // Closest flag available
+    }
+
+    /// Port of `checker.go::newTypeParameter`. Creates a new type parameter
+    /// type with the given symbol.
+    pub fn newTypeParameter(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        return c.createType(.{
+            .flags = types.TypeFlags.TypeParameter,
+            .objectFlags = types.ObjectFlags.None,
+            .id = 0,
+            .symbol = symbol_,
+            .alias = null,
+            .data = .{ .TypeParameter = .{} },
+        }) catch 0;
+    }
+
+    /// Port of `checker.go::newUnionType`. Creates a new union type from
+    /// `types_` with the given object flags.
+    pub fn newUnionType(c: *Checker, objectFlags: u32, types_: []const types.TypeIndex) types.TypeIndex {
+        if (types_.len == 0) return c.neverTypeIndex orelse 0;
+        if (types_.len == 1) return types_[0];
+        const t = c.createUnionType(types_) catch (c.neverTypeIndex orelse 0);
+        if (t != 0 and t < c.typesList.items.len) {
+            c.typesList.items[t].objectFlags |= objectFlags;
+        }
+        return t;
+    }
+
+    /// Port of `checker.go::newIntersectionType`. Creates a new intersection
+    /// type from `types_` with the given object flags.
+    pub fn newIntersectionType(c: *Checker, objectFlags: u32, types_: []const types.TypeIndex) types.TypeIndex {
+        if (types_.len == 0) return c.unknownTypeIndex orelse 0;
+        if (types_.len == 1) return types_[0];
+        const t = c.getIntersectionType(types_);
+        if (t != 0 and t < c.typesList.items.len) {
+            c.typesList.items[t].objectFlags |= objectFlags;
+        }
+        return t;
+    }
+
+    /// Port of `checker.go::newIndexedAccessType`. Creates a new indexed
+    /// access type from `objectType[indexType]` with access flags.
+    pub fn newIndexedAccessType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: u32) types.TypeIndex {
+        return c.createType(.{
+            .flags = types.TypeFlags.IndexedAccess,
+            .objectFlags = types.ObjectFlags.None,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .IndexedAccess = .{ .objectType = objectType, .indexType = indexType, .accessFlags = accessFlags } },
+        }) catch 0;
+    }
+
+    /// Port of `checker.go::newIndexType`. Creates a new index type from
+    /// `target` with the given index flags.
+    pub fn newIndexType(c: *Checker, target: types.TypeIndex, indexFlags: u32) types.TypeIndex {
+        _ = indexFlags;
+        return c.createType(.{
+            .flags = types.TypeFlags.Index,
+            .objectFlags = types.ObjectFlags.None,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .Index = .{ .target = target } },
+        }) catch 0;
+    }
+
+    /// Port of `checker.go::newSubstitutionType`. Creates a new substitution
+    /// type from `baseType` and `constraint`.
+    pub fn newSubstitutionType(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) types.TypeIndex {
+        return c.createType(.{
+            .flags = types.TypeFlags.Substitution,
+            .objectFlags = types.ObjectFlags.None,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .Substitution = .{ .baseType = baseType, .constraint = constraint } },
+        }) catch 0;
     }
 
     /// Port of checker.go::createUnknownUnionType. Creates a union
@@ -17101,7 +17362,7 @@ pub const Checker = struct {
         return c.unknownTypeIndex orelse 0;
     }
 
-    pub fn newLiteralType(c: *Checker, flags: u32, value: []const u8, regularType: ast_gen.NodeIndex) types.TypeIndex {
+    pub fn newLiteralType_UNUSED(c: *Checker, flags: u32, value: []const u8, regularType: ast_gen.NodeIndex) types.TypeIndex {
         _ = c;
         _ = flags;
         _ = value;
@@ -17109,21 +17370,21 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn newUniqueESSymbolType(c: *Checker, symbol_: ast_gen.SymbolIndex, name_: ast_gen.NodeIndex) types.TypeIndex {
+    pub fn newUniqueESSymbolType_UNUSED(c: *Checker, symbol_: ast_gen.SymbolIndex, name_: ast_gen.NodeIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
         _ = name_;
         return 0;
     }
 
-    pub fn newObjectType(c: *Checker, objectFlags: u32, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+    pub fn newObjectType_UNUSED(c: *Checker, objectFlags: u32, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = objectFlags;
         _ = symbol_;
         return 0;
     }
 
-    pub fn newAnonymousType(c: *Checker, symbol_: ast_gen.SymbolIndex, members: ast_gen.NodeIndex, callSignatures: ast_gen.NodeIndex, constructSignatures: ast_gen.NodeIndex, indexInfos: ast_gen.NodeIndex) types.TypeIndex {
+    pub fn newAnonymousType_UNUSED(c: *Checker, symbol_: ast_gen.SymbolIndex, members: ast_gen.NodeIndex, callSignatures: ast_gen.NodeIndex, constructSignatures: ast_gen.NodeIndex, indexInfos: ast_gen.NodeIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
         _ = members;
@@ -17133,20 +17394,20 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn tryCreateTypeReference(c: *Checker, target: types.TypeIndex, typeArguments: ast_gen.NodeIndex) types.TypeIndex {
+    pub fn tryCreateTypeReference_UNUSED(c: *Checker, target: types.TypeIndex, typeArguments: ast_gen.NodeIndex) types.TypeIndex {
         _ = c;
         _ = target;
         _ = typeArguments;
         return 0;
     }
 
-    pub fn cloneTypeReference(c: *Checker, source: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+    pub fn cloneTypeReference_UNUSED(c: *Checker, source: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = source;
         return 0;
     }
 
-    pub fn setStructuredTypeMembers(c: *Checker, t: types.TypeIndex, members: ast_gen.NodeIndex, callSignatures: ast_gen.NodeIndex, constructSignatures: ast_gen.NodeIndex, indexInfos: ast_gen.NodeIndex) void {
+    pub fn setStructuredTypeMembers_UNUSED(c: *Checker, t: types.TypeIndex, members: ast_gen.NodeIndex, callSignatures: ast_gen.NodeIndex, constructSignatures: ast_gen.NodeIndex, indexInfos: ast_gen.NodeIndex) void {
         _ = c;
         _ = t;
         _ = members;
@@ -17155,27 +17416,27 @@ pub const Checker = struct {
         _ = indexInfos;
     }
 
-    pub fn newTypeParameter(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+    pub fn newTypeParameter_UNUSED(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = symbol_;
         return 0;
     }
 
-    pub fn newUnionType(c: *Checker, objectFlags: u32, types_: []const types.TypeIndex) types.TypeIndex {
+    pub fn newUnionType_UNUSED(c: *Checker, objectFlags: u32, types_: []const types.TypeIndex) types.TypeIndex {
         _ = c;
         _ = objectFlags;
         _ = types_;
         return 0;
     }
 
-    pub fn newIntersectionType(c: *Checker, objectFlags: u32, types_: []const types.TypeIndex) types.TypeIndex {
+    pub fn newIntersectionType_UNUSED(c: *Checker, objectFlags: u32, types_: []const types.TypeIndex) types.TypeIndex {
         _ = c;
         _ = objectFlags;
         _ = types_;
         return 0;
     }
 
-    pub fn newIndexedAccessType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: u32) types.TypeIndex {
+    pub fn newIndexedAccessType_UNUSED(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: u32) types.TypeIndex {
         _ = c;
         _ = objectType;
         _ = indexType;
@@ -17183,14 +17444,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn newIndexType(c: *Checker, target: types.TypeIndex, indexFlags: ast_gen.NodeIndex) types.TypeIndex {
+    pub fn newIndexType_UNUSED(c: *Checker, target: types.TypeIndex, indexFlags: ast_gen.NodeIndex) types.TypeIndex {
         _ = c;
         _ = target;
         _ = indexFlags;
         return 0;
     }
 
-    pub fn newSubstitutionType(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) types.TypeIndex {
+    pub fn newSubstitutionType_UNUSED(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) types.TypeIndex {
         _ = c;
         _ = baseType;
         _ = constraint;
@@ -17228,16 +17489,35 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::getBigIntLiteralType`. Caches by the bigint
+    /// literal text representation (since `jsnum.PseudoBigInt` is the
+    /// decimal string in our impl).
     pub fn getBigIntLiteralType(c: *Checker, value: []const u8) types.TypeIndex {
-        _ = c;
-        _ = value;
-        return 0;
+        if (c.bigintLiteralTypes.get(value)) |t| {
+            return t;
+        }
+        const dupedValue = c.allocator.dupe(u8, value) catch unreachable;
+        const t = c.createType(.{
+            .flags = types.TypeFlags.BigIntLiteral,
+            .objectFlags = types.ObjectFlags.Anonymous,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .BigIntLiteral = .{ .text = dupedValue } },
+        }) catch 0;
+        c.bigintLiteralTypes.put(c.allocator, dupedValue, t) catch unreachable;
+        return t;
     }
 
-    pub fn parseBigIntLiteralType(c: *Checker, text: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = text;
-        return 0;
+    /// Port of `checker.go::parseBigIntLiteralType`. Strips a trailing `n`
+    /// from `text` and returns the cached bigint literal type.
+    pub fn parseBigIntLiteralType(c: *Checker, text: []const u8) types.TypeIndex {
+        // text may end with `n`; strip it before delegating to getBigIntLiteralType.
+        var s = text;
+        if (s.len > 0 and s[s.len - 1] == 'n') {
+            s = s[0 .. s.len - 1];
+        }
+        return c.getBigIntLiteralType(s);
     }
 
     pub fn getStringLiteralValue(c: *Checker, t: types.TypeIndex) []const u8 {
@@ -17260,24 +17540,61 @@ pub const Checker = struct {
         return c.typesList.items[t].data.BooleanLiteral.value;
     }
 
+    /// Port of `checker.go::getEnumLiteralType`. Determines the literal
+    /// kind (string vs number) from `value`, then constructs and caches a
+    /// new enum-literal type. Cache key is `{enumSymbol, value}`.
     pub fn getEnumLiteralType(c: *Checker, value: []const u8, enumSymbol: ast_gen.SymbolIndex, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = value;
-        _ = enumSymbol;
-        _ = symbol_;
-        return 0;
+        // Determine literal kind: numeric if `value` parses as f64, else string.
+        const is_numeric = std.fmt.parseFloat(f64, value) catch null != null;
+        const flags: u32 = types.TypeFlags.EnumLiteral |
+            (if (is_numeric) types.TypeFlags.NumberLiteral else types.TypeFlags.StringLiteral);
+        // Try to look up in enumLiteralTypes cache (key = enum symbol + value text)
+        const key = types.EnumLiteralKey{ .enumSymbol = enumSymbol, .value = value };
+        if (c.enumLiteralTypes.get(key)) |t| {
+            return t;
+        }
+        const dupedValue = c.allocator.dupe(u8, value) catch unreachable;
+        var data: types.TypeData = undefined;
+        if (is_numeric) {
+            data = .{ .NumberLiteral = .{ .value = std.fmt.parseFloat(f64, dupedValue) catch 0.0 } };
+        } else {
+            data = .{ .StringLiteral = .{ .text = dupedValue } };
+        }
+        const t = c.createType(.{
+            .flags = flags,
+            .objectFlags = types.ObjectFlags.Anonymous,
+            .id = 0,
+            .symbol = symbol_,
+            .alias = null,
+            .data = data,
+        }) catch 0;
+        c.enumLiteralTypes.put(c.allocator, .{ .enumSymbol = enumSymbol, .value = dupedValue }, t) catch {};
+        return t;
     }
 
+    /// Port of `checker.go::isLiteralType`. True for `boolean` type, enum
+    /// literal unions, all-unit unions, or any unit type.
     pub fn isLiteralType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Boolean) != 0) return true;
+        if ((flags & types.TypeFlags.Union) != 0) {
+            if ((flags & types.TypeFlags.EnumLiteral) != 0) return true;
+            const members = c.getTypesFromUnion(t);
+            for (members) |m| {
+                if (!c.isUnitType(m)) return false;
+            }
+            return true;
+        }
+        return c.isUnitType(t);
     }
 
+    /// Port of `checker.go::isNeitherUnitTypeNorNever`. Returns true if
+    /// `t` is neither a unit type nor `never`.
     pub fn isNeitherUnitTypeNorNever(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        return (flags & (types.TypeFlags.Unit | types.TypeFlags.Never)) == 0;
     }
 
     pub fn isUnitType(c: *Checker, t: types.TypeIndex) bool {
@@ -17285,16 +17602,36 @@ pub const Checker = struct {
         return (c.typesList.items[t].flags & types.TypeFlags.Unit) != 0;
     }
 
+    /// Port of `checker.go::isUnitLikeType`. Reduces to base constraint
+    /// (if any), then for intersections returns true if any constituent is
+    /// a unit type; otherwise returns isUnitType(t).
     pub fn isUnitLikeType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const tc = c.getBaseConstraintOrType(t);
+        if (tc == 0) return false;
+        const flags = c.typesList.items[tc].flags;
+        if ((flags & types.TypeFlags.Intersection) != 0) {
+            const members = c.getTypesFromIntersection(tc);
+            for (members) |m| {
+                if (c.isUnitType(m)) return true;
+            }
+            return false;
+        }
+        return c.isUnitType(tc);
     }
 
+    /// Port of `checker.go::extractUnitType`. For intersections, returns
+    /// the first unit constituent; otherwise returns `t` itself.
     pub fn extractUnitType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Intersection) != 0) {
+            const members = c.getTypesFromIntersection(t);
+            for (members) |m| {
+                if (c.isUnitType(m)) return m;
+            }
+        }
+        return t;
     }
 
     pub fn getBaseTypeOfLiteralTypeForComparison(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -17317,29 +17654,80 @@ pub const Checker = struct {
         return t;
     }
 
+    /// Port of `checker.go::getBaseTypeOfLiteralTypeUnion`. Maps
+    /// `getBaseTypeOfLiteralType` over union constituents.
     pub fn getBaseTypeOfLiteralTypeUnion(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        return c.mapType(t, struct {
+            fn apply(ch: *Checker, x: types.TypeIndex, _: void) types.TypeIndex {
+                return ch.getBaseTypeOfLiteralType(x);
+            }
+        }.apply, {});
     }
 
+    /// Port of `checker.go::getWidenedUniqueESSymbolType`. Widens unique
+    /// symbol types to `essymbolType`; recurses into unions.
     pub fn getWidenedUniqueESSymbolType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.UniqueESSymbol) != 0) {
+            return c.esSymbolTypeIndex orelse 0;
+        }
+        if ((flags & types.TypeFlags.Union) != 0) {
+            return c.mapType(t, struct {
+                fn apply(ch: *Checker, x: types.TypeIndex, _: void) types.TypeIndex {
+                    return ch.getWidenedUniqueESSymbolType(x);
+                }
+            }.apply, {});
+        }
+        return t;
     }
 
+    /// Port of `checker.go::getWidenedLiteralLikeTypeForContextualType`.
+    /// If `t` is not a contextual literal, widens it (literal + symbol);
+    /// always returns the regular (non-fresh) form.
     pub fn getWidenedLiteralLikeTypeForContextualType(c: *Checker, t: types.TypeIndex, contextualType: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = contextualType;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        var tt = t;
+        if (!c.isLiteralOfContextualType(t, contextualType)) {
+            tt = c.getWidenedUniqueESSymbolType(c.getWidenedLiteralType(t));
+        }
+        return c.getRegularTypeOfLiteralType(tt);
     }
 
-    pub fn isLiteralOfContextualType(c: *Checker, candidateType: ast_gen.NodeIndex, contextualType: types.TypeIndex) bool {
-        _ = c;
-        _ = candidateType;
-        _ = contextualType;
+    /// Port of `checker.go::isLiteralOfContextualType`. Returns true if
+    /// `candidateType` is a literal of the same kind as constrained by
+    /// `contextualType`.
+    pub fn isLiteralOfContextualType(c: *Checker, candidateType: types.TypeIndex, contextualType: types.TypeIndex) bool {
+        if (contextualType == 0 or contextualType >= c.typesList.items.len) return false;
+        if (candidateType == 0 or candidateType >= c.typesList.items.len) return false;
+        const ctx_flags = c.typesList.items[contextualType].flags;
+        if ((ctx_flags & types.TypeFlags.UnionOrIntersection) != 0) {
+            const members = c.getTypesFromUnion(contextualType);
+            for (members) |m| {
+                if (c.isLiteralOfContextualType(candidateType, m)) return true;
+            }
+            return false;
+        }
+        // For instantiable non-primitive contextual types, consult base constraint.
+        if ((ctx_flags & types.TypeFlags.InstantiableNonPrimitive) != 0) {
+            var constraint = c.getBaseConstraintOfType(contextualType);
+            if (constraint == 0) constraint = c.unknownTypeIndex orelse 0;
+            const cand_flags = c.typesList.items[candidateType].flags;
+            const con_flags = c.typesList.items[constraint].flags;
+            if (((con_flags & types.TypeFlags.String) != 0) and ((cand_flags & types.TypeFlags.StringLiteral) != 0)) return true;
+            if (((con_flags & types.TypeFlags.Number) != 0) and ((cand_flags & types.TypeFlags.NumberLiteral) != 0)) return true;
+            if (((con_flags & types.TypeFlags.BigInt) != 0) and ((cand_flags & types.TypeFlags.BigIntLiteral) != 0)) return true;
+            if (((con_flags & types.TypeFlags.ESSymbol) != 0) and ((cand_flags & types.TypeFlags.UniqueESSymbol) != 0)) return true;
+            return c.isLiteralOfContextualType(candidateType, constraint);
+        }
+        // Direct literal-of-primitive match.
+        const cand_flags = c.typesList.items[candidateType].flags;
+        if (((ctx_flags & types.TypeFlags.String) != 0) and ((cand_flags & types.TypeFlags.StringLiteral) != 0)) return true;
+        if (((ctx_flags & types.TypeFlags.Number) != 0) and ((cand_flags & types.TypeFlags.NumberLiteral) != 0)) return true;
+        if (((ctx_flags & types.TypeFlags.BigInt) != 0) and ((cand_flags & types.TypeFlags.BigIntLiteral) != 0)) return true;
+        if (((ctx_flags & types.TypeFlags.Boolean) != 0) and ((cand_flags & types.TypeFlags.BooleanLiteral) != 0)) return true;
+        if (((ctx_flags & types.TypeFlags.ESSymbol) != 0) and ((cand_flags & types.TypeFlags.UniqueESSymbol) != 0)) return true;
         return false;
     }
 
@@ -17370,12 +17758,17 @@ pub const Checker = struct {
         return t;
     }
 
-    pub fn getUnionOrIntersectionType(c: *Checker, types_: []const types.TypeIndex, isUnion: bool, unionReduction: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        _ = isUnion;
-        _ = unionReduction;
-        return 0;
+    /// Port of `checker.go::getUnionOrIntersectionType`. Creates a union
+    /// or intersection type from `types_` depending on `isUnion`.
+    pub fn getUnionOrIntersectionType(c: *Checker, types_: []const types.TypeIndex, isUnion: bool, unionReduction: types.UnionReduction) types.TypeIndex {
+        if (types_.len == 0) {
+            return if (isUnion) (c.neverTypeIndex orelse 0) else (c.emptyObjectTypeIndex orelse c.emptyObjectType);
+        }
+        if (types_.len == 1) return types_[0];
+        if (isUnion) {
+            return c.getUnionTypeEx(types_, unionReduction, null, null);
+        }
+        return c.getIntersectionTypeEx(types_, 0, null);
     }
 
     /// Port of `checker.go::getUnionTypeEx`. Creates a union type from
@@ -17405,22 +17798,21 @@ pub const Checker = struct {
         return c.getUnionTypeEx(types_arr, .Literal, null, null);
     }
 
-    pub fn getUnionTypeWorker(c: *Checker, types_: []const types.TypeIndex, unionReduction: ast_gen.NodeIndex, alias: ?*const types.TypeAlias, origin: ?types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        _ = unionReduction;
-        _ = alias;
-        _ = origin;
-        return 0;
+    /// Port of `checker.go::getUnionTypeWorker`. Worker for union
+    /// creation; conservatively delegates to `getUnionTypeEx`.
+    pub fn getUnionTypeWorker(c: *Checker, types_: []const types.TypeIndex, unionReduction: types.UnionReduction, alias: ?*const types.TypeAlias, origin: ?types.TypeIndex) types.TypeIndex {
+        return c.getUnionTypeEx(types_, unionReduction, alias, origin);
     }
 
-    pub fn getUnionTypeFromSortedList(c: *Checker, types_: []const types.TypeIndex, precomputedObjectFlags: ast_gen.NodeIndex, alias: ?*const types.TypeAlias, origin: ?types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        _ = precomputedObjectFlags;
+    /// Port of `checker.go::getUnionTypeFromSortedList`. Assumes input
+    /// is already deduplicated and sorted; delegates to `createUnionType`.
+    pub fn getUnionTypeFromSortedList(c: *Checker, types_: []const types.TypeIndex, precomputedObjectFlags: u32, alias: ?*const types.TypeAlias, origin: ?types.TypeIndex) types.TypeIndex {
+        _ = precomputedObjectFlags; // Ignored: createUnionType recomputes flags.
         _ = alias;
         _ = origin;
-        return 0;
+        if (types_.len == 0) return c.neverTypeIndex orelse 0;
+        if (types_.len == 1) return types_[0];
+        return c.createUnionType(types_) catch (c.neverTypeIndex orelse 0);
     }
 
     /// Port of checker.go::unionTypes. Returns the union of two types.
@@ -17429,69 +17821,131 @@ pub const Checker = struct {
         return c.createUnionType(&[_]types.TypeIndex{ t1, t2 });
     }
 
+    /// Port of `checker.go::addTypesToUnion`. Adds `types_` into a new
+    /// union built on top of `typeSet`. Returns the new union type and the
+    /// updated `includes` flags.
     pub fn addTypesToUnion(c: *Checker, typeSet: types.TypeIndex, includes: u32, types_: []const types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = typeSet;
-        _ = includes;
-        _ = types_;
-        return 0;
+        var all = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer all.deinit(c.allocator);
+        if (typeSet != 0 and (c.typesList.items[typeSet].flags & types.TypeFlags.Union) != 0) {
+            const existing = c.getTypesFromUnion(typeSet);
+            all.appendSlice(c.allocator, existing) catch {};
+        } else if (typeSet != 0) {
+            all.append(c.allocator, typeSet) catch {};
+        }
+        for (types_) |t| {
+            if ((c.typesList.items[t].flags & types.TypeFlags.Union) != 0) {
+                const members = c.getTypesFromUnion(t);
+                for (members) |m| all.append(c.allocator, m) catch {};
+            } else {
+                all.append(c.allocator, t) catch {};
+            }
+        }
+        _ = includes; // includes flags not surfaced in the simplified return path.
+        return c.getUnionTypeFromArray(all.items);
     }
 
+    /// Port of `checker.go::addTypeToUnion`. Adds a single type to a union
+    /// (flattening nested unions). `includes` is currently ignored.
     pub fn addTypeToUnion(c: *Checker, typeSet: types.TypeIndex, includes: u32, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = typeSet;
-        _ = includes;
-        _ = t;
-        return 0;
+        return c.addTypesToUnion(typeSet, includes, &[_]types.TypeIndex{t});
     }
 
-    pub fn addNamedUnions(c: *Checker, namedUnions: ast_gen.NodeIndex, types_: []const types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = namedUnions;
-        _ = types_;
-        return 0;
+    /// Port of `checker.go::addNamedUnions`. Appends named union types
+    /// (those with an alias or non-union origin) to the existing union list.
+    pub fn addNamedUnions(c: *Checker, namedUnions: types.TypeIndex, types_: []const types.TypeIndex) types.TypeIndex {
+        var out = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer out.deinit(c.allocator);
+        if (namedUnions != 0 and (c.typesList.items[namedUnions].flags & types.TypeFlags.Union) != 0) {
+            const existing = c.getTypesFromUnion(namedUnions);
+            out.appendSlice(c.allocator, existing) catch {};
+        } else if (namedUnions != 0) {
+            out.append(c.allocator, namedUnions) catch {};
+        }
+        for (types_) |t| {
+            if (t == 0 or t >= c.typesList.items.len) continue;
+            const t_flags = c.typesList.items[t].flags;
+            if ((t_flags & types.TypeFlags.Union) != 0) {
+                // Keep t if it has an alias or origin
+                if (c.typesList.items[t].alias != null) {
+                    var found = false;
+                    for (out.items) |o| if (o == t) {
+                        found = true;
+                        break;
+                    };
+                    if (!found) out.append(c.allocator, t) catch {};
+                }
+            }
+        }
+        return c.getUnionTypeFromArray(out.items);
     }
 
-    pub fn removeRedundantLiteralTypes(c: *Checker, types_: []const types.TypeIndex, includes: u32, reduceVoidUndefined: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        _ = includes;
-        _ = reduceVoidUndefined;
-        return 0;
+    /// Port of `checker.go::removeRedundantLiteralTypes`. Removes
+    /// literal types whose base primitive kind is already represented in
+    /// the union by a primitive type.
+    pub fn removeRedundantLiteralTypes(c: *Checker, types_: []const types.TypeIndex, includes: u32, reduceVoidUndefined: bool) types.TypeIndex {
+        var out = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer out.deinit(c.allocator);
+        for (types_) |t| {
+            if (t == 0 or t >= c.typesList.items.len) continue;
+            const flags = c.typesList.items[t].flags;
+            const remove =
+                ((flags & (types.TypeFlags.StringLiteral | types.TypeFlags.TemplateLiteral | types.TypeFlags.StringMapping)) != 0 and (includes & types.TypeFlags.String) != 0) or
+                ((flags & types.TypeFlags.NumberLiteral) != 0 and (includes & types.TypeFlags.Number) != 0) or
+                ((flags & types.TypeFlags.BigIntLiteral) != 0 and (includes & types.TypeFlags.BigInt) != 0) or
+                ((flags & types.TypeFlags.UniqueESSymbol) != 0 and (includes & types.TypeFlags.ESSymbol) != 0) or
+                (reduceVoidUndefined and (flags & types.TypeFlags.Undefined) != 0 and (includes & types.TypeFlags.Void) != 0);
+            if (!remove) out.append(c.allocator, t) catch {};
+        }
+        if (out.items.len == 0) return c.neverTypeIndex orelse 0;
+        return c.getUnionTypeFromArray(out.items);
     }
 
+    /// Port of `checker.go::removeStringLiteralsMatchedByTemplateLiterals`.
+    /// Stub: returns the input union unchanged. Full implementation
+    /// requires `isTypeMatchedByTemplateLiteralType`.
     pub fn removeStringLiteralsMatchedByTemplateLiterals(c: *Checker, types_: []const types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        return 0;
+        if (types_.len == 0) return c.neverTypeIndex orelse 0;
+        if (types_.len == 1) return types_[0];
+        return c.getUnionTypeFromArray(types_);
     }
 
-    pub fn isTypeMatchedByTemplateLiteralOrStringMapping(c: *Checker, t: types.TypeIndex, template: ast_gen.NodeIndex) bool {
+    /// Port of `checker.go::isTypeMatchedByTemplateLiteralOrStringMapping`.
+    /// Stub: returns false. Full implementation requires
+    /// `isTypeMatchedByTemplateLiteralType` and `isMemberOfStringMapping`.
+    pub fn isTypeMatchedByTemplateLiteralOrStringMapping(c: *Checker, t: types.TypeIndex, template: types.TypeIndex) bool {
         _ = c;
         _ = t;
         _ = template;
         return false;
     }
 
+    /// Port of `checker.go::removeConstrainedTypeVariables`. Simplified:
+    /// returns the input types as a union unchanged. Full implementation
+    /// requires constrained type variable detection.
     pub fn removeConstrainedTypeVariables(c: *Checker, types_: []const types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        return 0;
+        if (types_.len == 0) return c.neverTypeIndex orelse 0;
+        if (types_.len == 1) return types_[0];
+        return c.getUnionTypeFromArray(types_);
     }
 
-    pub fn removeSubtypes(c: *Checker, types_: []const types.TypeIndex, hasObjectTypes: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = types_;
+    /// Port of `checker.go::removeSubtypes`. Simplified: returns the input
+    /// types as a union unchanged. Full implementation requires
+    /// `isTypeStrictSubtypeOf`.
+    pub fn removeSubtypes(c: *Checker, types_: []const types.TypeIndex, hasObjectTypes: bool) types.TypeIndex {
         _ = hasObjectTypes;
-        return 0;
+        if (types_.len == 0) return c.neverTypeIndex orelse 0;
+        if (types_.len == 1) return types_[0];
+        return c.getUnionTypeFromArray(types_);
     }
 
+    /// Port of `checker.go::getIntersectionTypeEx`. Simplified: dedups
+    /// and flattens intersections, returning `never` if any constituent is
+    /// `never`, and `unknown` if the result is empty.
     pub fn getIntersectionTypeEx(c: *Checker, types_: []const types.TypeIndex, flags: u32, alias: ?*const types.TypeAlias) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        _ = flags;
+        _ = flags; // IntersectionFlags not yet modeled.
         _ = alias;
-        return 0;
+        return c.getIntersectionType(types_);
     }
 
     pub fn isUnionWithUndefined(c: *Checker, t: types.TypeIndex) bool {

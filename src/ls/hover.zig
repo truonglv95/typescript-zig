@@ -3,22 +3,22 @@ const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 const ast_utils = @import("../ast/ast_utils.zig");
 const checker = @import("../checker/checker.zig");
-const checker_types = @import("../checker/types.zig");
+const types = @import("../checker/types.zig");
 const compiler = @import("../compiler/program.zig");
 const languageservice = @import("languageservice.zig");
 const lsproto = @import("../lsp/lsproto/lsproto.zig");
 const symbol_mod = @import("../ast/symbol.zig");
 
 pub const SymbolFormatFlags = struct {
-    pub const WriteTypeParametersOrArguments = checker.SymbolFormatFlags.WriteTypeParametersOrArguments;
-    pub const UseOnlyExternalAliasing = checker.SymbolFormatFlags.UseOnlyExternalAliasing;
-    pub const AllowAnyNodeKind = checker.SymbolFormatFlags.AllowAnyNodeKind;
-    pub const UseAliasDefinedOutsideCurrentScope = checker.SymbolFormatFlags.UseAliasDefinedOutsideCurrentScope;
+    pub const WriteTypeParametersOrArguments = types.SymbolFormatFlags.WriteTypeParametersOrArguments;
+    pub const UseOnlyExternalAliasing = types.SymbolFormatFlags.UseOnlyExternalAliasing;
+    pub const AllowAnyNodeKind = types.SymbolFormatFlags.AllowAnyNodeKind;
+    pub const UseAliasDefinedOutsideCurrentScope = types.SymbolFormatFlags.UseAliasDefinedOutsideCurrentScope;
 };
 
 pub const TypeFormatFlags = struct {
-    pub const UseAliasDefinedOutsideCurrentScope = checker.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
-    pub const UseInstantiationExpressions = checker.TypeFormatFlags.UseInstantiationExpressions;
+    pub const UseAliasDefinedOutsideCurrentScope = types.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
+    pub const UseInstantiationExpressions = types.TypeFormatFlags.UseInstantiationExpressions;
 };
 
 const symbol_format_flags: u32 =
@@ -39,7 +39,7 @@ pub fn provideHover(
     params: *lsproto.HoverParams,
 ) !lsproto.HoverOrNull {
     const caps = lsproto.getClientCapabilities();
-    const contentFormat = lsproto.preferredMarkupKind(caps.text_document.hover.content_format);
+    const contentFormat = lsproto.preferredMarkupKind(caps.textDocument.hover.contentFormat);
 
     const programAndFile = ls.getProgramAndFile(params.textDocument.uri);
     const file = programAndFile.file;
@@ -94,8 +94,10 @@ pub fn provideHover(
 
     // Format content
     var content: []const u8 = undefined;
-    if (contentFormat == .markdown) {
-        content = try formatQuickInfo(allocator, quickInfo);
+    // contentFormat is a u32 (0 = PlainText, 1 = Markdown in the LSP spec).
+    const MarkupKindMarkdown: u32 = 1;
+    if (contentFormat == MarkupKindMarkdown) {
+        content = formatQuickInfo(allocator, quickInfo);
         if (documentation.len > 0) {
             content = try std.fmt.allocPrint(allocator, "{s}{s}", .{ content, documentation });
         }

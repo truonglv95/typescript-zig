@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("../core/core.zig");
+const ast = @import("../ast/ast.zig");
 const lsproto = @import("../lsp/lsproto/lsproto.zig");
 
 pub const Converters = struct {
@@ -31,8 +32,8 @@ pub const Converters = struct {
         _ = self;
         // Get content from script
         const content = if (@TypeOf(script) == Script) script.content else "";
-        const pos_val: u32 = if (@TypeOf(text_range) == core.TextRange) @intCast(text_range.pos()) else 0;
-        const end_val: u32 = if (@TypeOf(text_range) == core.TextRange) @intCast(text_range.end()) else 0;
+        const pos_val: u32 = if (@TypeOf(text_range) == ast.TextRange) text_range.pos else 0;
+        const end_val: u32 = if (@TypeOf(text_range) == ast.TextRange) text_range.end else 0;
 
         return .{
             .start = positionToLineAndCharacterImpl(content, pos_val),
