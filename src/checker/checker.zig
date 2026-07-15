@@ -9959,9 +9959,42 @@ pub const Checker = struct {
     /// Port of checker.go::isUnreferencedVariableDeclaration. Returns
     /// true if a variable declaration is unreferenced. Simplified: false.
     pub fn isUnreferencedVariableDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        // Go: name := node.Name()
+        //   if name == nil { return true }
+        //   if ast.IsBindingPattern(name) { return core.Every(node.Name().Elements(), c.isUnreferencedVariableDeclaration) }
+        //   if c.symbolReferenceLinks.Get(c.getSymbolOfDeclaration(node)).referenceKinds&ast.SymbolFlagsVariable != 0 { return false }
+        //   ... (binding element, parameter, for-in, underscore checks)
+        //   return true
+        // Simplified: check name, symbol references, and underscore prefix.
+        const node_data = c.binder.ast.getNode(node);
+        const name: ast_gen.NodeIndex = switch (node_data) {
+            .VariableDeclaration => |n| n.name,
+            .BindingElement => |n| n.name orelse 0,
+            .Parameter => |n| n.name,
+            else => 0,
+        };
+        if (name == 0) return true;
+        // Check if binding pattern
+        if (c.binder.ast.getKind(name) == .ObjectBindingPattern or c.binder.ast.getKind(name) == .ArrayBindingPattern) {
+            // Simplified: don't recurse into binding patterns
+            return false;
+        }
+        // Check symbol references
+        const sym = c.getSymbolOfDeclaration(node);
+        if (sym != 0) {
+            if (c.symbolReferenceLinks.get(sym)) |links| {
+                if ((links.referenceKinds & symbol.SymbolFlags.Variable) != 0) return false;
+            }
+        }
+        // Check underscore prefix for parameters and variables
+        const node_kind = c.binder.ast.getKind(node);
+        if (node_kind == .Parameter or node_kind == .VariableDeclaration or node_kind == .BindingElement) {
+            if (c.binder.ast.getKind(name) == .Identifier) {
+                const text = c.binder.ast.getNode(name).Identifier.Text;
+                if (text.len > 0 and text[0] == '_') return false;
+            }
+        }
+        return true;
     }
 
     /// Port of checker.go::reportUnusedImports. Reports unused imports.
