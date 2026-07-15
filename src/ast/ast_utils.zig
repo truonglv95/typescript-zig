@@ -3090,3 +3090,49 @@ pub fn isImportCall(tree: *ast_pkg.Ast, node: ast_gen.NodeIndex) bool {
 pub fn getContainingClass(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
     return findAncestor(tree, getParent(tree, node), isClassLike);
 }
+
+// === Additional missing AST utility functions ===
+
+/// Port of FindAncestorKind. Walks up parents to find ancestor of specific kind.
+pub fn findAncestorKind(tree: *ast.Ast, node: ast_gen.NodeIndex, target_kind: kind.Kind) ast_gen.NodeIndex {
+    var current = node;
+    while (current != 0) {
+        if (tree.getNodeKind(current) == target_kind) return current;
+        current = getParent(tree, current);
+    }
+    return 0;
+}
+
+/// Port of GetClassExtendsHeritageElement. Returns extends element for a class.
+pub fn getClassExtendsHeritageElement(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    return getExtendsHeritageClauseElement(tree, node);
+}
+
+/// Port of GetContainingFunction. Finds the containing function.
+pub fn getContainingFunction(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    return findAncestor(tree, getParent(tree, node), isFunctionLike);
+}
+
+/// Port of IsForInOrOfStatement.
+pub fn isForInOrOfStatement(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const k = tree.getNodeKind(node);
+    return k == .ForInStatement or k == .ForOfStatement;
+}
+
+/// Port of IsAccessor.
+pub fn isAccessor(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const k = tree.getNodeKind(node);
+    return k == .GetAccessor or k == .SetAccessor;
+}
+
+/// Port of IsCompoundAssignment.
+pub fn isCompoundAssignment(token: kind.Kind) bool {
+    return switch (token) {
+        .PlusEqualsToken, .MinusEqualsToken, .AsteriskEqualsToken, .AsteriskAsteriskEqualsToken,
+        .SlashEqualsToken, .PercentEqualsToken, .LessThanLessThanEqualsToken,
+        .GreaterThanGreaterThanEqualsToken, .GreaterThanGreaterThanGreaterThanEqualsToken,
+        .AmpersandEqualsToken, .BarEqualsToken, .CaretEqualsToken,
+        => true,
+        else => false,
+    };
+}
