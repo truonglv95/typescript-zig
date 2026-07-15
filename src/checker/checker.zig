@@ -35,6 +35,7 @@ pub const nodecopy_pkg = @import("nodecopy.zig");
 pub const type_resolution_pkg = @import("type_resolution.zig");
 pub const argument_arity = @import("argument_arity.zig");
 pub const member_overrides = @import("member_overrides.zig");
+const tspath = @import("../tspath/tspath.zig");
 pub const SymbolIndex = ast_gen.SymbolIndex;
 
 pub const EnumRelationKey = packed struct(u64) {
@@ -8979,9 +8980,16 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isNotOverload(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isNotOverload(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: return !ast.IsFunctionDeclaration(node) && !ast.IsMethodDeclaration(node) || node.Body() != nil
+        const node_kind = c.binder.ast.getKind(node);
+        if (node_kind != .FunctionDeclaration and node_kind != .MethodDeclaration) return true;
+        const body: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(node)) {
+            .FunctionDeclaration => |n| n.Body,
+            .MethodDeclaration => |n| n.Body,
+            else => null,
+        };
+        return body != null;
     }
 
     /// Port of checker.go::checkVariableLikeDeclaration. Checks a
@@ -9552,9 +9560,11 @@ pub const Checker = struct {
         _ = unuseds;
     }
 
-    pub fn isIdentifierThatStartsWithUnderscore(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isIdentifierThatStartsWithUnderscore(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: return ast.IsIdentifier(node) && node.Text() != "" && node.Text()[0] == '_'
+        if (c.binder.ast.getKind(node) != .Identifier) return false;
+        const text = c.binder.ast.getNode(node).Identifier.Text;
+        return text.len > 0 and text[0] == '_';
     }
 
     pub fn importClauseFromImported(node: *anyopaque) *anyopaque {
@@ -9954,9 +9964,9 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn signatureHasLiteralTypes(s: *anyopaque) bool {
-        _ = s;
-        return false;
+    pub fn signatureHasLiteralTypes(c: *Checker, s: types.SignatureIndex) bool {
+        // Go: return s.flags&SignatureFlagsHasLiteralTypes != 0
+        return (c.signatures.items[s].flags & types.SignatureFlags.HasLiteralTypes) != 0;
     }
 
     pub fn getOptionalCallSignature(c: *Checker, signature: *anyopaque, callChainFlags: *anyopaque) *anyopaque {
@@ -9982,9 +9992,9 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn acceptsVoid(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn acceptsVoid(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.flags&TypeFlagsVoid != 0
+        return (c.typesList.items[t].flags & types.TypeFlags.Void) != 0;
     }
 
     pub fn getDecoratorArgumentCount(c: *Checker, node: *anyopaque, signature: *anyopaque) i32 {
@@ -12301,8 +12311,18 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolutionExtensionIsTSOrJson(ext: *anyopaque) bool {
-        _ = ext;
+    pub fn resolutionExtensionIsTSOrJson(ext: []const u8) bool {
+        // Go: return tspath.ExtensionIsTs(ext) || ext == tspath.ExtensionJson
+        if (std.mem.eql(u8, ext, tspath.ExtensionJson)) return true;
+        if (std.mem.eql(u8, ext, tspath.ExtensionTs)) return true;
+        if (std.mem.eql(u8, ext, tspath.ExtensionTsx)) return true;
+        if (std.mem.eql(u8, ext, tspath.ExtensionDts)) return true;
+        if (std.mem.eql(u8, ext, tspath.ExtensionMts)) return true;
+        if (std.mem.eql(u8, ext, tspath.ExtensionDmts)) return true;
+        if (std.mem.eql(u8, ext, tspath.ExtensionCts)) return true;
+        if (std.mem.eql(u8, ext, tspath.ExtensionDcts)) return true;
+        // .d.<x>.ts pattern
+        if (ext.len >= 7 and std.mem.eql(u8, ext[0..3], ".d.") and std.mem.eql(u8, ext[ext.len - 3 ..], ".ts")) return true;
         return false;
     }
 
@@ -13719,9 +13739,21 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn mayReturnNever(fn_: *anyopaque) bool {
-        _ = fn_;
-        return false;
+    pub fn mayReturnNever(c: *Checker, fn_: ast_gen.NodeIndex) bool {
+        // Go: switch fn.Kind {
+        //   case KindFunctionExpression, KindArrowFunction: return true
+        //   case KindMethodDeclaration: return ast.IsObjectLiteralExpression(fn.Parent)
+        // }
+        // return false
+        const fn_kind = c.binder.ast.getKind(fn_);
+        switch (fn_kind) {
+            .FunctionExpression, .ArrowFunction => return true,
+            .MethodDeclaration => {
+                const parent = c.binder.ast.getNodeParent(fn_);
+                return c.binder.ast.getKind(parent) == .ObjectLiteralExpression;
+            },
+            else => return false,
+        }
     }
 
     /// Port of checker.go::checkAndAggregateYieldOperandTypes.
