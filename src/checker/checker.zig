@@ -9582,13 +9582,13 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isYieldIteratorResult(c: *Checker, t: *anyopaque) bool {
+    pub fn isYieldIteratorResult(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
     }
 
-    pub fn isReturnIteratorResult(c: *Checker, t: *anyopaque) bool {
+    pub fn isReturnIteratorResult(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -11002,7 +11002,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn parameterInitializerContainsUndefined(c: *Checker, declaration: *anyopaque) bool {
+    pub fn parameterInitializerContainsUndefined(c: *Checker, declaration: ast_gen.NodeIndex) bool {
         _ = c;
         _ = declaration;
         return false;
@@ -11470,7 +11470,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isNodeUsedDuringClassInitialization(c: *Checker, node: *anyopaque) bool {
+    pub fn isNodeUsedDuringClassInitialization(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -13636,7 +13636,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isParameterOfContextSensitiveSignature(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isParameterOfContextSensitiveSignature(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
@@ -13803,7 +13803,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isThislessInterface(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isThislessInterface(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
@@ -13955,7 +13955,7 @@ pub const Checker = struct {
         return true;
     }
 
-    pub fn isNullOrUndefined(c: *Checker, node: *anyopaque) bool {
+    pub fn isNullOrUndefined(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -14061,7 +14061,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn declarationBelongsToPrivateAmbientMember(c: *Checker, declaration: *anyopaque) bool {
+    pub fn declarationBelongsToPrivateAmbientMember(c: *Checker, declaration: ast_gen.NodeIndex) bool {
         _ = c;
         _ = declaration;
         return false;
@@ -14085,7 +14085,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn hasParentWithTypeAnnotation(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn hasParentWithTypeAnnotation(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
@@ -14110,7 +14110,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isGlobalSymbolConstructor(c: *Checker, node: *anyopaque) bool {
+    pub fn isGlobalSymbolConstructor(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -14235,19 +14235,19 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isVarConstLike(c: *Checker, node: *anyopaque) bool {
+    pub fn isVarConstLike(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn getEffectivePropertyNameForPropertyNameNode(c: *Checker, node: *anyopaque) bool {
+    pub fn getEffectivePropertyNameForPropertyNameNode(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn tryGetNameFromType(c: *Checker, t: *anyopaque) bool {
+    pub fn tryGetNameFromType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -14485,7 +14485,7 @@ pub const Checker = struct {
         }
     }
 
-    pub fn areAllOuterTypeParametersApplied(c: *Checker, t: *anyopaque) bool {
+    pub fn areAllOuterTypeParametersApplied(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -14537,19 +14537,19 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isSymbolWithSymbolName(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isSymbolWithSymbolName(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
     }
 
-    pub fn isSymbolWithNumericName(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isSymbolWithNumericName(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
     }
 
-    pub fn isSymbolWithComputedName(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isSymbolWithComputedName(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
@@ -14567,7 +14567,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isValidIndexKeyType(c: *Checker, t: *anyopaque) bool {
+    pub fn isValidIndexKeyType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -14597,37 +14597,37 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn hasBindableName(c: *Checker, node: *anyopaque) bool {
+    pub fn hasBindableName(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn hasLateBindableName(c: *Checker, node: *anyopaque) bool {
+    pub fn hasLateBindableName(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn isLateBindableName(c: *Checker, node: *anyopaque) bool {
+    pub fn isLateBindableName(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn hasLateBindableIndexSignature(c: *Checker, node: *anyopaque) bool {
+    pub fn hasLateBindableIndexSignature(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn isLateBindableIndexSignature(c: *Checker, node: *anyopaque) bool {
+    pub fn isLateBindableIndexSignature(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn isTypeUsableAsIndexSignatureDeclaration(c: *Checker, t: *anyopaque) bool {
+    pub fn isTypeUsableAsIndexSignatureDeclaration(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -14771,7 +14771,7 @@ pub const Checker = struct {
         return .{ .types = return_types.toOwnedSlice(c.allocator) catch &.{}, .is_never_returning = has_never and return_types.items.len == 0 };
     }
 
-    pub fn functionHasImplicitReturn(c: *Checker, fn_: *anyopaque) bool {
+    pub fn functionHasImplicitReturn(c: *Checker, fn_: ast_gen.NodeIndex) bool {
         _ = c;
         _ = fn_;
         return false;
@@ -15092,13 +15092,13 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isArrayOrTupleSymbol(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isArrayOrTupleSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
     }
 
-    pub fn isReadonlyArraySymbol(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isReadonlyArraySymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
@@ -15201,7 +15201,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isNeverReducedProperty(c: *Checker, prop: *anyopaque) bool {
+    pub fn isNeverReducedProperty(c: *Checker, prop: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = prop;
         return false;
@@ -15215,7 +15215,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isDiscriminantWithNeverType(c: *Checker, prop: *anyopaque) bool {
+    pub fn isDiscriminantWithNeverType(c: *Checker, prop: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = prop;
         return false;
@@ -15293,7 +15293,7 @@ pub const Checker = struct {
         _ = c;
     }
 
-    pub fn couldContainTypeVariablesWorker(c: *Checker, t: *anyopaque) bool {
+    pub fn couldContainTypeVariablesWorker(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -15479,13 +15479,13 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isResolvedByTypeAlias(c: *Checker, node: *anyopaque) bool {
+    pub fn isResolvedByTypeAlias(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
     }
 
-    pub fn mayResolveTypeAlias(c: *Checker, node: *anyopaque) bool {
+    pub fn mayResolveTypeAlias(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -15523,19 +15523,19 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isEmptyLiteralType(c: *Checker, t: *anyopaque) bool {
+    pub fn isEmptyLiteralType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
     }
 
-    pub fn isTupleLikeType(c: *Checker, t: *anyopaque) bool {
+    pub fn isTupleLikeType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
     }
 
-    pub fn isArrayOrTupleLikeType(c: *Checker, t: *anyopaque) bool {
+    pub fn isArrayOrTupleLikeType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -15677,7 +15677,7 @@ pub const Checker = struct {
         return type_resolution_pkg.getTypeFromArrayOrTupleTypeNode(c, node_idx);
     }
 
-    pub fn isVariadicTupleElement(c: *Checker, node: *anyopaque) bool {
+    pub fn isVariadicTupleElement(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -15689,7 +15689,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isReadonlyTypeOperator(c: *Checker, node: *anyopaque) bool {
+    pub fn isReadonlyTypeOperator(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -15838,13 +15838,13 @@ pub const Checker = struct {
         return c.getGenericObjectFlags(t) != 0;
     }
 
-    pub fn isGenericReducibleType(c: *Checker, t: *anyopaque) bool {
+    pub fn isGenericReducibleType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
     }
 
-    pub fn isReducibleIntersection(c: *Checker, t: *anyopaque) bool {
+    pub fn isReducibleIntersection(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -16097,7 +16097,7 @@ pub const Checker = struct {
         return (c.typesList.items[t].flags & types.TypeFlags.Unit) != 0;
     }
 
-    pub fn isUnitLikeType(c: *Checker, t: *anyopaque) bool {
+    pub fn isUnitLikeType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -16430,7 +16430,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isEmptyResolvedType(c: *Checker, t: *anyopaque) bool {
+    pub fn isEmptyResolvedType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -16505,7 +16505,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isNoInferType(c: *Checker, t: *anyopaque) bool {
+    pub fn isNoInferType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -16634,7 +16634,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isAutoTypedProperty(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isAutoTypedProperty(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
@@ -16843,7 +16843,7 @@ pub const Checker = struct {
         return "x";
     }
 
-    pub fn isUnknownLikeUnionType(c: *Checker, t: *anyopaque) bool {
+    pub fn isUnknownLikeUnionType(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -16924,7 +16924,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn shouldNormalizeIntersection(c: *Checker, t: *anyopaque) bool {
+    pub fn shouldNormalizeIntersection(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -17346,7 +17346,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isContextSensitiveFunctionOrObjectLiteralMethod(c: *Checker, fn_: *anyopaque) bool {
+    pub fn isContextSensitiveFunctionOrObjectLiteralMethod(c: *Checker, fn_: ast_gen.NodeIndex) bool {
         _ = c;
         _ = fn_;
         return false;
@@ -17730,7 +17730,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isCircularMappedProperty(c: *Checker, symbol_: *anyopaque) bool {
+    pub fn isCircularMappedProperty(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = symbol_;
         return false;
@@ -17782,7 +17782,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isPossiblyDiscriminantValue(c: *Checker, node: *anyopaque) bool {
+    pub fn isPossiblyDiscriminantValue(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -18083,7 +18083,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isSomeSymbolAssignedWorker(c: *Checker, node: *anyopaque) bool {
+    pub fn isSomeSymbolAssignedWorker(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -18195,7 +18195,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isGenericTypeWithUndefinedConstraint(c: *Checker, t: *anyopaque) bool {
+    pub fn isGenericTypeWithUndefinedConstraint(c: *Checker, t: types.TypeIndex) bool {
         _ = c;
         _ = t;
         return false;
@@ -18213,7 +18213,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isThisPropertyAndThisTyped(c: *Checker, node: *anyopaque) bool {
+    pub fn isThisPropertyAndThisTyped(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
@@ -18258,7 +18258,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn containsArgumentsReference(c: *Checker, node: *anyopaque) bool {
+    pub fn containsArgumentsReference(c: *Checker, node: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         return false;
