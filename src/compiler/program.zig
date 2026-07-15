@@ -1507,6 +1507,13 @@ pub const Program = struct {
     pub fn getFileId(self: *const Program, path: []const u8) ?FileId {
         return self.files_by_path.get(path);
     }
+    pub fn getResolvedTypeReferenceDirectiveFromTypeReferenceDirective(self: *Program, typeRef: ast_gen.NodeIndex, sourceFile: ast_gen.NodeIndex) ?*anyopaque {
+        _ = self;
+        _ = typeRef;
+        _ = sourceFile;
+        // STUB for now as typeResolutionsInFile is not implemented in Zig
+        return null;
+    }
 };
 
 pub fn createProgram(allocator: std.mem.Allocator, opts: ProgramOptions) !*Program {

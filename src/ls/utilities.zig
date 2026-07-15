@@ -1,5 +1,3 @@
-const std = @import("std");
-
 //! Language service utilities.
 //!
 //! Port of `internal/ls/utilities.go` (1,404 LOC).
@@ -10,6 +8,8 @@ const std = @import("std");
 //! - Module specifier detection
 //! - Display name formatting
 //! - Diagnostic conversion
+const std = @import("std");
+
 
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
@@ -179,4 +179,110 @@ pub fn lineColumnToOffset(text: []const u8, line: u32, column: u32) u32 {
         col += 1;
     }
     return offset;
+}
+pub fn getAllSuperTypeNodes(arena: std.mem.Allocator, tree: *const ast.Tree, node: ast.NodeIndex) ![]ast.NodeIndex {
+    if (tree.nodeTag(node) == .InterfaceDeclaration) {
+        return ast.getHeritageElements(arena, tree, node, .ExtendsKeyword);
+    }
+    if (ast.isClassLike(tree.nodeTag(node))) {
+        var result = std.ArrayList(ast.NodeIndex).init(arena);
+        if (ast.getClassExtendsHeritageElement(tree, node)) |extendsNode| {
+            try result.append(extendsNode);
+        }
+        const implementsNodes = try ast.getImplementsTypeNodes(arena, tree, node);
+        try result.appendSlice(implementsNodes);
+        return result.items;
+    }
+    return &[_]ast.NodeIndex{};
+}
+
+pub fn getPropertySymbolsFromBaseTypes(
+    arena: std.mem.Allocator,
+    tree: *const ast.Tree,
+    sym: *ast.Symbol,
+    propertyName: []const u8,
+    type_checker: *checker.Checker,
+    ctx: anytype,
+    comptime cb: anytype, // fn (ctx: @TypeOf(ctx), base: *ast.Symbol) ?*ast.Symbol
+) !?*ast.Symbol {
+    var seen = std.AutoHashMap(*ast.Symbol, void).init(arena);
+    return try getPropertySymbolsFromBaseTypesRecur(arena, tree, sym, propertyName, type_checker, ctx, cb, &seen);
+}
+
+fn getPropertySymbolsFromBaseTypesRecur(
+    arena: std.mem.Allocator,
+    tree: *const ast.Tree,
+    sym: *ast.Symbol,
+    propertyName: []const u8,
+    type_checker: *checker.Checker,
+    ctx: anytype,
+    comptime cb: anytype,
+    seen: *std.AutoHashMap(*ast.Symbol, void),
+) anyerror!?*ast.Symbol {
+    if ((sym.Flags & (checker.SymbolFlags.Class | checker.SymbolFlags.Interface)) == 0) return null;
+    if (try seen.fetchPut(sym, {})) |_| return null;
+    
+    const declarations = sym.Declarations.items;
+    for (declarations) |declaration| {
+        const superTypeNodes = try getAllSuperTypeNodes(arena, tree, declaration);
+        for (superTypeNodes) |typeReference| {
+            if (type_checker.getTypeAtLocation(tree, typeReference)) |propertyType| {
+                if (propertyType.symbol) |propertyTypeSymbol| {
+                    if (type_checker.getPropertyOfType(propertyType, propertyName)) |propertySymbol| {
+                        const rootSymbols = type_checker.getRootSymbols(arena, propertySymbol);
+                        for (rootSymbols) |rootSymbol| {
+                            if (cb(ctx, rootSymbol)) |result| {
+                                return result;
+                            }
+                        }
+                    }
+                    if (try getPropertySymbolsFromBaseTypesRecur(arena, tree, propertyTypeSymbol, propertyName, type_checker, ctx, cb, seen)) |result| {
+                        return result;
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
+pub fn getPropertySymbolFromBindingElement(tree: *const ast.Tree, type_checker: *checker.Checker, bindingElement: ast.NodeIndex) ?*ast.Symbol {
+    if (tree.nodeParent(bindingElement)) |parent| {
+        if (type_checker.getTypeAtLocation(tree, parent)) |typeOfPattern| {
+            if (ast.name(tree, bindingElement)) |nameNode| {
+                const nameText = ast_utils.getTextOfNode(tree, nameNode);
+                return type_checker.getPropertyOfType(typeOfPattern, nameText);
+            }
+        }
+    }
+    return null;
+}
+
+pub fn getPropertySymbolOfObjectBindingPatternWithoutPropertyName(tree: *const ast.Tree, sym: *ast.Symbol, type_checker: *checker.Checker) ?*ast.Symbol {
+    const declarations = sym.Declarations.items;
+    var bindingElement: ?ast.NodeIndex = null;
+    for (declarations) |decl| {
+        if (tree.nodeTag(decl) == .BindingElement) {
+            bindingElement = decl;
+            break;
+        }
+    }
+    if (bindingElement) |element| {
+        if (isObjectBindingElementWithoutPropertyName(tree, element)) {
+            return getPropertySymbolFromBindingElement(tree, type_checker, element);
+        }
+    }
+    return null;
+}
+
+pub fn isObjectBindingElementWithoutPropertyName(tree: *const ast.Tree, node: ast.NodeIndex) bool {
+    return tree.nodeTag(node) == .BindingElement and ast.propertyName(tree, node) == null and tree.nodeParent(node) != null and tree.nodeTag(tree.nodeParent(node).?) == .ObjectBindingPattern;
+}
+
+pub fn isStaticSymbol(tree: *const ast.Tree, sym: *ast.Symbol) bool {
+    if (sym.ValueDeclaration) |decl| {
+        const modifierFlags = ast.modifierFlags(tree, decl);
+        return (modifierFlags & ast.ModifierFlags.Static) != 0;
+    }
+    return false;
 }

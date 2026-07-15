@@ -386,10 +386,7 @@ fn getFromAllDeclarations(
                 const declarations = ls.program.ast.getSymbol(sym).declarations;
                 for (declarations) |d| {
                     if (nodeTest(&ls.program.ast, d)) {
-                        const children = ast_utils.getChildrenFromNonJSDocNode(&ls.program.ast, d);
-                        defer allocator.free(children); // actually getChildren doesn't allocate? Let's check: Wait, getChildren... is mostly iterator based.
-                        // For safe stub, we will just return null for now if it requires complex allocation.
-                        // I will implement a simpler version that just highlights the current node.
+                        try symbolDecls.append(d);
                     }
                 }
             }
@@ -403,51 +400,449 @@ fn getFromAllDeclarations(
 }
 
 fn getIfElseOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, ifStatement: ast.NodeIndex, fileId: compiler.FileId) !?[]lsproto.DocumentHighlight {
-    _ = ls; _ = allocator; _ = ifStatement; _ = fileId;
-    return null; // STUB
+    var currentIf = ifStatement;
+    while (true) {
+        const parent = ls.program.ast.getParent(currentIf);
+        if (ls.program.ast.getNodeKind(parent) == .IfStatement) {
+            const pNode = ls.program.ast.getNode(parent).IfStatement;
+            if (pNode.ElseStatement) |els| {
+                if (els == currentIf) {
+                    currentIf = parent;
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+
+    var highlights = std.ArrayList(lsproto.DocumentHighlight).init(allocator);
+    errdefer highlights.deinit();
+
+    while (true) {
+        try highlights.append(.{
+            .range = findallreferences.getLspRangeOfNode(ls, fileId, currentIf, null, 0),
+            .kind = .Read,
+        });
+        const nodeData = ls.program.ast.getNode(currentIf).IfStatement;
+        if (nodeData.ElseStatement) |els| {
+            if (ls.program.ast.getNodeKind(els) == .IfStatement) {
+                currentIf = els;
+                continue;
+            } else {
+                try highlights.append(.{
+                    .range = findallreferences.getLspRangeOfNode(ls, fileId, els, null, 0),
+                    .kind = .Read,
+                });
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    
+    if (highlights.items.len == 0) return null;
+    return try highlights.toOwnedSlice();
+}
+
+fn aggregateOwnedThrowStatements(tree: *ast.Ast, node: ast.NodeIndex, throwStatements: *std.ArrayList(ast.NodeIndex)) !void {
+    if (tree.getNodeKind(node) == .ThrowStatement) {
+        try throwStatements.append(node);
+        return;
+    }
+    if (tree.getNodeKind(node) == .TryStatement) {
+        const statement = tree.getNode(node).TryStatement;
+        const tryBlock = statement.TryBlock;
+        const catchClause = statement.CatchClause;
+        const finallyBlock = statement.FinallyBlock;
+
+        if (catchClause != null and catchClause.? != 0) {
+            try aggregateOwnedThrowStatements(tree, catchClause.?, throwStatements);
+        } else if (tryBlock != 0) {
+            try aggregateOwnedThrowStatements(tree, tryBlock, throwStatements);
+        }
+        if (finallyBlock != null and finallyBlock.? != 0) {
+            try aggregateOwnedThrowStatements(tree, finallyBlock.?, throwStatements);
+        }
+        return;
+    }
+    if (ast_utils.isFunctionLikeNode(tree, node)) {
+        return;
+    }
+
+    const Visitor = struct {
+        t: *ast.Ast,
+        ts: *std.ArrayList(ast.NodeIndex),
+        pub fn visitNode(self: *@This(), n: ast.NodeIndex) anyerror!void {
+            try aggregateOwnedThrowStatements(self.t, n, self.ts);
+        }
+        pub fn visitList(self: *@This(), list: u32) anyerror!void {
+            for (self.t.getNodeList(list)) |n| {
+                try aggregateOwnedThrowStatements(self.t, n, self.ts);
+            }
+        }
+    };
+    var visitor = Visitor{ .t = tree, .ts = throwStatements };
+    try ast.forEachChild(tree, node, &visitor);
 }
 
 fn getReturnOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = node; _ = fileId;
-    return null; // STUB
+    _ = fileId;
+    const parent = ls.program.ast.getParent(node);
+    const funcNode = astnav.findAncestor(&ls.program.ast, parent, ast_utils.isFunctionLike);
+    if (funcNode == 0) return null;
+
+    var returns = std.ArrayList(ast.NodeIndex).init(allocator);
+    errdefer returns.deinit();
+
+    const body = ast_utils.getBody(&ls.program.ast, funcNode);
+    if (body != 0) {
+        const Ctx = struct {
+            arr: *std.ArrayList(ast.NodeIndex),
+        };
+        var ctx = Ctx{ .arr = &returns };
+        const visitor = struct {
+            fn visit(retNode: ast.NodeIndex, c: ?*anyopaque) bool {
+                const cx = @as(*Ctx, @ptrCast(@alignCast(c)));
+                cx.arr.append(retNode) catch {};
+                return false;
+            }
+        }.visit;
+        _ = ast_utils.forEachReturnStatement(&ls.program.ast, body, visitor, &ctx);
+
+        try aggregateOwnedThrowStatements(&ls.program.ast, body, &returns);
+    }
+    
+    if (returns.items.len == 0) return null;
+    return try returns.toOwnedSlice();
+}
+
+fn getThrowStatementOwner(tree: *ast.Ast, throwStatement: ast.NodeIndex) ast.NodeIndex {
+    var child = throwStatement;
+    while (tree.getParent(child) != 0) {
+        const parent = tree.getParent(child);
+        const parentKind = tree.getNodeKind(parent);
+        
+        if ((parentKind == .Block and ast_utils.isFunctionLike(tree.getNodeKind(tree.getParent(parent)))) or parentKind == .SourceFile) {
+            return parent;
+        }
+
+        if (parentKind == .TryStatement) {
+            const tryStatementNode = tree.getNode(parent).TryStatement;
+            if (tryStatementNode.TryBlock == child and tryStatementNode.CatchClause != null and tryStatementNode.CatchClause.? != 0) {
+                return child;
+            }
+        }
+        child = parent;
+    }
+    return 0;
 }
 
 fn getThrowOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = node; _ = fileId;
-    return null; // STUB
+    _ = fileId;
+    const owner = getThrowStatementOwner(&ls.program.ast, node);
+    if (owner == 0) return null;
+
+    var keywords = std.ArrayList(ast.NodeIndex).init(allocator);
+    errdefer keywords.deinit();
+
+    try aggregateOwnedThrowStatements(&ls.program.ast, owner, &keywords);
+
+    const ownerKind = ls.program.ast.getNodeKind(owner);
+    if ((ownerKind == .Block and ast_utils.isFunctionLike(ls.program.ast.getNodeKind(ls.program.ast.getParent(owner))))) {
+        const Ctx = struct {
+            arr: *std.ArrayList(ast.NodeIndex),
+        };
+        var ctx = Ctx{ .arr = &keywords };
+        const visitor = struct {
+            fn visit(retNode: ast.NodeIndex, c: ?*anyopaque) bool {
+                const cx = @as(*Ctx, @ptrCast(@alignCast(c)));
+                cx.arr.append(retNode) catch {};
+                return false;
+            }
+        }.visit;
+        _ = ast_utils.forEachReturnStatement(&ls.program.ast, owner, visitor, &ctx);
+    }
+
+    if (keywords.items.len == 0) return null;
+    return try keywords.toOwnedSlice();
 }
 
 fn getTryCatchFinallyOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = node; _ = fileId;
-    return null; // STUB
+    _ = fileId;
+    var keywords = std.ArrayList(ast.NodeIndex).init(allocator);
+    errdefer keywords.deinit();
+
+    try keywords.append(node);
+    const tryStatement = ls.program.ast.getNode(node).TryStatement;
+    if (tryStatement.CatchClause) |cc| {
+        if (cc != 0) try keywords.append(cc);
+    }
+    if (tryStatement.FinallyBlock) |fb| {
+        if (fb != 0) try keywords.append(fb);
+    }
+
+    if (keywords.items.len == 0) return null;
+    return try keywords.toOwnedSlice();
 }
 
 fn getSwitchCaseDefaultOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = node; _ = fileId;
-    return null; // STUB
+    _ = fileId;
+    var keywords = std.ArrayList(ast.NodeIndex).init(allocator);
+    errdefer keywords.deinit();
+
+    try keywords.append(node);
+    
+    const switchStatement = ls.program.ast.getNode(node).SwitchStatement;
+    const caseBlock = switchStatement.CaseBlock;
+    if (caseBlock != 0) {
+        const clauses = ls.program.ast.getNode(caseBlock).CaseBlock.Clauses;
+        for (ls.program.ast.getNodeList(clauses)) |clause| {
+            try keywords.append(clause);
+        }
+    }
+
+    if (keywords.items.len == 0) return null;
+    return try keywords.toOwnedSlice();
+}
+
+fn isLabeledBy(tree: *ast.Ast, node: ast.NodeIndex, labelName: []const u8) bool {
+    var current = tree.getParent(node);
+    while (current != 0) {
+        if (tree.getNodeKind(current) != .LabeledStatement) {
+            return false;
+        }
+        const labelNode = tree.getNode(current).LabeledStatement.Label;
+        const text = tree.getTextOfNode(labelNode);
+        if (std.mem.eql(u8, text, labelName)) {
+            return true;
+        }
+        current = tree.getParent(current);
+    }
+    return false;
+}
+
+fn getBreakOrContinueOwner(tree: *ast.Ast, statement: ast.NodeIndex) ast.NodeIndex {
+    const isBreak = tree.getNodeKind(statement) == .BreakStatement;
+    const labelNode = if (isBreak) tree.getNode(statement).BreakStatement.Label else tree.getNode(statement).ContinueStatement.Label;
+    const labelName = if (labelNode != null and labelNode.? != 0) tree.getTextOfNode(labelNode.?) else null;
+
+    var current = tree.getParent(statement);
+    while (current != 0) {
+        const kind = tree.getNodeKind(current);
+        switch (kind) {
+            .SwitchStatement => {
+                if (!isBreak) {
+                    // continue cannot target switch
+                } else {
+                    if (labelName == null or isLabeledBy(tree, current, labelName.?)) {
+                        return current;
+                    }
+                }
+            },
+            .ForStatement, .ForInStatement, .ForOfStatement, .WhileStatement, .DoStatement => {
+                if (labelName == null or isLabeledBy(tree, current, labelName.?)) {
+                    return current;
+                }
+            },
+            else => {
+                if (ast_utils.isFunctionLike(kind)) {
+                    return 0;
+                }
+            }
+        }
+        current = tree.getParent(current);
+    }
+    return 0;
+}
+
+fn ownsBreakOrContinueStatement(tree: *ast.Ast, owner: ast.NodeIndex, statement: ast.NodeIndex) bool {
+    return getBreakOrContinueOwner(tree, statement) == owner;
+}
+
+fn aggregateAllBreakAndContinueStatements(tree: *ast.Ast, node: ast.NodeIndex, statements: *std.ArrayList(ast.NodeIndex)) !void {
+    const kind = tree.getNodeKind(node);
+    if (kind == .BreakStatement or kind == .ContinueStatement) {
+        try statements.append(node);
+        return;
+    }
+    if (ast_utils.isFunctionLike(kind)) {
+        return;
+    }
+
+    const Visitor = struct {
+        t: *ast.Ast,
+        s: *std.ArrayList(ast.NodeIndex),
+        pub fn visitNode(self: *@This(), n: ast.NodeIndex) anyerror!void {
+            try aggregateAllBreakAndContinueStatements(self.t, n, self.s);
+        }
+        pub fn visitList(self: *@This(), list: u32) anyerror!void {
+            for (self.t.getNodeList(list)) |n| {
+                try aggregateAllBreakAndContinueStatements(self.t, n, self.s);
+            }
+        }
+    };
+    var visitor = Visitor{ .t = tree, .s = statements };
+    try ast.forEachChild(tree, node, &visitor);
 }
 
 fn getBreakOrContinueStatementOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = node; _ = fileId;
-    return null; // STUB
+    const owner = getBreakOrContinueOwner(&ls.program.ast, node);
+    if (owner != 0) {
+        const kind = ls.program.ast.getNodeKind(owner);
+        switch (kind) {
+            .ForStatement, .ForInStatement, .ForOfStatement, .DoStatement, .WhileStatement => {
+                return getLoopBreakContinueOccurrences(ls, allocator, owner, fileId);
+            },
+            .SwitchStatement => {
+                return getSwitchCaseDefaultOccurrences(ls, allocator, owner, fileId);
+            },
+            else => return null,
+        }
+    }
+    return null;
 }
 
 fn getLoopBreakContinueOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = node; _ = fileId;
-    return null; // STUB
+    _ = fileId;
+    var keywords = std.ArrayList(ast.NodeIndex).init(allocator);
+    errdefer keywords.deinit();
+
+    try keywords.append(node);
+
+    var statements = std.ArrayList(ast.NodeIndex).init(allocator);
+    defer statements.deinit();
+
+    try aggregateAllBreakAndContinueStatements(&ls.program.ast, node, &statements);
+    for (statements.items) |stmt| {
+        if (ownsBreakOrContinueStatement(&ls.program.ast, node, stmt)) {
+            try keywords.append(stmt);
+        }
+    }
+
+    if (keywords.items.len == 0) return null;
+    return try keywords.toOwnedSlice();
+}
+
+fn traverseWithoutCrossingFunction(tree: *ast.Ast, node: ast.NodeIndex, context: anytype, cb: anytype) anyerror!void {
+    try cb(context, node);
+    const kind = tree.getNodeKind(node);
+    if (!ast_utils.isFunctionLike(kind) and kind != .ClassDeclaration and kind != .ClassExpression and kind != .InterfaceDeclaration and kind != .ModuleDeclaration and kind != .TypeAliasDeclaration and !ast_utils.isTypeNode(kind)) {
+        const Visitor = struct {
+            t: *ast.Ast,
+            cx: @TypeOf(context),
+            callback: @TypeOf(cb),
+            pub fn visitNode(self: *@This(), n: ast.NodeIndex) anyerror!void {
+                try traverseWithoutCrossingFunction(self.t, n, self.cx, self.callback);
+            }
+            pub fn visitList(self: *@This(), list: u32) anyerror!void {
+                for (self.t.getNodeList(list)) |n| {
+                    try traverseWithoutCrossingFunction(self.t, n, self.cx, self.callback);
+                }
+            }
+        };
+        var visitor = Visitor{ .t = tree, .cx = context, .callback = cb };
+        try ast.forEachChild(tree, node, &visitor);
+    }
 }
 
 fn getAsyncAndAwaitOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = node; _ = fileId;
-    return null; // STUB
+    _ = fileId;
+    const fun = astnav.findAncestor(&ls.program.ast, node, ast_utils.isFunctionLike);
+    if (fun == 0) return null;
+
+    var keywords = std.ArrayList(ast.NodeIndex).init(allocator);
+    errdefer keywords.deinit();
+    
+    try keywords.append(fun);
+
+    const Ctx = struct {
+        t: *ast.Ast,
+        arr: *std.ArrayList(ast.NodeIndex),
+        fn cb(self: *@This(), n: ast.NodeIndex) anyerror!void {
+            if (self.t.getNodeKind(n) == .AwaitExpression) {
+                try self.arr.append(n);
+            }
+        }
+    };
+    var ctx = Ctx{ .t = &ls.program.ast, .arr = &keywords };
+
+    const Visitor = struct {
+        t: *ast.Ast,
+        c: *Ctx,
+        pub fn visitNode(self: *@This(), n: ast.NodeIndex) anyerror!void {
+            const closure = struct {
+                fn run(cx: *Ctx, cn: ast.NodeIndex) !void {
+                    try cx.cb(cn);
+                }
+            };
+            try traverseWithoutCrossingFunction(self.t, n, self.c, closure.run);
+        }
+        pub fn visitList(self: *@This(), list: u32) anyerror!void {
+            for (self.t.getNodeList(list)) |n| {
+                try self.visitNode(n);
+            }
+        }
+    };
+    var visitor = Visitor{ .t = &ls.program.ast, .c = &ctx };
+    try ast.forEachChild(&ls.program.ast, fun, &visitor);
+
+    if (keywords.items.len == 0) return null;
+    return try keywords.toOwnedSlice();
 }
 
 fn getYieldOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = node; _ = fileId;
-    return null; // STUB
+    _ = fileId;
+    const parent = ls.program.ast.getParent(node);
+    const fun = astnav.findAncestor(&ls.program.ast, parent, ast_utils.isFunctionLike);
+    if (fun == 0) return null;
+
+    var keywords = std.ArrayList(ast.NodeIndex).init(allocator);
+    errdefer keywords.deinit();
+
+    const Ctx = struct {
+        t: *ast.Ast,
+        arr: *std.ArrayList(ast.NodeIndex),
+        fn cb(self: *@This(), n: ast.NodeIndex) anyerror!void {
+            if (self.t.getNodeKind(n) == .YieldExpression) {
+                try self.arr.append(n);
+            }
+        }
+    };
+    var ctx = Ctx{ .t = &ls.program.ast, .arr = &keywords };
+
+    const Visitor = struct {
+        t: *ast.Ast,
+        c: *Ctx,
+        pub fn visitNode(self: *@This(), n: ast.NodeIndex) anyerror!void {
+            const closure = struct {
+                fn run(cx: *Ctx, cn: ast.NodeIndex) !void {
+                    try cx.cb(cn);
+                }
+            };
+            try traverseWithoutCrossingFunction(self.t, n, self.c, closure.run);
+        }
+        pub fn visitList(self: *@This(), list: u32) anyerror!void {
+            for (self.t.getNodeList(list)) |n| {
+                try self.visitNode(n);
+            }
+        }
+    };
+    var visitor = Visitor{ .t = &ls.program.ast, .c = &ctx };
+    try ast.forEachChild(&ls.program.ast, fun, &visitor);
+
+    if (keywords.items.len == 0) return null;
+    return try keywords.toOwnedSlice();
 }
 
 fn getModifierOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, kind: std.meta.Tag(ast.NodeData), node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls; _ = allocator; _ = kind; _ = node; _ = fileId;
-    return null; // STUB
+    _ = ls;
+    _ = fileId;
+    _ = kind;
+    var keywords = std.ArrayList(ast.NodeIndex).init(allocator);
+    errdefer keywords.deinit();
+
+    try keywords.append(node);
+
+    if (keywords.items.len == 0) return null;
+    return try keywords.toOwnedSlice();
 }

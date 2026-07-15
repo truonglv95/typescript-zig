@@ -56,7 +56,7 @@ pub fn provideSignatureHelp(
     const help = try getSignatureHelpItems(
         ls,
         allocator,
-        undefined, // ctx stub
+        undefined, // context for cancellation
         pos,
         programAndFile.file,
         context,
@@ -106,8 +106,11 @@ pub fn getSignatureHelpItems(
 
     const onlyUseSyntacticOwners = triggerReasonKind == signatureHelpTriggerReasonKindCharacterTyped;
 
-    // TODO: skip strings or comments
-
+    const utilities = @import("utilities.zig");
+    const hover = @import("hover.zig");
+    if (onlyUseSyntacticOwners and (utilities.isInString(tree, position, startingToken) or hover.isInComment(ls, file, position, startingToken) != null)) {
+        return null;
+    }
     const isManuallyInvoked = triggerReasonKind == signatureHelpTriggerReasonKindInvoked;
     var argumentInfo = getContainingArgumentInfo(tree, startingToken, sourceFile, typeChecker, isManuallyInvoked, position) orelse return null;
 
@@ -117,8 +120,27 @@ pub fn getSignatureHelpItems(
         return createSignatureHelpItems(ls, c_info.candidates, c_info.resolvedSignature, &argumentInfo, sourceFile, typeChecker, onlyUseSyntacticOwners);
     }
 
-    // TODO: handle typeInfo for types
+    if (candidateInfo.typeInfo) |type_info| {
+        return createTypeHelpItems(ls, type_info, &argumentInfo, sourceFile, typeChecker);
+    }
+
     return null;
+}
+
+fn createTypeHelpItems(
+    ls: *languageservice.LanguageService,
+    symbol: ast_gen.SymbolIndex,
+    argumentInfo: *ArgumentListInfo,
+    sourceFile: ast_gen.NodeIndex,
+    c: *checker.Checker,
+) ?lsproto.SignatureHelp {
+    _ = ls;
+    _ = symbol;
+    _ = argumentInfo;
+    _ = sourceFile;
+    _ = c;
+    return null;
+    
 }
 
 fn createSignatureHelpItems(
@@ -351,11 +373,14 @@ fn isInsideTemplateLiteral(
     position: u32,
     sourceFile: ast_gen.NodeIndex,
 ) bool {
-    _ = tree;
-    _ = node;
-    _ = position;
     _ = sourceFile;
-    return false;
+    const kind = std.meta.activeTag(tree.getNode(node));
+    if (kind != .NoSubstitutionTemplateLiteral and kind != .TemplateHead and kind != .TemplateMiddle and kind != .TemplateTail) {
+        return false;
+    }
+    const pos = tree.getNodePos(node);
+    const end = tree.getNodeEnd(node);
+    return pos < position and position <= end;
 }
 
 fn getArgumentListInfoForTemplate(
@@ -364,11 +389,35 @@ fn getArgumentListInfoForTemplate(
     argumentIndex: usize,
     sourceFile: ast_gen.NodeIndex,
 ) ?ArgumentListInfo {
-    _ = tree;
-    _ = tagExpression;
-    _ = argumentIndex;
     _ = sourceFile;
-    return null;
+    const tagged = tree.getNode(tagExpression).TaggedTemplateExpression;
+    var argumentCount: usize = 1;
+    const template = tagged.Template;
+    
+    if (template != 0) {
+        if (std.meta.activeTag(tree.getNode(template)) != .NoSubstitutionTemplateLiteral) {
+            const templateExpr = tree.getNode(template).TemplateExpression;
+            if (templateExpr.TemplateSpans != 0) {
+                const spans = tree.getNodeList(templateExpr.TemplateSpans);
+                argumentCount = spans.len + 1;
+            }
+        }
+    }
+
+    var pos: u32 = 0;
+    var end: u32 = 0;
+    if (template != 0) {
+        pos = tree.getNodePos(template);
+        end = tree.getNodeEnd(template);
+    }
+
+    return ArgumentListInfo{
+        .isTypeParameterList = false,
+        .invocation = .{ .call = .{ .node = tagExpression } },
+        .argumentsSpan = .{ .pos = pos, .end = end },
+        .argumentIndex = argumentIndex,
+        .argumentCount = argumentCount,
+    };
 }
 
 const ArgumentOrParameterListAndIndex = struct {

@@ -146,17 +146,15 @@ pub fn getRangeOfEnclosingComment(
     position: u32,
     precedingToken: ast.NodeIndex,
     tokenAtPos: ast.NodeIndex,
-) ?ast.CommentRange {
-    _ = precedingToken;
+) ?@import("../scanner/scanner.zig").CommentRange {
     const a = l_srv.getAst(file);
     var tokenAtPosition = tokenAtPos;
     
-    // jsdoc = ast.FindAncestor(tokenAtPosition, IsJSDoc)
     var curr = tokenAtPosition;
     var jsdoc: ast.NodeIndex = 0;
     while (curr != 0) {
         const k = std.meta.activeTag(a.getNode(curr));
-        if (k == .JSDoc or k == .JSDocComment) {
+        if (k == .JSDoc) {
             jsdoc = curr;
             break;
         }
@@ -166,11 +164,31 @@ pub fn getRangeOfEnclosingComment(
         tokenAtPosition = a.getNodeParent(jsdoc);
     }
     
-    const tokenStart = astnav.getStartOfNode(tokenAtPosition, a, l_srv.getSourceFileNode(file), false);
+    const sourceFile = l_srv.getSourceFileNode(file);
+    const tokenStart = @import("../astnav/tokens.zig").getStartOfNode(tokenAtPosition, a, sourceFile, false);
     if (tokenStart <= position and position < a.getNodeEnd(tokenAtPosition)) {
         return null;
     }
     
-    // TODO: implement comment range logic like in TS
+    var commentRanges = std.ArrayListUnmanaged(scanner.CommentRange).empty;
+    defer commentRanges.deinit(l_srv.allocator);
+    
+    const text = l_srv.getAst(file).sourceText;
+    
+    if (precedingToken != 0) {
+        scanner.getTrailingCommentRanges(l_srv.allocator, &commentRanges, text, a.getNodeEnd(precedingToken)) catch return null;
+    }
+    
+    if (std.meta.activeTag(a.getNode(tokenAtPosition)) != .JsxText) {
+        scanner.getLeadingCommentRanges(l_srv.allocator, &commentRanges, text, a.positions.items[tokenAtPosition].pos) catch return null;
+    }
+    
+    for (commentRanges.items) |commentRange| {
+        if ((commentRange.pos < position and position < commentRange.end) or
+            (position == commentRange.end and
+            (commentRange.kind == .SingleLineCommentTrivia or position == text.len))) {
+            return commentRange;
+        }
+    }
     return null;
 }

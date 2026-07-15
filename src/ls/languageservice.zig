@@ -111,6 +111,57 @@ pub const LanguageService = struct {
         return res.?;
     }
 
+    pub fn getMappedLocation(self: *LanguageService, fileName: []const u8, fileRange: ast.TextRange) lsproto.Location {
+        const startPos = self.tryGetSourcePosition(fileName, @as(isize, @intCast(fileRange.pos)));
+        if (startPos == null) {
+            const script = self.getScript(self.program.getFileId(fileName).?);
+            const lspRange = self.converters.toLSPRange(script, fileRange);
+            return lsproto.Location{
+                .uri = lsconv.fileNameToDocumentURI(self.allocator, fileName) catch @panic("OOM"),
+                .range = lspRange,
+            };
+        }
+        var endPos = self.tryGetSourcePosition(fileName, @as(isize, @intCast(fileRange.end)));
+        if (endPos == null or !std.mem.eql(u8, endPos.?.fileName, startPos.?.fileName) or endPos.?.pos < startPos.?.pos) {
+            endPos = sourcemap.source_mapper.DocumentPosition{
+                .fileName = startPos.?.fileName,
+                .pos = startPos.?.pos + @as(isize, @intCast(fileRange.end - fileRange.pos)),
+            };
+        }
+        const newRange = ast.TextRange{ .pos = @intCast(startPos.?.pos), .end = @intCast(endPos.?.pos) };
+        const script = self.getScript(self.program.getFileId(startPos.?.fileName).?);
+        const lspRange = self.converters.toLSPRange(script, newRange);
+        return lsproto.Location{
+            .uri = lsconv.fileNameToDocumentURI(self.allocator, startPos.?.fileName) catch @panic("OOM"),
+            .range = lspRange,
+        };
+    }
+
+    pub fn tryGetSourcePosition(self: *LanguageService, fileName: []const u8, position: isize) ?sourcemap.source_mapper.DocumentPosition {
+        const newPos = self.tryGetSourcePositionWorker(fileName, position);
+        if (newPos) |pos| {
+            if (self.readFile(pos.fileName) == null) {
+                return null;
+            }
+        }
+        return newPos;
+    }
+
+    pub fn tryGetSourcePositionWorker(self: *LanguageService, fileName: []const u8, position: isize) ?sourcemap.source_mapper.DocumentPosition {
+        if (!tspath.isDeclarationFileName(fileName)) {
+            return null;
+        }
+
+        const positionMapper = self.getDocumentPositionMapper(fileName);
+        const posToQuery = sourcemap.source_mapper.DocumentPosition{ .fileName = fileName, .pos = position };
+        const documentPos = positionMapper.getSourcePosition(&posToQuery) orelse return null;
+        if (self.tryGetSourcePositionWorker(documentPos.fileName, documentPos.pos)) |newPos| {
+            return newPos;
+        }
+        return documentPos;
+    }
+
+
     pub fn getDocumentPositionMapper(self: *LanguageService, fileName: []const u8) *sourcemap.DocumentPositionMapper {
         if (self.documentPositionMappers.get(fileName)) |d| {
             return d;
@@ -304,7 +355,7 @@ pub const LanguageService = struct {
         self: *LanguageService,
         allocator: std.mem.Allocator,
         params: *lsproto.CodeActionParams,
-    ) !?[]lsproto.CodeAction {
+    ) !?[]lsproto.CommandOrCodeAction {
         return codeactions.getCodeActions(self, allocator, params);
     }
 
@@ -395,7 +446,7 @@ pub const LanguageService = struct {
         self: *LanguageService,
         allocator: std.mem.Allocator,
         documentURI: lsproto.DocumentUri,
-    ) !?[]lsproto.DocumentSymbol {
+    ) !?lsproto.DocumentSymbolResponse {
         return symbols.provideDocumentSymbols(self, allocator, documentURI);
     }
 

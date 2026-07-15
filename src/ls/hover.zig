@@ -54,9 +54,42 @@ pub const SymbolDisplayInfo = struct {
 /// Port of LanguageService.ProvideHover.
 /// Returns hover information for the symbol at the given position.
 pub fn getMeaningFromLocation(tree: *ast.Ast, node: ast.NodeIndex) u32 {
-    _ = tree;
-    _ = node;
-    return symbol_mod.SymbolFlags.Value | symbol_mod.SymbolFlags.Type | symbol_mod.SymbolFlags.Namespace;
+    const parent = tree.getNodeParent(node);
+    if (tree.getNodeKind(node) == .SourceFile) return SemanticMeaning.Value;
+    
+    if (parent != 0) {
+        const pk = tree.getNodeKind(parent);
+        if (pk == .ExportAssignment or pk == .ExportSpecifier or pk == .ExternalModuleReference or
+            pk == .ImportSpecifier or pk == .ImportClause) {
+            return SemanticMeaning.All;
+        }
+        if (pk == .ImportEqualsDeclaration) {
+            const importEquals = tree.getNode(parent).ImportEqualsDeclaration;
+            if (importEquals.name == node) {
+                return SemanticMeaning.All;
+            }
+        }
+    }
+    
+    const isTypeRef = blk: {
+        var curr = node;
+        const p = tree.getNodeParent(curr);
+        if (p != 0) {
+            const pk = tree.getNodeKind(p);
+            if (pk == .PropertyAccessExpression) {
+                const pae = tree.getNode(p).PropertyAccessExpression;
+                if (pae.name == curr) curr = p;
+            } else if (pk == .QualifiedName) {
+                const qn = tree.getNode(p).QualifiedName;
+                if (qn.Right == curr) curr = p;
+            }
+        }
+        const currP = tree.getNodeParent(curr);
+        break :blk (currP != 0 and tree.getNodeKind(currP) == .TypeReference);
+    };
+    if (isTypeRef) return SemanticMeaning.Type;
+    
+    return SemanticMeaning.Value | SemanticMeaning.Type | SemanticMeaning.Namespace;
 }
 
 pub const VerbosityContext = struct {
@@ -145,73 +178,99 @@ pub fn getQuickInfoAndDocumentationForSymbol(
         return .{ .quickInfo = "", .documentation = "" };
     }
 
-    const doc1 = documentationFromSignature(ls, chk, symbol, getCallOrNewExpression(tree, node), node, contentFormat, false);
+    const doc1 = documentationFromSignature(ls, chk, file, symbol, getCallOrNewExpression(tree, node), node, contentFormat, false);
     if (doc1.len != 0) {
         return .{ .quickInfo = quickInfo, .documentation = doc1 };
     }
 
-    const doc2 = getDocumentationFromDeclaration(ls, chk, symbol, info.declaration, node, contentFormat, false);
+    const doc2 = getDocumentationFromDeclaration(ls, chk, file, symbol, info.declaration, node, contentFormat, false);
     if (doc2.len != 0) {
         return .{ .quickInfo = quickInfo, .documentation = doc2 };
     }
 
-    const doc3 = documentationFromAlias(ls, chk, symbol, node, contentFormat);
+    const doc3 = documentationFromAlias(ls, chk, file, symbol, node, contentFormat);
     return .{ .quickInfo = quickInfo, .documentation = doc3 };
 }
 
 pub fn documentationFromSignature(
     ls: *languageservice.LanguageService,
     chk: *checker.Checker,
+    file: compiler.FileId,
     symbol: ast_gen.SymbolIndex,
     node: ast.NodeIndex,
     location: ast.NodeIndex,
     contentFormat: u32,
     commentOnly: bool,
 ) []const u8 {
-    _ = ls;
-    _ = chk;
-    _ = symbol;
-    _ = node;
-    _ = location;
-    _ = contentFormat;
-    _ = commentOnly;
-    // Stub
+    if (node == 0) return "";
+    const signature = chk.getResolvedSignature(node, null, .Normal);
+    if (signature == 0) return "";
+    const declaration = chk.signatures.items[signature].declaration;
+    if (declaration == 0) return "";
+    
+    const tree = ls.getAst(file);
+    const kind = tree.getNodeKind(declaration);
+    if (kind == .CallSignature or kind == .ConstructSignature) {
+        return getDocumentationFromDeclaration(ls, chk, file, symbol, declaration, location, contentFormat, commentOnly);
+    }
     return "";
 }
 
 pub fn documentationFromAlias(
     ls: *languageservice.LanguageService,
     chk: *checker.Checker,
+    file: compiler.FileId,
     symbol: ast_gen.SymbolIndex,
     node: ast.NodeIndex,
     contentFormat: u32,
 ) []const u8 {
-    _ = ls;
-    _ = chk;
-    _ = symbol;
-    _ = node;
-    _ = contentFormat;
-    // Stub
+    if (symbol == 0 or (chk.binder.symbols.items[symbol].Flags & symbol_mod.SymbolFlags.Alias) == 0) return "";
+    
+    const aliasedSymbol = chk.getAliasedSymbol(symbol);
+    if (aliasedSymbol == 0 or aliasedSymbol == chk.unknownSymbol) return "";
+    
+    var candidates = std.ArrayListUnmanaged(ast_gen.SymbolIndex).empty;
+    defer candidates.deinit(chk.allocator);
+    candidates.append(chk.allocator, aliasedSymbol) catch {};
+    
+    if (chk.binder.symbols.items[aliasedSymbol].ExportSymbol) |es| {
+        candidates.append(chk.allocator, es) catch {};
+    }
+    
+    for (candidates.items) |candidate| {
+        const sym = chk.binder.symbols.items[candidate];
+        const aliasedDeclaration = sym.ValueDeclaration orelse (if (sym.Declarations.items.len > 0) sym.Declarations.items[0] else 0);
+        if (aliasedDeclaration == 0) continue;
+        const doc = getDocumentationFromDeclaration(ls, chk, file, candidate, aliasedDeclaration, node, contentFormat, false);
+        if (doc.len > 0) return doc;
+    }
     return "";
 }
 
 pub fn getDocumentationFromDeclaration(
     ls: *languageservice.LanguageService,
     chk: *checker.Checker,
+    file: compiler.FileId,
     symbol: ast_gen.SymbolIndex,
     declaration: ast.NodeIndex,
     location: ast.NodeIndex,
     contentFormat: u32,
     commentOnly: bool,
 ) []const u8 {
-    _ = ls;
-    _ = chk;
     _ = symbol;
-    _ = declaration;
     _ = location;
     _ = contentFormat;
     _ = commentOnly;
-    // Stub
+    _ = chk;
+    if (declaration == 0) return "";
+    
+    const tree = ls.getAst(file);
+    const jsDocs = @import("../ast/ast_utils.zig").getJSDoc(tree, declaration);
+    if (jsDocs.len > 0) {
+        const docNode = jsDocs[0];
+        const text = @import("../ast/ast_utils.zig").getTextOfNode(tree, docNode);
+        return text; // Simplification: return raw JSDoc text.
+    }
     return "";
 }
 
@@ -230,10 +289,10 @@ pub fn getQuickInfoAndDeclarationAtLocation(
     _ = vc;
     const tree = ls.getAst(file);
     
-    // For now, minimal port of display parts writer interaction
     const dpw = chk.allocator.create(displaypartswriter.DisplayPartsWriter) catch unreachable;
     dpw.* = displaypartswriter.DisplayPartsWriter.init(chk.allocator, false);
 
+    var declaration: ast.NodeIndex = 0;
     if (symbol != 0) {
         const t = chk.getTypeOfSymbol(symbol) catch (chk.errorTypeIndex orelse 0);
         const typeStr = chk.typeToString(t, node, 0, null);
@@ -243,6 +302,9 @@ pub fn getQuickInfoAndDeclarationAtLocation(
         dpw.write(": ");
         dpw.write(typeStr);
         dpw.write("\n```");
+        
+        const sym = chk.binder.symbols.items[symbol];
+        declaration = sym.ValueDeclaration orelse (if (sym.Declarations.items.len > 0) sym.Declarations.items[0] else 0);
     } else {
         const t = chk.checkExpressionAdHoc(node) catch (chk.errorTypeIndex orelse 0);
         const typeStr = chk.typeToString(t, node, 0, null);
@@ -253,7 +315,7 @@ pub fn getQuickInfoAndDeclarationAtLocation(
 
     return .{
         .displayParts = dpw,
-        .declaration = 0, // Stub
+        .declaration = declaration,
     };
 }
 
@@ -407,13 +469,15 @@ fn formatQuickInfo(allocator: std.mem.Allocator, quickInfo: []const u8) []const 
     return std.fmt.allocPrint(allocator, "```typescript\n{s}\n```\n", .{quickInfo}) catch quickInfo;
 }
 
-/// Check if position is inside a comment.
-pub fn isInComment(ls: *languageservice.LanguageService, file: compiler.FileId, position: u32, node: ast.NodeIndex) ?void {
-    _ = ls;
-    _ = file;
-    _ = position;
-    _ = node;
-    return null; // Not yet implemented
+// Use the getCallOrNewExpression from later in the file.
+
+pub fn isInComment(ls_srv: *languageservice.LanguageService, file: compiler.FileId, position: u32, node: ast.NodeIndex) ?void {
+    const tree = ls_srv.getAst(file);
+    const sourceFile = ls_srv.getSourceFileNode(file);
+    const precedingToken = @import("../astnav/tokens.zig").findPrecedingToken(sourceFile, tree, position);
+    const commentRange = @import("format.zig").getRangeOfEnclosingComment(ls_srv, file, position, precedingToken, node);
+    if (commentRange) |_| return {};
+    return null;
 }
 
 /// Get the node to use for quick info — may expand to parent node.

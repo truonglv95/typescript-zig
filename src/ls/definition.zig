@@ -28,7 +28,7 @@ pub fn provideDefinitionWorker(
     documentURI: lsproto.DocumentUri,
     position: lsproto.Position,
 ) !lsproto.DefinitionResponse {
-    const caps = lsproto.getClientCapabilities(); // stub
+    const caps = lsproto.getClientCapabilities();
     const clientSupportsLink = caps.textDocument.definition.linkSupport;
 
     const programAndFile = ls.tryGetProgramAndFile(documentURI.fileName()) orelse return lsproto.DefinitionResponse{ .LocationOrLocationsOrDefinitionLinksOrNull = .{ .locations = null } };
@@ -74,7 +74,7 @@ pub fn provideTypeDefinition(
     position: lsproto.Position,
 ) !lsproto.TypeDefinitionResponse {
     _ = allocator;
-    const caps = lsproto.getClientCapabilities(); // stub
+    const caps = lsproto.getClientCapabilities();
     const clientSupportsLink = caps.textDocument.typeDefinition.linkSupport;
 
     const programAndFile = ls.tryGetProgramAndFile(documentURI.fileName()) orelse return lsproto.TypeDefinitionResponse{ .LocationOrLocationsOrDefinitionLinksOrNull = .{ .locations = null } };
@@ -144,11 +144,28 @@ fn getDeclarationNameForKeyword(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeInd
     return node;
 }
 
-fn getDeclarationsFromType(chk: *checker.Checker, t: *checker.Type, declarations: *std.ArrayList(ast.NodeIndex)) !void {
-    _ = chk;
-    _ = t;
-    _ = declarations;
-    // Stub
+fn getDeclarationsFromType(chk: *checker.Checker, t: checker.types.TypeIndex, declarations: *std.ArrayListUnmanaged(ast.NodeIndex)) !void {
+    const distTypes = chk.distributedTypes(t);
+    for (distTypes) |distTypeIndex| {
+        const distType = chk.typesList.items[distTypeIndex];
+        if (distType.symbol) |symbolIndex| {
+            if (symbolIndex != 0) {
+                const sym = chk.binder.symbols.items[symbolIndex];
+                for (sym.Declarations.items) |decl| {
+                    var found = false;
+                    for (declarations.items) |existing| {
+                        if (existing == decl) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        try declarations.append(chk.allocator, decl);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn createDefinitionLocations(

@@ -5,6 +5,7 @@ const checker = @import("../checker/checker.zig");
 const compiler = @import("../compiler/program.zig");
 const languageservice = @import("languageservice.zig");
 const lsproto = @import("../lsp/lsproto/lsproto.zig");
+const types = @import("../checker/types.zig");
 
 const findallreferences = @import("findallreferences.zig");
 
@@ -93,9 +94,28 @@ pub fn getRenameInfoForNode(
 
     if (symbolIndex == 0) {
         if (ast_utils.isStringLiteralLike(&program.ast, node)) {
-            // Contextual string literal types check stub
-            const text = ast_utils.getTextOfNode(&program.ast, node);
-            return getRenameInfoSuccess(ls, &program.ast, node, sourceFile, text);
+            const typ = findallreferences.getContextualTypeFromParentOrAncestorTypeNode(ls, node, &chk);
+            var isValid = false;
+            if (typ != 0) {
+                if (types.isStringLiteral(&chk, typ)) {
+                    isValid = true;
+                } else if (types.isUnion(&chk, typ)) {
+                    const unionTypes = types.types(&chk, typ);
+                    if (unionTypes.len > 0) {
+                        isValid = true;
+                        for (unionTypes) |child| {
+                            if (!types.isStringLiteral(&chk, child)) {
+                                isValid = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (isValid) {
+                const text = ast_utils.getTextOfNode(&program.ast, node);
+                return getRenameInfoSuccess(ls, &program.ast, node, sourceFile, text);
+            }
         } else if (ast_utils.isLabelName(&program.ast, node)) {
             const name = ast_utils.getTextOfNode(&program.ast, node);
             return getRenameInfoSuccess(ls, &program.ast, node, sourceFile, name);

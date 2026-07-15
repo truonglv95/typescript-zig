@@ -3248,3 +3248,141 @@ pub fn isCompoundAssignment(token: kind.Kind) bool {
         else => false,
     };
 }
+
+pub fn tryGetImportFromModuleSpecifier(tree: *ast.Ast, node: ast_gen.NodeIndex) ?ast_gen.NodeIndex {
+    switch (tree.getKind(node)) {
+        .ImportEqualsDeclaration, .ImportDeclaration, .ExportDeclaration, .ImportType => {
+            return node;
+        },
+        else => return null,
+    }
+}
+
+pub fn importFromModuleSpecifier(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    if (tryGetImportFromModuleSpecifier(tree, node)) |result| {
+        return result;
+    }
+    return 0;
+}
+
+pub fn isImportEqualsDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .ImportEqualsDeclaration;
+}
+
+pub fn isModuleBlock(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .ModuleBlock;
+}
+
+pub fn isImportTypeNode(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .ImportType;
+}
+
+pub fn isNamespaceImport(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .NamespaceImport;
+}
+
+pub fn isDefaultImport(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    switch (tree.getKind(node)) {
+        .ImportDeclaration, .JSImportDeclaration => {
+            const decl = tree.getNode(node).ImportDeclaration;
+            if (decl.importClause != 0) {
+                return tree.getNode(decl.importClause).ImportClause.name != 0;
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
+pub fn isNamespaceExport(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .NamespaceExport;
+}
+
+pub fn isNamedExports(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .NamedExports;
+}
+
+pub fn isImplicitlyExportedJSDocDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const parent = tree.getNodeParent(node);
+    if (!isSourceFile(tree, parent) or !isExternalOrCommonJSModule(tree, parent)) {
+        return false;
+    }
+    return true;
+}
+
+pub fn isJSDocTypedefTag(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .JSDocTypedefTag;
+}
+
+pub fn isJSDocCallbackTag(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .JSDocCallbackTag;
+}
+
+pub fn isCatchClause(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .CatchClause;
+}
+
+pub fn walkUpBindingElementsAndPatterns(tree: *ast.Ast, binding: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    var node = tree.getNodeParent(binding);
+    while (tree.getKind(tree.getNodeParent(node)) == .BindingElement) {
+        node = tree.getNodeParent(tree.getNodeParent(node));
+    }
+    return node;
+}
+
+pub fn isImportSpecifier(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .ImportSpecifier;
+}
+
+pub fn isImportClause(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return tree.getKind(node) == .ImportClause;
+}
+
+pub fn isVariableDeclarationInitializedToBareOrAccessedRequire(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return isVariableDeclarationInitializedWithRequireHelper(tree, node, true);
+}
+
+pub fn isVariableDeclarationInitializedWithRequireHelper(tree: *ast.Ast, node: ast_gen.NodeIndex, allowAccessedRequire: bool) bool {
+    _ = allowAccessedRequire;
+    if (tree.getKind(node) == .VariableDeclaration) {
+        const init = tree.getNode(node).VariableDeclaration.initializer;
+        if (init != 0 and tree.getKind(init) == .CallExpression) {
+            const expr = tree.getNode(init).CallExpression.expression;
+            if (tree.getKind(expr) == .Identifier) {
+                return true; 
+            }
+        }
+    }
+    return false;
+}
+
+pub fn isModuleExportsAccessExpression(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (isAccessExpression(tree, node)) {
+        return true;
+    }
+    return false;
+}
+
+pub fn getEnclosingBlockScopeContainer(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    return findAncestor(tree, node, struct {
+        fn check(t: *ast.Ast, n: ast_gen.NodeIndex) bool {
+            const k = t.getKind(n);
+            return isClassLike(t, n) or isFunctionLike(t, n) or k == .ModuleDeclaration or k == .SourceFile or k == .Block or k == .CatchClause or k == .ForStatement or k == .ForInStatement or k == .ForOfStatement;
+        }
+    }.check);
+}
+
+pub fn hasUMDExport(tree: *ast.Ast, sourceFile: ast_gen.NodeIndex) bool {
+    const stmts = tree.getAstNode(sourceFile).source_file.statements;
+    for (stmts) |stmt| {
+        if (tree.getKind(stmt) == .ExportAssignment) {
+            if (tree.getAstNode(stmt).export_assignment.is_export_equals) return true;
+        }
+    }
+    return false;
+}
+
+pub fn isJSDocNode(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    const kind_ = tree.getKind(node);
+    return @intFromEnum(kind_) >= @intFromEnum(ast.Kind.FirstJSDocNode) and @intFromEnum(kind_) <= @intFromEnum(ast.Kind.LastJSDocNode);
+}
