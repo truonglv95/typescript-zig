@@ -12207,9 +12207,19 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::checkAndReportErrorForExtendingInterface`.
+    /// Returns true if `errorLocation` is an `extends` clause that
+    /// references an interface (should be `implements` instead).
     pub fn checkAndReportErrorForExtendingInterface(c: *Checker, errorLocation: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = errorLocation;
+        const expression = c.getEntityNameForExtendingInterface(errorLocation);
+        if (expression != 0) {
+            const resolved = c.resolveEntityName(expression, symbol.SymbolFlags.Interface, true, false, null);
+            if (resolved != 0) {
+                const text = ast_utils.getTextOfNode(c.binder.ast, expression);
+                c.reportErrorWithArgs(errorLocation, &diagnostics_gen.Cannot_extend_an_interface_0_Did_you_mean_implements, &.{text});
+                return true;
+            }
+        }
         return false;
     }
 
