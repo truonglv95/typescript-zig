@@ -259,7 +259,7 @@ pub const compilerTest = struct {
     hasNonDtsFiles: bool,
 
     pub fn verifyDiagnostics(self: *compilerTest, suiteName: []const u8, isSubmodule: bool) !void {
-        const files = try core.Concatenate(self.allocator, self.tsConfigFiles, try core.Concatenate(self.allocator, self.toBeCompiled, self.otherFiles));
+        const files = try core.Concatenate(*harnessutil.TestFile, self.allocator, self.tsConfigFiles, try core.Concatenate(*harnessutil.TestFile, self.allocator, self.toBeCompiled, self.otherFiles));
         try tsbaseline.DoErrorBaseline(self.allocator, self.configuredName, files, self.result.Diagnostics, self.options.pretty orelse false, .{
             .Subfolder = suiteName,
             .IsSubmodule = isSubmodule,
@@ -339,7 +339,7 @@ pub const compilerTest = struct {
         const program: *MockProgram = @ptrCast(@alignCast(self.result.Program));
         var allFiles = std.ArrayList(*harnessutil.TestFile).empty;
         defer allFiles.deinit(self.allocator);
-        for (try core.Concatenate(self.allocator, self.toBeCompiled, self.otherFiles)) |f| {
+        for (try core.Concatenate(*harnessutil.TestFile, self.allocator, self.toBeCompiled, self.otherFiles)) |f| {
             if (program.GetSourceFile(f.UnitName) != null) {
                 try allFiles.append(self.allocator, f);
             }

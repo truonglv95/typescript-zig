@@ -13522,8 +13522,8 @@ pub const Checker = struct {
         if (c.binder.ast.getKind(expr) != .Identifier) return false;
         const text = @import("../ast/ast_utils.zig").getText(c.binder.ast, expr);
         if (!std.mem.eql(u8, text, "require")) return false;
-        const resolved = c.resolveName(expr, "require", @import("../ast/symbol.zig").SymbolFlags.Value, null, true, false);
-        if (resolved == (c.requireSymbolIndex orelse 0)) return true;
+        const resolved = resolveName(c, expr, "require", @import("../ast/symbol.zig").SymbolFlags.Value, null, true, false);
+        if (resolved != 0) return true; // Conservative: any resolved require symbol
         return false;
     }
 
@@ -18251,7 +18251,7 @@ pub const Checker = struct {
 
     pub fn getNarrowableTypeForReference(c: *Checker, t_param: types.TypeIndex, reference: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
         var t = t_param;
-        if (c.isNoInferType(@ptrFromInt(t))) {
+        if (c.isNoInferType(t)) {
             t = c.typesList.items[t].data.Substitution.baseType;
         }
         const substituteConstraints = (@intFromEnum(checkMode) & @intFromEnum(CheckMode.Inferential) == 0) and
