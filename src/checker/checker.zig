@@ -12252,11 +12252,14 @@ pub const Checker = struct {
         _ = isUncheckedJS;
     }
 
-    pub fn getSuggestedLibForNonExistentProperty(c: *Checker, missingProperty: ast_gen.NodeIndex, containingType: types.TypeIndex) types.TypeIndex {
+    /// Port of `checker.go::getSuggestedLibForNonExistentProperty`.
+    /// Returns a suggested lib file name for a missing property.
+    /// Without `getFeatureMap`, returns an empty string.
+    pub fn getSuggestedLibForNonExistentProperty(c: *Checker, missingProperty: ast_gen.NodeIndex, containingType: types.TypeIndex) []const u8 {
         _ = c;
         _ = missingProperty;
         _ = containingType;
-        return 0;
+        return "";
     }
 
     /// Port of `checker.go::getSuggestedSymbolForNonexistentProperty`.
@@ -12287,12 +12290,18 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::isValidPropertyAccessForCompletions`. Returns
+    /// true if `property` is accessible from `node` (delegates to
+    /// `isPropertyAccessible` with isSuper based on `super.` expression).
     pub fn isValidPropertyAccessForCompletions(c: *Checker, node: ast_gen.NodeIndex, t: types.TypeIndex, property: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = node;
-        _ = t;
-        _ = property;
-        return false;
+        var is_super = false;
+        if (node != 0 and c.binder.ast.getKind(node) == .PropertyAccessExpression) {
+            const expr = c.binder.ast.getNode(node).PropertyAccessExpression.Expression;
+            if (expr != 0 and c.binder.ast.getKind(expr) == .SuperKeyword) {
+                is_super = true;
+            }
+        }
+        return c.isPropertyAccessible(node, is_super, false, t, property);
     }
 
     /// Port of `checker.go::isPropertyAccessible`. Returns true if the
