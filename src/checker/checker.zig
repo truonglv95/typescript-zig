@@ -8435,10 +8435,16 @@ pub const Checker = struct {
         return init_node != null;
     }
 
-    pub fn superCallIsRootLevelInConstructor(superCall: *anyopaque, body: *anyopaque) bool {
-        _ = superCall;
-        _ = body;
-        return false;
+    pub fn superCallIsRootLevelInConstructor(c: *Checker, superCall: ast_gen.NodeIndex, body: ast_gen.NodeIndex) bool {
+        // Go: superCallParent := ast.WalkUpParenthesizedExpressions(superCall.Parent)
+        //     return ast.IsExpressionStatement(superCallParent) && superCallParent.Parent == body
+        var current = c.binder.ast.getNodeParent(superCall);
+        while (current != 0 and c.binder.ast.getKind(current) == .ParenthesizedExpression) {
+            current = c.binder.ast.getNodeParent(current);
+        }
+        if (current == 0) return false;
+        if (c.binder.ast.getKind(current) != .ExpressionStatement) return false;
+        return c.binder.ast.getNodeParent(current) == body;
     }
 
     pub fn nodeImmediatelyReferencesSuperOrThis(c: *Checker, node: ast_gen.NodeIndex) bool {
@@ -9653,9 +9659,11 @@ pub const Checker = struct {
         _ = potentially_unused_identifiers;
     }
 
-    pub fn isReferenced_stub(c: *Checker, symbol_: *anyopaque) bool {
-        _ = c;
-        _ = symbol_;
+    pub fn isReferenced_stub(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        // Go: return c.symbolReferenceLinks.Get(symbol).referenceKinds != 0
+        if (c.symbolReferenceLinks.get(symbol_)) |links| {
+            return links.referenceKinds != 0;
+        }
         return false;
     }
 
@@ -9945,9 +9953,12 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn hasTypeParameterByName(typeParameters: *anyopaque, name_: *anyopaque) bool {
-        _ = typeParameters;
-        _ = name_;
+    pub fn hasTypeParameterByName(c: *Checker, typeParameters: []const types.TypeIndex, name_: []const u8) bool {
+        // Go: return core.Some(typeParameters, func(tp *Type) bool { return tp.symbol.Name == name })
+        for (typeParameters) |tp| {
+            const sym_idx = c.typesList.items[tp].symbol orelse continue;
+            if (std.mem.eql(u8, c.binder.symbols.items[sym_idx].Name, name_)) return true;
+        }
         return false;
     }
 
@@ -9964,9 +9975,17 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isTemplateLiteralContext(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
+    pub fn isTemplateLiteralContext(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: parent := node.Parent
+        //   return ast.IsParenthesizedExpression(parent) && c.isTemplateLiteralContext(parent) ||
+        //     ast.IsElementAccessExpression(parent) && parent.AsElementAccessExpression().ArgumentExpression == node
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return false;
+        const pk = c.binder.ast.getKind(parent);
+        if (pk == .ParenthesizedExpression) return isTemplateLiteralContext(c, parent);
+        if (pk == .ElementAccessExpression) {
+            return c.binder.ast.getNode(parent).ElementAccessExpression.ArgumentExpression == node;
+        }
         return false;
     }
 
@@ -12508,9 +12527,17 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getModuleSpecifierFromNode(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
+    pub fn getModuleSpecifierFromNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: switch node.Kind {
+        //   case KindImportDeclaration, KindJSImportDeclaration: return node.ModuleSpecifier()
+        //   case KindExportDeclaration: return node.ModuleSpecifier()
+        // }
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .ImportDeclaration, .JSImportDeclaration => return c.binder.ast.getNode(node).ImportDeclaration.ModuleSpecifier,
+            .ExportDeclaration => return c.binder.ast.getNode(node).ExportDeclaration.ModuleSpecifier orelse 0,
+            else => return 0,
+        }
     }
 
     pub fn markSymbolOfAliasDeclarationIfTypeOnly(c: *Checker, aliasDeclaration: *anyopaque, exportStarDeclaration: *anyopaque) bool {
@@ -13934,9 +13961,20 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getEffectiveSetAccessorTypeAnnotationNode(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
+    pub fn getEffectiveSetAccessorTypeAnnotationNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: param := GetSetAccessorValueParameter(node)
+        //   if param != nil { return param.Type() }
+        //   return nil
+        // GetSetAccessorValueParameter: get Parameters[0] (or Parameters[1] if first is this)
+        const params_list = c.binder.ast.getNode(node).SetAccessor.Parameters;
+        const params = c.binder.ast.getNodeList(params_list);
+        if (params.len == 0) return 0;
+        var value_idx = params[0];
+        if (params.len == 2 and ast_utils.isThisParameter(c.binder.ast, params[0])) {
+            value_idx = params[1];
+        }
+        if (value_idx == 0) return 0;
+        return c.binder.ast.getNode(value_idx).Parameter.Type orelse 0;
     }
 
     /// Port of `checker.go::getReturnTypeFromBody`. Infers the return type
@@ -16050,9 +16088,25 @@ pub const Checker = struct {
         return c.binder.ast.getNode(param).Parameter.DotDotDotToken != null;
     }
 
-    pub fn getNameFromIndexInfo(info: *anyopaque) *anyopaque {
-        _ = info;
-        return undefined;
+    pub fn getNameFromIndexInfo(c: *Checker, info: *const types.IndexInfo) []const u8 {
+        // Go: if info.declaration != nil {
+        //   return scanner.DeclarationNameToString(info.declaration.Parameters()[0].Name())
+        // }
+        // return "x"
+        if (info.declaration) |decl| {
+            if (decl != 0) {
+                const params_list = c.binder.ast.getNode(decl).IndexSignature.Parameters;
+                const params = c.binder.ast.getNodeList(params_list);
+                if (params.len > 0 and params[0] != 0) {
+                    const name_node = c.binder.ast.getNode(params[0]).Parameter.name;
+                    if (name_node != 0) {
+                        const id_node = c.binder.ast.getNode(name_node);
+                        if (id_node == .Identifier) return id_node.Identifier.Text;
+                    }
+                }
+            }
+        }
+        return "x";
     }
 
     pub fn isUnknownLikeUnionType(c: *Checker, t: *anyopaque) bool {
