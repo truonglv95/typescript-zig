@@ -2764,9 +2764,10 @@ pub const Checker = struct {
     }
 
     pub fn hasNonCircularBaseConstraint(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false; // Skipped
+        // Go: return c.getResolvedBaseConstraint(t, nil) != c.circularConstraintType
+        // Simplified: use getBaseConstraintOfType instead of getResolvedBaseConstraint.
+        const constraint = c.getBaseConstraintOfType(t);
+        return constraint != (c.circularConstraintTypeIndex orelse 0);
     }
 
     pub fn getConstraintOfDistributiveConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -9152,10 +9153,13 @@ pub const Checker = struct {
     }
 
     pub fn isPropertyIdenticalTo(c: *Checker, sourceProp: ast_gen.SymbolIndex, targetProp: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = sourceProp;
-        _ = targetProp;
-        return false;
+        // Go: return c.compareProperties(sourceProp, targetProp, c.compareTypesIdentical) != TernaryFalse
+        // Simplified: compareProperties is still a stub; check if same symbol.
+        if (sourceProp == targetProp) return true;
+        // Conservative: compare Flags.
+        const src_flags = c.binder.symbols.items[sourceProp].Flags;
+        const tgt_flags = c.binder.symbols.items[targetProp].Flags;
+        return src_flags == tgt_flags;
     }
 
     pub fn isInstantiatedModule(c: *Checker, node: ast_gen.NodeIndex, preserveConstEnums: bool) bool {
