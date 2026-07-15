@@ -11262,9 +11262,12 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn containerSeemsToBeEmptyDomElement(c: *Checker, containingType: *anyopaque) bool {
-        _ = c;
+    pub fn containerSeemsToBeEmptyDomElement(c: *Checker, containingType: types.TypeIndex) bool {
+        // Go: return !slices.Contains(c.compilerOptions.Lib, "lib.dom.d.ts") &&
+        //   everyContainedType(containingType, hasCommonDomTypeName) && c.isEmptyObjectType(containingType)
+        // Simplified: everyContainedType not yet wired; conservative false.
         _ = containingType;
+        _ = c;
         return false;
     }
 
@@ -11289,10 +11292,27 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getEntityNameForExtendingInterface(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getEntityNameForExtendingInterface(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: switch node.Kind {
+        //   case KindIdentifier, KindPropertyAccessExpression:
+        //     if node.Parent != nil { return c.getEntityNameForExtendingInterface(node.Parent) }
+        //   case KindExpressionWithTypeArguments:
+        //     if ast.IsEntityNameExpression(node.Expression()) { return node.Expression() }
+        // }
+        // return nil
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .Identifier, .PropertyAccessExpression => {
+                const parent = c.binder.ast.getNodeParent(node);
+                if (parent != 0) return getEntityNameForExtendingInterface(c, parent);
+            },
+            .ExpressionWithTypeArguments => {
+                const expr = c.binder.ast.getNode(node).ExpressionWithTypeArguments.Expression;
+                if (expr != 0 and ast_utils.isEntityNameExpression(c.binder.ast, expr)) return expr;
+            },
+            else => {},
+        }
+        return 0;
     }
 
     pub fn isUncalledFunctionReference(c: *Checker, node: *anyopaque, symbol_: *anyopaque) bool {
