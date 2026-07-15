@@ -8221,10 +8221,21 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isSameScopeDescendentOf(initial: ast_gen.NodeIndex, parent: types.TypeIndex, stopAt: types.TypeIndex) bool {
-        _ = initial;
-        _ = parent;
-        _ = stopAt;
+    pub fn isSameScopeDescendentOf(c: *Checker, initial: ast_gen.NodeIndex, parent: ast_gen.NodeIndex, stopAt: ast_gen.NodeIndex) bool {
+        // Go: if parent == nil { return false }
+        //   for n := initial; n != nil; n = n.Parent {
+        //     if n == parent { return true }
+        //     if n == stopAt || ast.IsFunctionLike(n) && (GetImmediatelyInvokedFunctionExpression(n) == nil || FunctionFlagsAsyncGenerator) { return false }
+        //   }
+        //   return false
+        if (parent == 0) return false;
+        var n = initial;
+        while (n != 0) {
+            if (n == parent) return true;
+            if (n == stopAt) return false;
+            if (ast_utils.isFunctionLikeNode(c.binder.ast, n)) return false;
+            n = c.binder.ast.getNodeParent(n);
+        }
         return false;
     }
 
@@ -10618,10 +10629,19 @@ pub const Checker = struct {
     }
 
     pub fn getOptionalCallSignature(c: *Checker, signature: types.SignatureIndex, callChainFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = signature;
-        _ = callChainFlags;
-        return 0;
+        // Go: if signature.flags&SignatureFlagsCallChainFlags == callChainFlags { return signature }
+        //   key := CachedSignatureKey{sig: signature, key: ...}
+        //   if cached := c.cachedSignatures[key]; cached != nil { return cached }
+        //   result := c.cloneSignature(signature)
+        //   result.flags |= callChainFlags
+        //   c.cachedSignatures[key] = result
+        //   return result
+        // Simplified: cachedSignatures and cloneSignature not yet wired.
+        // Check if flags already match; if so, return same signature.
+        const sig = c.signatures.items[signature];
+        if ((sig.flags & types.SignatureFlags.CallChainFlags) == callChainFlags) return signature;
+        // Conservative: return signature unchanged (cloneSignature not yet wired).
+        return signature;
     }
 
     pub fn chooseOverload(c: *Checker, s: ast_gen.NodeIndex, relation: u32) types.TypeIndex {
