@@ -10577,17 +10577,43 @@ pub const Checker = struct {
     }
 
     pub fn getDecoratorArgumentCount(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex) i32 {
-        _ = c;
+        // Go: if c.compilerOptions.ExperimentalDecorators.IsTrue() { return c.getLegacyDecoratorArgumentCount(node, signature) }
+        //   return min(max(c.getParameterCount(signature), 1), 2)
+        // Simplified: ExperimentalDecorators not yet wired; use modern path.
+        const sig = c.signatures.items[signature];
+        const param_count: i32 = @intCast(sig.parametersLen);
+        const max_val: i32 = if (param_count > 1) param_count else 1;
+        const min_val: i32 = if (max_val < 2) max_val else 2;
         _ = node;
-        _ = signature;
-        return 0;
+        return min_val;
     }
 
     pub fn getLegacyDecoratorArgumentCount(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex) i32 {
-        _ = c;
-        _ = node;
-        _ = signature;
-        return 0;
+        // Go: switch node.Parent.Kind {
+        //   case KindClassDeclaration, KindClassExpression: return 1
+        //   case KindPropertyDeclaration:
+        //     if ast.HasAccessorModifier(node.Parent) { return 3 }
+        //     return 2
+        //   case KindMethodDeclaration, KindGetAccessor, KindSetAccessor:
+        //     if len(signature.parameters) <= 2 { return 2 }
+        //     return 3
+        //   case KindParameter: return 3
+        // }
+        // panic(...)
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 1;
+        const pk = c.binder.ast.getKind(parent);
+        switch (pk) {
+            .ClassDeclaration, .ClassExpression => return 1,
+            .PropertyDeclaration => return 2, // HasAccessorModifier not yet wired
+            .MethodDeclaration, .GetAccessor, .SetAccessor => {
+                const sig = c.signatures.items[signature];
+                if (sig.parametersLen <= 2) return 2;
+                return 3;
+            },
+            .Parameter => return 3,
+            else => return 1,
+        }
     }
 
     pub fn hasCorrectTypeArgumentArity(c: *Checker, signature: types.SignatureIndex, typeArguments: ast_gen.NodeIndex) bool {
