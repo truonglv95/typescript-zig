@@ -525,6 +525,12 @@ pub const ObjectTypeData = struct {
     finalArrayType: ?TypeIndex = null,
     instantiations: ?std.AutoHashMapUnmanaged(CacheHashKey, TypeIndex) = null,
     thisType: ?TypeIndex = null,
+    /// Resolved base types (for class/interface). Start index into
+    /// checker.baseTypesPool, or null if not resolved.
+    resolvedBaseTypesStart: ?u32 = null,
+    resolvedBaseTypesLen: u32 = 0,
+    /// Whether base type resolution has been attempted.
+    baseTypesResolved: bool = false,
 };
 
 pub const FunctionTypeData = struct {

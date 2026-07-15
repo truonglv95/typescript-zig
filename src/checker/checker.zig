@@ -234,6 +234,7 @@ pub const Checker = struct {
 
     unionTypesPool: std.ArrayListUnmanaged(types.TypeIndex),
     tupleTypesPool: std.ArrayListUnmanaged(types.TypeIndex),
+    baseTypesPool: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
     tupleTypes: std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex) = .empty,
     templateLiteralTypes: std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex) = .empty,
     typeArgumentsPool: std.ArrayListUnmanaged(types.TypeIndex) = .empty,
@@ -7630,12 +7631,13 @@ pub const Checker = struct {
         //     return false
         //   }
         //   return check(t)
-        // Simplified: getBaseTypes returns 0 (stub), so we can't recurse.
-        // Check direct identity and Intersection constituents.
         if (source == target) return true;
         const src = c.typesList.items[source];
         if ((src.objectFlags & (types.ObjectFlags.ClassOrInterface | types.ObjectFlags.Reference)) != 0) {
-            // getBaseTypes is still a stub returning 0; can't recurse.
+            const base_types = c.getBaseTypes(source);
+            for (base_types) |bt| {
+                if (bt == target or hasBaseType(c, bt, target)) return true;
+            }
             return false;
         }
         if ((src.flags & types.TypeFlags.Intersection) != 0) {
@@ -9261,12 +9263,7 @@ pub const Checker = struct {
 
     pub fn isPropertyIdenticalTo(c: *Checker, sourceProp: ast_gen.SymbolIndex, targetProp: ast_gen.SymbolIndex) bool {
         // Go: return c.compareProperties(sourceProp, targetProp, c.compareTypesIdentical) != TernaryFalse
-        // Simplified: compareProperties is still a stub; check if same symbol.
-        if (sourceProp == targetProp) return true;
-        // Conservative: compare Flags.
-        const src_flags = c.binder.symbols.items[sourceProp].Flags;
-        const tgt_flags = c.binder.symbols.items[targetProp].Flags;
-        return src_flags == tgt_flags;
+        return c.compareProperties(sourceProp, targetProp, .Identical) != .False;
     }
 
     pub fn isInstantiatedModule(c: *Checker, node: ast_gen.NodeIndex, preserveConstEnums: bool) bool {
@@ -10722,7 +10719,7 @@ pub const Checker = struct {
         return (c.signatures.items[s].flags & types.SignatureFlags.HasLiteralTypes) != 0;
     }
 
-    pub fn getOptionalCallSignature(c: *Checker, signature: types.SignatureIndex, callChainFlags: u32) types.TypeIndex {
+    pub fn getOptionalCallSignature(c: *Checker, signature: types.SignatureIndex, callChainFlags: u32) types.SignatureIndex {
         // Go: if signature.flags&SignatureFlagsCallChainFlags == callChainFlags { return signature }
         //   key := CachedSignatureKey{sig: signature, key: ...}
         //   if cached := c.cachedSignatures[key]; cached != nil { return cached }
@@ -10730,12 +10727,12 @@ pub const Checker = struct {
         //   result.flags |= callChainFlags
         //   c.cachedSignatures[key] = result
         //   return result
-        // Simplified: cachedSignatures and cloneSignature not yet wired.
-        // Check if flags already match; if so, return same signature.
         const sig = c.signatures.items[signature];
         if ((sig.flags & types.SignatureFlags.CallChainFlags) == callChainFlags) return signature;
-        // Conservative: return signature unchanged (cloneSignature not yet wired).
-        return signature;
+        // Clone signature and set call chain flags
+        const cloned = c.cloneSignature(signature);
+        c.signatures.items[cloned].flags |= callChainFlags;
+        return cloned;
     }
 
     pub fn chooseOverload(c: *Checker, s: ast_gen.NodeIndex, relation: u32) types.TypeIndex {
@@ -11613,10 +11610,12 @@ pub const Checker = struct {
         //     }
         //   }
         //   return nil
-        // Simplified: getBaseTypes not fully wired; conservative return 0.
-        _ = property;
-        _ = c;
-        return 0;
+        const class_type = c.getDeclaringClass(property);
+        if (class_type == 0) return 0;
+        const base_types = c.getBaseTypes(class_type);
+        if (base_types.len == 0) return 0;
+        const prop_name = c.binder.symbols.items[property].Name;
+        return c.getTypeOfPropertyOfType(base_types[0], prop_name);
     }
 
     pub fn isMethodAccessForCall(c: *Checker, node: ast_gen.NodeIndex) bool {
@@ -11772,9 +11771,20 @@ pub const Checker = struct {
         //   }
         // }
         // return false
-        // Simplified: getBaseTypes not fully wired; conservative false.
-        _ = prop;
-        _ = c;
+        const sym = c.binder.symbols.items[prop];
+        if (sym.Parent) |parent| {
+            const parent_flags = c.binder.symbols.items[parent].Flags;
+            if ((parent_flags & symbol.SymbolFlags.Class) != 0) {
+                const declared_type = c.getDeclaredTypeOfSymbol(parent);
+                const base_types = c.getBaseTypes(declared_type);
+                if (base_types.len > 0) {
+                    const prop_name = sym.Name;
+                    if (c.getPropertyOfType(base_types[0], prop_name)) |super_prop| {
+                        return c.binder.symbols.items[super_prop].ValueDeclaration != null;
+                    }
+                }
+            }
+        }
         return false;
     }
 
@@ -13304,18 +13314,21 @@ pub const Checker = struct {
         // Go: moduleSymbol := c.resolveExternalModuleName(node, getModuleSpecifierFromNode(node.Parent), false)
         //   if moduleSymbol != nil { return c.getTargetOfModuleDefault(moduleSymbol, node, true) }
         //   return nil
-        // Conservative: resolveExternalModuleName not yet wired; return 0.
-        _ = node;
-        _ = c;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        const module_specifier = getModuleSpecifierFromNode(c, parent);
+        if (module_specifier == 0) return 0;
+        const module_symbol = c.resolveExternalModuleName(node, module_specifier, false);
+        if (module_symbol != 0) {
+            return c.getTargetOfModuleDefault(module_symbol, node, true);
+        }
         return 0;
     }
 
-    pub fn getTargetOfModuleDefault(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, node: ast_gen.NodeIndex, dontResolveAlias: bool) types.TypeIndex {
-        _ = c;
-        _ = moduleSymbol;
-        _ = node;
-        _ = dontResolveAlias;
-        return 0;
+    pub fn getTargetOfModuleDefault(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, node: ast_gen.NodeIndex, dontResolveAlias: bool) ast_gen.SymbolIndex {
+        // Go: complex — checks file, specifier, moduleKind, resolveExportByName with Default/ModuleExports.
+        // Simplified: resolveExportByName with InternalSymbolNameDefault.
+        return c.resolveExportByName(moduleSymbol, symbol.InternalSymbolNameDefault, node, dontResolveAlias);
     }
 
     /// Port of checker.go::reportNonDefaultExport. Reports that a
@@ -13326,12 +13339,15 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn resolveExportByName(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, name_: ast_gen.NodeIndex, sourceNode: ast_gen.NodeIndex, dontResolveAlias: bool) types.TypeIndex {
-        _ = c;
-        _ = moduleSymbol;
-        _ = name_;
+    pub fn resolveExportByName(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, name_: []const u8, sourceNode: ast_gen.NodeIndex, dontResolveAlias: bool) ast_gen.SymbolIndex {
+        // Go: complex — resolveExport of module with name, checking exportEquals, etc.
+        // Simplified: look up in moduleSymbol.Exports by name.
         _ = sourceNode;
         _ = dontResolveAlias;
+        const sym = c.binder.symbols.items[moduleSymbol];
+        if (sym.Exports.get(name_)) |export_sym| {
+            return export_sym;
+        }
         return 0;
     }
 
@@ -13339,9 +13355,16 @@ pub const Checker = struct {
         // Go: moduleSymbol := c.resolveExternalModuleName(node, getModuleSpecifierFromNode(node.Parent.Parent), false)
         //   if moduleSymbol != nil { return c.resolveExternalModuleSymbol(moduleSymbol, true) }
         //   return nil
-        // Conservative: resolveExternalModuleName not yet wired; return 0.
-        _ = node;
-        _ = c;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        const grandparent = c.binder.ast.getNodeParent(parent);
+        if (grandparent == 0) return 0;
+        const module_specifier = getModuleSpecifierFromNode(c, grandparent);
+        if (module_specifier == 0) return 0;
+        const module_symbol = c.resolveExternalModuleName(node, module_specifier, false);
+        if (module_symbol != 0) {
+            return c.resolveExternalModuleSymbol(module_symbol, true);
+        }
         return 0;
     }
 
@@ -13349,9 +13372,14 @@ pub const Checker = struct {
         // Go: moduleSymbol := c.resolveExternalModuleName(node, getModuleSpecifierFromNode(node.Parent), false)
         //   if moduleSymbol != nil { return c.resolveExternalModuleSymbol(moduleSymbol, true) }
         //   return nil
-        // Conservative: resolveExternalModuleName not yet wired; return 0.
-        _ = node;
-        _ = c;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        const module_specifier = getModuleSpecifierFromNode(c, parent);
+        if (module_specifier == 0) return 0;
+        const module_symbol = c.resolveExternalModuleName(node, module_specifier, false);
+        if (module_symbol != 0) {
+            return c.resolveExternalModuleSymbol(module_symbol, true);
+        }
         return 0;
     }
 
@@ -13596,28 +13624,47 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn resolveExternalModuleName(c: *Checker, location: ast_gen.NodeIndex, moduleReferenceExpression: ast_gen.NodeIndex, ignoreErrors: bool) types.TypeIndex {
-        _ = c;
-        _ = location;
-        _ = moduleReferenceExpression;
-        _ = ignoreErrors;
-        return 0;
+    pub fn resolveExternalModuleName(c: *Checker, location: ast_gen.NodeIndex, moduleReferenceExpression: ast_gen.NodeIndex, ignoreErrors: bool) ast_gen.SymbolIndex {
+        // Go: errorMessage := c.getCannotResolveModuleNameErrorForSpecificModule(moduleReferenceExpression)
+        //   if errorMessage == nil { errorMessage = diagnostics.Cannot_find_module_0_or_its_corresponding_type_declarations }
+        //   ignoreErrors = ignoreErrors || c.compilerOptions.NoCheck.IsTrue()
+        //   return c.resolveExternalModuleNameWorker(location, moduleReferenceExpression, core.IfElse(ignoreErrors, nil, errorMessage), ignoreErrors, false)
+        // Simplified: delegate to resolveExternalModuleNameWorker with conservative params.
+        const err_msg: ?*const diagnostics_gen.Message = if (ignoreErrors) null else &diagnostics_gen.Cannot_find_module_0_or_its_corresponding_type_declarations;
+        return c.resolveExternalModuleNameWorker(location, moduleReferenceExpression, err_msg, ignoreErrors, false);
     }
 
-    pub fn getCannotResolveModuleNameErrorForSpecificModule(c: *Checker, moduleName: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = moduleName;
-        return 0;
+    pub fn getCannotResolveModuleNameErrorForSpecificModule(c: *Checker, moduleName: ast_gen.NodeIndex) ?*const diagnostics_gen.Message {
+        // Go: if ast.IsStringLiteral(moduleName) {
+        //   if core.NodeCoreModules()[moduleName.Text()] {
+        //     if c.compilerOptions.UsesWildcardTypes() { return diagnostics.Cannot_find_name_0_Do_you_need_to_install_type_definitions_for_node_... }
+        //     return diagnostics.Cannot_find_name_0_Do_you_need_to_install_type_definitions_for_node_...and_then_add_node...
+        //   }
+        // }
+        // return nil
+        // Simplified: check for core module names.
+        if (!ast_utils.isStringLiteral(c.binder.ast, moduleName)) return null;
+        const text = ast_utils.getTextOfNode(c.binder.ast, moduleName);
+        const core_modules = [_][]const u8{ "fs", "path", "http", "https", "url", "util", "os", "crypto", "stream", "buffer", "events", "child_process", "net", "tls", "dns", "module", "process", "console", "querystring", "readline", "zlib", "assert", "cluster", "dgram", "punycode", "string_decoder", "timers", "tty", "vm", "worker_threads" };
+        for (core_modules) |cm| {
+            if (std.mem.eql(u8, text, cm)) {
+                return &diagnostics_gen.Cannot_find_name_0_Do_you_need_to_install_type_definitions_for_node_Try_npm_i_save_dev_types_Slashnode;
+            }
+        }
+        return null;
     }
 
-    pub fn resolveExternalModuleNameWorker(c: *Checker, location: ast_gen.NodeIndex, moduleReferenceExpression: ast_gen.NodeIndex, moduleNotFoundError: ?*const diagnostics_gen.Message, ignoreErrors: bool, isForAugmentation: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = location;
-        _ = moduleReferenceExpression;
-        _ = moduleNotFoundError;
-        _ = ignoreErrors;
+    pub fn resolveExternalModuleNameWorker(c: *Checker, location: ast_gen.NodeIndex, moduleReferenceExpression: ast_gen.NodeIndex, moduleNotFoundError: ?*const diagnostics_gen.Message, ignoreErrors: bool, isForAugmentation: bool) ast_gen.SymbolIndex {
+        // Go: if ast.IsStringLiteralLike(moduleReferenceExpression) {
+        //   return c.resolveExternalModule(location, moduleReferenceExpression.Text(), moduleNotFoundError, core.IfElse(!ignoreErrors, moduleReferenceExpression, nil), isForAugmentation)
+        // }
+        // return nil
         _ = isForAugmentation;
-        return 0;
+        _ = moduleNotFoundError;
+        if (!ast_utils.isStringLiteralLike(c.binder.ast, moduleReferenceExpression)) return 0;
+        const module_ref_text = ast_utils.getTextOfNode(c.binder.ast, moduleReferenceExpression);
+        const error_node: ast_gen.NodeIndex = if (!ignoreErrors) moduleReferenceExpression else 0;
+        return c.resolveExternalModule(location, module_ref_text, null, error_node, false);
     }
 
     pub fn getExternalModuleFileFromDeclaration(c: *Checker, declaration: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -13632,14 +13679,21 @@ pub const Checker = struct {
         return 0; // Stub
     }
 
-    pub fn resolveExternalModule(c: *Checker, location: ast_gen.NodeIndex, moduleReference: ast_gen.NodeIndex, moduleNotFoundError: ?*const diagnostics_gen.Message, errorNode: ast_gen.NodeIndex, isForAugmentation: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
+    pub fn resolveExternalModule(c: *Checker, location: ast_gen.NodeIndex, moduleReference: []const u8, moduleNotFoundError: ?*const diagnostics_gen.Message, errorNode: ast_gen.NodeIndex, isForAugmentation: bool) ast_gen.SymbolIndex {
+        // Go: if errorNode != nil && strings.HasPrefix(moduleReference, "@types/") { ... }
+        //   ambientModule := c.tryFindAmbientModule(moduleReference, true)
+        //   if ambientModule != nil { return ambientModule }
+        //   ... (complex program-level module resolution)
+        // Simplified: try ambient module first, then resolveName.
         _ = location;
-        _ = moduleReference;
         _ = moduleNotFoundError;
         _ = errorNode;
         _ = isForAugmentation;
-        return 0;
+        // Try ambient module
+        const ambient = c.tryFindAmbientModule(moduleReference, true);
+        if (ambient != 0) return ambient;
+        // Fall back to resolveName with Namespace meaning
+        return resolveName(c, 0, moduleReference, symbol.SymbolFlags.Namespace, null, false, false);
     }
 
     pub fn resolutionExtensionIsTSOrJson(ext: []const u8) bool {
@@ -13697,10 +13751,27 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn tryFindAmbientModule(c: *Checker, moduleName: ast_gen.NodeIndex, withAugmentations: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = moduleName;
-        _ = withAugmentations;
+    pub fn tryFindAmbientModule(c: *Checker, moduleName: []const u8, withAugmentations: bool) ast_gen.SymbolIndex {
+        // Go: if tspath.IsExternalModuleNameRelative(moduleName) { return nil }
+        //   symbol := c.getSymbol(c.globals, "\""+moduleName+"\"", ast.SymbolFlagsValueModule)
+        //   if withAugmentations { return c.getMergedSymbol(symbol) }
+        //   return symbol
+        // Simplified: check if relative, then resolveName with quoted module name.
+        // Relative check: starts with "./" or "../" or is a rooted path.
+        if (moduleName.len >= 2 and moduleName[0] == '.' and (moduleName[1] == '/' or (moduleName.len >= 3 and moduleName[1] == '.' and moduleName[2] == '/'))) {
+            return 0;
+        }
+        // Build quoted name "\"moduleName\""
+        var quoted: [256]u8 = undefined;
+        if (moduleName.len + 2 < quoted.len) {
+            quoted[0] = '"';
+            @memcpy(quoted[1 .. 1 + moduleName.len], moduleName);
+            quoted[1 + moduleName.len] = '"';
+            const quoted_name = quoted[0 .. 2 + moduleName.len];
+            const sym = resolveName(c, 0, quoted_name, symbol.SymbolFlags.ValueModule, null, false, false);
+            if (withAugmentations) return getMergedSymbol(c, sym);
+            return sym;
+        }
         return 0;
     }
 
@@ -14695,16 +14766,110 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getBaseTypes(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+    pub fn getBaseTypes(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
+        // Go: if t.objectFlags&(ObjectFlagsClassOrInterface|ObjectFlagsTuple) == 0 { return nil }
+        //   data := t.AsInterfaceType()
+        //   if !data.baseTypesResolved {
+        //     if !c.pushTypeResolution(t, TypeSystemPropertyNameResolvedBaseTypes) { return data.resolvedBaseTypes }
+        //     switch {
+        //     case t.objectFlags&ObjectFlagsTuple != 0: data.resolvedBaseTypes = []*Type{c.getTupleBaseType(t)}
+        //     case t.symbol.Flags&(ast.SymbolFlagsClass|ast.SymbolFlagsInterface) != 0:
+        //       if t.symbol.Flags&ast.SymbolFlagsClass != 0 { c.resolveBaseTypesOfClass(t) }
+        //       if t.symbol.Flags&ast.SymbolFlagsInterface != 0 { c.resolveBaseTypesOfInterface(t) }
+        //     default: panic(...)
+        //     }
+        //     if !c.popTypeResolution() && t.symbol.Declarations != nil { ... reportCircularBaseType ... }
+        //     t.objectFlags &^= ObjectFlagsMembersResolved
+        //     data.baseTypesResolved = true
+        //   }
+        //   return data.resolvedBaseTypes
+        const ty = c.typesList.items[t];
+        if ((ty.objectFlags & (types.ObjectFlags.ClassOrInterface | types.ObjectFlags.Tuple)) == 0) {
+            return &[_]types.TypeIndex{};
+        }
+        // Check if already resolved
+        if (ty.data == .Object and ty.data.Object.baseTypesResolved) {
+            const start = ty.data.Object.resolvedBaseTypesStart orelse return &[_]types.TypeIndex{};
+            return c.baseTypesPool.items[start .. start + ty.data.Object.resolvedBaseTypesLen];
+        }
+        // Push type resolution
+        if (!c.pushTypeResolution(t, 0)) {
+            // Circular — return what we have
+            if (ty.data == .Object) {
+                if (ty.data.Object.resolvedBaseTypesStart) |start| {
+                    return c.baseTypesPool.items[start .. start + ty.data.Object.resolvedBaseTypesLen];
+                }
+            }
+            return &[_]types.TypeIndex{};
+        }
+        // Resolve based on type kind
+        if (ty.objectFlags & types.ObjectFlags.Tuple != 0) {
+            const tuple_base = c.getTupleBaseType(t);
+            if (tuple_base != 0) {
+                const start = c.baseTypesPool.items.len;
+                c.baseTypesPool.append(c.allocator, tuple_base) catch {};
+                c.setBaseTypesResult(t, @intCast(start), 1);
+            }
+        } else if (ty.symbol) |sym_idx| {
+            const sym_flags = c.binder.symbols.items[sym_idx].Flags;
+            if ((sym_flags & symbol.SymbolFlags.Class) != 0) {
+                c.resolveBaseTypesOfClass(t);
+            }
+            if ((sym_flags & symbol.SymbolFlags.Interface) != 0) {
+                c.resolveBaseTypesOfInterface(t);
+            }
+        }
+        _ = c.popTypeResolution();
+        // Mark as resolved
+        c.markBaseTypesResolved(t);
+        // Return result
+        const ty2 = c.typesList.items[t];
+        if (ty2.data == .Object) {
+            if (ty2.data.Object.resolvedBaseTypesStart) |start| {
+                return c.baseTypesPool.items[start .. start + ty2.data.Object.resolvedBaseTypesLen];
+            }
+        }
+        return &[_]types.TypeIndex{};
+    }
+
+    /// Helper: set resolvedBaseTypes result on a type.
+    fn setBaseTypesResult(c: *Checker, t: types.TypeIndex, start: u32, count: u32) void {
+        if (c.typesList.items[t].data == .Object) {
+            c.typesList.items[t].data.Object.resolvedBaseTypesStart = start;
+            c.typesList.items[t].data.Object.resolvedBaseTypesLen = count;
+        }
+    }
+
+    /// Helper: mark base types as resolved.
+    fn markBaseTypesResolved(c: *Checker, t: types.TypeIndex) void {
+        if (c.typesList.items[t].data == .Object) {
+            c.typesList.items[t].data.Object.baseTypesResolved = true;
+        }
     }
 
     pub fn getTupleBaseType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        // Go: typeParameters := t.AsTupleType().TypeParameters()
+        //   elementInfos := t.AsTupleType().elementInfos
+        //   elementTypes := make([]*Type, len(typeParameters))
+        //   for i, tp := range typeParameters {
+        //     if elementInfos[i].flags&ElementFlagsVariadic != 0 { elementTypes[i] = c.getIndexedAccessType(tp, c.numberType) }
+        //     else { elementTypes[i] = tp }
+        //   }
+        //   return c.createArrayTypeEx(c.getUnionType(elementTypes), t.AsTupleType().readonly)
+        // Simplified: return ArrayType of element types.
+        const data = c.getTargetTypeData(t);
+        if (data != .Tuple) return 0;
+        const tuple_data = data.Tuple;
+        // Get element types from typeParameters
+        if (tuple_data.typeParametersLen == 0) return 0;
+        const elem_types = c.allocator.alloc(types.TypeIndex, tuple_data.typeParametersLen) catch return 0;
+        defer c.allocator.free(elem_types);
+        for (0..tuple_data.typeParametersLen) |i| {
+            elem_types[i] = c.typesList.items[tuple_data.typeParametersStart + i];
+        }
+        const union_type = c.getUnionTypeFromArray(elem_types);
+        // createArrayTypeEx not yet wired; use createArrayType if available
+        return c.createArrayType(union_type);
     }
 
     /// Port of checker.go::resolveBaseTypesOfClass. Resolves the base
@@ -14766,10 +14931,28 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn cloneSignature(c: *Checker, sig: types.SignatureIndex) types.TypeIndex {
-        _ = c;
-        _ = sig;
-        return 0;
+    pub fn cloneSignature(c: *Checker, sig: types.SignatureIndex) types.SignatureIndex {
+        // Go: result := c.newSignature(sig.flags&SignatureFlagsPropagatingFlags, sig.declaration, sig.typeParameters, sig.thisParameter, sig.parameters, nil, nil, int(sig.minArgumentCount))
+        //   result.target = sig.target
+        //   result.mapper = sig.mapper
+        //   result.composite = sig.composite
+        //   return result
+        const src = c.signatures.items[sig];
+        const propagating_flags = src.flags & (types.SignatureFlags.HasRestParameter | types.SignatureFlags.HasLiteralTypes | types.SignatureFlags.Construct | types.SignatureFlags.Abstract | types.SignatureFlags.IsInnerCallChain | types.SignatureFlags.IsOuterCallChain | types.SignatureFlags.IsUntypedSignatureInJSFile | types.SignatureFlags.IsNonInferrable);
+        // Get type parameters and parameters slices
+        const type_params = if (src.typeParametersLen > 0)
+            c.signatureTypeParameters.items[src.typeParametersStart .. src.typeParametersStart + src.typeParametersLen]
+        else
+            &[_]types.TypeIndex{};
+        const params = if (src.parametersLen > 0)
+            c.signatureParameters.items[src.parametersStart .. src.parametersStart + src.parametersLen]
+        else
+            &[_]ast_gen.SymbolIndex{};
+        const new_idx = newSignature(c, propagating_flags, src.declaration, type_params, src.thisParameter, params, src.resolvedReturnType, src.minArgumentCount, (src.flags & types.SignatureFlags.HasRestParameter) != 0, false);
+        // Copy target and mapper
+        c.signatures.items[new_idx].target = src.target;
+        // mapper field not present in Zig Signature struct yet
+        return new_idx;
     }
 
     pub fn getSignatureInstantiationWithoutFillingInTypeArguments(c: *Checker, sig: types.SignatureIndex, typeArguments: ast_gen.NodeIndex) types.TypeIndex {
@@ -17140,13 +17323,48 @@ pub const Checker = struct {
         return (c.binder.symbols.items[symbol_].Flags & symbol.SymbolFlags.ConstEnum) != 0;
     }
 
-    pub fn compareProperties(c: *Checker, sourceProp: ast_gen.SymbolIndex, targetProp: ast_gen.SymbolIndex, compareTypes: ast_gen.NodeIndex, target: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = sourceProp;
-        _ = targetProp;
-        _ = compareTypes;
-        _ = target;
-        return 0;
+    /// Comparison mode for compareProperties.
+    pub const PropertyCompareMode = enum {
+        Identical,
+        Assignable,
+    };
+
+    pub fn compareProperties(c: *Checker, sourceProp: ast_gen.SymbolIndex, targetProp: ast_gen.SymbolIndex, mode: PropertyCompareMode) types.Ternary {
+        // Go: if sourceProp == targetProp { return TernaryTrue }
+        //   sourcePropAccessibility := getDeclarationModifierFlagsFromSymbol(sourceProp) & ast.ModifierFlagsNonPublicAccessibilityModifier
+        //   targetPropAccessibility := getDeclarationModifierFlagsFromSymbol(targetProp) & ast.ModifierFlagsNonPublicAccessibilityModifier
+        //   if sourcePropAccessibility != targetPropAccessibility { return TernaryFalse }
+        //   if sourcePropAccessibility != ast.ModifierFlagsNone {
+        //     if c.getTargetSymbol(sourceProp) != c.getTargetSymbol(targetProp) { return TernaryFalse }
+        //   } else {
+        //     if (sourceProp.Flags & ast.SymbolFlagsOptional) != (targetProp.Flags & ast.SymbolFlagsOptional) { return TernaryFalse }
+        //   }
+        //   if c.isReadonlySymbol(sourceProp) != c.isReadonlySymbol(targetProp) { return TernaryFalse }
+        //   return compareTypes(c.getNonMissingTypeOfSymbol(sourceProp), c.getNonMissingTypeOfSymbol(targetProp))
+        if (sourceProp == targetProp) return .True;
+        const src_flags = c.getDeclarationModifierFlagsFromSymbol(sourceProp);
+        const tgt_flags = c.getDeclarationModifierFlagsFromSymbol(targetProp);
+        // NonPublicAccessibilityModifier = Protected | Private
+        const NonPublicAccess: u32 = ast_utils.ModifierFlags.Protected | ast_utils.ModifierFlags.Private;
+        const src_access = src_flags & NonPublicAccess;
+        const tgt_access = tgt_flags & NonPublicAccess;
+        if (src_access != tgt_access) return .False;
+        const src_sym = c.binder.symbols.items[sourceProp];
+        const tgt_sym = c.binder.symbols.items[targetProp];
+        if (src_access != 0) {
+            // Private/protected: must originate from same declaration
+            if (c.getTargetSymbol(sourceProp) != c.getTargetSymbol(targetProp)) return .False;
+        } else {
+            // Public: check optionality
+            if ((src_sym.Flags & symbol.SymbolFlags.Optional) != (tgt_sym.Flags & symbol.SymbolFlags.Optional)) return .False;
+        }
+        if (c.isReadonlySymbol(sourceProp) != c.isReadonlySymbol(targetProp)) return .False;
+        const src_type = c.getNonMissingTypeOfSymbol(sourceProp);
+        const tgt_type = c.getNonMissingTypeOfSymbol(targetProp);
+        return switch (mode) {
+            .Identical => c.compareTypesIdentical(src_type, tgt_type),
+            .Assignable => if (c.isTypeAssignableTo(src_type, tgt_type)) .True else .False,
+        };
     }
 
     pub fn compareTypesEqual(s: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {
