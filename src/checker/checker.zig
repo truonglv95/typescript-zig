@@ -12813,10 +12813,9 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn recordMergedSymbol(c: *Checker, target: *anyopaque, source: *anyopaque) void {
-        _ = c;
-        _ = target;
-        _ = source;
+    pub fn recordMergedSymbol(c: *Checker, target: ast_gen.SymbolIndex, source: ast_gen.SymbolIndex) void {
+        // Go: c.mergedSymbols[source] = target
+        c.mergedSymbols.put(c.allocator, source, target) catch {};
     }
 
     pub fn getSymbolIfSameReference(c: *Checker, s1: *anyopaque, s2: *anyopaque) *anyopaque {
@@ -12826,10 +12825,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getLateBoundSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn getLateBoundSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Go: if symbol.Flags&ast.SymbolFlagsClassMember == 0 || symbol.Name != ast.InternalSymbolNameComputed { return symbol }
+        //   ... (complex late-bound resolution)
+        // Simplified: check ClassMember flag and computed name; if not, return symbol.
+        const sym = c.binder.symbols.items[symbol_];
+        // ClassMember flag not yet defined in SymbolFlags; conservative return symbol.
+        _ = sym;
+        return symbol_;
     }
 
     pub fn getTargetOfImportEqualsDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
@@ -13005,22 +13008,43 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTargetOfExportAssignment(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTargetOfExportAssignment(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: resolved := c.getTargetOfAliasLikeExpression(node.Expression())
+        //   c.markSymbolOfAliasDeclarationIfTypeOnly(node, nil)
+        //   return resolved
+        const expr = c.binder.ast.getNode(node).ExportAssignment.Expression;
+        const resolved = getTargetOfAliasLikeExpression(c, expr);
+        _ = c.markSymbolOfAliasDeclarationIfTypeOnly(node, 0);
+        return resolved;
     }
 
-    pub fn getTargetOfBinaryExpression(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTargetOfBinaryExpression(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: resolved := c.getTargetOfAliasLikeExpression(node.AsBinaryExpression().Right)
+        //   c.markSymbolOfAliasDeclarationIfTypeOnly(node, nil)
+        //   return resolved
+        const right = c.binder.ast.getNode(node).BinaryExpression.Right;
+        const resolved = getTargetOfAliasLikeExpression(c, right);
+        _ = c.markSymbolOfAliasDeclarationIfTypeOnly(node, 0);
+        return resolved;
     }
 
-    pub fn getTargetOfAliasLikeExpression(c: *Checker, expression: *anyopaque) *anyopaque {
-        _ = c;
-        _ = expression;
-        return undefined;
+    pub fn getTargetOfAliasLikeExpression(c: *Checker, expression: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: if ast.IsClassExpression(expression) { return c.checkExpressionCached(expression).symbol }
+        //   if !ast.IsEntityName(expression) && !ast.IsEntityNameExpression(expression) { return nil }
+        //   aliasLike := c.resolveEntityName(expression, SymbolFlagsValue|SymbolFlagsType|SymbolFlagsNamespace, true, true, nil)
+        //   if aliasLike != nil { return aliasLike }
+        //   c.checkExpressionCached(expression)
+        //   return c.getResolvedSymbolOrNil(expression)
+        const expr_kind = c.binder.ast.getKind(expression);
+        if (expr_kind == .ClassExpression) {
+            const t = c.checkExpressionCached(expression);
+            return c.typesList.items[t].symbol orelse 0;
+        }
+        if (!ast_utils.isEntityNameExpression(c.binder.ast, expression)) return 0;
+        const alias_like = c.resolveEntityName(expression, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, true, true, null);
+        if (alias_like != 0) return alias_like;
+        _ = c.checkExpressionCached(expression);
+        return getResolvedSymbolOrNil(c, expression);
     }
 
     pub fn getTargetOfNamespaceExportDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
