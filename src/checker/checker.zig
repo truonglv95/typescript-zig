@@ -14234,15 +14234,38 @@ pub const Checker = struct {
     }
 
     pub fn getTypeOfSymbolWithDeferredType(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+        // Go: links := c.valueSymbolLinks.Get(symbol)
+        //   if links.resolvedType == nil {
+        //     deferred := c.deferredSymbolLinks.Get(symbol)
+        //     if deferred.parent.flags&TypeFlagsUnion != 0 { links.resolvedType = c.getUnionType(deferred.constituents) }
+        //     else { links.resolvedType = c.getIntersectionType(deferred.constituents) }
+        //   }
+        //   return links.resolvedType
+        if (c.valueSymbolLinks.getPtr(symbol_)) |links| {
+            if (links.resolvedType) |t| return t;
+            if (c.deferredSymbolLinks.get(symbol_)) |deferred| {
+                const parent_type = deferred.parent orelse 0;
+                if (parent_type != 0 and (c.typesList.items[parent_type].flags & types.TypeFlags.Union) != 0) {
+                    // getUnionType not fully wired with deferred constituents; fall back
+                }
+            }
+        }
+        // Conservative: delegate to getTypeOfSymbol
+        return c.getTypeOfSymbol(symbol_) catch 0;
     }
 
     pub fn getWriteTypeOfSymbolWithDeferredType(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+        // Go: links := c.valueSymbolLinks.Get(symbol)
+        //   if links.writeType == nil {
+        //     deferred := c.deferredSymbolLinks.Get(symbol)
+        //     if len(deferred.writeConstituents) != 0 { ... getUnionType/getIntersectionType ... }
+        //     else { links.writeType = c.getTypeOfSymbolWithDeferredType(symbol) }
+        //   }
+        //   return links.writeType
+        if (c.valueSymbolLinks.getPtr(symbol_)) |links| {
+            if (links.writeType) |t| return t;
+        }
+        return c.getTypeOfSymbolWithDeferredType(symbol_);
     }
 
     pub fn getTypeOfSymbolAtLocation(c: *Checker, symbol_: ast_gen.SymbolIndex, location: ast_gen.NodeIndex) types.TypeIndex {
@@ -14253,21 +14276,47 @@ pub const Checker = struct {
     }
 
     pub fn getTypeOfInstantiatedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
+        // Go: links := c.valueSymbolLinks.Get(symbol)
+        //   if links.resolvedType == nil {
+        //     links.resolvedType = c.instantiateType(c.getTypeOfSymbol(links.target), links.mapper)
+        //   }
+        //   return links.resolvedType
+        if (c.valueSymbolLinks.getPtr(symbol_)) |links| {
+            if (links.resolvedType) |t| return t;
+            if (links.target) |target| {
+                const target_type = c.getTypeOfSymbol(target) catch 0;
+                // instantiateType not fully wired; return target type directly
+                return target_type;
+            }
+        }
         return 0;
     }
 
     pub fn getWriteTypeOfInstantiatedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+        // Go: links := c.valueSymbolLinks.Get(symbol)
+        //   if links.writeType == nil {
+        //     links.writeType = c.instantiateType(c.getWriteTypeOfSymbol(links.target), links.mapper)
+        //   }
+        //   return links.writeType
+        if (c.valueSymbolLinks.getPtr(symbol_)) |links| {
+            if (links.writeType) |t| return t;
+        }
+        return c.getTypeOfInstantiatedSymbol(symbol_);
     }
 
     pub fn getTypeOfVariableOrParameterOrProperty(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+        // Go: links := c.valueSymbolLinks.Get(symbol)
+        //   if links.resolvedType == nil {
+        //     t := c.getTypeOfVariableOrParameterOrPropertyWorker(symbol)
+        //     if links.resolvedType == nil && !c.isParameterOfContextSensitiveSignature(symbol) { links.resolvedType = t }
+        //     return t
+        //   }
+        //   return links.resolvedType
+        if (c.valueSymbolLinks.getPtr(symbol_)) |links| {
+            if (links.resolvedType) |t| return t;
+        }
+        // Delegate to getTypeOfSymbol as a fallback
+        return c.getTypeOfSymbol(symbol_) catch 0;
     }
 
     pub fn isParameterOfContextSensitiveSignature(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
