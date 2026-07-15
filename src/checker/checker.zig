@@ -9435,12 +9435,46 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn issueMemberSpecificError(c: *Checker, node: ast_gen.NodeIndex, typeWithThis: ast_gen.NodeIndex, baseWithThis: ast_gen.NodeIndex, broadDiag: ?*anyopaque) void {
-        _ = c;
-        _ = node;
-        _ = typeWithThis;
-        _ = baseWithThis;
-        _ = broadDiag;
+    /// Port of `checker.go::issueMemberSpecificError`. Iterates over class
+    /// members and issues errors on each property that isn't compatible with
+    /// the base type. Falls back to a broad error if no member-specific
+    /// error was issued.
+    pub fn issueMemberSpecificError(c: *Checker, node: ast_gen.NodeIndex, typeWithThis: types.TypeIndex, baseWithThis: types.TypeIndex, broadDiag: ?*const diagnostics_gen.Message) void {
+        var issued_member_error = false;
+        // Iterate class members.
+        const members_list: ?ast_gen.NodeListIndex = switch (c.binder.ast.getNode(node)) {
+            .ClassDeclaration => |n| n.Members,
+            .ClassExpression => |n| n.Members,
+            else => null,
+        };
+        if (members_list) |ml| {
+            const members = c.binder.ast.getNodeList(ml);
+            for (members) |member| {
+                if (member == 0) continue;
+                if (ast_utils.isStatic(c.binder.ast, member)) continue;
+                const declared_prop = c.getSymbolOfDeclaration(member);
+                if (declared_prop == 0 or declared_prop >= c.binder.symbols.items.len) continue;
+                const prop_name = c.binder.symbols.items[declared_prop].Name;
+                if (prop_name.len == 0) continue;
+                const prop = c.getPropertyOfType(typeWithThis, prop_name) orelse continue;
+                const base_prop = c.getPropertyOfType(baseWithThis, prop_name) orelse continue;
+                const prop_type = c.getTypeOfSymbol(prop) catch 0;
+                const base_prop_type = c.getTypeOfSymbol(base_prop) catch 0;
+                if (prop_type != 0 and base_prop_type != 0 and !c.isTypeAssignableTo(prop_type, base_prop_type)) {
+                    const type_str = c.typeToString(typeWithThis, 0, 0, null);
+                    const base_str = c.typeToString(baseWithThis, 0, 0, null);
+                    c.reportErrorWithArgs(member, &diagnostics_gen.Property_0_in_type_1_is_not_assignable_to_the_same_property_in_base_type_2, &.{ prop_name, type_str, base_str });
+                    issued_member_error = true;
+                }
+            }
+        }
+        if (!issued_member_error) {
+            // Fall back to broad error.
+            if (broadDiag) |msg| {
+                const name_node = ast_utils.getNameOfDeclaration(c.binder.ast, node) orelse node;
+                c.reportErrorWithArgs(name_node, msg, &.{});
+            }
+        }
     }
 
     /// Port of `checker.go::getTypeWithoutSignatures`. Returns a type with
@@ -11515,13 +11549,46 @@ pub const Checker = struct {
 
     /// Port of checker.go::checkTypeArguments. Validates type arguments
     /// against type parameter constraints. Simplified: returns false.
+    /// Port of `checker.go::checkTypeArguments`. Validates that type
+    /// arguments satisfy the constraints of the signature's type
+    /// parameters. Returns true if all type arguments are valid.
     pub fn checkTypeArguments(c: *Checker, signature: types.SignatureIndex, type_argument_nodes: ast_gen.NodeIndex, report_errors: bool, head_message: ?*const diagnostics_gen.Message) bool {
-        _ = c;
-        _ = signature;
-        _ = type_argument_nodes;
-        _ = report_errors;
-        _ = head_message;
-        return false;
+        if (signature >= c.signatures.items.len) return false;
+        const sig = &c.signatures.items[signature];
+        // Get type parameters.
+        const type_params = if (sig.typeParametersLen > 0)
+            c.signatureTypeParameters.items[sig.typeParametersStart .. sig.typeParametersStart + sig.typeParametersLen]
+        else
+            &[_]types.TypeIndex{};
+        if (type_params.len == 0) return true; // No type params → nothing to check.
+        // Get type argument nodes as a list.
+        var type_arg_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer type_arg_types.deinit(c.allocator);
+        if (type_argument_nodes != 0) {
+            const nodes = c.binder.ast.getNodeList(type_argument_nodes);
+            for (nodes) |node| {
+                type_arg_types.append(c.allocator, c.getTypeFromTypeNode(node)) catch {};
+            }
+        }
+        // Fill missing type arguments.
+        const filled = c.fillMissingTypeArguments(type_arg_types.items, type_params, 0, false);
+        // Check each type argument against its constraint.
+        for (filled, 0..) |type_arg, i| {
+            if (i >= type_params.len) break;
+            const constraint = c.getConstraintOfTypeParameter(type_params[i]);
+            if (constraint) |con| {
+                if (!c.isTypeAssignableTo(type_arg, con)) {
+                    if (report_errors) {
+                        const arg_str = c.typeToString(type_arg, 0, 0, null);
+                        const con_str = c.typeToString(con, 0, 0, null);
+                        const msg = head_message orelse &diagnostics_gen.Type_0_does_not_satisfy_the_constraint_1;
+                        c.reportErrorWithArgs(0, msg, &.{ arg_str, con_str });
+                    }
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     pub fn isSignatureApplicable(c: *Checker, node: ast_gen.NodeIndex, args: []const ast_gen.NodeIndex, signature: types.SignatureIndex, relation: u32, checkMode: CheckMode, reportErrors: bool, diagnosticOutput: types.TypeIndex) bool {
@@ -11735,18 +11802,26 @@ pub const Checker = struct {
 
     /// Port of checker.go::reportCallResolutionErrors. Reports call
     /// resolution errors for a call expression. Simplified: no-op.
-    pub fn reportCallResolutionErrors(c: *Checker, node: ast_gen.NodeIndex, sig: types.SignatureIndex, signatures: anytype, head_message: ?*const diagnostics_gen.Message) void {
-        _ = c;
-        _ = node;
-        _ = sig;
-        _ = signatures;
-        _ = head_message;
+    /// Port of `checker.go::reportCallResolutionErrors`. Reports call
+    /// resolution errors based on the call state. Simplified: reports
+    /// the head message directly, or a generic "No overload matches"
+    /// if there are multiple signatures.
+    pub fn reportCallResolutionErrors(c: *Checker, node: ast_gen.NodeIndex, signatures: []const types.SignatureIndex, head_message: ?*const diagnostics_gen.Message) void {
+        if (head_message) |msg| {
+            c.reportErrorWithArgs(node, msg, &.{});
+        } else if (signatures.len > 1) {
+            c.reportError(node, &diagnostics_gen.No_overload_matches_this_call);
+        } else if (signatures.len == 1) {
+            // Single signature — report argument arity or type error.
+            c.reportError(node, &diagnostics_gen.Expected_0_arguments_but_got_1);
+        }
     }
 
-    pub fn addImplementationSuccessElaboration(c: *Checker, s: ast_gen.NodeIndex, failed: ast_gen.NodeIndex, diagnostic: ?*const diagnostics_gen.Message) void {
+    /// Port of `checker.go::addImplementationSuccessElaboration`. Adds
+    /// related info about successful overload implementations. Simplified: no-op.
+    pub fn addImplementationSuccessElaboration(c: *Checker, failed_sig: types.SignatureIndex, diagnostic: ?*const diagnostics_gen.Message) void {
         _ = c;
-        _ = s;
-        _ = failed;
+        _ = failed_sig;
         _ = diagnostic;
     }
 
@@ -13255,13 +13330,21 @@ pub const Checker = struct {
         _ = typesAreCompatible;
     }
 
-    pub fn getBaseTypesIfUnrelated(c: *Checker, leftType: ast_gen.NodeIndex, rightType: ast_gen.NodeIndex, isRelated: ast_gen.NodeIndex, right: types.TypeIndex) bool {
-        _ = c;
-        _ = leftType;
-        _ = rightType;
-        _ = isRelated;
-        _ = right;
-        return false;
+    /// Port of `checker.go::getBaseTypesIfUnrelated`. Returns the base
+    /// (non-literal) types for `leftType` and `rightType` if they are
+    /// not related via the `isRelatedFn` callback. Otherwise returns
+    /// the original types. The callback is a comptime function that
+    /// takes (Checker, TypeIndex, TypeIndex, ctx) → bool.
+    pub fn getBaseTypesIfUnrelated(c: *Checker, leftType: types.TypeIndex, rightType: types.TypeIndex, comptime isRelatedFn: anytype, ctx: anytype) struct { left: types.TypeIndex, right: types.TypeIndex } {
+        var effective_left = leftType;
+        var effective_right = rightType;
+        const left_base = c.getBaseTypeOfLiteralType(leftType);
+        const right_base = c.getBaseTypeOfLiteralType(rightType);
+        if (!isRelatedFn(c, left_base, right_base, ctx)) {
+            effective_left = left_base;
+            effective_right = right_base;
+        }
+        return .{ .left = effective_left, .right = effective_right };
     }
 
     /// Port of `checker.go::checkAssignmentOperator`. Validates that the
