@@ -13599,16 +13599,16 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTypeOfSymbolWithDeferredType(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    pub fn getTypeOfSymbolWithDeferredType(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
-        return undefined;
+        return 0;
     }
 
-    pub fn getWriteTypeOfSymbolWithDeferredType(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    pub fn getWriteTypeOfSymbolWithDeferredType(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
-        return undefined;
+        return 0;
     }
 
     pub fn getTypeOfSymbolAtLocation(c: *Checker, symbol_: *anyopaque, location: *anyopaque) *anyopaque {
@@ -13618,22 +13618,22 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeOfInstantiatedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    pub fn getTypeOfInstantiatedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
-        return undefined;
+        return 0;
     }
 
-    pub fn getWriteTypeOfInstantiatedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    pub fn getWriteTypeOfInstantiatedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
-        return undefined;
+        return 0;
     }
 
-    pub fn getTypeOfVariableOrParameterOrProperty(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    pub fn getTypeOfVariableOrParameterOrProperty(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
-        return undefined;
+        return 0;
     }
 
     pub fn isParameterOfContextSensitiveSignature(c: *Checker, symbol_: *anyopaque) bool {
@@ -13642,10 +13642,10 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTypeOfVariableOrParameterOrPropertyWorker(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    pub fn getTypeOfVariableOrParameterOrPropertyWorker(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
-        return undefined;
+        return 0;
     }
 
     pub fn getWidenedTypeForVariableLikeDeclaration(c: *Checker, declaration: *anyopaque, reportErrors: *anyopaque) *anyopaque {
@@ -13721,16 +13721,16 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeOfFuncClassEnumModule(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    pub fn getTypeOfFuncClassEnumModule(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
-        return undefined;
+        return 0;
     }
 
-    pub fn getTypeOfFuncClassEnumModuleWorker(c: *Checker, symbol_: *anyopaque) *anyopaque {
+    pub fn getTypeOfFuncClassEnumModuleWorker(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
         _ = c;
         _ = symbol_;
-        return undefined;
+        return 0;
     }
 
     pub fn getBaseTypeVariableOfClass(c: *Checker, symbol_: *anyopaque) *anyopaque {
@@ -13745,16 +13745,16 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getConstraintFromTypeParameter(c: *Checker, t: *anyopaque) *anyopaque {
+    pub fn getConstraintFromTypeParameter(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
         _ = t;
-        return undefined;
+        return 0;
     }
 
-    pub fn getConstraintOrUnknownFromTypeParameter(c: *Checker, t: *anyopaque) *anyopaque {
+    pub fn getConstraintOrUnknownFromTypeParameter(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
         _ = t;
-        return undefined;
+        return 0;
     }
 
     pub fn getInferredTypeParameterConstraint(c: *Checker, t: *anyopaque, omitTypeReferences: *anyopaque) *anyopaque {
@@ -13785,10 +13785,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getConstraintFromIndexedAccess(c: *Checker, t: *anyopaque) *anyopaque {
+    pub fn getConstraintFromIndexedAccess(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
         _ = t;
-        return undefined;
+        return 0;
     }
 
     pub fn getConstraintFromConditionalType(c: *Checker, t: *anyopaque) *anyopaque {
