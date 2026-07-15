@@ -9793,9 +9793,18 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isSpreadIntoCallOrNew(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isSpreadIntoCallOrNew(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: parent := ast.WalkUpParenthesizedExpressions(node.Parent)
+        //     return ast.IsSpreadElement(parent) && ast.IsCallOrNewExpression(parent.Parent)
+        var current = c.binder.ast.getNodeParent(node);
+        while (current != 0 and c.binder.ast.getKind(current) == .ParenthesizedExpression) {
+            current = c.binder.ast.getNodeParent(current);
+        }
+        if (current == 0 or c.binder.ast.getKind(current) != .SpreadElement) return false;
+        const grandparent = c.binder.ast.getNodeParent(current);
+        if (grandparent == 0) return false;
+        const gk = c.binder.ast.getKind(grandparent);
+        return gk == .CallExpression or gk == .NewExpression;
     }
 
     /// Port of checker.go::checkQualifiedName. Checks a qualified name
@@ -12023,9 +12032,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getAdjustedNodeForError(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
+    pub fn getAdjustedNodeForError(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: name := ast.GetNameOfDeclaration(node)
+        //     if name != nil { return name }
+        //     return node
+        const name = ast_utils.getName(c.binder.ast, node);
+        if (name != 0) return name;
+        return node;
     }
 
     pub fn lookupOrIssueError(c: *Checker, location: *anyopaque, message: *anyopaque) *anyopaque {
@@ -12976,9 +12989,11 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isNonDeferredTypeReference(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn isNonDeferredTypeReference(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.objectFlags&ObjectFlagsReference != 0 && t.AsTypeReference().node == nil
+        // Zig doesn't have a `node` field on the TypeReference data yet; we
+        // check the Reference flag only (conservatively).
+        return (c.typesList.items[t].objectFlags & types.ObjectFlags.Reference) != 0;
     }
 
     pub fn isUnconstrainedTypeParameter(tp: *anyopaque) bool {
