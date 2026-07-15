@@ -9232,6 +9232,12 @@ pub const Checker = struct {
     /// Port of checker.go::hasTypeJsonImportAttribute. Returns true if
     /// the node has a `type: "json"` import attribute. Simplified: false.
     pub fn hasTypeJsonImportAttribute(node: ast_gen.NodeIndex) bool {
+        // Go: attributes := node.AsImportDeclaration().Attributes
+        //   return attributes != nil && core.Some(attributes.AsImportAttributes().Attributes.Nodes, func(attr *ast.Node) bool {
+        //     return attr.Name().Text() == "type" && ast.IsStringLiteralLike(attr.AsImportAttribute().Value) && attr.AsImportAttribute().Value.Text() == "json"
+        //   })
+        // Simplified: ImportAttributes/ImportAttribute AST nodes not fully wired.
+        // Conservative: return false.
         _ = node;
         return false;
     }
@@ -9947,9 +9953,22 @@ pub const Checker = struct {
     /// Port of checker.go::isUnreferencedTypeParameter. Returns true if
     /// a type parameter is unreferenced. Simplified: false.
     pub fn isUnreferencedTypeParameter(c: *Checker, type_parameter: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = type_parameter;
-        return false;
+        // Go: return c.symbolReferenceLinks.Get(c.getMergedSymbol(typeParameter.Symbol())).referenceKinds&ast.SymbolFlagsTypeParameter == 0 &&
+        //   !isIdentifierThatStartsWithUnderscore(typeParameter.Name())
+        const sym = c.binder.ast.getNodeSymbol(type_parameter) orelse return true;
+        const merged = getMergedSymbol(c, sym);
+        var has_ref = false;
+        if (c.symbolReferenceLinks.get(merged)) |links| {
+            has_ref = (links.referenceKinds & symbol.SymbolFlags.TypeParameter) != 0;
+        }
+        if (has_ref) return false;
+        // Check if name starts with underscore
+        const name_node = c.binder.ast.getNode(type_parameter).TypeParameter.name;
+        if (name_node != 0) {
+            const name_text = c.binder.ast.getNode(name_node).Identifier.Text;
+            if (name_text.len > 0 and name_text[0] == '_') return false;
+        }
+        return true;
     }
 
     /// Port of checker.go::checkUnusedRenamedBindingElements. Checks for
@@ -10315,9 +10334,29 @@ pub const Checker = struct {
     }
 
     pub fn isSymbolOrSymbolForCall(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        // Go: if !ast.IsCallExpression(node) { return false }
+        //   left := node.Expression()
+        //   if ast.IsPropertyAccessExpression(left) && left.Name().Text() == "for" { left = left.Expression() }
+        //   if !ast.IsIdentifier(left) || left.Text() != "Symbol" { return false }
+        //   globalESSymbol := c.getGlobalESSymbolConstructorSymbolOrNil()
+        //   if globalESSymbol == nil { return false }
+        //   return globalESSymbol == c.resolveName(left, "Symbol", ast.SymbolFlagsValue, nil, false, false)
+        // Simplified: check CallExpression with Symbol/Symbol.for expression.
+        // getGlobalESSymbolConstructorSymbolOrNil not yet wired; check name only.
+        if (c.binder.ast.getKind(node) != .CallExpression) return false;
+        var left = c.binder.ast.getNode(node).CallExpression.Expression;
+        if (left != 0 and c.binder.ast.getKind(left) == .PropertyAccessExpression) {
+            const name_node = c.binder.ast.getNode(left).PropertyAccessExpression.name;
+            if (name_node != 0) {
+                const name_text = c.binder.ast.getNode(name_node).Identifier.Text;
+                if (std.mem.eql(u8, name_text, "for")) {
+                    left = c.binder.ast.getNode(left).PropertyAccessExpression.Expression;
+                }
+            }
+        }
+        if (left == 0 or c.binder.ast.getKind(left) != .Identifier) return false;
+        const left_text = c.binder.ast.getNode(left).Identifier.Text;
+        return std.mem.eql(u8, left_text, "Symbol");
     }
 
     pub fn resolveSignature(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.TypeIndex {
