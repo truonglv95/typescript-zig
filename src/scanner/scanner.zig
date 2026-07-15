@@ -1966,3 +1966,300 @@ pub fn declarationNameToString(allocator: std.mem.Allocator, tree: *@import("../
     if (name == 0) return "(Missing)";
     return try allocator.dupe(u8, @import("../ast/ast_utils.zig").getTextOfNode(tree, name));
 }
+
+// === Additional scanner utility functions (port from Go scanner.go) ===
+
+/// Port of GetIdentifierToken. Returns keyword kind if text is a keyword.
+pub fn getIdentifierToken(str: []const u8) kind.Kind {
+    if (str.len >= 2 and str.len <= 12 and str[0] >= 'a' and str[0] <= 'z') {
+        if (maps.textToKeyword.get(str)) |keyword| {
+            return keyword;
+        }
+    }
+    return .Identifier;
+}
+
+/// Port of TokenToString. Returns the text representation of a token.
+pub fn tokenToString(token: kind.Kind) []const u8 {
+    // Build reverse lookup from textToToken
+    // For efficiency, use a switch for common tokens
+    return switch (token) {
+        .Unknown => "unknown",
+        .EndOfFile => "EOF",
+        .Identifier => "identifier",
+        .StringLiteral => "string",
+        .NumericLiteral => "number",
+        .BigIntLiteral => "bigint",
+        .OpenBraceToken => "{",
+        .CloseBraceToken => "}",
+        .OpenParenToken => "(",
+        .CloseParenToken => ")",
+        .OpenBracketToken => "[",
+        .CloseBracketToken => "]",
+        .DotToken => ".",
+        .DotDotDotToken => "...",
+        .SemicolonToken => ";",
+        .CommaToken => ",",
+        .LessThanToken => "<",
+        .GreaterThanToken => ">",
+        .LessThanEqualsToken => "<=",
+        .GreaterThanEqualsToken => ">=",
+        .EqualsEqualsToken => "==",
+        .ExclamationEqualsToken => "!=",
+        .EqualsEqualsEqualsToken => "===",
+        .ExclamationEqualsEqualsToken => "!==",
+        .EqualsToken => "=",
+        .PlusToken => "+",
+        .MinusToken => "-",
+        .AsteriskToken => "*",
+        .SlashToken => "/",
+        .PercentToken => "%",
+        .AmpersandToken => "&",
+        .BarToken => "|",
+        .CaretToken => "^",
+        .ExclamationToken => "!",
+        .TildeToken => "~",
+        .QuestionToken => "?",
+        .ColonToken => ":",
+        .AtToken => "@",
+        .NullKeyword => "null",
+        .TrueKeyword => "true",
+        .FalseKeyword => "false",
+        .BreakKeyword => "break",
+        .CaseKeyword => "case",
+        .CatchKeyword => "catch",
+        .ClassKeyword => "class",
+        .ConstKeyword => "const",
+        .ContinueKeyword => "continue",
+        .DebuggerKeyword => "debugger",
+        .DefaultKeyword => "default",
+        .DeleteKeyword => "delete",
+        .DoKeyword => "do",
+        .ElseKeyword => "else",
+        .EnumKeyword => "enum",
+        .ExportKeyword => "export",
+        .ExtendsKeyword => "extends",
+        .FinallyKeyword => "finally",
+        .ForKeyword => "for",
+        .FunctionKeyword => "function",
+        .IfKeyword => "if",
+        .ImportKeyword => "import",
+        .InKeyword => "in",
+        .InstanceofKeyword => "instanceof",
+        .NewKeyword => "new",
+        .ReturnKeyword => "return",
+        .SuperKeyword => "super",
+        .SwitchKeyword => "switch",
+        .ThisKeyword => "this",
+        .ThrowKeyword => "throw",
+        .TryKeyword => "try",
+        .TypeofKeyword => "typeof",
+        .VarKeyword => "var",
+        .VoidKeyword => "void",
+        .WhileKeyword => "while",
+        .WithKeyword => "with",
+        .ImplementsKeyword => "implements",
+        .InterfaceKeyword => "interface",
+        .LetKeyword => "let",
+        .PackageKeyword => "package",
+        .PrivateKeyword => "private",
+        .ProtectedKeyword => "protected",
+        .PublicKeyword => "public",
+        .StaticKeyword => "static",
+        .YieldKeyword => "yield",
+        .AbstractKeyword => "abstract",
+        .AsKeyword => "as",
+        .AssertsKeyword => "asserts",
+        .AssertKeyword => "assert",
+        .AsyncKeyword => "async",
+        .AwaitKeyword => "await",
+        .BooleanKeyword => "boolean",
+        .ConstructorKeyword => "constructor",
+        .DeclareKeyword => "declare",
+        .GetKeyword => "get",
+        .InferKeyword => "infer",
+        .IntrinsicKeyword => "intrinsic",
+        .IsKeyword => "is",
+        .KeyOfKeyword => "keyof",
+        .ModuleKeyword => "module",
+        .NamespaceKeyword => "namespace",
+        .NeverKeyword => "never",
+        .NumberKeyword => "number",
+        .ObjectKeyword => "object",
+        .OutKeyword => "out",
+        .OverrideKeyword => "override",
+        .ReadonlyKeyword => "readonly",
+        .RequireKeyword => "require",
+        .SatisfiesKeyword => "satisfies",
+        .SetKeyword => "set",
+        .StringKeyword => "string",
+        .SymbolKeyword => "symbol",
+        .TypeKeyword => "type",
+        .UndefinedKeyword => "undefined",
+        .UniqueKeyword => "unique",
+        .UnknownKeyword => "unknown",
+        .UsingKeyword => "using",
+        .FromKeyword => "from",
+        .OfKeyword => "of",
+        .QuestionQuestionToken => "??",
+        .AmpersandAmpersandToken => "&&",
+        .BarBarToken => "||",
+        .EqualsGreaterThanToken => "=>",
+        .PlusPlusToken => "++",
+        .MinusMinusToken => "--",
+        .PlusEqualsToken => "+=",
+        .MinusEqualsToken => "-=",
+        .AsteriskEqualsToken => "*=",
+        .AsteriskAsteriskToken => "**",
+        .AsteriskAsteriskEqualsToken => "**=",
+        .SlashEqualsToken => "/=",
+        .PercentEqualsToken => "%=",
+        .LessThanLessThanToken => "<<",
+        .GreaterThanGreaterThanToken => ">>",
+        .GreaterThanGreaterThanGreaterThanToken => ">>>",
+        .LessThanLessThanEqualsToken => "<<=",
+        .GreaterThanGreaterThanEqualsToken => ">>=",
+        .GreaterThanGreaterThanGreaterThanEqualsToken => ">>>=",
+        .AmpersandEqualsToken => "&=",
+        .BarEqualsToken => "|=",
+        .CaretEqualsToken => "^=",
+        .QuestionDotToken => "?.",
+        else => "",
+    };
+}
+
+/// Port of StringToToken. Returns token kind for a string, or Unknown.
+pub fn stringToToken(s: []const u8) kind.Kind {
+    return maps.textToToken.get(s) orelse .Unknown;
+}
+
+/// Port of GetViableKeywordSuggestions. Returns keywords longer than 2 chars.
+pub fn getViableKeywordSuggestions(allocator: std.mem.Allocator) ![][]const u8 {
+    var result = std.ArrayList([]const u8).empty;
+    // Iterate over textToKeyword entries
+    for (maps.textToKeyword.keys) |key| {
+        if (key.len > 2) {
+            try result.append(allocator, key);
+        }
+    }
+    return result.toOwnedSlice(allocator);
+}
+
+/// Port of GetShebang. Returns shebang line if present.
+pub fn getShebang(text: []const u8) []const u8 {
+    if (text.len >= 2 and text[0] == '#' and text[1] == '!') {
+        var end: usize = 2;
+        while (end < text.len and text[end] != '\n' and text[end] != '\r') {
+            end += 1;
+        }
+        return text[0..end];
+    }
+    return "";
+}
+
+/// Port of GetErrorRangeForNode. Returns error range for a node.
+pub fn getErrorRangeForNode(tree: *ast.Ast, node: ast.NodeIndex) struct { pos: u32, end: u32 } {
+    const pos = getTokenPosOfNode(tree, node, false);
+    const end = tree.getNodeEnd(node);
+    return .{ .pos = pos, .end = end };
+}
+
+/// Port of GetRangeOfTokenAtPosition. Returns token range at position.
+pub fn getRangeOfTokenAtPosition(text: []const u8, pos: usize) struct { pos: usize, end: usize } {
+    if (pos >= text.len) return .{ .pos = pos, .end = pos };
+    // Skip trivia backwards to find token start
+    var start = pos;
+    while (start > 0 and isWhiteSpaceLike(text[start - 1])) {
+        start -= 1;
+    }
+    // Find token end
+    var end = pos;
+    while (end < text.len and !isWhiteSpaceLike(text[end])) {
+        end += 1;
+    }
+    return .{ .pos = start, .end = end };
+}
+
+/// Port of ComputeLineOfPosition. Returns line number for a position.
+pub fn computeLineOfPosition(lineStarts: []const u32, position: usize, lineStart: usize) struct { line: usize, col: usize } {
+    if (lineStarts.len == 0) return .{ .line = 0, .col = position };
+    var lineNumber: usize = 0;
+    for (lineStarts, 0..) |start, i| {
+        if (start > position) {
+            lineNumber = if (i > 0) i - 1 else 0;
+            break;
+        }
+        lineNumber = i;
+    }
+    const col = position - lineStarts[lineNumber] + lineStart;
+    return .{ .line = lineNumber, .col = col };
+}
+
+/// Port of GetECMALineStarts. Returns array of line start positions.
+pub fn getECMALineStarts(allocator: std.mem.Allocator, text: []const u8) ![]u32 {
+    var starts = std.ArrayList(u32).empty;
+    try starts.append(allocator, 0);
+    for (text, 0..) |c, i| {
+        if (c == '\n') {
+            try starts.append(allocator, @intCast(i + 1));
+        } else if (c == '\r') {
+            if (i + 1 < text.len and text[i + 1] == '\n') {
+                // \r\n — skip the \n
+            } else {
+                try starts.append(allocator, @intCast(i + 1));
+            }
+        }
+    }
+    return starts.toOwnedSlice(allocator);
+}
+
+/// Port of GetScannerForSourceFile. Creates a scanner for a source file.
+pub fn getScannerForSourceFile(allocator: std.mem.Allocator, text: []const u8, skip_trivia: bool) !*Scanner {
+    const scanner = try allocator.create(Scanner);
+    scanner.* = Scanner.init(allocator, text);
+    scanner.setSkipTrivia(skip_trivia);
+    return scanner;
+}
+
+/// Port of ScanTokenAtPosition. Scans the token at a given position.
+pub fn scanTokenAtPosition(text: []const u8, pos: usize) struct { token: kind.Kind, start: usize, end: usize } {
+    if (pos >= text.len) return .{ .token = .EndOfFile, .start = pos, .end = pos };
+    var scanner = Scanner.init(std.heap.page_allocator, text);
+    defer scanner.deinit();
+    scanner.setSkipTrivia(true);
+    // Scan until we reach the position
+    while (scanner.getTokenEnd() <= pos and scanner.getToken() != .EndOfFile) {
+        _ = scanner.scan();
+    }
+    return .{
+        .token = scanner.getToken(),
+        .start = scanner.getTokenStart(),
+        .end = scanner.getTokenEnd(),
+    };
+}
+
+/// Helper: isWhiteSpaceLike (delegates to stringutil)
+fn isWhiteSpaceLike(ch: u8) bool {
+    return ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r' or ch == '\x0B' or ch == '\x0C';
+}
+
+/// Port of GetECMALineAndByteOffsetOfPosition.
+pub fn getECMALineAndByteOffsetOfPosition(lineStarts: []const u32, position: usize) struct { line: usize, offset: usize } {
+    if (lineStarts.len == 0) return .{ .line = 0, .offset = position };
+    var line: usize = 0;
+    for (lineStarts, 0..) |start, i| {
+        if (start > position) {
+            line = if (i > 0) i - 1 else 0;
+            break;
+        }
+        line = i;
+    }
+    return .{ .line = line, .offset = position - lineStarts[line] };
+}
+
+/// Port of GetECMAEndLinePosition.
+pub fn getECMAEndLinePosition(text: []const u8, line: usize, lineStarts: []const u32) usize {
+    if (line >= lineStarts.len) return text.len;
+    if (line + 1 < lineStarts.len) return lineStarts[line + 1];
+    return text.len;
+}
