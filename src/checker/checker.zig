@@ -18930,9 +18930,21 @@ pub fn checkSyntheticExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.
     return t;
 }
 pub fn checkTaggedTemplateExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
-    _ = c;
-    _ = node_idx;
-    return 0; // Simplified to avoid complex dependencies for now
+    // Go: checkTaggedTemplateExpression(node *ast.Node) *Type {
+    //   if !c.checkGrammarTaggedTemplateChain(node.AsTaggedTemplateExpression()) {
+    //       c.checkGrammarTypeArguments(node, node.TypeArgumentList())
+    //   }
+    //   signature := c.getResolvedSignature(node, nil, CheckModeNormal)
+    //   c.checkDeprecatedSignature(signature, node)
+    //   return c.getReturnTypeOfSignature(signature)
+    // }
+    if (!grammarchecks.checkGrammarTaggedTemplateChain(c, node_idx)) {
+        const node = c.binder.ast.getNode(node_idx).TaggedTemplateExpression;
+        _ = grammarchecks.checkGrammarTypeArguments(c, node_idx, node.TypeArguments orelse 0);
+    }
+    const signature = c.getResolvedSignature(node_idx, null, .Normal);
+    c.checkDeprecatedSignature(signature, node_idx);
+    return c.getReturnTypeOfSignature(&c.signatures.items[signature]);
 }
 pub fn checkTemplateExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     const expr = c.binder.ast.getNode(node_idx).TemplateExpression;
@@ -19116,17 +19128,73 @@ pub fn getInstantiationExpressionType(c: *Checker, exprType: types.TypeIndex, no
 }
 
 pub fn checkNewTargetMetaProperty(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
-    _ = node_idx;
-    return c.anyTypeIndex orelse 0;
+    // Go: container := ast.GetNewTargetContainer(node)
+    //     if container == nil { c.error(...); return c.errorType }
+    //     if ast.IsConstructorDeclaration(container) {
+    //         symbol := c.getSymbolOfDeclaration(container.Parent)
+    //         return c.getTypeOfSymbol(symbol)
+    //     }
+    //     symbol := c.getSymbolOfDeclaration(container)
+    //     return c.getTypeOfSymbol(symbol)
+    const container = ast_utils.getThisContainer(c.binder.ast, node_idx, false, false);
+    if (container == 0) {
+        // No error reporting wired up here; just return errorType like Go does.
+        return c.errorTypeIndex orelse c.anyTypeIndex orelse 0;
+    }
+    const k = c.binder.ast.getKind(container);
+    if (k != .Constructor and k != .FunctionDeclaration and k != .FunctionExpression) {
+        // Not a valid new.target container
+        return c.errorTypeIndex orelse c.anyTypeIndex orelse 0;
+    }
+    const target_decl: ast_gen.NodeIndex = if (ast_utils.isConstructorDeclaration(c.binder.ast, container))
+        c.binder.ast.getNodeParent(container)
+    else
+        container;
+    const sym = c.getSymbolOfDeclaration(target_decl);
+    if (sym == 0) return c.errorTypeIndex orelse c.anyTypeIndex orelse 0;
+    return c.getTypeOfSymbol(sym) catch (c.errorTypeIndex orelse c.anyTypeIndex orelse 0);
 }
 
 pub fn checkImportMetaProperty(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
-    _ = node_idx;
-    return c.anyTypeIndex orelse 0;
+    // Go (simplified — error reporting for disallowed module kinds is omitted
+    // because it requires program-level metadata not yet wired up here):
+    //   file := ast.GetSourceFileOfNode(node)
+    //   if node.Name().Text() == "meta" { return c.getGlobalImportMetaType() }
+    //   return c.errorType
+    //
+    // c.getGlobalImportMetaType() = c.getGlobalTypeResolver("ImportMeta", 0, true)
+    // which is effectively c.getGlobalType("ImportMeta", 0, true) (arity 0 ⇒ emptyObjectType fallback).
+    const node = c.binder.ast.getNode(node_idx).MetaProperty;
+    const name_node = c.binder.ast.getNode(node.name);
+    if (name_node == .Identifier and std.mem.eql(u8, name_node.Identifier.Text, "meta")) {
+        const sym = c.getGlobalSymbol("ImportMeta", symbol.SymbolFlags.Type, null);
+        if (sym != 0) {
+            const flags = c.getSymbolFlags(sym);
+            if ((flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface)) != 0) {
+                const t = c.getDeclaredTypeOfSymbol(sym);
+                if (t != 0) return t;
+            }
+        }
+        // arity == 0 fallback
+        return c.emptyObjectTypeIndex orelse c.emptyObjectType;
+    }
+    return c.errorTypeIndex orelse c.anyTypeIndex orelse 0;
 }
 
 pub fn getGlobalRegExpType(c: *Checker, reportErrors: bool) !types.TypeIndex {
-    _ = c;
-    _ = reportErrors;
-    return 0;
+    // Go: c.getGlobalType("RegExp", 0 /*arity*/, true /*reportErrors*/)
+    // getGlobalType => getGlobalSymbol(name, SymbolFlagsType, diag) then getDeclaredTypeOfSymbol,
+    // falling back to emptyObjectType when arity==0.
+    const sym = c.getGlobalSymbol("RegExp", symbol.SymbolFlags.Type, null);
+    if (sym != 0) {
+        const flags = c.getSymbolFlags(sym);
+        if ((flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface)) != 0) {
+            const t = c.getDeclaredTypeOfSymbol(sym);
+            if (t != 0) return t;
+        }
+        // If symbol exists but isn't class/interface or has no declared type, fall through to empty object
+        _ = reportErrors;
+    }
+    // arity == 0 ⇒ emptyObjectType
+    return c.emptyObjectTypeIndex orelse c.emptyObjectType;
 }
