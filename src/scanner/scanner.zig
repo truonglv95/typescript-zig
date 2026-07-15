@@ -2263,3 +2263,176 @@ pub fn getECMAEndLinePosition(text: []const u8, line: usize, lineStarts: []const
     if (line + 1 < lineStarts.len) return lineStarts[line + 1];
     return text.len;
 }
+
+// === Final missing scanner utility functions ===
+
+const merge_conflict_marker_length: usize = 7;
+
+/// Port of hasJSDocTag (free function). Checks if text starts with any JSDoc tag.
+pub fn hasJSDocTagMulti(text: []const u8, tags: []const []const u8) bool {
+    for (tags) |tag| {
+        if (!std.mem.startsWith(u8, text, tag)) continue;
+        if (text.len == tag.len) return true;
+        const ch = text[tag.len];
+        if (ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r') return true;
+    }
+    return false;
+}
+
+/// Port of isConflictMarkerTrivia. Checks for git merge conflict markers.
+pub fn isConflictMarkerTrivia(text: []const u8, pos: usize) bool {
+    if (pos + 1 >= text.len or text[pos + 1] != text[pos]) return false;
+    // Must be at start of line
+    const at_line_start = pos == 0 or isLineBreakByte(text[pos - 1]);
+    if (!at_line_start) return false;
+    const ch = text[pos];
+    if (pos + merge_conflict_marker_length < text.len) {
+        for (0..merge_conflict_marker_length) |i| {
+            if (text[pos + i] != ch) return false;
+        }
+        return ch == '=' or text[pos + merge_conflict_marker_length] == ' ';
+    }
+    return false;
+}
+
+/// Port of scanConflictMarkerTrivia. Skips a conflict marker.
+pub fn scanConflictMarkerTrivia(text: []const u8, pos: usize) usize {
+    const ch = text[pos];
+    var p = pos;
+    if (ch == '<' or ch == '>') {
+        while (p < text.len and !isLineBreakByte(text[p])) {
+            p += 1;
+        }
+    } else {
+        // '|' or '=' — consume to end of line
+        while (p < text.len and !isLineBreakByte(text[p])) {
+            p += 1;
+        }
+    }
+    return p;
+}
+
+/// Port of getErrorRangeForArrowFunction.
+pub fn getErrorRangeForArrowFunction(text: []const u8, node_pos: u32, node_end: u32, body_kind: ?@import("../ast/kind.zig").Kind, body_pos: ?u32, body_end: ?u32, lineStarts: []const u32) struct { pos: u32, end: u32 } {
+    const pos: u32 = @intCast(skipTrivia(text, node_pos));
+    if (body_kind != null and body_kind.? == .Block and body_pos != null and body_end != null) {
+        const start_line = getECMALineOfPosition(lineStarts, body_pos.?);
+        const end_line = getECMALineOfPosition(lineStarts, body_end.?);
+        if (start_line < end_line) {
+            return .{ .pos = pos, .end = @intCast(getECMAEndLinePosition(text, start_line, lineStarts) + 1) };
+        }
+    }
+    return .{ .pos = pos, .end = node_end };
+}
+
+/// Port of newScanner. Creates a new Scanner with default settings.
+pub fn newScanner(allocator: std.mem.Allocator, text: []const u8) Scanner {
+    var s = Scanner.init(allocator, text);
+    s.setSkipTrivia(true);
+    return s;
+}
+
+/// Port of computePositionOfLineAndByteOffset.
+pub fn computePositionOfLineAndByteOffset(lineStarts: []const u32, line: usize, byteOffset: usize) usize {
+    if (line >= lineStarts.len) return 0;
+    return lineStarts[line] + byteOffset;
+}
+
+/// Port of computePositionOfLineAndUTF16Character.
+pub fn computePositionOfLineAndUTF16Character(text: []const u8, lineStarts: []const u32, line: usize, utf16Char: usize) usize {
+    if (line >= lineStarts.len) return 0;
+    var pos = lineStarts[line];
+    var char_count: usize = 0;
+    while (pos < text.len and char_count < utf16Char) {
+        const len = std.unicode.utf8ByteSequenceLength(text[pos]) catch 1;
+        if (pos + len > text.len) break;
+        const ch = std.unicode.utf8Decode(text[pos .. pos + len]) catch break;
+        // Surrogates count as 1 UTF-16 char
+        if (ch >= 0x10000) char_count += 1; // Supplementary plane = 2 UTF-16 units, but we count as 1 char
+        char_count += 1;
+        pos += len;
+    }
+    return pos;
+}
+
+/// Port of getECMALineAndUTF16CharacterOfPosition.
+pub fn getECMALineAndUTF16CharacterOfPosition(text: []const u8, lineStarts: []const u32, position: usize) struct { line: usize, character: usize } {
+    const result = getECMALineAndByteOffsetOfPosition(lineStarts, position);
+    // Convert byte offset to UTF-16 character offset
+    var char_count: usize = 0;
+    var pos = lineStarts[result.line];
+    while (pos < position and pos < text.len) {
+        const len = std.unicode.utf8ByteSequenceLength(text[pos]) catch 1;
+        if (pos + len > text.len) break;
+        const ch = std.unicode.utf8Decode(text[pos .. pos + len]) catch break;
+        if (ch >= 0x10000) char_count += 1; // Supplementary plane = 2 UTF-16 units
+        char_count += 1;
+        pos += len;
+    }
+    return .{ .line = result.line, .character = char_count };
+}
+
+/// Port of getECMAPositionOfLineAndByteOffset.
+pub fn getECMAPositionOfLineAndByteOffset(lineStarts: []const u32, line: usize, byteOffset: usize) usize {
+    return computePositionOfLineAndByteOffset(lineStarts, line, byteOffset);
+}
+
+/// Port of getECMAPositionOfLineAndUTF16Character.
+pub fn getECMAPositionOfLineAndUTF16Character(text: []const u8, lineStarts: []const u32, line: usize, utf16Char: usize) usize {
+    return computePositionOfLineAndUTF16Character(text, lineStarts, line, utf16Char);
+}
+
+/// Port of iterateCommentRanges. Iterates comment ranges at a position.
+pub fn iterateCommentRanges(text: []const u8, pos: usize, trailing: bool, callback: *const fn (u32, u32, bool, bool) void) void {
+    var p = pos;
+    const textLen = text.len;
+    while (p < textLen) {
+        if (p + 1 >= textLen) break;
+        if (text[p] == '/' and text[p + 1] == '/') {
+            // Line comment
+            const start: u32 = @intCast(p);
+            p += 2;
+            while (p < textLen and text[p] != '\n' and text[p] != '\r') p += 1;
+            callback(start, @intCast(p), false, false);
+            if (trailing) break;
+            continue;
+        }
+        if (text[p] == '/' and text[p + 1] == '*') {
+            // Block comment
+            const start: u32 = @intCast(p);
+            p += 2;
+            while (p + 1 < textLen and !(text[p] == '*' and text[p + 1] == '/')) p += 1;
+            p += 2;
+            callback(start, @intCast(p), true, false);
+            if (trailing) break;
+            continue;
+        }
+        break;
+    }
+}
+
+/// Port of findOriginatingJSDocSatisfiesTag. Finds @satisfies JSDoc tag
+/// that originated a satisfies expression. Simplified: returns 0.
+pub fn findOriginatingJSDocSatisfiesTag(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
+    _ = tree;
+    _ = node;
+    return 0; // Simplified — requires full JSDoc infrastructure
+}
+
+/// Helper: getECMALineOfPosition using lineStarts array.
+pub fn getECMALineOfPositionFromStarts(lineStarts: []const u32, position: usize) usize {
+    if (lineStarts.len == 0) return 0;
+    var line: usize = 0;
+    for (lineStarts, 0..) |start, i| {
+        if (start > position) {
+            return if (i > 0) i - 1 else 0;
+        }
+        line = i;
+    }
+    return line;
+}
+
+/// Helper: isLineBreakByte.
+fn isLineBreakByte(ch: u8) bool {
+    return ch == '\n' or ch == '\r';
+}
