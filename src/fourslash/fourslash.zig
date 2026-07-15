@@ -165,6 +165,62 @@ pub const FourslashTest = struct {
         alloc.destroy(arena);
     }
 
+    /// Internal: edit file content at cursor position.
+    /// Inserts `text` at cursor, optionally deleting `deleteLen` chars before cursor (for backspace).
+    /// For forward delete, caller should advance cursor before calling.
+    fn editContentAtCursor(self: *FourslashTest, text: []const u8, deleteLen: i32) void {
+        const aa = self.arena.allocator();
+        if (self.parsedData.files.get(self.currentFile)) |fileContent| {
+            const pos = self.cursorPos;
+            const del: usize = if (deleteLen > 0) @intCast(deleteLen) else 0;
+            const delete_start = if (pos >= del) pos - del else 0;
+            
+            // Build new content: [0..delete_start] + text + [pos..]
+            const new_len = delete_start + text.len + (fileContent.len - pos);
+            var newContent = aa.alloc(u8, new_len) catch return;
+            
+            // Copy before
+            @memcpy(newContent[0..delete_start], fileContent[0..delete_start]);
+            // Copy inserted text
+            @memcpy(newContent[delete_start..delete_start + text.len], text);
+            // Copy after
+            if (pos < fileContent.len) {
+                @memcpy(newContent[delete_start + text.len ..], fileContent[pos..]);
+            }
+            
+            // Update file content
+            self.parsedData.files.put(self.currentFile, newContent) catch {};
+            
+            // Update cursor position
+            self.cursorPos = delete_start + text.len;
+            
+            // Re-parse the file
+            if (self.parser) |p| {
+                p.* = parser_module.Parser.init(aa, newContent);
+                self.sourceFile = p.parseSourceFile() catch null;
+                if (self.binder) |b| {
+                    b.* = binder_module.Binder.init(aa, &p.ast) catch unreachable;
+                    if (self.sourceFile) |sf| {
+                        b.bindSourceFile(sf) catch {};
+                    }
+                }
+                if (self.checker) |c| {
+                    if (self.binder) |b| {
+                        c.* = checker_module.Checker.init(aa, b);
+                        c.checkJs = true;
+                        c.allowJs = true;
+                        c.strictNullChecks = true;
+                        c.noImplicitAny = true;
+                        c.initializeChecker();
+                        if (self.sourceFile) |sf| {
+                            c.checkSourceFile(null, sf, false);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn initialize(self: *FourslashTest, t: *testing.T, capabilities: *lsproto.ClientCapabilities) void {
         _ = self;
         _ = t;
@@ -204,37 +260,72 @@ pub const FourslashTest = struct {
     }
 
     pub fn GoToMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) void {
-        _ = self;
         _ = t;
-        _ = markerName;
+        // Empty marker name means go to the first unnamed marker (/**/)
+        if (markerName.len == 0) {
+            // Look for a marker with empty name
+            if (self.parsedData.markerPositions.get("")) |marker| {
+                self.cursorPos = marker.position;
+                self.lastKnownMarkerName = marker.name;
+                return;
+            }
+            // No unnamed marker found — stay at current position
+            return;
+        }
+        // Named marker
+        if (self.parsedData.markerPositions.get(markerName)) |marker| {
+            self.cursorPos = marker.position;
+            self.lastKnownMarkerName = marker.name;
+        }
     }
 
     pub fn goToMarker(self: *FourslashTest, t: *testing.T, markerOrRange: MarkerOrRange) void {
-        _ = self;
         _ = t;
-        _ = markerOrRange;
+        switch (markerOrRange) {
+            .Marker => |m| {
+                self.cursorPos = m.position;
+                self.lastKnownMarkerName = m.name;
+            },
+            .Range => |r| {
+                self.cursorPos = r.start;
+            },
+        }
     }
 
     pub fn GoToEOF(self: *FourslashTest, t: *testing.T) void {
-        _ = self;
         _ = t;
+        // Move cursor to end of current file content
+        if (self.parsedData.files.get(self.currentFile)) |content| {
+            self.cursorPos = content.len;
+        }
     }
 
     pub fn GoToBOF(self: *FourslashTest, t: *testing.T) void {
-        _ = self;
         _ = t;
+        self.cursorPos = 0;
     }
 
     pub fn GoToPosition(self: *FourslashTest, t: *testing.T, position: i32) void {
-        _ = self;
         _ = t;
-        _ = position;
+        if (position >= 0) {
+            self.cursorPos = @intCast(position);
+        }
     }
 
     pub fn goToPosition(self: *FourslashTest, t: *testing.T, position: lsproto.Position) void {
-        _ = self;
         _ = t;
-        _ = position;
+        // Convert line/character position to absolute offset
+        if (self.parsedData.files.get(self.currentFile)) |content| {
+            var offset: usize = 0;
+            var line: u32 = 0;
+            while (line < position.line and offset < content.len) {
+                if (content[offset] == '\n') line += 1;
+                offset += 1;
+            }
+            offset += position.character;
+            if (offset > content.len) offset = content.len;
+            self.cursorPos = offset;
+        }
     }
 
     pub fn GoToEachMarker(self: *FourslashTest, t: *testing.T, markerNames: anytype, action: anytype, index: i32) void {
@@ -305,31 +396,45 @@ pub const FourslashTest = struct {
     }
 
     pub fn Markers(self: *FourslashTest) []?*Marker {
-        _ = self;
-        return undefined;
+        // Return all markers from parsedData
+        var result = std.ArrayListUnmanaged(?*Marker).empty;
+        var it = self.parsedData.markerPositions.valueIterator();
+        while (it.next()) |m| {
+            result.append(self.allocator, m.*) catch {};
+        }
+        return result.toOwnedSlice(self.allocator) catch &[_]?*Marker{};
     }
 
     pub fn MarkerNames(self: *FourslashTest) [][]const u8 {
-        _ = self;
-        return undefined;
+        var result = std.ArrayListUnmanaged([]const u8).empty;
+        var it = self.parsedData.markerPositions.keyIterator();
+        while (it.next()) |key| {
+            result.append(self.allocator, key.*) catch {};
+        }
+        return result.toOwnedSlice(self.allocator) catch &[_][]const u8{};
     }
 
     pub fn MarkerByName(self: *FourslashTest, t: *testing.T, name: []const u8) ?*Marker {
-        _ = self;
         _ = t;
-        _ = name;
-        return undefined;
+        return self.parsedData.markerPositions.get(name);
     }
 
     pub fn Ranges(self: *FourslashTest) []?*RangeMarker {
-        _ = self;
-        return undefined;
+        var result = std.ArrayListUnmanaged(?*RangeMarker).empty;
+        for (self.parsedData.ranges.items) |r| {
+            result.append(self.allocator, r) catch {};
+        }
+        return result.toOwnedSlice(self.allocator) catch &[_]?*RangeMarker{};
     }
 
     pub fn getRangesInFile(self: *FourslashTest, fileName: []const u8) []?*RangeMarker {
-        _ = self;
+        // All ranges are global for now; file filtering not implemented
         _ = fileName;
-        return undefined;
+        var result = std.ArrayListUnmanaged(?*RangeMarker).empty;
+        for (self.parsedData.ranges.items) |r| {
+            result.append(self.allocator, r) catch {};
+        }
+        return result.toOwnedSlice(self.allocator) catch &[_]?*RangeMarker{};
     }
 
     pub fn ensureActiveFile(self: *FourslashTest, t: *testing.T, filename: []const u8) void {
@@ -364,15 +469,31 @@ pub const FourslashTest = struct {
     }
 
     pub fn VerifyCurrentFileContent(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) void {
-        _ = self;
         _ = t;
-        _ = expectedContent;
+        if (self.parsedData.files.get(self.currentFile)) |actualContent| {
+            if (!std.mem.eql(u8, actualContent, expectedContent)) {
+                std.debug.panic("File content mismatch:\nExpected:\n{s}\nActual:\n{s}\n", .{ expectedContent, actualContent });
+            }
+        }
     }
 
     pub fn VerifyCurrentLineContent(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) void {
-        _ = self;
         _ = t;
-        _ = expectedContent;
+        if (self.parsedData.files.get(self.currentFile)) |fileContent| {
+            // Find the line at cursorPos
+            var line_start: usize = 0;
+            var i: usize = 0;
+            while (i < self.cursorPos and i < fileContent.len) : (i += 1) {
+                if (fileContent[i] == '\n') line_start = i + 1;
+            }
+            // Find line end
+            var line_end: usize = line_start;
+            while (line_end < fileContent.len and fileContent[line_end] != '\n') : (line_end += 1) {}
+            const actualLine = fileContent[line_start..line_end];
+            if (!std.mem.eql(u8, actualLine, expectedContent)) {
+                std.debug.panic("Line content mismatch at pos {d}:\nExpected: \"{s}\"\nActual:   \"{s}\"\n", .{ self.cursorPos, expectedContent, actualLine });
+            }
+        }
     }
 
     pub fn VerifyIndentation(self: *FourslashTest, t: *testing.T, numSpaces: i32) void {
@@ -613,40 +734,59 @@ pub const FourslashTest = struct {
     }
 
     pub fn Insert(self: *FourslashTest, t: *testing.T, text: []const u8) void {
-        _ = self;
         _ = t;
-        _ = text;
+        self.editContentAtCursor(text, 0);
     }
 
     pub fn InsertLine(self: *FourslashTest, t: *testing.T, text: []const u8) void {
-        _ = self;
         _ = t;
-        _ = text;
+        self.editContentAtCursor(text, 0);
+        self.editContentAtCursor("\n", 0);
     }
 
     pub fn Backspace(self: *FourslashTest, t: *testing.T, count: i32) void {
-        _ = self;
         _ = t;
-        _ = count;
+        const c: usize = @intCast(if (count > 0) count else 0);
+        if (c > 0 and self.cursorPos >= c) {
+            self.editContentAtCursor("", @intCast(c));
+        }
     }
 
     pub fn DeleteAtCaret(self: *FourslashTest, t: *testing.T, count: i32) void {
-        _ = self;
         _ = t;
-        _ = count;
+        const c: usize = @intCast(if (count > 0) count else 0);
+        if (c > 0) {
+            // Delete count chars after cursor
+            const old_pos = self.cursorPos;
+            self.cursorPos += c;
+            self.editContentAtCursor("", @intCast(c));
+            self.cursorPos = old_pos;
+        }
     }
 
     pub fn Paste(self: *FourslashTest, t: *testing.T, text: []const u8) void {
-        _ = self;
         _ = t;
-        _ = text;
+        self.editContentAtCursor(text, 0);
     }
 
     pub fn ReplaceLine(self: *FourslashTest, t: *testing.T, lineIndex: i32, text: []const u8) void {
-        _ = self;
         _ = t;
-        _ = lineIndex;
-        _ = text;
+        if (self.parsedData.files.get(self.currentFile)) |fileContent| {
+            // Find start of lineIndex
+            var line: i32 = 0;
+            var pos: usize = 0;
+            while (pos < fileContent.len and line < lineIndex) : (pos += 1) {
+                if (fileContent[pos] == '\n') line += 1;
+            }
+            const line_start = pos;
+            // Find end of line
+            var line_end = line_start;
+            while (line_end < fileContent.len and fileContent[line_end] != '\n') : (line_end += 1) {}
+            // Replace line content
+            self.cursorPos = line_start;
+            const delete_len: i32 = @intCast(line_end - line_start);
+            self.editContentAtCursor(text, delete_len);
+        }
     }
 
     pub fn selectLine(self: *FourslashTest, t: *testing.T, lineIndex: i32) void {
@@ -674,25 +814,22 @@ pub const FourslashTest = struct {
     }
 
     pub fn Replace(self: *FourslashTest, t: *testing.T, start: i32, length: i32, text: []const u8) void {
-        _ = self;
         _ = t;
-        _ = start;
-        _ = length;
-        _ = text;
+        self.cursorPos = @intCast(if (start >= 0) start else 0);
+        const delete_len: i32 = if (length > 0) length else 0;
+        self.editContentAtCursor(text, delete_len);
     }
 
     pub fn replaceWorker(self: *FourslashTest, t: *testing.T, start: i32, length: i32, text: []const u8) void {
-        _ = self;
         _ = t;
-        _ = start;
-        _ = length;
-        _ = text;
+        self.cursorPos = @intCast(if (start >= 0) start else 0);
+        const delete_len: i32 = if (length > 0) length else 0;
+        self.editContentAtCursor(text, delete_len);
     }
 
     pub fn typeText(self: *FourslashTest, t: *testing.T, text: []const u8) void {
-        _ = self;
         _ = t;
-        _ = text;
+        self.editContentAtCursor(text, 0);
     }
 
     pub fn editScriptAndUpdateMarkers(self: *FourslashTest, t: *testing.T, fileName: []const u8, editStart: i32, editEnd: i32, newText: []const u8) void {
