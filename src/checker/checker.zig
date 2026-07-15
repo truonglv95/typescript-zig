@@ -2666,10 +2666,11 @@ pub const Checker = struct {
     }
 
     pub fn shouldDeferIndexType(c: *Checker, t: types.TypeIndex, indexFlags: types.IndexFlags) bool {
-        _ = c;
-        _ = t;
         _ = indexFlags;
-        return false; // Skipped
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.TypeParameter) != 0) return true;
+        return c.isGenericType(t);
     }
 
     pub fn intersectTypes(c: *Checker, t1: types.TypeIndex, t2: types.TypeIndex) types.TypeIndex {
@@ -4410,9 +4411,11 @@ pub const Checker = struct {
     }
 
     pub fn getOriginOfUnionType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0; // Skipped
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        if (c.typesList.items[t].data == .Union) {
+            return c.typesList.items[t].data.Union.origin orelse 0;
+        }
+        return 0;
     }
 
     pub fn getRegularTypeOfObjectLiteral(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -7484,9 +7487,13 @@ pub const Checker = struct {
     }
 
     pub fn typesDefinitelyUnrelated(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c;
-        _ = source;
-        _ = target;
+        if (source == 0 or target == 0 or source >= c.typesList.items.len or target >= c.typesList.items.len) return false;
+        const s_flags = c.typesList.items[source].flags;
+        const t_flags = c.typesList.items[target].flags;
+        // Primitive types are definitely unrelated if different kinds
+        if ((s_flags & types.TypeFlags.Primitive) != 0 and (t_flags & types.TypeFlags.Primitive) != 0) {
+            if ((s_flags & t_flags & types.TypeFlags.Primitive) == 0) return true;
+        }
         return false;
     }
 
@@ -7604,7 +7611,7 @@ pub const Checker = struct {
         _ = c;
         _ = tp;
         _ = node;
-        return false; // Skipped
+        return true; // Conservative: assume referenced to avoid false errors
     }
 
     pub fn getValueDeclarationOfSymbol(c: *Checker, sym: ast_gen.SymbolIndex) ast_gen.NodeIndex {
@@ -9473,8 +9480,7 @@ pub const Checker = struct {
     /// of the given kind should be reported as errors (not warnings).
     pub fn unusedIsError(c: *Checker, kind_val: u32) bool {
         _ = c;
-        _ = kind_val;
-        return false;
+        return kind_val <= 1;
     }
 
     /// Port of checker.go::checkUnusedClassMembers. Checks for unused
@@ -14881,9 +14887,23 @@ pub const Checker = struct {
     }
 
     pub fn getBaseTypeOfLiteralTypeForComparison(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return undefined;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.EnumLike) != 0) return c.getBaseTypeOfEnumLikeType(t);
+        if ((flags & types.TypeFlags.StringLiteral) != 0) return c.stringTypeIndex orelse t;
+        if ((flags & types.TypeFlags.NumberLiteral) != 0) return c.numberTypeIndex orelse t;
+        if ((flags & types.TypeFlags.BigIntLiteral) != 0) return c.bigintTypeIndex orelse t;
+        if ((flags & types.TypeFlags.BooleanLiteral) != 0) return c.booleanTypeIndex orelse t;
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            var widened = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer widened.deinit(c.allocator);
+            for (constituents) |ct| {
+                widened.append(c.allocator, c.getBaseTypeOfLiteralTypeForComparison(ct)) catch return t;
+            }
+            return c.getUnionType(widened.items);
+        }
+        return t;
     }
 
     pub fn getBaseTypeOfLiteralTypeUnion(c: *Checker, t: *anyopaque) *anyopaque {
@@ -15337,11 +15357,9 @@ pub const Checker = struct {
     }
 
     pub fn isAssignmentToReadonlyEntity(c: *Checker, expr: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex, assignmentKind: u32) bool {
-        _ = c;
         _ = expr;
-        _ = symbol_;
-        _ = assignmentKind;
-        return false;
+        if (assignmentKind == 0) return false;
+        return c.isReadonlySymbol(symbol_);
     }
 
     pub fn isThisPropertyAccessInConstructor(c: *Checker, node: ast_gen.NodeIndex, prop: ast_gen.SymbolIndex) bool {
@@ -15444,9 +15462,9 @@ pub const Checker = struct {
     }
 
     pub fn isConstEnumObjectType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        return (flags & types.TypeFlags.Enum) != 0 and (flags & types.TypeFlags.EnumLiteral) == 0;
     }
 
     pub fn isConstEnumSymbol(symbol_: *anyopaque) bool {
