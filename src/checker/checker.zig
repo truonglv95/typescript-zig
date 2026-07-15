@@ -15309,34 +15309,127 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn lateBindMember(c: *Checker, parent: types.TypeIndex, earlySymbols: ast_gen.NodeIndex, lateSymbols: []const ast_gen.SymbolIndex, decl: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
+    /// Port of `checker.go::lateBindMember`. Resolves the late-bound name
+    /// of a computed property member declaration. Checks the property name
+    /// expression, creates or reuses a late-bound symbol, and adds the
+    /// declaration to it. Returns the resolved symbol.
+    pub fn lateBindMember(c: *Checker, parent: ast_gen.SymbolIndex, earlySymbols: *const symbol.SymbolTable, lateSymbols: *symbol.SymbolTable, decl: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        if (decl == 0) return 0;
+        // Check if already resolved via symbolNodeLinks.
+        if (c.symbolNodeLinks.get(decl)) |links| {
+            if (links.resolvedSymbol != 0) return links.resolvedSymbol;
+        }
+        // Get the decl's symbol as fallback.
+        const decl_sym = c.binder.ast.getNodeSymbol(decl) orelse return 0;
+        // Set initial resolved symbol to the early-bound symbol.
+        if (c.symbolNodeLinks.getPtr(decl)) |links| {
+            links.resolvedSymbol = decl_sym;
+        } else {
+            c.symbolNodeLinks.put(c.allocator, decl, .{ .resolvedSymbol = decl_sym }) catch {};
+        }
+        // Get the name node.
+        const decl_kind = c.binder.ast.getKind(decl);
+        const decl_name: ast_gen.NodeIndex = if (decl_kind == .BinaryExpression)
+            c.binder.ast.getNode(decl).BinaryExpression.Left
+        else
+            (ast_utils.getNameOfDeclaration(c.binder.ast, decl) orelse 0);
+        if (decl_name == 0) return decl_sym;
+        // Check the name expression type.
+        const name_type = if (c.binder.ast.getKind(decl_name) == .ElementAccessExpression)
+            checkExpression(c, c.binder.ast.getNode(decl_name).ElementAccessExpression.ArgumentExpression)
+        else
+            c.checkComputedPropertyName(decl_name);
+        if (name_type == 0) return decl_sym;
+        // Check if type is usable as property name (simplified: string/number literals).
+        const name_flags = c.typesList.items[name_type].flags;
+        if ((name_flags & (types.TypeFlags.StringLiteral | types.TypeFlags.NumberLiteral | types.TypeFlags.UniqueESSymbol)) == 0) {
+            return decl_sym;
+        }
+        // Get property name from type.
+        const member_name: []const u8 = if ((name_flags & types.TypeFlags.StringLiteral) != 0)
+            c.typesList.items[name_type].data.StringLiteral.text
+        else if ((name_flags & types.TypeFlags.NumberLiteral) != 0)
+            "" // Number literal name — would need formatting
+        else
+            "symbol";
+        // Get or create late-bound symbol.
+        var late_sym = lateSymbols.get(member_name) orelse blk: {
+            const new_sym = c.newSymbolEx(0, member_name, 0);
+            lateSymbols.put(c.allocator, member_name, new_sym) catch {};
+            break :blk new_sym;
+        };
+        // Check for conflicts with early symbols.
+        if (earlySymbols.get(member_name)) |_| {
+            const late_sym_flags = c.binder.symbols.items[late_sym].Flags;
+            const decl_sym_flags = c.binder.symbols.items[decl_sym].Flags;
+            const excluded = getExcludedSymbolFlags(decl_sym_flags);
+            if ((late_sym_flags & excluded) != 0) {
+                // Conflict — report duplicate identifier.
+                c.reportErrorWithArgs(decl_name, &diagnostics_gen.Duplicate_identifier_0, &.{member_name});
+                // Create new late symbol.
+                late_sym = c.newSymbolEx(0, member_name, 0);
+                lateSymbols.put(c.allocator, member_name, late_sym) catch {};
+            }
+        }
+        // Add declaration to late-bound symbol.
+        c.addDeclarationToLateBoundSymbol(late_sym, decl, c.binder.symbols.items[decl_sym].Flags);
+        // Set parent if not set.
+        if (late_sym < c.binder.symbols.items.len) {
+            if (c.binder.symbols.items[late_sym].Parent == null) {
+                c.binder.symbols.items[late_sym].Parent = parent;
+            }
+        }
+        // Update resolved symbol.
+        if (c.symbolNodeLinks.getPtr(decl)) |links| {
+            links.resolvedSymbol = late_sym;
+        }
+        return late_sym;
+    }
+
+    /// Port of `checker.go::lateBindIndexSignature`. Late-binds an index
+    /// signature declaration by creating or reusing an index symbol and
+    /// adding the declaration to it.
+    pub fn lateBindIndexSignature(c: *Checker, parent: ast_gen.SymbolIndex, earlySymbols: *const symbol.SymbolTable, lateSymbols: *symbol.SymbolTable, decl: ast_gen.NodeIndex) void {
         _ = parent;
-        _ = earlySymbols;
-        _ = lateSymbols;
-        _ = decl;
-        return 0;
+        // Get or create index symbol.
+        const index_sym = lateSymbols.get("__index") orelse blk: {
+            if (earlySymbols.get("__index")) |early| {
+                const cloned = c.cloneSymbol(early);
+                if (cloned < c.binder.symbols.items.len) {
+                    c.binder.symbols.items[cloned].CheckFlags |= 1; // CheckFlagsLate
+                }
+                lateSymbols.put(c.allocator, "__index", cloned) catch {};
+                break :blk cloned;
+            } else {
+                const new_sym = c.newSymbolEx(0, "__index", 1); // CheckFlagsLate
+                lateSymbols.put(c.allocator, "__index", new_sym) catch {};
+                break :blk new_sym;
+            }
+        };
+        // Add declaration to index symbol.
+        if (index_sym < c.binder.symbols.items.len) {
+            const sym = &c.binder.symbols.items[index_sym];
+            const decl_sym = c.binder.ast.getNodeSymbol(decl) orelse return;
+            if (sym.Declarations.items.len == 0 or (c.binder.symbols.items[decl_sym].Flags & symbol.SymbolFlags.ReplaceableByMethod) == 0) {
+                sym.Declarations.append(c.allocator, decl) catch {};
+            }
+        }
     }
 
-    pub fn lateBindIndexSignature(c: *Checker, parent: types.TypeIndex, earlySymbols: ast_gen.NodeIndex, lateSymbols: []const ast_gen.SymbolIndex, decl: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = parent;
-        _ = earlySymbols;
-        _ = lateSymbols;
-        _ = decl;
-    }
-
-    pub fn isNotReplacableByMethod(c: *Checker, decl: ast_gen.NodeIndex) bool {
-        // Go: return decl.Symbol().Flags & ast.SymbolFlagsReplaceableByMethod == 0
-        const sym = c.binder.ast.getNodeSymbol(decl) orelse return true;
-        return (c.binder.symbols.items[sym].Flags & symbol.SymbolFlags.ReplaceableByMethod) == 0;
-    }
-
-    pub fn addDeclarationToLateBoundSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex, member: ast_gen.NodeIndex, symbolFlags: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = symbol_;
-        _ = member;
-        _ = symbolFlags;
+    /// Port of `checker.go::addDeclarationToLateBoundSymbol`. Adds a
+    /// declaration to a late-bound symbol, merging flags and declarations.
+    pub fn addDeclarationToLateBoundSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex, member: ast_gen.NodeIndex, symbolFlags: u32) void {
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return;
+        const sym = &c.binder.symbols.items[symbol_];
+        const member_sym = c.binder.ast.getNodeSymbol(member) orelse return;
+        if (member_sym >= c.binder.symbols.items.len) return;
+        const member_sym_flags = c.binder.symbols.items[member_sym].Flags;
+        if (sym.Declarations.items.len == 0 or (member_sym_flags & symbol.SymbolFlags.ReplaceableByMethod) == 0) {
+            sym.Flags |= symbolFlags;
+            sym.Declarations.append(c.allocator, member) catch {};
+        } else if ((sym.Flags & symbol.SymbolFlags.ReplaceableByMethod) != 0 and (member_sym_flags & symbol.SymbolFlags.Method) != 0) {
+            sym.Declarations.append(c.allocator, member) catch {};
+        }
     }
 
     pub fn getMembersOfSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) *const symbol.SymbolTable {
