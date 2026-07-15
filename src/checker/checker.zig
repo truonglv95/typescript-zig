@@ -11796,29 +11796,37 @@ pub const Checker = struct {
         return ast_utils.skipParentheses(c.binder.ast, argument);
     }
 
-    pub fn inferTypeArguments(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex, args: []const ast_gen.NodeIndex, checkMode: CheckMode, context: types.TypeIndex) types.TypeIndex {
-        _ = c;
+    /// Port of `checker.go::inferTypeArguments`. Infers type arguments
+    /// for a generic call expression. Simplified: returns empty.
+    pub fn inferTypeArguments(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex, args: []const ast_gen.NodeIndex, checkMode: CheckMode, context: u32) []const types.TypeIndex {
         _ = node;
         _ = signature;
         _ = args;
         _ = checkMode;
         _ = context;
-        return 0;
+        _ = c;
+        return &[_]types.TypeIndex{};
     }
 
-    pub fn getCandidateForOverloadFailure(c: *Checker, node: ast_gen.NodeIndex, candidates: []const types.SignatureIndex, args: []const ast_gen.NodeIndex, hasCandidatesOutArray: bool, checkMode: CheckMode) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = candidates;
-        _ = args;
-        _ = hasCandidatesOutArray;
-        _ = checkMode;
-        return 0;
+    /// Port of `checker.go::getCandidateForOverloadFailure`. Returns the
+    /// best candidate for overload failure error reporting.
+    pub fn getCandidateForOverloadFailure(c: *Checker, node: ast_gen.NodeIndex, candidates: []const types.SignatureIndex, args: []const ast_gen.NodeIndex, hasCandidatesOutArray: bool, checkMode: CheckMode) types.SignatureIndex {
+        c.checkNodeDeferred(node);
+        var has_type_params = false;
+        for (candidates) |sig| {
+            if (sig < c.signatures.items.len and c.signatures.items[sig].typeParametersLen > 0) {
+                has_type_params = true;
+                break;
+            }
+        }
+        if (hasCandidatesOutArray or candidates.len == 1 or has_type_params) {
+            return c.pickLongestCandidateSignature(node, candidates, args, checkMode);
+        }
+        return c.createUnionOfSignaturesForOverloadFailure(candidates);
     }
 
     /// Port of `checker.go::pickLongestCandidateSignature`. Returns the
-    /// longest candidate signature (the one with the most parameters that
-    /// is still applicable). Delegates to `getLongestCandidateIndex`.
+    /// longest candidate signature via getLongestCandidateIndex.
     pub fn pickLongestCandidateSignature(c: *Checker, node: ast_gen.NodeIndex, candidates: []const types.SignatureIndex, args: []const ast_gen.NodeIndex, checkMode: CheckMode) types.SignatureIndex {
         _ = node;
         _ = checkMode;
@@ -11865,20 +11873,23 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn inferSignatureInstantiationForOverloadFailure(c: *Checker, node: ast_gen.NodeIndex, typeParameters: ast_gen.NodeIndex, candidate: ast_gen.NodeIndex, args: []const ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
-        _ = c;
+    /// Port of `checker.go::inferSignatureInstantiationForOverloadFailure`.
+    /// Simplified: returns the candidate unchanged.
+    pub fn inferSignatureInstantiationForOverloadFailure(c: *Checker, node: ast_gen.NodeIndex, typeParameters: []const types.TypeIndex, candidate: types.SignatureIndex, args: []const ast_gen.NodeIndex, checkMode: CheckMode) types.SignatureIndex {
         _ = node;
         _ = typeParameters;
-        _ = candidate;
         _ = args;
         _ = checkMode;
-        return 0;
+        _ = c;
+        return candidate;
     }
 
-    pub fn createUnionOfSignaturesForOverloadFailure(c: *Checker, candidates: []const types.SignatureIndex) types.TypeIndex {
+    /// Port of `checker.go::createUnionOfSignaturesForOverloadFailure`.
+    /// Simplified: returns the first candidate.
+    pub fn createUnionOfSignaturesForOverloadFailure(c: *Checker, candidates: []const types.SignatureIndex) types.SignatureIndex {
         _ = c;
-        _ = candidates;
-        return 0;
+        if (candidates.len == 0) return 0;
+        return candidates[0];
     }
 
     pub fn createCombinedSymbolFromTypes(c: *Checker, sources: ast_gen.NodeIndex, types_: []const types.TypeIndex) types.TypeIndex {
@@ -16833,13 +16844,24 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getSignatureInstantiation(c: *Checker, sig: types.SignatureIndex, typeArguments: ast_gen.NodeIndex, isJavaScript: types.TypeIndex, inferredTypeParameters: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = sig;
-        _ = typeArguments;
+    /// Port of `checker.go::getSignatureInstantiation`. Instantiates a
+    /// signature with type arguments, filling missing ones from defaults.
+    /// Delegates to instantiateSignatureEx with a mapper.
+    pub fn getSignatureInstantiation(c: *Checker, sig: types.SignatureIndex, typeArguments: []const types.TypeIndex, isJavaScript: bool, inferredTypeParameters: []const types.TypeIndex) types.SignatureIndex {
         _ = isJavaScript;
         _ = inferredTypeParameters;
-        return 0;
+        if (sig >= c.signatures.items.len) return 0;
+        const src_sig = &c.signatures.items[sig];
+        const type_params = if (src_sig.typeParametersLen > 0)
+            c.signatureTypeParameters.items[src_sig.typeParametersStart .. src_sig.typeParametersStart + src_sig.typeParametersLen]
+        else
+            &[_]types.TypeIndex{};
+        if (type_params.len == 0) return sig;
+        // Fill missing type arguments.
+        const filled = c.fillMissingTypeArguments(typeArguments, type_params, 0, false);
+        // Create mapper and instantiate.
+        const mapper = mapper_pkg.createTypeMapper(c, type_params, filled);
+        return c.instantiateSignatureEx(sig, mapper, false);
     }
 
     pub fn cloneSignature(c: *Checker, sig: types.SignatureIndex) types.SignatureIndex {
