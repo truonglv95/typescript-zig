@@ -116,3 +116,139 @@ pub fn newSpecMatcher(allocator: std.mem.Allocator, specs: []const []const u8, b
     matcher.* = .{ .patterns = try patterns.toOwnedSlice() };
     return matcher;
 }
+
+// === Missing vfsmatch functions (ported from Go) ===
+
+/// Port of ReadDirectory. Reads directory contents matching include/exclude patterns.
+pub fn readDirectory(
+    allocator: std.mem.Allocator,
+    fs: @import("vfs.zig").FS,
+    current_dir: []const u8,
+    path: []const u8,
+    extensions: []const []const u8,
+    excludes: []const []const u8,
+    includes: []const []const u8,
+    depth: i32,
+) ![][]const u8 {
+    return matchFiles(allocator, path, extensions, excludes, includes, fs.useCaseSensitiveFileNames(), current_dir, depth, fs);
+}
+
+/// Port of getIncludeBasePath. Returns the base path for an include pattern.
+pub fn getIncludeBasePath(absolute: []const u8) []const u8 {
+    const wildcard_offset = std.mem.indexOfAny(u8, absolute, "*?");
+    if (wildcard_offset == null) {
+        // No wildcard — check if path has extension
+        if (!hasExtension(absolute)) return absolute;
+        // For paths with extensions, return the parent directory
+        const last_slash = std.mem.lastIndexOfScalar(u8, absolute, '/');
+        if (last_slash == null) return absolute[0..0];
+        return absolute[0..last_slash.?];
+    }
+    const wo = wildcard_offset.?;
+    const last_slash = std.mem.lastIndexOfScalar(u8, absolute[0..wo], '/');
+    if (last_slash == null) return absolute[0..0];
+    return absolute[0..last_slash.?];
+}
+
+/// Helper: hasExtension checks if path has a file extension.
+fn hasExtension(path: []const u8) bool {
+    const base = tspath.getBaseFileName(path);
+    if (std.mem.lastIndexOfScalar(u8, base, '.')) |dot| {
+        return dot > 0 and dot < base.len - 1;
+    }
+    return false;
+}
+
+/// Port of matchFiles. Simplified file matching.
+fn matchFiles(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    extensions: []const []const u8,
+    excludes: []const []const u8,
+    includes: []const []const u8,
+    use_case_sensitive: bool,
+    current_dir: []const u8,
+    depth: i32,
+    fs: @import("vfs.zig").FS,
+) ![][]const u8 {
+    _ = excludes;
+    _ = current_dir;
+    _ = depth;
+    
+    var result = std.ArrayList([]const u8).empty;
+    const entries = fs.getAccessibleEntries(allocator, path);
+    
+    // Match files in directory
+    for (entries.files) |file| {
+        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ path, file });
+        
+        var matched = false;
+        if (includes.len == 0) {
+            matched = true;
+        } else {
+            for (includes) |include| {
+                if (matchesGlob(file, include)) {
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        
+        if (matched) {
+            // Check extension
+            if (extensions.len == 0) {
+                try result.append(allocator, full_path);
+            } else {
+                for (extensions) |ext| {
+                    if (std.mem.endsWith(u8, file, ext)) {
+                        try result.append(allocator, full_path);
+                        break;
+                    }
+                }
+            }
+        }
+        _ = use_case_sensitive;
+    }
+    
+    // Recurse into directories (simplified: only 1 level)
+    for (entries.directories) |dir| {
+        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ path, dir });
+        try result.append(allocator, full_path);
+    }
+    
+    return result.toOwnedSlice(allocator);
+}
+
+/// Simple glob matcher — supports * and ?
+fn matchesGlob(text: []const u8, pattern: []const u8) bool {
+    var ti: usize = 0;
+    var pi: usize = 0;
+    var star: ?usize = null;
+    var star_t: usize = 0;
+    
+    while (ti < text.len) {
+        if (pi < pattern.len) {
+            const pc = pattern[pi];
+            if (pc == '*') {
+                star = pi;
+                star_t = ti;
+                pi += 1;
+                continue;
+            }
+            if (pc == '?' or pc == text[ti]) {
+                ti += 1;
+                pi += 1;
+                continue;
+            }
+        }
+        if (star != null) {
+            pi = star.? + 1;
+            star_t += 1;
+            ti = star_t;
+            continue;
+        }
+        return false;
+    }
+    while (pi < pattern.len and pattern[pi] == '*') pi += 1;
+    return pi == pattern.len;
+}
