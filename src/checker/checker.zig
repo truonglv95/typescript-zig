@@ -8644,11 +8644,22 @@ pub const Checker = struct {
         }
     }
 
-    pub fn getResolutionModeOverride(c: *Checker, node: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {
+    pub fn getResolutionModeOverride(c: *Checker, node: ast_gen.NodeIndex, reportErrors: bool) core.ResolutionMode {
+        // Go: if len(node.Attributes.Nodes) != 1 { if reportErrors { ... }; return ResolutionModeNone }
+        //   elem := node.Attributes.Nodes[0]
+        //   if !ast.IsStringLiteralLike(elem.Name()) { return ResolutionModeNone }
+        //   if elem.Name().Text() != "resolution-mode" { if reportErrors { ... }; return ResolutionModeNone }
+        //   value := elem.AsImportAttribute().Value
+        //   if !ast.IsStringLiteralLike(value) { return ResolutionModeNone }
+        //   switch value.Text() { case "import": return ESNext; case "require": return CommonJS }
+        //   if reportErrors { ... }
+        //   return ResolutionModeNone
+        // Simplified: ImportAttributes/ImportAttribute AST nodes not fully wired.
+        // Conservative: return .None (= 0 = ModuleKind.None).
         _ = c;
         _ = node;
         _ = reportErrors;
-        return 0;
+        return .None;
     }
 
     /// Port of checker.go::checkFunctionOrMethodDeclaration. Checks a
@@ -10204,9 +10215,19 @@ pub const Checker = struct {
     }
 
     pub fn isInConstructorArgumentInitializer(c: *Checker, node: ast_gen.NodeIndex, constructorDecl: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        _ = constructorDecl;
+        // Go: return ast.FindAncestorOrQuit(node, func(n *ast.Node) ast.FindAncestorResult {
+        //   if ast.IsFunctionLikeDeclaration(n) { return FindAncestorQuit }
+        //   if ast.IsParameterDeclaration(n) && n.Parent == constructorDecl { return FindAncestorTrue }
+        //   return FindAncestorFalse
+        // }) != nil
+        var current = node;
+        while (current != 0) {
+            if (ast_utils.isFunctionLikeNode(c.binder.ast, current)) return false; // Quit
+            if (ast_utils.isParameterDeclaration(c.binder.ast, current)) {
+                if (c.binder.ast.getNodeParent(current) == constructorDecl) return true;
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
         return false;
     }
 
