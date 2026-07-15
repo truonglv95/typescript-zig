@@ -11965,15 +11965,79 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isSideEffectFree(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
-        return false;
+    pub fn isSideEffectFree(c: *Checker, node_in: ast_gen.NodeIndex) bool {
+        // Go: node = ast.SkipParentheses(node)
+        //   switch node.Kind {
+        //     case Identifier, StringLiteral, RegularExpressionLiteral, TaggedTemplateExpression, TemplateExpression,
+        //       NoSubstitutionTemplateLiteral, NumericLiteral, BigIntLiteral, TrueKeyword, FalseKeyword,
+        //       NullKeyword, UndefinedKeyword, FunctionExpression, ClassExpression, ArrowFunction,
+        //       ArrayLiteralExpression, ObjectLiteralExpression, TypeOfExpression, NonNullExpression, JsxSelfClosingElement,
+        //       JsxElement: return true
+        //     case ConditionalExpression: return isSideEffectFree(WhenTrue) && isSideEffectFree(WhenFalse)
+        //     case BinaryExpression:
+        //       if IsAssignmentOperator(OperatorToken) { return false }
+        //       return isSideEffectFree(Left) && isSideEffectFree(Right)
+        //     case PrefixUnaryExpression:
+        //       switch Operator { case ExclamationToken, PlusToken, MinusToken, TildeToken: return true }
+        //   }
+        //   return false
+        const node = ast_utils.skipParentheses(c.binder.ast, node_in);
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .Identifier, .StringLiteral, .RegularExpressionLiteral, .TaggedTemplateExpression, .TemplateExpression,
+            .NoSubstitutionTemplateLiteral, .NumericLiteral, .BigIntLiteral, .TrueKeyword, .FalseKeyword,
+            .NullKeyword, .UndefinedKeyword, .FunctionExpression, .ClassExpression, .ArrowFunction,
+            .ArrayLiteralExpression, .ObjectLiteralExpression, .TypeOfExpression, .NonNullExpression, .JsxSelfClosingElement,
+            .JsxElement => return true,
+            .ConditionalExpression => {
+                const ce = c.binder.ast.getNode(node).ConditionalExpression;
+                return c.isSideEffectFree(ce.WhenTrue) and c.isSideEffectFree(ce.WhenFalse);
+            },
+            .BinaryExpression => {
+                const be = c.binder.ast.getNode(node).BinaryExpression;
+                const op_kind = c.binder.ast.getKind(be.OperatorToken);
+                if (ast_utils.isAssignmentOperator(op_kind)) return false;
+                return c.isSideEffectFree(be.Left) and c.isSideEffectFree(be.Right);
+            },
+            .PrefixUnaryExpression => {
+                const pe = c.binder.ast.getNode(node).PrefixUnaryExpression;
+                const op_kind = c.binder.ast.getKind(pe.Operator);
+                switch (op_kind) {
+                    .ExclamationToken, .PlusToken, .MinusToken, .TildeToken => return true,
+                    else => return false,
+                }
+            },
+            else => return false,
+        }
     }
 
-    pub fn isIndirectCall(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
+    pub fn isIndirectCall(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: left := node.AsBinaryExpression().Left
+        //   right := node.AsBinaryExpression().Right
+        //   return ast.IsParenthesizedExpression(node.Parent) && ast.IsNumericLiteral(left) && left.Text() == "0" &&
+        //     (ast.IsCallExpression(node.Parent.Parent) && node.Parent.Parent.Expression() == node.Parent ||
+        //       ast.IsTaggedTemplateExpression(node.Parent.Parent)) &&
+        //     (ast.IsAccessExpression(right) || ast.IsIdentifier(right) && right.Text() == "eval")
+        if (c.binder.ast.getKind(node) != .BinaryExpression) return false;
+        const be = c.binder.ast.getNode(node).BinaryExpression;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0 or c.binder.ast.getKind(parent) != .ParenthesizedExpression) return false;
+        if (c.binder.ast.getKind(be.Left) != .NumericLiteral) return false;
+        const left_text = c.binder.ast.getNode(be.Left).NumericLiteral.Text;
+        if (!std.mem.eql(u8, left_text, "0")) return false;
+        const grandparent = c.binder.ast.getNodeParent(parent);
+        if (grandparent == 0) return false;
+        const gp_kind = c.binder.ast.getKind(grandparent);
+        if (gp_kind == .CallExpression) {
+            if (c.binder.ast.getNode(grandparent).CallExpression.Expression != parent) return false;
+        } else if (gp_kind != .TaggedTemplateExpression) {
+            return false;
+        }
+        if (ast_utils.isAccessExpression(c.binder.ast, be.Right)) return true;
+        if (c.binder.ast.getKind(be.Right) == .Identifier) {
+            const right_text = c.binder.ast.getNode(be.Right).Identifier.Text;
+            return std.mem.eql(u8, right_text, "eval");
+        }
         return false;
     }
 
