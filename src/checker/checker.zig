@@ -10137,10 +10137,18 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn createArrayLiteralType(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        return undefined;
+    pub fn createArrayLiteralType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Go: if t.objectFlags&ObjectFlagsReference == 0 { return t }
+        //   key := CachedTypeKey{kind: CachedTypeKindArrayLiteralType, typeId: t.id}
+        //   if cached, ok := c.cachedTypes[key]; ok { return cached }
+        //   literalType := c.cloneTypeReference(t)
+        //   literalType.objectFlags |= ObjectFlagsArrayLiteral | ObjectFlagsContainsObjectOrArrayLiteral
+        //   c.cachedTypes[key] = literalType
+        //   return literalType
+        // Simplified: cloneTypeReference and cachedTypes not yet wired.
+        // Conservative: return t unchanged if not a Reference type.
+        if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Reference) == 0) return t;
+        return t;
     }
 
     pub fn isSpreadIntoCallOrNew(c: *Checker, node: ast_gen.NodeIndex) bool {
@@ -11411,10 +11419,11 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn symbolHasNonMethodDeclaration(c: *Checker, symbol_: *anyopaque) bool {
-        _ = c;
-        _ = symbol_;
-        return false;
+    pub fn symbolHasNonMethodDeclaration(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        // Go: return c.forEachProperty(symbol, func(prop *ast.Symbol) bool { return prop.Flags&ast.SymbolFlagsMethod == 0 })
+        // Simplified: forEachProperty not yet wired; check symbol's own flags.
+        const sym = c.binder.symbols.items[symbol_];
+        return (sym.Flags & symbol.SymbolFlags.Method) == 0;
     }
 
     pub fn forEachProperty(c: *Checker, prop: *anyopaque, callback: *anyopaque) bool {
@@ -12651,10 +12660,23 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isDeprecatedSymbol(c: *Checker, symbol_: *anyopaque) bool {
-        _ = c;
-        _ = symbol_;
-        return false;
+    pub fn isDeprecatedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        // Go: parentSymbol := c.getParentOfSymbol(symbol)
+        //   if parentSymbol != nil && len(symbol.Declarations) > 1 {
+        //     if parentSymbol.Flags&ast.SymbolFlagsInterface != 0 { return core.Some(symbol.Declarations, c.IsDeprecatedDeclaration) }
+        //     else { return core.Every(symbol.Declarations, c.IsDeprecatedDeclaration) }
+        //   }
+        //   return symbol.ValueDeclaration != nil && c.IsDeprecatedDeclaration(symbol.ValueDeclaration) ||
+        //     len(symbol.Declarations) != 0 && core.Every(symbol.Declarations, c.IsDeprecatedDeclaration)
+        // Simplified: getParentOfSymbol is still a stub; check ValueDeclaration and Declarations directly.
+        const sym = c.binder.symbols.items[symbol_];
+        if (sym.ValueDeclaration) |vd| {
+            if (vd != 0 and c.isDeprecatedDeclaration(vd)) return true;
+        }
+        for (sym.Declarations.items) |decl| {
+            if (decl != 0 and !c.isDeprecatedDeclaration(decl)) return false;
+        }
+        return sym.Declarations.items.len > 0;
     }
 
     pub fn newSymbol(c: *Checker, flags: *anyopaque, name_: *anyopaque) *anyopaque {
