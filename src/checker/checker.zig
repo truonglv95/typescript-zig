@@ -13330,16 +13330,18 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn hasSignatures(c: *Checker, t: *anyopaque) bool {
-        _ = c;
-        _ = t;
-        return false;
+    pub fn hasSignatures(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return len(c.getSignaturesOfStructuredType(t, SignatureKindCall)) > 0 ||
+        //   len(c.getSignaturesOfStructuredType(t, SignatureKindConstruct)) > 0
+        const call_sigs = c.getSignaturesOfType(t, .Call);
+        if (call_sigs.len > 0) return true;
+        const construct_sigs = c.getSignaturesOfType(t, .Construct);
+        return construct_sigs.len > 0;
     }
 
-    pub fn isESMFormatImportImportingCommonjsFormatFile(usageMode: *anyopaque, targetMode: *anyopaque) bool {
-        _ = usageMode;
-        _ = targetMode;
-        return false;
+    pub fn isESMFormatImportImportingCommonjsFormatFile(usageMode: core.ModuleKind, targetMode: core.ModuleKind) bool {
+        // Go: return usageMode == core.ModuleKindESNext && targetMode == core.ModuleKindCommonJS
+        return usageMode == .ESNext and targetMode == .CommonJS;
     }
 
     pub fn getTypeWithSyntheticDefaultOnly(c: *Checker, t: *anyopaque, symbol_: *anyopaque, originalSymbol: *anyopaque, moduleSpecifier: *anyopaque) *anyopaque {
@@ -13553,10 +13555,15 @@ pub const Checker = struct {
         return flags;
     }
 
-    pub fn getDeclarationOfAliasSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn getDeclarationOfAliasSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.NodeIndex {
+        // Go: return core.FindLast(symbol.Declarations, ast.IsAliasSymbolDeclaration)
+        const sym = c.binder.symbols.items[symbol_];
+        var i: usize = sym.Declarations.items.len;
+        while (i > 0) : (i -= 1) {
+            const decl = sym.Declarations.items[i - 1];
+            if (decl != 0 and ast_utils.isAliasSymbolDeclaration(c.binder.ast, decl)) return decl;
+        }
+        return 0;
     }
 
     pub fn getTypeOfSymbolWithDeferredType(c: *Checker, symbol_: *anyopaque) *anyopaque {

@@ -2496,6 +2496,7 @@ pub fn isTypeLiteralNode(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     if (node == 0) return false;
     return tree.getNodeKind(node) == .TypeLiteral;
 }
+
 pub fn canHaveDecorators(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const nodeKind = getKind(tree, nodeIndex);
     switch (nodeKind) {
