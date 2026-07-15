@@ -12845,11 +12845,19 @@ pub const Checker = struct {
         c.mergedSymbols.put(c.allocator, source, target) catch {};
     }
 
-    pub fn getSymbolIfSameReference(c: *Checker, s1: *anyopaque, s2: *anyopaque) *anyopaque {
-        _ = c;
-        _ = s1;
-        _ = s2;
-        return undefined;
+    pub fn getSymbolIfSameReference(c: *Checker, s1: ast_gen.SymbolIndex, s2: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Go: if c.getMergedSymbol(c.resolveSymbol(c.getMergedSymbol(s1))) == c.getMergedSymbol(c.resolveSymbol(c.getMergedSymbol(s2))) {
+        //   return s1
+        // }
+        // return nil
+        const merged1 = getMergedSymbol(c, s1);
+        const resolved1 = c.resolveSymbol(merged1);
+        const final1 = getMergedSymbol(c, resolved1);
+        const merged2 = getMergedSymbol(c, s2);
+        const resolved2 = c.resolveSymbol(merged2);
+        const final2 = getMergedSymbol(c, resolved2);
+        if (final1 == final2) return s1;
+        return 0;
     }
 
     pub fn getLateBoundSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
