@@ -12154,14 +12154,11 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::isPropertyAccessible`. Returns true if the
+    /// property is accessible (delegates to checkPropertyAccessibilityAtLocation
+    /// without reporting errors).
     pub fn isPropertyAccessible(c: *Checker, node: ast_gen.NodeIndex, isSuper: bool, isWrite: bool, containingType: types.TypeIndex, property: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = node;
-        _ = isSuper;
-        _ = isWrite;
-        _ = containingType;
-        _ = property;
-        return false;
+        return c.checkPropertyAccessibilityAtLocation(node, isSuper, isWrite, containingType, property, 0);
     }
 
     pub fn containerSeemsToBeEmptyDomElement(c: *Checker, containingType: types.TypeIndex) bool {
