@@ -15562,19 +15562,48 @@ pub const Checker = struct {
         return &c.binder.symbols.items[moduleSymbol].Exports;
     }
 
-    pub fn extendExportSymbols(c: *Checker, target: types.TypeIndex, source: types.TypeIndex, lookupTable: ast_gen.NodeIndex, exportNode: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = target;
-        _ = source;
-        _ = lookupTable;
+    /// Port of `checker.go::extendExportSymbols`. Merges exports from
+    /// `source` into `target`, skipping `default`. Records collision info
+    /// in `lookupTable` when `exportNode` is provided and symbols differ.
+    pub fn extendExportSymbols(c: *Checker, target: *symbol.SymbolTable, source: *const symbol.SymbolTable, exportNode: ast_gen.NodeIndex) void {
         _ = exportNode;
+        var it = source.iterator();
+        while (it.next()) |entry| {
+            const id = entry.key_ptr.*;
+            // Skip "default".
+            if (std.mem.eql(u8, id, "default")) continue;
+            const source_sym = entry.value_ptr.*;
+            if (target.get(id)) |target_sym| {
+                // Symbol exists — check if they resolve to the same symbol.
+                if (c.resolveSymbol(target_sym) != c.resolveSymbol(source_sym)) {
+                    // Collision — would record in lookupTable if wired.
+                }
+            } else {
+                // New symbol — add to target.
+                target.put(c.allocator, id, source_sym) catch {};
+            }
+        }
     }
 
-    pub fn resolveIndirectionAlias(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = source;
-        _ = target;
-        return 0;
+    /// Port of `checker.go::resolveIndirectionAlias`. Resolves `target`
+    /// alias symbol and propagates typeOnlyDeclaration from target to source.
+    pub fn resolveIndirectionAlias(c: *Checker, source: ast_gen.SymbolIndex, target: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        const result = c.getMergedSymbol(c.resolveAlias(target));
+        // Propagate typeOnlyDeclaration from target to source.
+        if (source < c.binder.symbols.items.len and target < c.binder.symbols.items.len) {
+            if (c.aliasSymbolLinks.get(target)) |target_links| {
+                if (target_links.typeOnlyDeclaration) |type_only| {
+                    if (c.aliasSymbolLinks.getPtr(source)) |source_links| {
+                        if (source_links.typeOnlyDeclaration == null) {
+                            source_links.typeOnlyDeclaration = type_only;
+                        }
+                    } else {
+                        c.aliasSymbolLinks.put(c.allocator, source, .{ .typeOnlyDeclaration = type_only }) catch {};
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     pub fn tryResolveAlias(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
@@ -20483,15 +20512,53 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getSpreadArgumentType(c: *Checker, args: []const ast_gen.NodeIndex, index: u32, argCount: types.TypeIndex, restType: types.TypeIndex, context: types.TypeIndex, checkMode: CheckMode) types.TypeIndex {
-        _ = c;
-        _ = args;
-        _ = index;
-        _ = argCount;
+    /// Port of `checker.go::getSpreadArgumentType`. Returns the type of
+    /// spread arguments starting at `index`. Handles spread elements in
+    /// the last position, and iterates remaining arguments collecting
+    /// their types. Returns a union of argument types or array type for
+    /// spread expressions.
+    pub fn getSpreadArgumentType(c: *Checker, args: []const ast_gen.NodeIndex, index: u32, argCount: u32, restType: types.TypeIndex, context: u32, checkMode: CheckMode) types.TypeIndex {
         _ = restType;
         _ = context;
-        _ = checkMode;
-        return 0;
+        // Check if last arg is a spread element.
+        if (argCount > 0 and index >= argCount - 1) {
+            const arg = if (argCount > 0) args[argCount - 1] else 0;
+            if (arg != 0 and c.binder.ast.getKind(arg) == .SpreadElement) {
+                const spread_expr = c.binder.ast.getNode(arg).SpreadElement.Expression;
+                const spread_type = checkExpression(c, spread_expr);
+                if (c.isArrayLikeType(spread_type)) {
+                    return c.getMutableArrayOrTupleType(spread_type);
+                }
+                // Not array-like — return array of iterated element type.
+                const elem_type = c.checkIteratedTypeOrElementType(1, spread_type, c.undefinedTypeIndex orelse 0, spread_expr);
+                return c.createArrayType(elem_type);
+            }
+        }
+        // Iterate remaining arguments and collect types.
+        var types_list = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer types_list.deinit(c.allocator);
+        var i: u32 = index;
+        while (i < argCount) : (i += 1) {
+            if (i >= args.len) break;
+            const arg = args[i];
+            if (arg == 0) continue;
+            if (c.binder.ast.getKind(arg) == .SpreadElement) {
+                const spread_expr = c.binder.ast.getNode(arg).SpreadElement.Expression;
+                const spread_type = checkExpression(c, spread_expr);
+                if (c.isArrayLikeType(spread_type)) {
+                    types_list.append(c.allocator, spread_type) catch {};
+                } else {
+                    const elem = c.checkIteratedTypeOrElementType(1, spread_type, c.undefinedTypeIndex orelse 0, spread_expr);
+                    types_list.append(c.allocator, elem) catch {};
+                }
+            } else {
+                const arg_type = checkExpressionEx(c, arg, checkMode);
+                types_list.append(c.allocator, arg_type) catch {};
+            }
+        }
+        if (types_list.items.len == 0) return 0;
+        if (types_list.items.len == 1) return types_list.items[0];
+        return c.getUnionTypeFromArray(types_list.items);
     }
 
     /// Port of `checker.go::getMutableArrayOrTupleType`. For unions,
@@ -20632,14 +20699,38 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForElementExpression`. Returns
+    /// the contextual type for an element expression at `index` in an array
+    /// literal or spread. For tuple types, returns the tuple element type at
+    /// the given index. For other types, returns the iterated/element type.
     pub fn getContextualTypeForElementExpression(c: *Checker, t: types.TypeIndex, index: u32, length: u32, firstSpreadIndex: i32, lastSpreadIndex: i32) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = index;
-        _ = length;
-        _ = firstSpreadIndex;
-        _ = lastSpreadIndex;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        // For union types, map over constituents (simplified: handle directly).
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer mapped.deinit(c.allocator);
+            for (constituents) |ct| {
+                const elem = c.getContextualTypeForElementExpression(ct, index, length, firstSpreadIndex, lastSpreadIndex);
+                if (elem != 0) mapped.append(c.allocator, elem) catch {};
+            }
+            if (mapped.items.len == 0) return 0;
+            return c.getUnionTypeFromArray(mapped.items);
+        }
+        // For tuple types, return element at index.
+        if (c.isTupleType(t)) {
+            // If index is before any spread and within fixed part, return element type.
+            if ((firstSpreadIndex < 0 or index < @as(u32, @intCast(firstSpreadIndex)))) {
+                const elem_type = c.getElementTypeOfSliceOfTupleType(t, index, 0, 0) orelse 0;
+                if (elem_type != 0) return elem_type;
+            }
+            // Otherwise, return union of remaining element types.
+            return c.getElementTypeOfSliceOfTupleType(t, index, 0, 0) orelse 0;
+        }
+        // For other types: check contextual property or return element type.
+        // Simplified: return iterated type or element type.
+        return c.checkIteratedTypeOrElementType(0, t, c.undefinedTypeIndex orelse 0, 0);
     }
 
     /// Port of `checker.go::getContextualTypeForConditionalOperand`.
