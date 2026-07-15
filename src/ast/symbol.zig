@@ -34,6 +34,7 @@ pub const SymbolFlags = struct {
     pub const Assignment: u32 = 1 << 26;
     pub const ModuleExports: u32 = 1 << 27;
     pub const ConstEnumOnlyModule: u32 = 1 << 28;
+    pub const ReplaceableByMethod: u32 = 1 << 29;
 
     // Derived flags
     pub const ExportHasLocal = Function | Class | Enum | ValueModule;

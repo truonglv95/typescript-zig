@@ -9350,9 +9350,21 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isES2015OrLaterIterable(n: *anyopaque) bool {
-        _ = n;
-        return false;
+    pub fn isES2015OrLaterIterable(n: []const u8) bool {
+        // Go: switch n {
+        //   case "Float32Array", "Float64Array", "Int16Array", "Int32Array", "Int8Array",
+        //        "NodeList", "Uint16Array", "Uint32Array", "Uint8Array", "Uint8ClampedArray": return true
+        // }
+        return std.mem.eql(u8, n, "Float32Array") or
+            std.mem.eql(u8, n, "Float64Array") or
+            std.mem.eql(u8, n, "Int16Array") or
+            std.mem.eql(u8, n, "Int32Array") or
+            std.mem.eql(u8, n, "Int8Array") or
+            std.mem.eql(u8, n, "NodeList") or
+            std.mem.eql(u8, n, "Uint16Array") or
+            std.mem.eql(u8, n, "Uint32Array") or
+            std.mem.eql(u8, n, "Uint8Array") or
+            std.mem.eql(u8, n, "Uint8ClampedArray");
     }
 
     /// Port of `checker.go::checkAliasSymbol`. Validates import/export alias
@@ -12535,9 +12547,10 @@ pub const Checker = struct {
         _ = decl;
     }
 
-    pub fn isNotReplacableByMethod(decl: *anyopaque) bool {
-        _ = decl;
-        return false;
+    pub fn isNotReplacableByMethod(c: *Checker, decl: ast_gen.NodeIndex) bool {
+        // Go: return decl.Symbol().Flags & ast.SymbolFlagsReplaceableByMethod == 0
+        const sym = c.binder.ast.getNodeSymbol(decl) orelse return true;
+        return (c.binder.symbols.items[sym].Flags & symbol.SymbolFlags.ReplaceableByMethod) == 0;
     }
 
     pub fn addDeclarationToLateBoundSymbol(c: *Checker, symbol_: *anyopaque, member: *anyopaque, symbolFlags: *anyopaque) void {
@@ -13637,9 +13650,20 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isLateBindableAST(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isLateBindableAST(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: var expr *ast.Node
+        //   case IsComputedPropertyName(node): expr = node.Expression()
+        //   case IsElementAccessExpression(node): expr = node.AsElementAccessExpression().ArgumentExpression
+        //   return expr != nil && ast.IsEntityNameExpression(expr)
+        var expr: ast_gen.NodeIndex = 0;
+        const node_data = c.binder.ast.getNode(node);
+        switch (node_data) {
+            .ComputedPropertyName => |n| expr = n.Expression,
+            .ElementAccessExpression => |n| expr = n.ArgumentExpression,
+            else => {},
+        }
+        if (expr == 0) return false;
+        return ast_utils.isEntityNameExpression(c.binder.ast, expr);
     }
 
     pub fn getNonCircularReturnTypeOfSignature(c: *Checker, sig: *anyopaque) *anyopaque {
@@ -15033,9 +15057,9 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isUnitType(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn isUnitType(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.flags&TypeFlagsUnit != 0
+        return (c.typesList.items[t].flags & types.TypeFlags.Unit) != 0;
     }
 
     pub fn isUnitLikeType(c: *Checker, t: *anyopaque) bool {
@@ -15247,34 +15271,44 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isUnionWithUndefined(t: *anyopaque) bool {
-        _ = t;
+    pub fn isUnionWithUndefined(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.flags&TypeFlagsUnion != 0 && t.Types()[0].flags&TypeFlagsUndefined != 0
+        const ty = c.typesList.items[t];
+        if ((ty.flags & types.TypeFlags.Union) == 0) return false;
+        const constituents = c.getTypesFromUnion(t);
+        if (constituents.len == 0) return false;
+        return (c.typesList.items[constituents[0]].flags & types.TypeFlags.Undefined) != 0;
+    }
+
+    pub fn isUnionWithNull(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.flags&TypeFlagsUnion != 0 && (t.Types()[0].flags&TypeFlagsNull != 0 || t.Types()[1].flags&TypeFlagsNull != 0)
+        const ty = c.typesList.items[t];
+        if ((ty.flags & types.TypeFlags.Union) == 0) return false;
+        const constituents = c.getTypesFromUnion(t);
+        if (constituents.len == 0) return false;
+        if ((c.typesList.items[constituents[0]].flags & types.TypeFlags.Null) != 0) return true;
+        if (constituents.len >= 2 and (c.typesList.items[constituents[1]].flags & types.TypeFlags.Null) != 0) return true;
         return false;
     }
 
-    pub fn isUnionWithNull(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn isIntersectionType(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.flags&TypeFlagsIntersection != 0
+        return (c.typesList.items[t].flags & types.TypeFlags.Intersection) != 0;
     }
 
-    pub fn isIntersectionType(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn isPrimitiveUnion(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.objectFlags&ObjectFlagsPrimitiveUnion != 0
+        return (c.typesList.items[t].objectFlags & types.ObjectFlags.PrimitiveUnion) != 0;
     }
 
-    pub fn isPrimitiveUnion(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn isNotUndefinedType(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.flags&TypeFlagsUndefined == 0
+        return (c.typesList.items[t].flags & types.TypeFlags.Undefined) == 0;
     }
 
-    pub fn isNotUndefinedType(t: *anyopaque) bool {
-        _ = t;
-        return false;
-    }
-
-    pub fn isNotNullType(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn isNotNullType(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return t.flags&TypeFlagsNull == 0
+        return (c.typesList.items[t].flags & types.TypeFlags.Null) == 0;
     }
 
     pub fn addTypesToIntersection(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, types_: *anyopaque) *anyopaque {
