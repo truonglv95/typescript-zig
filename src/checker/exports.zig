@@ -83,7 +83,7 @@ pub fn isTypeUsableAsPropertyName(c: *Checker, t: TypeIndex) bool {
 }
 
 pub fn getPropertyNameFromType(c: *Checker, t: TypeIndex) []const u8 {
-    return c.getPropertyNameFromType(t);
+    return @import("utilities.zig").getPropertyNameFromType(&c.typesList.items[t]);
 }
 
 pub fn getGlobalSymbol(c: *Checker, name: []const u8, meaning: u32, diagnostic: ?*const diagnostics.Message) SymbolIndex {

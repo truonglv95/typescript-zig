@@ -2404,14 +2404,44 @@ pub const Checker = struct {
         return null;
     }
 
+    /// Port of `checker.go::getIndexedAccessTypeOrUndefined`. Resolves
+    /// `objectType[indexType]` to a concrete type. Handles wildcard types,
+    /// string-index-only types, deferred indexed access, union index types,
+    /// and delegates to `getPropertyTypeForIndexType` for the common case.
     pub fn getIndexedAccessTypeOrUndefined(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: u32, context: ?ast.NodeIndex, declaration: ?ast.NodeIndex) ?types.TypeIndex {
-        _ = c;
-        _ = objectType;
-        _ = indexType;
-        _ = accessFlags;
         _ = context;
         _ = declaration;
-        return null; // Skipped
+        if (objectType == 0 or indexType == 0) return null;
+        // Wildcard check.
+        if (objectType == (c.wildcardTypeIndex orelse 0) or indexType == (c.wildcardTypeIndex orelse 0)) {
+            return c.wildcardTypeIndex orelse 0;
+        }
+        // Reduce objectType.
+        const reduced_obj = c.getReducedType(objectType);
+        // Check if index type is a union (but not boolean).
+        const index_flags = c.typesList.items[indexType].flags;
+        if ((index_flags & types.TypeFlags.Union) != 0 and (index_flags & types.TypeFlags.Boolean) == 0) {
+            // For union index types, map over constituents.
+            const constituents = c.getTypesFromUnion(indexType);
+            var prop_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer prop_types.deinit(c.allocator);
+            for (constituents) |ct| {
+                const prop_type = c.getPropertyTypeForIndexType(reduced_obj, c.getApparentType(reduced_obj), ct, ct, 0, accessFlags);
+                if (prop_type != 0) {
+                    prop_types.append(c.allocator, prop_type) catch {};
+                }
+            }
+            if (prop_types.items.len == 0) return null;
+            if ((accessFlags & 1) != 0) { // AccessFlagsWriting
+                return c.getIntersectionType(prop_types.items);
+            }
+            return c.getUnionTypeFromArray(prop_types.items);
+        }
+        // Common case: single index type.
+        const apparent = c.getApparentType(reduced_obj);
+        const result = c.getPropertyTypeForIndexType(reduced_obj, apparent, indexType, indexType, 0, accessFlags);
+        if (result != 0) return result;
+        return null;
     }
 
     pub fn getKnownKeysOfTupleType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -7775,11 +7805,11 @@ pub const Checker = struct {
         }
         if (element_types.items.len == 0) return 0;
         if (writing) {
-            return c.getIntersectionTypeFromArray(element_types.items);
+            return c.getIntersectionType(element_types.items);
         }
         // UnionReductionLiteral = 0, UnionReductionNone = 1
-        const reduction: u32 = if (noReductions) 1 else 0;
-        return c.getUnionTypeEx(element_types.items, reduction, 0, 0);
+        const reduction: types.UnionReduction = if (noReductions) .None else .Literal;
+        return c.getUnionTypeEx(element_types.items, reduction, null, null);
     }
 
     pub fn getTupleTypeKey(elementTypes: []const types.TypeIndex, elementInfos: []const types.TupleElementInfo, readonly: bool) types.CacheHashKey {
@@ -19535,14 +19565,40 @@ pub const Checker = struct {
         return if (accessNode != 0) (c.errorTypeIndex orelse 0) else (c.unknownTypeIndex orelse 0);
     }
 
-    pub fn getPropertyTypeForIndexType(c: *Checker, originalObjectType: ast_gen.NodeIndex, objectType: types.TypeIndex, indexType: types.TypeIndex, fullIndexType: ast_gen.NodeIndex, accessNode: ast_gen.NodeIndex, accessFlags: u32) types.TypeIndex {
-        _ = c;
+    /// Port of `checker.go::getPropertyTypeForIndexType`. Resolves the type
+    /// of `objectType[indexType]` by looking up the property name derived from
+    /// `indexType`. Handles named properties, tuple numeric indexing, and
+    /// index signatures. Simplified: handles named property lookup + index
+    /// signature lookup.
+    pub fn getPropertyTypeForIndexType(c: *Checker, originalObjectType: types.TypeIndex, objectType: types.TypeIndex, indexType: types.TypeIndex, fullIndexType: types.TypeIndex, accessNode: ast_gen.NodeIndex, accessFlags: u32) types.TypeIndex {
         _ = originalObjectType;
-        _ = objectType;
-        _ = indexType;
         _ = fullIndexType;
         _ = accessNode;
         _ = accessFlags;
+        if (objectType == 0 or indexType == 0) return 0;
+        // Get property name from index type.
+        const prop_name = utils.getPropertyNameFromType(&c.typesList.items[indexType]);
+        if (prop_name.len > 0) {
+            // Look up named property.
+            if (c.getPropertyOfType(objectType, prop_name)) |prop| {
+                return c.getTypeOfSymbol(prop) catch 0;
+            }
+        }
+        // Check index signatures.
+        const index_infos = c.getIndexInfosOfType(objectType);
+        for (index_infos) |info| {
+            if (c.isTypeAssignableTo(indexType, info.keyType)) {
+                return info.valueType;
+            }
+        }
+        // For tuple types with numeric index, get element type.
+        if (c.isTupleType(objectType)) {
+            // Try to parse prop_name as a number.
+            if (std.fmt.parseFloat(f64, prop_name) catch null != null) {
+                const idx: u32 = @intFromFloat(std.fmt.parseFloat(f64, prop_name) catch 0);
+                return c.getElementTypeOfSliceOfTupleType(objectType, idx, 0, false, false);
+            }
+        }
         return 0;
     }
 
