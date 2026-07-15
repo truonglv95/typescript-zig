@@ -7870,48 +7870,74 @@ pub const Checker = struct {
         return c.getDeclaredTypeOfSymbol(sym);
     }
 
-    pub fn getGlobalTypeAliasResolver(c: *Checker, name_: ast_gen.NodeIndex, arity: i32, reportErrors: bool) types.TypeIndex {
-        _ = c;
-        _ = name_;
-        _ = arity;
-        _ = reportErrors;
-        return 0;
+    pub fn getGlobalTypeAliasResolver(c: *Checker, name_: []const u8, arity: u32, reportErrors: bool) ast_gen.SymbolIndex {
+        // Go: return core.Memoize(func() *ast.Symbol { return c.getGlobalTypeAliasSymbol(name, arity, reportErrors) })
+        // Memoize not yet wired; just call directly.
+        return c.getGlobalTypeAliasSymbol(name_, arity, reportErrors);
     }
 
-    pub fn getGlobalValueSymbolResolver(c: *Checker, name_: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {
-        _ = c;
-        _ = name_;
-        _ = reportErrors;
-        return 0;
+    pub fn getGlobalValueSymbolResolver(c: *Checker, name_: []const u8, reportErrors: bool) ast_gen.SymbolIndex {
+        // Go: return core.Memoize(func() *ast.Symbol {
+        //   return c.getGlobalSymbol(name, ast.SymbolFlagsValue, core.IfElse(reportErrors, diagnostics.Cannot_find_global_value_0, nil))
+        // })
+        const diag: ?*const diagnostics_gen.Message = if (reportErrors) &diagnostics_gen.Cannot_find_global_value_0 else null;
+        return c.getGlobalSymbol(name_, symbol.SymbolFlags.Value, diag);
     }
 
-    pub fn getGlobalTypeSymbolResolver(c: *Checker, name_: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {
-        _ = c;
-        _ = name_;
-        _ = reportErrors;
-        return 0;
+    pub fn getGlobalTypeSymbolResolver(c: *Checker, name_: []const u8, reportErrors: bool) ast_gen.SymbolIndex {
+        // Go: return core.Memoize(func() *ast.Symbol {
+        //   return c.getGlobalSymbol(name, ast.SymbolFlagsType, core.IfElse(reportErrors, diagnostics.Cannot_find_global_type_0, nil))
+        // })
+        const diag: ?*const diagnostics_gen.Message = if (reportErrors) &diagnostics_gen.Cannot_find_global_type_0 else null;
+        return c.getGlobalSymbol(name_, symbol.SymbolFlags.Type, diag);
     }
 
-    pub fn getGlobalTypesResolver(c: *Checker, names: ast_gen.NodeIndex, arity: i32, reportErrors: bool) types.TypeIndex {
-        _ = c;
-        _ = names;
-        _ = arity;
-        _ = reportErrors;
-        return 0;
+    pub fn getGlobalTypesResolver(c: *Checker, names: []const []const u8, arity: u32, reportErrors: bool) []const types.TypeIndex {
+        // Go: return core.Memoize(func() []*Type {
+        //   return core.Map(names, func(name string) *Type { return c.getGlobalType(name, arity, reportErrors) })
+        // })
+        var result = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        for (names) |name| {
+            result.append(c.allocator, c.getGlobalType(name, arity, reportErrors)) catch {};
+        }
+        return result.toOwnedSlice(c.allocator) catch &[_]types.TypeIndex{};
     }
 
-    pub fn getTypeAliasTypeParameters(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+    pub fn getTypeAliasTypeParameters(c: *Checker, symbol_: ast_gen.SymbolIndex) []const types.TypeIndex {
+        // Go: if symbol.Flags&ast.SymbolFlagsTypeAlias == 0 { panic(...) }
+        //   c.getDeclaredTypeOfSymbol(symbol)
+        //   return c.typeAliasLinks.Get(symbol).typeParameters
+        const sym = c.binder.symbols.items[symbol_];
+        if ((sym.Flags & symbol.SymbolFlags.TypeAlias) == 0) return &[_]types.TypeIndex{};
+        _ = c.getDeclaredTypeOfSymbol(symbol_);
+        if (c.typeAliasLinks.get(symbol_)) |links| {
+            return links.typeParameters;
+        }
+        return &[_]types.TypeIndex{};
     }
 
-    pub fn getGlobalType(c: *Checker, name_: ast_gen.NodeIndex, arity: i32, reportErrors: bool) types.TypeIndex {
-        _ = c;
-        _ = name_;
-        _ = arity;
-        _ = reportErrors;
-        return 0;
+    pub fn getGlobalType(c: *Checker, name_: []const u8, arity: u32, reportErrors: bool) types.TypeIndex {
+        // Go: symbol := c.getGlobalSymbol(name, ast.SymbolFlagsType, core.IfElse(reportErrors, diagnostics.Cannot_find_global_type_0, nil))
+        //   if symbol != nil {
+        //     if symbol.Flags&(ast.SymbolFlagsClass|ast.SymbolFlagsInterface) != 0 {
+        //       t := c.getDeclaredTypeOfSymbol(symbol)
+        //       if len(t.AsInterfaceType().TypeParameters()) == arity { return t }
+        //       if reportErrors { c.error(getGlobalTypeDeclaration(symbol), diagnostics.Global_type_0_must_have_1_type_parameter_s, ...) }
+        //     } else if reportErrors { c.error(getGlobalTypeDeclaration(symbol), diagnostics.Global_type_0_must_be_a_class_or_interface_type, ...) }
+        //   }
+        //   if arity != 0 { return c.emptyGenericType }
+        //   return c.emptyObjectType
+        const diag: ?*const diagnostics_gen.Message = if (reportErrors) &diagnostics_gen.Cannot_find_global_type_0 else null;
+        const sym = c.getGlobalSymbol(name_, symbol.SymbolFlags.Type, diag);
+        if (sym != 0) {
+            const sym_flags = c.binder.symbols.items[sym].Flags;
+            if ((sym_flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface)) != 0) {
+                const t = c.getDeclaredTypeOfSymbol(sym);
+                if (t != 0) return t;
+            }
+        }
+        if (arity != 0) return c.emptyGenericTypeIndex orelse 0;
+        return c.emptyObjectTypeIndex orelse c.emptyObjectType;
     }
 
     pub fn getGlobalTypeDeclaration(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.NodeIndex {
