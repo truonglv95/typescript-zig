@@ -7448,13 +7448,50 @@ pub const Checker = struct {
         return c.typesList.items[t].objectFlags;
     }
 
-    pub fn getElementTypeOfSliceOfTupleType(c: *Checker, tupleType: types.TypeIndex, startIndex: usize, endIndex: usize, endSkipCount: isize) ?types.TypeIndex {
-        _ = c;
-        _ = tupleType;
-        _ = startIndex;
-        _ = endIndex;
-        _ = endSkipCount;
-        return null;
+    pub fn getElementTypeOfSliceOfTupleType(c: *Checker, tupleType: types.TypeIndex, index: usize, endSkipCount: i32, writing: bool, noReductions: bool) types.TypeIndex {
+        // Go: length := c.getTypeReferenceArity(t) - endSkipCount
+        //   elementInfos := t.TargetTupleType().elementInfos
+        //   if index < length {
+        //     typeArguments := c.getTypeArguments(t)
+        //     var elementTypes []*Type
+        //     for i := index; i < length; i++ {
+        //       e := typeArguments[i]
+        //       if elementInfos[i].flags&ElementFlagsVariadic != 0 { e = c.getIndexedAccessType(e, c.numberType) }
+        //       elementTypes = append(elementTypes, e)
+        //     }
+        //     if writing { return c.getIntersectionType(elementTypes) }
+        //     return c.getUnionTypeEx(elementTypes, core.IfElse(noReductions, UnionReductionNone, UnionReductionLiteral), nil, nil)
+        //   }
+        //   return nil
+        const arity = c.getTypeReferenceArity(tupleType);
+        const length: usize = if (arity > endSkipCount) @intCast(arity - endSkipCount) else 0;
+        if (index >= length) return 0;
+        const type_args = c.getTypeArguments(tupleType);
+        var element_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        var i: usize = index;
+        while (i < length) : (i += 1) {
+            if (i >= type_args.len) break;
+            var e = type_args[i];
+            // Check ElementFlagsVariadic
+            const data = c.getTargetTypeData(tupleType);
+            if (data == .Tuple) {
+                const tuple_data = data.Tuple;
+                if (i < tuple_data.typesLen) {
+                    const infos = c.tupleElementInfos.items[tuple_data.elementInfosStart .. tuple_data.elementInfosStart + tuple_data.typesLen];
+                    if (i < infos.len and (infos[i].flags & types.ElementFlags.Variadic) != 0) {
+                        e = c.getIndexedAccessType(e, c.numberTypeIndex orelse 0);
+                    }
+                }
+            }
+            element_types.append(c.allocator, e) catch {};
+        }
+        if (element_types.items.len == 0) return 0;
+        if (writing) {
+            return c.getIntersectionTypeFromArray(element_types.items);
+        }
+        // UnionReductionLiteral = 0, UnionReductionNone = 1
+        const reduction: u32 = if (noReductions) 1 else 0;
+        return c.getUnionTypeEx(element_types.items, reduction, 0, 0);
     }
 
     pub fn getTupleTypeKey(elementTypes: []const types.TypeIndex, elementInfos: []const types.TupleElementInfo, readonly: bool) types.CacheHashKey {
