@@ -14731,9 +14731,23 @@ pub const Checker = struct {
     }
 
     pub fn isNullOrUndefined(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        // Go: expr := ast.SkipParentheses(node)
+        //   switch expr.Kind {
+        //   case KindNullKeyword: return true
+        //   case KindIdentifier: return c.getResolvedSymbol(expr) == c.undefinedSymbol
+        //   }
+        //   return false
+        const expr = ast_utils.skipParentheses(c.binder.ast, node);
+        const k = c.binder.ast.getKind(expr);
+        switch (k) {
+            .NullKeyword => return true,
+            .Identifier => {
+                // undefinedSymbol not yet wired; check if name is "undefined"
+                const text = c.binder.ast.getNode(expr).Identifier.Text;
+                return std.mem.eql(u8, text, "undefined");
+            },
+            else => return false,
+        }
     }
 
     /// Port of checker.go::checkRightHandSideOfForOf. Checks the
@@ -14861,8 +14875,36 @@ pub const Checker = struct {
     }
 
     pub fn hasParentWithTypeAnnotation(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = symbol_;
+        // Go: if symbol.Parent != nil && symbol.Parent.ValueDeclaration != nil &&
+        //   ast.IsFunctionExpressionOrArrowFunction(symbol.Parent.ValueDeclaration) {
+        //   if possiblyAnnotatedSymbol := c.getSymbolOfNode(symbol.Parent.ValueDeclaration.Parent);
+        //     possiblyAnnotatedSymbol != nil && possiblyAnnotatedSymbol.ValueDeclaration != nil {
+        //     return possiblyAnnotatedSymbol.ValueDeclaration.Type() != nil
+        //   }
+        // }
+        // return false
+        const sym = c.binder.symbols.items[symbol_];
+        if (sym.Parent) |parent| {
+            const parent_sym = c.binder.symbols.items[parent];
+            if (parent_sym.ValueDeclaration) |vd| {
+                const vd_kind = c.binder.ast.getKind(vd);
+                if (vd_kind == .FunctionExpression or vd_kind == .ArrowFunction) {
+                    const vd_parent = c.binder.ast.getNodeParent(vd);
+                    if (vd_parent != 0) {
+                        const parent_annotated_sym = c.binder.ast.getNodeSymbol(vd_parent) orelse return false;
+                        const annotated = c.binder.symbols.items[parent_annotated_sym];
+                        if (annotated.ValueDeclaration) |avd| {
+                            // Check if ValueDeclaration has a Type annotation
+                            const type_node: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(avd)) {
+                                .VariableDeclaration => |n| n.Type,
+                                else => null,
+                            };
+                            return type_node != null;
+                        }
+                    }
+                }
+            }
+        }
         return false;
     }
 
