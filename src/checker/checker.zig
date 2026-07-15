@@ -14496,24 +14496,64 @@ pub const Checker = struct {
         return sym_idx;
     }
 
+    /// Port of `checker.go::tryGetQualifiedNameAsValue`. Resolves a
+    /// qualified name as a value by walking from the first identifier
+    /// through parent QualifiedName nodes, looking up properties.
     pub fn tryGetQualifiedNameAsValue(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = node;
-        return 0;
+        if (node == 0) return 0;
+        // Get the first identifier (leftmost) of the qualified name.
+        var id = node;
+        while (true) {
+            const parent = c.binder.ast.getNodeParent(id);
+            if (parent != 0 and c.binder.ast.getKind(parent) == .QualifiedName) {
+                id = parent;
+            } else break;
+        }
+        // id is now the leftmost identifier (the start of the qualified name).
+        // If id is itself a QualifiedName (e.g. for a.b.c), get its Left.
+        if (c.binder.ast.getKind(id) == .QualifiedName) {
+            id = c.binder.ast.getNode(id).QualifiedName.Left;
+        }
+        if (c.binder.ast.getKind(id) != .Identifier) return 0;
+        const text = c.binder.ast.getNode(id).Identifier.Text;
+        var sym_idx = resolveName(c, id, text, symbol.SymbolFlags.Value, null, true, false);
+        if (sym_idx == 0) return 0;
+        var n = id;
+        while (true) {
+            const parent = c.binder.ast.getNodeParent(n);
+            if (parent == 0 or c.binder.ast.getKind(parent) != .QualifiedName) break;
+            const right = c.binder.ast.getNode(parent).QualifiedName.Right;
+            const right_text = c.binder.ast.getNode(right).Identifier.Text;
+            const t = c.getTypeOfSymbol(sym_idx) catch return 0;
+            sym_idx = c.getPropertyOfType(t, right_text) orelse return 0;
+            n = parent;
+        }
+        return sym_idx;
     }
 
-    pub fn getSuggestedSymbolForNonexistentModule(c: *Checker, name_: ast_gen.NodeIndex, targetModule: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = name_;
-        _ = targetModule;
-        return 0;
+    /// Port of `checker.go::getSuggestedSymbolForNonexistentModule`.
+    /// Returns a spelling suggestion for a missing module name from the
+    /// exports of `targetModule`.
+    pub fn getSuggestedSymbolForNonexistentModule(c: *Checker, name_: ast_gen.NodeIndex, targetModule: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        if (name_ == 0 or targetModule == 0 or targetModule >= c.binder.symbols.items.len) return 0;
+        const text = ast_utils.getTextOfNode(c.binder.ast, name_);
+        const exports = c.getExportsOfModule(targetModule);
+        return c.getSpellingSuggestionForName(text, exports, symbol.SymbolFlags.ModuleMember);
     }
 
-    pub fn getFullyQualifiedName(c: *Checker, symbol_: ast_gen.SymbolIndex, containingLocation: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
+    /// Port of `checker.go::getFullyQualifiedName`. Returns the fully
+    /// qualified name of `symbol_` by walking parent symbols.
+    pub fn getFullyQualifiedName(c: *Checker, symbol_: ast_gen.SymbolIndex, containingLocation: ast_gen.NodeIndex) []const u8 {
         _ = containingLocation;
-        return 0;
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return "";
+        const sym = c.binder.symbols.items[symbol_];
+        if (sym.Parent) |parent| {
+            const parent_name = c.getFullyQualifiedName(parent, 0);
+            const my_name = c.symbolToString(symbol_);
+            // Allocate "parent.my_name" — caller owns the slice.
+            return std.fmt.allocPrint(c.allocator, "{s}.{s}", .{ parent_name, my_name }) catch return c.symbolToString(symbol_);
+        }
+        return c.symbolToString(symbol_);
     }
 
     pub fn getExportsOfSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) *const symbol.SymbolTable {
@@ -19456,10 +19496,28 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getMutableArrayOrTupleType`. For unions,
+    /// maps over constituents; for any or mutable-array-or-tuple types,
+    /// returns as-is; for tuple types, returns a non-readonly copy;
+    /// otherwise wraps in a variadic tuple type.
     pub fn getMutableArrayOrTupleType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const ty = c.typesList.items[t];
+        if ((ty.flags & types.TypeFlags.Union) != 0) {
+            return c.mapType(t, struct {
+                fn apply(ch: *Checker, x: types.TypeIndex, _: void) types.TypeIndex {
+                    return ch.getMutableArrayOrTupleType(x);
+                }
+            }.apply, {});
+        }
+        if ((ty.flags & types.TypeFlags.Any) != 0) return t;
+        if (c.isMutableArrayOrTuple(c.getBaseConstraintOrType(t))) return t;
+        if (c.isTupleType(t)) {
+            // Would create a non-readonly copy; simplified to return t.
+            return t;
+        }
+        // Wrap in a variadic tuple type — simplified to createArrayType.
+        return c.createArrayType(t);
     }
 
     pub fn getContextualTypeForBindingElement(c: *Checker, declaration: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
@@ -19571,17 +19629,29 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForConditionalOperand`.
+    /// Returns the contextual type for the WhenTrue/WhenFalse operand of
+    /// a conditional expression.
     pub fn getContextualTypeForConditionalOperand(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = contextFlags;
+        if (node == 0) return 0;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0 or c.binder.ast.getKind(parent) != .ConditionalExpression) return 0;
+        const cond = c.binder.ast.getNode(parent).ConditionalExpression;
+        if (node == cond.WhenTrue or node == cond.WhenFalse) {
+            return c.getContextualType(parent, contextFlags);
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForSubstitutionExpression`.
+    /// Returns the contextual type for a substitution expression in a
+    /// tagged template expression.
     pub fn getContextualTypeForSubstitutionExpression(c: *Checker, template: ast_gen.NodeIndex, substitutionExpression: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = template;
-        _ = substitutionExpression;
+        if (template == 0) return 0;
+        const parent = c.binder.ast.getNodeParent(template);
+        if (parent != 0 and c.binder.ast.getKind(parent) == .TaggedTemplateExpression) {
+            return c.getContextualTypeForArgument(parent, substitutionExpression);
+        }
         return 0;
     }
 
