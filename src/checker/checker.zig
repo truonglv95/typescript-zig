@@ -2433,11 +2433,45 @@ pub const Checker = struct {
         return c.getConstraintOfType(t);
     }
 
+    /// Port of `checker.go::getIndexTypeEx`. Returns the index type of `t`
+    /// for the given index flags. Handles NoInfer, deferred index types,
+    /// unions (intersection), intersections (union), mapped types, and
+    /// falls back to `getLiteralTypeFromProperties`.
     pub fn getIndexTypeEx(c: *Checker, t: types.TypeIndex, indexFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = indexFlags;
-        return undefined; // Skipped
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        // NoInfer: unwrap and recurse.
+        if (c.isNoInferType(t)) {
+            const base = c.typesList.items[t].data.Substitution.baseType;
+            return c.getNoInferType(c.getIndexTypeEx(base, indexFlags));
+        }
+        const flags = c.typesList.items[t].flags;
+        // Union: intersection of index types.
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer mapped.deinit(c.allocator);
+            for (constituents) |ct| mapped.append(c.allocator, c.getIndexTypeEx(ct, indexFlags)) catch {};
+            return c.getIntersectionType(mapped.items);
+        }
+        // Intersection: union of index types.
+        if ((flags & types.TypeFlags.Intersection) != 0) {
+            const constituents = c.getTypesFromIntersection(t);
+            var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer mapped.deinit(c.allocator);
+            for (constituents) |ct| mapped.append(c.allocator, c.getIndexTypeEx(ct, indexFlags)) catch {};
+            return c.getUnionTypeFromArray(mapped.items);
+        }
+        // Mapped type.
+        if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Mapped) != 0) {
+            return c.getIndexTypeForMappedType(t, indexFlags);
+        }
+        // Unknown → never; Any/Never → string|number|symbol.
+        if ((flags & types.TypeFlags.Unknown) != 0) return c.neverTypeIndex orelse 0;
+        if ((flags & (types.TypeFlags.Any | types.TypeFlags.Never)) != 0) {
+            return c.stringNumberSymbolType;
+        }
+        // Default: literal type from properties (simplified).
+        return c.getLiteralTypeFromProperties(t, types.TypeFlags.StringLike, true);
     }
 
     pub fn isGenericMappedType(c: *Checker, t: types.TypeIndex) bool {
