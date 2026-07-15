@@ -12032,8 +12032,27 @@ pub const Checker = struct {
     }
 
     pub fn isNodeUsedDuringClassInitialization(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
+        // Go: return ast.FindAncestorOrQuit(node, func(element *ast.Node) ast.FindAncestorResult {
+        //   if ast.IsConstructorDeclaration(element) && ast.NodeIsPresent(element.Body()) || ast.IsPropertyDeclaration(element) {
+        //     return ast.FindAncestorTrue
+        //   } else if ast.IsClassLike(element) || ast.IsFunctionLikeDeclaration(element) {
+        //     return ast.FindAncestorQuit
+        //   }
+        //   return ast.FindAncestorFalse
+        // }) != nil
+        var current = node;
+        while (current != 0) {
+            const k = c.binder.ast.getKind(current);
+            if (k == .Constructor) {
+                const body: ?ast_gen.NodeIndex = c.binder.ast.getNode(current).Constructor.Body;
+                if (body != null and ast_utils.nodeIsPresent(c.binder.ast, body.?)) return true;
+            } else if (k == .PropertyDeclaration) {
+                return true;
+            } else if (ast_utils.isClassLike(c.binder.ast, current) or ast_utils.isFunctionLikeNode(c.binder.ast, current)) {
+                return false; // Quit
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
         return false;
     }
 
