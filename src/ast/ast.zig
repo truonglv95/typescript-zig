@@ -339,13 +339,15 @@ pub const Ast = struct {
 
 pub const SubtreeContainsDecorators: u32 = 0;
 
-pub const NodeFlagsAmbient: u32 = 0;
+pub const NodeFlagsAmbient: u32 = 1 << 8;
+pub const NodeFlagsUnreachable: u32 = 1 << 27;
+pub const NodeFlagsExportContext: u32 = 1 << 9;
 
-pub const ModifierFlagsAmbient: u32 = 0;
-pub const ModifierFlagsAbstract: u32 = 0;
-pub const ModifierFlagsExport: u32 = 0;
+pub const ModifierFlagsAmbient: u32 = 1 << 0;
+pub const ModifierFlagsAbstract: u32 = 1 << 1;
+pub const ModifierFlagsExport: u32 = 1 << 2;
 
-pub const ModifierFlagsDefault: u32 = 0;
+pub const ModifierFlagsDefault: u32 = 1 << 3;
 
 pub const NodeFlagsNone: u32 = 0;
 pub const NodeFlagsLet: u32 = 1 << 0;

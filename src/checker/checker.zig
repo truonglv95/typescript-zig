@@ -8343,14 +8343,37 @@ pub const Checker = struct {
     }
 
     pub fn checkSourceElementUnreachable(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        // Go: if !ast.IsPotentiallyExecutableNode(node) { return false }
+        //   if c.reportedUnreachableNodes.Has(node) { return true }
+        //   if !c.isSourceElementUnreachable(node) { return false }
+        //   c.reportedUnreachableNodes.Add(node)
+        //   ... (error reporting)
+        //   return true
+        // Simplified: isPotentiallyExecutableNode and reportedUnreachableNodes not yet wired.
+        return c.isSourceElementUnreachable(node);
     }
 
     pub fn isSourceElementUnreachable(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
+        // Go: if node.Flags&ast.NodeFlagsUnreachable != 0 {
+        //   switch node.Kind {
+        //   case KindEnumDeclaration: return !ast.IsEnumConst(node) || c.compilerOptions.ShouldPreserveConstEnums()
+        //   case KindModuleDeclaration: return ast.IsInstantiatedModule(node, c.compilerOptions.ShouldPreserveConstEnums())
+        //   default: return true
+        //   }
+        // } else if flowNode := node.FlowNodeData().FlowNode; flowNode != nil {
+        //   return !c.isReachableFlowNode(flowNode)
+        // }
+        // return false
+        const flags = c.binder.ast.getNodeFlags(node);
+        if ((flags & ast.NodeFlagsUnreachable) != 0) {
+            const node_kind = c.binder.ast.getKind(node);
+            switch (node_kind) {
+                .EnumDeclaration => return true, // IsEnumConst and preserveConstEnums not yet wired
+                .ModuleDeclaration => return c.isInstantiatedModule(node, false),
+                else => return true,
+            }
+        }
+        // Flow node reachability check not yet wired.
         return false;
     }
 
@@ -8666,11 +8689,30 @@ pub const Checker = struct {
         _ = symbol_idx;
     }
 
-    pub fn getEffectiveDeclarationFlags(c: *Checker, n: ast_gen.NodeIndex, flagsToCheck: u32) types.TypeIndex {
-        _ = c;
-        _ = n;
-        _ = flagsToCheck;
-        return 0;
+    pub fn getEffectiveDeclarationFlags(c: *Checker, n: ast_gen.NodeIndex, flagsToCheck: u32) u32 {
+        // Go: flags := c.getCombinedModifierFlagsCached(n)
+        //   if !ast.IsInterfaceDeclaration(n.Parent) && !ast.IsClassDeclaration(n.Parent) && !ast.IsClassExpression(n.Parent) &&
+        //     n.Flags&ast.NodeFlagsAmbient != 0 {
+        //     container := getEnclosingContainer(n)
+        //     if container != nil && container.Flags&ast.NodeFlagsExportContext != 0 && flags&ast.ModifierFlagsAmbient == 0 &&
+        //       !(ast.IsModuleBlock(n.Parent) && ast.IsGlobalScopeAugmentation(n.Parent.Parent)) {
+        //       flags |= ast.ModifierFlagsExport
+        //     }
+        //     flags |= ast.ModifierFlagsAmbient
+        //   }
+        //   return flags & flagsToCheck
+        var flags = ast_utils.getCombinedModifierFlags(c.binder.ast, n);
+        const parent = c.binder.ast.getNodeParent(n);
+        if (parent != 0) {
+            const pk = c.binder.ast.getKind(parent);
+            if (pk != .InterfaceDeclaration and pk != .ClassDeclaration and pk != .ClassExpression) {
+                const node_flags = c.binder.ast.getNodeFlags(n);
+                if ((node_flags & ast.NodeFlagsAmbient) != 0) {
+                    flags |= ast.ModifierFlagsAmbient;
+                }
+            }
+        }
+        return flags & flagsToCheck;
     }
 
     pub fn isImplementationCompatibleWithOverload(c: *Checker, implementation: ast_gen.NodeIndex, overload: ast_gen.NodeIndex) bool {
