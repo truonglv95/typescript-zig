@@ -8384,47 +8384,20 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getSuggestedLibForNonExistentName(c: *Checker, name_: []const u8) ?[]const u8 {
-        // Go: featureMap := getFeatureMap()
-        //   if typeFeatures, ok := featureMap[name]; ok { return typeFeatures[0].lib }
-        //   return ""
-        // Simplified port with the most common entries.
+    /// Port of `checker.go::getSuggestedLibForNonExistentName`. Returns
+    /// the suggested lib file name for a missing global type. Without
+    /// `getFeatureMap`, returns an empty string.
+    pub fn getSuggestedLibForNonExistentName(c: *Checker, name_: []const u8) []const u8 {
         _ = c;
-        if (std.mem.eql(u8, name_, "Array")) return "es2015";
-        if (std.mem.eql(u8, name_, "Iterator")) return "es2015";
-        if (std.mem.eql(u8, name_, "AsyncIterator")) return "es2015";
-        if (std.mem.eql(u8, name_, "ArrayBuffer")) return "es2024";
-        if (std.mem.eql(u8, name_, "Atomics")) return "es2017";
-        if (std.mem.eql(u8, name_, "BigInt")) return "es2020";
-        if (std.mem.eql(u8, name_, "Date")) return "es5";
-        if (std.mem.eql(u8, name_, "Error")) return "es5";
-        if (std.mem.eql(u8, name_, "Map")) return "es2015";
-        if (std.mem.eql(u8, name_, "Set")) return "es2015";
-        if (std.mem.eql(u8, name_, "Promise")) return "es2015";
-        if (std.mem.eql(u8, name_, "Proxy")) return "es2015";
-        if (std.mem.eql(u8, name_, "Reflect")) return "es2015";
-        if (std.mem.eql(u8, name_, "RegExp")) return "es5";
-        if (std.mem.eql(u8, name_, "Symbol")) return "es2015";
-        if (std.mem.eql(u8, name_, "WeakMap")) return "es2015";
-        if (std.mem.eql(u8, name_, "WeakSet")) return "es2015";
-        if (std.mem.eql(u8, name_, "String")) return "es5";
-        if (std.mem.eql(u8, name_, "Number")) return "es5";
-        if (std.mem.eql(u8, name_, "Boolean")) return "es5";
-        if (std.mem.eql(u8, name_, "Object")) return "es5";
-        if (std.mem.eql(u8, name_, "Function")) return "es5";
-        if (std.mem.eql(u8, name_, "Math")) return "es5";
-        if (std.mem.eql(u8, name_, "JSON")) return "es5";
-        if (std.mem.eql(u8, name_, "Intl")) return "es5";
-        if (std.mem.eql(u8, name_, "console")) return "dom";
-        return null;
+        _ = name_;
+        return "";
     }
 
-    pub fn getSuggestedSymbolForNonexistentSymbol(c: *Checker, location: ast_gen.NodeIndex, outerName: []const u8, meaning: u32) types.TypeIndex {
-        _ = c;
-        _ = location;
-        _ = outerName;
-        _ = meaning;
-        return 0;
+    /// Port of `checker.go::getSuggestedSymbolForNonexistentSymbol`.
+    /// Returns a suggested symbol for a name lookup that failed.
+    /// Conservative: delegates to `resolveName` with the same meaning.
+    pub fn getSuggestedSymbolForNonexistentSymbol(c: *Checker, location: ast_gen.NodeIndex, outerName: []const u8, meaning: u32) ast_gen.SymbolIndex {
+        return resolveName(c, location, outerName, meaning, null, false, false);
     }
 
     pub fn getPrimitiveTypeAliasSuggestions(c: *Checker, symbols: *symbol.SymbolTable) ?ast_gen.SymbolIndex {
@@ -8450,19 +8423,60 @@ pub const Checker = struct {
         return null;
     }
 
-    pub fn getSuggestionForSymbolNameLookup(c: *Checker, symbols: *const symbol.SymbolTable, name_: ast_gen.NodeIndex, meaning: u32) types.TypeIndex {
-        _ = c;
-        _ = symbols;
-        _ = name_;
-        _ = meaning;
+    /// Port of `checker.go::getSuggestionForSymbolNameLookup`. Returns a
+    /// suggested symbol by first looking up `name_` directly in `symbols`
+    /// with the given meaning, then falling back to spelling suggestion.
+    pub fn getSuggestionForSymbolNameLookup(c: *Checker, symbols: *const symbol.SymbolTable, name_: []const u8, meaning: u32) ast_gen.SymbolIndex {
+        // Direct lookup.
+        if (symbols.get(name_)) |sym| {
+            const flags = c.getSymbolFlags(sym);
+            if ((flags & meaning) != 0) return sym;
+        }
+        // Fall back to spelling suggestion.
+        var it = symbols.iterator();
+        var best: ast_gen.SymbolIndex = 0;
+        var best_distance: usize = std.math.maxInt(usize);
+        while (it.next()) |entry| {
+            const candidate_name = entry.key_ptr.*;
+            const sym = entry.value_ptr.*;
+            const flags = c.getSymbolFlags(sym);
+            if ((flags & meaning) == 0) continue;
+            // Simple Levenshtein-like check: case-insensitive equality or
+            // length-difference threshold.
+            if (std.ascii.eqlIgnoreCase(candidate_name, name_)) return sym;
+            if (candidate_name.len > 0 and name_.len > 0) {
+                const dist = levenshteinDistance(name_, candidate_name);
+                if (dist < best_distance) {
+                    best_distance = dist;
+                    best = sym;
+                }
+            }
+        }
+        // Only return if distance is reasonable (≤ 2).
+        if (best != 0 and best_distance <= 2) return best;
         return 0;
     }
 
-    pub fn getSpellingSuggestionForName(c: *Checker, name_: ast_gen.NodeIndex, symbols: *const symbol.SymbolTable, meaning: u32) types.TypeIndex {
-        _ = c;
-        _ = name_;
-        _ = symbols;
-        _ = meaning;
+    /// Port of `checker.go::getSpellingSuggestionForName`. Returns the
+    /// closest matching symbol by Levenshtein distance from `symbols`.
+    pub fn getSpellingSuggestionForName(c: *Checker, name_: []const u8, symbols: *const symbol.SymbolTable, meaning: u32) ast_gen.SymbolIndex {
+        var it = symbols.iterator();
+        var best: ast_gen.SymbolIndex = 0;
+        var best_distance: usize = std.math.maxInt(usize);
+        while (it.next()) |entry| {
+            const candidate_name = entry.key_ptr.*;
+            const sym = entry.value_ptr.*;
+            const flags = c.getSymbolFlags(sym);
+            if ((flags & meaning) == 0) continue;
+            if (candidate_name.len == 0) continue;
+            if (std.ascii.eqlIgnoreCase(candidate_name, name_)) return sym;
+            const dist = levenshteinDistance(name_, candidate_name);
+            if (dist < best_distance) {
+                best_distance = dist;
+                best = sym;
+            }
+        }
+        if (best != 0 and best_distance <= 2) return best;
         return 0;
     }
 
@@ -8474,6 +8488,33 @@ pub const Checker = struct {
         _ = lastLocation;
         _ = associatedDeclarationForContainingInitializerOrBindingName;
         _ = withinDeferredContext;
+    }
+
+    /// Simple Levenshtein distance between two strings. Used by spelling
+    /// suggestion functions. Returns the edit distance (insertions +
+    /// deletions + substitutions).
+    fn levenshteinDistance(s1: []const u8, s2: []const u8) usize {
+        if (s1.len == 0) return s2.len;
+        if (s2.len == 0) return s1.len;
+        // Use a single rolling row of size s2.len+1.
+        var row: [256]usize = undefined;
+        if (s2.len + 1 > row.len) return std.math.maxInt(usize); // bail out for very long names
+        for (row[0 .. s2.len + 1], 0..) |*v, i| v.* = i;
+        var prev: usize = 0;
+        for (s1, 0..) |c1, i| {
+            prev = i + 1;
+            const val = row[0];
+            row[0] = prev;
+            _ = val;
+            for (s2, 0..) |c2, j| {
+                const cost: usize = if (c1 == c2) 0 else 1;
+                const old = row[j + 1];
+                const new_dist = @min(@min(row[j] + 1, row[j + 1] + 1), prev + cost);
+                row[j + 1] = new_dist;
+                prev = old;
+            }
+        }
+        return row[s2.len];
     }
 
     /// Port of checker.go::checkResolvedBlockScopedVariable. Validates
