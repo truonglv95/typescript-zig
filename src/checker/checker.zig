@@ -14723,21 +14723,23 @@ pub const Checker = struct {
         c.reportErrorWithArgs(errorNode, &diagnostics_gen.Could_not_find_a_declaration_file_for_module_0_1_implicitly_has_an_any_type, &.{ module_ref_text, "" });
     }
 
-    pub fn createModuleNotFoundChain(c: *Checker, resolvedModule: ast_gen.NodeIndex, errorNode: ast_gen.NodeIndex, moduleReference: ast_gen.NodeIndex, mode: core.ModuleKind, packageName: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
+    /// Port of `checker.go::createModuleNotFoundChain`. Creates a
+    /// diagnostic chain for a module-not-found error. Simplified: reports
+    /// the error directly instead of creating a chain.
+    pub fn createModuleNotFoundChain(c: *Checker, resolvedModule: ast_gen.NodeIndex, errorNode: ast_gen.NodeIndex, moduleReference: ast_gen.NodeIndex, mode: core.ModuleKind, packageName: ast_gen.NodeIndex) void {
         _ = resolvedModule;
-        _ = errorNode;
-        _ = moduleReference;
         _ = mode;
         _ = packageName;
-        return 0;
+        const module_ref_text = if (moduleReference != 0) ast_utils.getTextOfNode(c.binder.ast, moduleReference) else "";
+        c.reportErrorWithArgs(errorNode, &diagnostics_gen.Cannot_find_module_0_or_its_corresponding_type_declarations, &.{module_ref_text});
     }
 
-    pub fn createModeMismatchDetails(c: *Checker, sourceFile: ast_gen.NodeIndex, errorNode: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
+    /// Port of `checker.go::createModeMismatchDetails`. Creates a
+    /// diagnostic for module resolution mode mismatch. Simplified: no-op.
+    pub fn createModeMismatchDetails(c: *Checker, sourceFile: ast_gen.NodeIndex, errorNode: ast_gen.NodeIndex) void {
         _ = sourceFile;
         _ = errorNode;
-        return 0;
+        _ = c;
     }
 
     pub fn tryFindAmbientModule(c: *Checker, moduleName: []const u8, withAugmentations: bool) ast_gen.SymbolIndex {
@@ -20032,9 +20034,24 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getContextualSignatureForFunctionLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = node;
+    /// Port of `checker.go::getContextualSignatureForFunctionLikeDeclaration`.
+    /// Returns the contextual signature for function expressions, arrow
+    /// functions, and object literal methods. Delegates to
+    /// `getContextualSignature`.
+    pub fn getContextualSignatureForFunctionLikeDeclaration(c: *Checker, node: ast_gen.NodeIndex) types.SignatureIndex {
+        if (node == 0) return 0;
+        const k = c.binder.ast.getKind(node);
+        // FunctionExpression, ArrowFunction, or MethodDeclaration in object literal.
+        if (k == .FunctionExpression or k == .ArrowFunction or k == .MethodDeclaration) {
+            // For MethodDeclaration, check if parent is ObjectLiteralExpression.
+            if (k == .MethodDeclaration) {
+                const parent = c.binder.ast.getNodeParent(node);
+                if (parent == 0 or c.binder.ast.getKind(parent) != .ObjectLiteralExpression) return 0;
+            }
+            // getContextualSignature returns ast_gen.NodeIndex (stub); cast to SignatureIndex.
+            const sig_node = c.getContextualSignature(node);
+            return @intCast(sig_node);
+        }
         return 0;
     }
 
