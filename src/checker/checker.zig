@@ -11155,13 +11155,21 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn addDeprecatedSuggestionWithSignature(c: *Checker, location: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex, deprecatedEntity: ast_gen.SymbolIndex, signatureString: []const u8) types.TypeIndex {
-        _ = c;
-        _ = location;
-        _ = declaration;
-        _ = deprecatedEntity;
-        _ = signatureString;
-        return 0;
+    /// Port of `checker.go::addDeprecatedSuggestionWithSignature`. Reports
+    /// a deprecation diagnostic with a signature string, then adds the
+    /// deprecated suggestion.
+    pub fn addDeprecatedSuggestionWithSignature(c: *Checker, location: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex, deprecatedEntity: ast_gen.SymbolIndex, signatureString: []const u8) void {
+        // Get the deprecated entity name.
+        const entity_name: []const u8 = if (deprecatedEntity != 0 and deprecatedEntity < c.binder.symbols.items.len)
+            c.binder.symbols.items[deprecatedEntity].Name
+        else
+            "";
+        const msg: *const diagnostics_gen.Message = if (entity_name.len > 0)
+            &diagnostics_gen.The_signature_0_of_1_is_deprecated
+        else
+            &diagnostics_gen.X_0_is_deprecated;
+        c.reportErrorWithArgs(location, msg, &.{ signatureString, entity_name });
+        c.addDeprecatedSuggestionWorker(&[_]ast_gen.NodeIndex{declaration}, msg);
     }
 
     pub fn isSymbolOrSymbolForCall(c: *Checker, node: ast_gen.NodeIndex) bool {
@@ -12280,13 +12288,34 @@ pub const Checker = struct {
         return c.getFlowTypeOfAccessExpression(node, prop, propType orelse (c.anyTypeIndex orelse 0), right, checkMode);
     }
 
+    /// Port of `checker.go::getFlowTypeOfAccessExpression`. Returns the
+    /// flow-narrowed type of a property access expression. For definite
+    /// assignment targets, removes missing type. For auto types, delegates
+    /// to `getFlowTypeOfProperty`. Otherwise, narrows via
+    /// `getNarrowableTypeForReference`.
     pub fn getFlowTypeOfAccessExpression(c: *Checker, node: ast_gen.NodeIndex, prop: ?ast_gen.SymbolIndex, propType: types.TypeIndex, errorNode: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = prop;
         _ = errorNode;
-        _ = checkMode;
-        return propType;
+        const assignment_kind = utils.getAssignmentTargetKind(c.binder.ast, node);
+        // AssignmentKindDefinite == write target.
+        if (assignment_kind == .Definite) {
+            const is_optional = if (prop) |p| (c.binder.symbols.items[p].Flags & symbol.SymbolFlags.Optional) != 0 else false;
+            return c.removeMissingType(propType, is_optional);
+        }
+        // Only narrow variables, properties, accessors, or optional methods.
+        if (prop) |p| {
+            if (p < c.binder.symbols.items.len) {
+                const flags = c.binder.symbols.items[p].Flags;
+                const is_narrowable = (flags & (symbol.SymbolFlags.Variable | symbol.SymbolFlags.Property | symbol.SymbolFlags.Accessor)) != 0;
+                const is_optional_method = (flags & symbol.SymbolFlags.Method) != 0 and (c.typesList.items[propType].flags & types.TypeFlags.Union) != 0;
+                if (!is_narrowable and !is_optional_method) return propType;
+            }
+        }
+        // Auto type → delegate to flow type of property.
+        if (propType == (c.autoTypeIndex orelse 0)) {
+            return c.getFlowTypeOfProperty(node, prop orelse 0);
+        }
+        // Narrow via getNarrowableTypeForReference.
+        return c.getNarrowableTypeForReference(propType, node, checkMode);
     }
 
     pub fn getControlFlowContainer(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -13165,13 +13194,18 @@ pub const Checker = struct {
         }
     }
 
+    /// Port of `checker.go::checkArithmeticOperandType`. Returns true if
+    /// `t` is assignable to `number | bigint`. Otherwise, reports an error
+    /// and optionally suggests `await` if the awaited type would be valid.
     pub fn checkArithmeticOperandType(c: *Checker, operand: ast_gen.NodeIndex, t: types.TypeIndex, diagnostic: diagnostics_gen.Message, isAwaitValid: bool) bool {
-        _ = c;
-        _ = operand;
-        _ = t;
-        _ = diagnostic;
-        _ = isAwaitValid;
-        return true;
+        if (c.isTypeAssignableTo(t, c.numberOrBigIntTypeIndex orelse 0)) return true;
+        var awaited_type: types.TypeIndex = 0;
+        if (isAwaitValid) {
+            awaited_type = c.getAwaitedTypeOfPromise(t);
+        }
+        const maybe_missing_await = awaited_type != 0 and c.isTypeAssignableTo(awaited_type, c.numberOrBigIntTypeIndex orelse 0);
+        c.errorAndMaybeSuggestAwait(operand, maybe_missing_await, &diagnostic);
+        return false;
     }
 
     /// Port of `checker.go::checkForDisallowedESSymbolOperand`. Reports
@@ -13195,12 +13229,32 @@ pub const Checker = struct {
 
     /// Port of checker.go::checkNaNEquality. Reports warnings when NaN
     /// is compared with === or !==. Simplified: no-op.
+    /// Port of `checker.go::checkNaNEquality`. Reports a warning when
+    /// NaN is compared with === or !==, suggesting `Number.isNaN()` instead.
     pub fn checkNaNEquality(c: *Checker, error_node: ast_gen.NodeIndex, operator: ast_gen.NodeIndex, left: ast_gen.NodeIndex, right: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = error_node;
-        _ = operator;
-        _ = left;
-        _ = right;
+        const left_skip = ast_utils.skipParentheses(c.binder.ast, left);
+        const right_skip = ast_utils.skipParentheses(c.binder.ast, right);
+        const is_left_nan = c.isGlobalNaN(left_skip);
+        const is_right_nan = c.isGlobalNaN(right_skip);
+        if (!is_left_nan and !is_right_nan) return;
+        // Report "This condition will always return 'false'" (for === / ==) or 'true' (for !== / !=).
+        const op_kind: @import("../ast/kind.zig").Kind = @enumFromInt(operator);
+        const is_strict_eq = op_kind == .EqualsEqualsEqualsToken or op_kind == .EqualsEqualsToken;
+        const result_str: []const u8 = if (is_strict_eq) "false" else "true";
+        c.reportErrorWithArgs(error_node, &diagnostics_gen.This_condition_will_always_return_0, &.{result_str});
+        if (is_left_nan and is_right_nan) return;
+        // Suggest Number.isNaN(...) for the non-NaN side.
+        const location = if (is_left_nan) right else left;
+        const location_skip = ast_utils.skipParentheses(c.binder.ast, location);
+        var entity_name: []const u8 = "...";
+        if (ast_utils.isEntityNameExpression(c.binder.ast, location_skip)) {
+            entity_name = ast_utils.getTextOfNode(c.binder.ast, location_skip);
+        }
+        var suggestion_buf: [256]u8 = undefined;
+        const op_str: []const u8 = if (op_kind == .ExclamationEqualsEqualsToken or op_kind == .ExclamationEqualsToken) "!" else "";
+        const suggestion = std.fmt.bufPrint(&suggestion_buf, "{s}Number.isNaN({s})", .{ op_str, entity_name }) catch entity_name;
+        _ = suggestion;
+        // Simplified: skip related info (would need AddRelatedInfo).
     }
 
     /// Port of checker.go::isGlobalNaN. Full Go logic.
