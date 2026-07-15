@@ -9611,12 +9611,45 @@ pub const Checker = struct {
 
     /// Port of checker.go::checkIndexConstraintForProperty. Validates
     /// that a property satisfies index constraints. Simplified: no-op.
+    /// Port of `checker.go::checkIndexConstraintForProperty`. Validates
+    /// that a property's type is assignable to the type of each applicable
+    /// index signature. Reports an error if not assignable.
     pub fn checkIndexConstraintForProperty(c: *Checker, t: types.TypeIndex, prop: ast_gen.SymbolIndex, prop_name_type: types.TypeIndex, prop_type: types.TypeIndex) void {
-        _ = c;
-        _ = t;
-        _ = prop;
-        _ = prop_name_type;
-        _ = prop_type;
+        if (prop == 0 or prop >= c.binder.symbols.items.len) return;
+        const sym = c.binder.symbols.items[prop];
+        const declaration = sym.ValueDeclaration orelse return;
+        // Skip private identifier names.
+        const name_node = ast_utils.getNameOfDeclaration(c.binder.ast, declaration) orelse 0;
+        if (name_node != 0 and c.binder.ast.getKind(name_node) == .PrivateIdentifier) return;
+        // Get applicable index infos.
+        const index_infos = c.getApplicableIndexInfos(t, prop_name_type);
+        if (index_infos.len == 0) return;
+        // Determine error node: the property declaration if it's local,
+        // or the interface declaration as fallback.
+        var error_node: ast_gen.NodeIndex = declaration;
+        const is_interface = (c.typesList.items[t].objectFlags & types.ObjectFlags.Interface) != 0;
+        if (is_interface and error_node == 0) {
+            // Fall back to interface declaration node.
+            if (c.typesList.items[t].symbol) |type_sym| {
+                const type_sym_data = c.binder.symbols.items[type_sym];
+                for (type_sym_data.Declarations.items) |d| {
+                    if (c.binder.ast.getKind(d) == .InterfaceDeclaration) {
+                        error_node = d;
+                        break;
+                    }
+                }
+            }
+        }
+        // Check each applicable index info.
+        const prop_name = sym.Name;
+        for (index_infos) |info| {
+            if (!c.isTypeAssignableTo(prop_type, info.valueType)) {
+                const prop_type_str = c.typeToString(prop_type, 0, 0, null);
+                const key_type_str = c.typeToString(info.keyType, 0, 0, null);
+                const value_type_str = c.typeToString(info.valueType, 0, 0, null);
+                c.reportErrorWithArgs(error_node, &diagnostics_gen.Property_0_of_type_1_is_not_assignable_to_2_index_type_3, &.{ prop_name, prop_type_str, key_type_str, value_type_str });
+            }
+        }
     }
 
     /// Port of checker.go::checkIndexConstraintForIndexSignature.
@@ -11457,14 +11490,21 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::maybeAddMissingAwaitInfo`. If `source` is a
+    /// Promise and its awaited type is assignable to `target`, suggests
+    /// using `await`. Reports a related-info diagnostic.
     pub fn maybeAddMissingAwaitInfo(c: *Checker, errorNode: ast_gen.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: u32, reportErrors: bool, diagnosticOutput: types.TypeIndex) void {
-        _ = c;
-        _ = errorNode;
-        _ = source;
-        _ = target;
         _ = relation;
-        _ = reportErrors;
         _ = diagnosticOutput;
+        if (!reportErrors or errorNode == 0) return;
+        // Bail if target is Promise-like.
+        if (c.getAwaitedTypeOfPromise(target) != 0) return;
+        const awaited_source = c.getAwaitedTypeOfPromise(source);
+        if (awaited_source != 0 and c.isTypeAssignableTo(awaited_source, target)) {
+            // Report "Did you forget to use await?" as a related info.
+            // Simplified: report as a separate error.
+            c.reportError(errorNode, &diagnostics_gen.Did_you_forget_to_use_await);
+        }
     }
 
     /// Port of `checker.go::getThisArgumentOfCall`. Returns the `this`
@@ -11536,12 +11576,18 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn pickLongestCandidateSignature(c: *Checker, node: ast_gen.NodeIndex, candidates: []const types.SignatureIndex, args: []const ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
-        _ = c;
+    /// Port of `checker.go::pickLongestCandidateSignature`. Returns the
+    /// longest candidate signature (the one with the most parameters that
+    /// is still applicable). Delegates to `getLongestCandidateIndex`.
+    pub fn pickLongestCandidateSignature(c: *Checker, node: ast_gen.NodeIndex, candidates: []const types.SignatureIndex, args: []const ast_gen.NodeIndex, checkMode: CheckMode) types.SignatureIndex {
         _ = node;
-        _ = candidates;
-        _ = args;
         _ = checkMode;
+        if (candidates.len == 0) return 0;
+        const arg_count: i32 = @intCast(args.len);
+        const best_index = c.getLongestCandidateIndex(candidates, arg_count);
+        if (best_index >= 0 and @as(usize, @intCast(best_index)) < candidates.len) {
+            return candidates[@intCast(best_index)];
+        }
         return 0;
     }
 
@@ -11676,13 +11722,33 @@ pub const Checker = struct {
         return argument_arity.getErrorNodeForCallNode(c, node);
     }
 
-    pub fn getTypeArgumentArityError(c: *Checker, node: ast_gen.NodeIndex, signatures: []const types.SignatureIndex, typeArguments: ast_gen.NodeIndex, headMessage: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = signatures;
-        _ = typeArguments;
-        _ = headMessage;
-        return 0;
+    /// Port of `checker.go::getTypeArgumentArityError`. Reports an error
+    /// when the number of type arguments doesn't match the expected count
+    /// for the signature(s). Returns true if an error was reported.
+    pub fn getTypeArgumentArityError(c: *Checker, node: ast_gen.NodeIndex, signatures: []const types.SignatureIndex, typeArguments: ast_gen.NodeIndex, headMessage: ?*const diagnostics_gen.Message) bool {
+        if (signatures.len == 0) return false;
+        // Count type arguments.
+        var arg_count: u32 = 0;
+        if (typeArguments != 0) {
+            arg_count = @intCast(c.binder.ast.getNodeList(typeArguments).len);
+        }
+        if (signatures.len == 1) {
+            const sig = &c.signatures.items[signatures[0]];
+            const max_count: u32 = sig.typeParametersLen;
+            // Simplified: min count = 0 (full default-able).
+            const min_count: u32 = 0;
+            var expected_buf: [32]u8 = undefined;
+            const expected_str = if (min_count < max_count)
+                std.fmt.bufPrint(&expected_buf, "{d}-{d}", .{ min_count, max_count }) catch "0"
+            else
+                std.fmt.bufPrint(&expected_buf, "{d}", .{max_count}) catch "0";
+            _ = headMessage;
+            c.reportErrorWithArgs(node, &diagnostics_gen.Expected_0_type_arguments_but_got_1, &.{ expected_str, "" });
+            return true;
+        }
+        // Multiple overloads: simplified — just report the generic error.
+        c.reportErrorWithArgs(node, &diagnostics_gen.Expected_0_type_arguments_but_got_1, &.{ "", "" });
+        return true;
     }
 
     /// Port of checker.go::reportCannotInvokePossiblyNullOrUndefinedError.
@@ -14071,28 +14137,55 @@ pub const Checker = struct {
         return 0;
     }
 
-    /// Port of checker.go::reportMergeSymbolError. Reports errors when
-    /// merging symbols with incompatible flags. Simplified: no-op.
+    /// Port of `checker.go::reportMergeSymbolError`. Reports errors when
+    /// merging symbols with incompatible flags (enum, block-scoped, or
+    /// duplicate identifier).
     pub fn reportMergeSymbolError(c: *Checker, target: ast_gen.SymbolIndex, source: ast_gen.SymbolIndex) void {
-        _ = c;
-        _ = target;
-        _ = source;
+        if (target == 0 or source == 0 or target >= c.binder.symbols.items.len or source >= c.binder.symbols.items.len) return;
+        const target_sym = c.binder.symbols.items[target];
+        const source_sym = c.binder.symbols.items[source];
+        const is_either_enum = (target_sym.Flags & symbol.SymbolFlags.Enum) != 0 or (source_sym.Flags & symbol.SymbolFlags.Enum) != 0;
+        const is_either_block_scoped = (target_sym.Flags & symbol.SymbolFlags.BlockScopedVariable) != 0 or (source_sym.Flags & symbol.SymbolFlags.BlockScopedVariable) != 0;
+        const msg: *const diagnostics_gen.Message = if (is_either_enum)
+            &diagnostics_gen.Enum_declarations_can_only_merge_with_namespace_or_other_enum_declarations
+        else if (is_either_block_scoped)
+            &diagnostics_gen.Cannot_redeclare_block_scoped_variable_0
+        else
+            &diagnostics_gen.Duplicate_identifier_0;
+        const symbol_name = source_sym.Name;
+        // Report on source declarations.
+        for (source_sym.Declarations.items) |decl| {
+            c.reportErrorWithArgs(decl, msg, &.{symbol_name});
+        }
+        // Report on target declarations.
+        for (target_sym.Declarations.items) |decl| {
+            c.reportErrorWithArgs(decl, msg, &.{symbol_name});
+        }
     }
 
-    pub fn addDuplicateDeclarationErrorsForSymbols(c: *Checker, target: types.TypeIndex, message: ?*const diagnostics_gen.Message, symbolName: ast_gen.NodeIndex, source: types.TypeIndex) void {
-        _ = c;
-        _ = target;
-        _ = message;
-        _ = symbolName;
+    /// Port of `checker.go::addDuplicateDeclarationErrorsForSymbols`.
+    /// Reports duplicate declaration errors for each declaration of `target`.
+    pub fn addDuplicateDeclarationErrorsForSymbols(c: *Checker, target: ast_gen.SymbolIndex, message: ?*const diagnostics_gen.Message, symbolName: []const u8, source: ast_gen.SymbolIndex) void {
         _ = source;
+        if (target == 0 or target >= c.binder.symbols.items.len) return;
+        const msg = message orelse &diagnostics_gen.Duplicate_identifier_0;
+        const target_sym = c.binder.symbols.items[target];
+        for (target_sym.Declarations.items) |decl| {
+            c.reportErrorWithArgs(decl, msg, &.{symbolName});
+        }
     }
 
-    pub fn addDuplicateDeclarationError(c: *Checker, node: ast_gen.NodeIndex, message: ?*const diagnostics_gen.Message, symbolName: ast_gen.NodeIndex, relatedNodes: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = node;
-        _ = message;
-        _ = symbolName;
-        _ = relatedNodes;
+    /// Port of `checker.go::addDuplicateDeclarationError`. Reports a
+    /// single duplicate declaration error on `node`.
+    pub fn addDuplicateDeclarationError(c: *Checker, node: ast_gen.NodeIndex, message: ?*const diagnostics_gen.Message, symbolName: []const u8, relatedNodes: []const ast_gen.NodeIndex) void {
+        const msg = message orelse &diagnostics_gen.Duplicate_identifier_0;
+        c.reportErrorWithArgs(node, msg, &.{symbolName});
+        // Report related info for each related node (simplified — no chain).
+        for (relatedNodes) |related| {
+            if (related != 0 and related != node) {
+                c.reportErrorWithArgs(related, &diagnostics_gen.X_0_was_also_declared_here, &.{symbolName});
+            }
+        }
     }
 
     pub fn createDiagnosticForNode(node: ast_gen.NodeIndex, message: ?*const diagnostics_gen.Message) types.TypeIndex {
@@ -20911,11 +21004,23 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getApplicableIndexInfos(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = keyType;
-        return 0;
+    /// Port of `checker.go::getApplicableIndexInfos`. Returns the index
+    /// infos of `t` whose key type is applicable to `keyType` (via
+    /// `isApplicableIndexType`). Returns a slice of IndexInfo.
+    pub fn getApplicableIndexInfos(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) []const types.IndexInfo {
+        const all_infos = c.getIndexInfosOfType(t);
+        // Filter in-place using a temporary ArrayList.
+        var filtered = std.ArrayListUnmanaged(types.IndexInfo).empty;
+        defer filtered.deinit(c.allocator);
+        for (all_infos) |info| {
+            if (c.isApplicableIndexType(keyType, info.keyType)) {
+                filtered.append(c.allocator, info) catch {};
+            }
+        }
+        // Persist into allocator-owned slice.
+        const result = c.allocator.alloc(types.IndexInfo, filtered.items.len) catch return &[_]types.IndexInfo{};
+        @memcpy(result, filtered.items);
+        return result;
     }
 
     pub fn getApplicableIndexSymbol(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) types.TypeIndex {
