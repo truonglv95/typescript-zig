@@ -14650,13 +14650,23 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::errorOnImplicitAnyModule`. Reports a
+    /// "could not find a declaration file for module" error when a
+    /// module is imported but has no type declarations.
     pub fn errorOnImplicitAnyModule(c: *Checker, isError: bool, errorNode: ast_gen.NodeIndex, mode: core.ModuleKind, resolvedModule: ast_gen.NodeIndex, moduleReference: ast_gen.NodeIndex) void {
-        _ = c;
         _ = isError;
-        _ = errorNode;
         _ = mode;
         _ = resolvedModule;
-        _ = moduleReference;
+        // Skip side-effect imports (import "module" with no bindings).
+        // Simplified: check if the parent is an ImportDeclaration with no ImportClause.
+        const parent = c.binder.ast.getNodeParent(errorNode);
+        if (parent != 0 and c.binder.ast.getKind(parent) == .ImportDeclaration) {
+            const clause = c.binder.ast.getNode(parent).ImportDeclaration.ImportClause;
+            if (clause == 0 or clause == null) return; // side-effect import
+        }
+        // Get module reference text.
+        const module_ref_text = if (moduleReference != 0) ast_utils.getTextOfNode(c.binder.ast, moduleReference) else "";
+        c.reportErrorWithArgs(errorNode, &diagnostics_gen.Could_not_find_a_declaration_file_for_module_0_1_implicitly_has_an_any_type, &.{ module_ref_text, "" });
     }
 
     pub fn createModuleNotFoundChain(c: *Checker, resolvedModule: ast_gen.NodeIndex, errorNode: ast_gen.NodeIndex, moduleReference: ast_gen.NodeIndex, mode: core.ModuleKind, packageName: ast_gen.NodeIndex) types.TypeIndex {
