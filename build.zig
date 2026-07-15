@@ -89,4 +89,18 @@ pub fn build(b: *std.Build) void {
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_mod_tests.step);
+
+    // Split fourslash tests — run in parallel for speed
+    const fourslash_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/fourslash_tests/test_root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{},
+    });
+    const fourslash_tests = b.addTest(.{
+        .root_module = fourslash_test_mod,
+    });
+    fourslash_tests.step.dependOn(&gen_fourslash_cmd.step);
+    const run_fourslash_tests = b.addRunArtifact(fourslash_tests);
+    test_step.dependOn(&run_fourslash_tests.step);
 }
