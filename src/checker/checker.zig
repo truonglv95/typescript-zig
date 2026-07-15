@@ -13106,10 +13106,55 @@ pub const Checker = struct {
         return getTargetOfAliasLikeExpression(c, be.Right);
     }
 
-    pub fn getModuleSpecifierForImportOrExport(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getModuleSpecifierForImportOrExport(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: switch node.Kind {
+        //   case ImportClause: return getModuleSpecifierFromNode(node.Parent)
+        //   case ImportEqualsDeclaration:
+        //     if IsExternalModuleReference(node.ModuleReference) { return node.ModuleReference.Expression() } else { return nil }
+        //   case NamespaceImport: return getModuleSpecifierFromNode(node.Parent.Parent)
+        //   case ImportSpecifier: return getModuleSpecifierFromNode(node.Parent.Parent.Parent)
+        //   case NamespaceExport: return getModuleSpecifierFromNode(node.Parent)
+        //   case ExportSpecifier: return getModuleSpecifierFromNode(node.Parent.Parent)
+        // }
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .ImportClause => {
+                const parent = c.binder.ast.getNodeParent(node);
+                return getModuleSpecifierFromNode(c, parent);
+            },
+            .ImportEqualsDeclaration => {
+                const module_ref = c.binder.ast.getNode(node).ImportEqualsDeclaration.ModuleReference;
+                if (module_ref != 0 and c.binder.ast.getKind(module_ref) == .ExternalModuleReference) {
+                    return c.binder.ast.getNode(module_ref).ExternalModuleReference.Expression;
+                }
+                return 0;
+            },
+            .NamespaceImport => {
+                const parent = c.binder.ast.getNodeParent(node);
+                if (parent == 0) return 0;
+                const grandparent = c.binder.ast.getNodeParent(parent);
+                return getModuleSpecifierFromNode(c, grandparent);
+            },
+            .ImportSpecifier => {
+                const parent = c.binder.ast.getNodeParent(node);
+                if (parent == 0) return 0;
+                const grandparent = c.binder.ast.getNodeParent(parent);
+                if (grandparent == 0) return 0;
+                const great_grandparent = c.binder.ast.getNodeParent(grandparent);
+                return getModuleSpecifierFromNode(c, great_grandparent);
+            },
+            .NamespaceExport => {
+                const parent = c.binder.ast.getNodeParent(node);
+                return getModuleSpecifierFromNode(c, parent);
+            },
+            .ExportSpecifier => {
+                const parent = c.binder.ast.getNodeParent(node);
+                if (parent == 0) return 0;
+                const grandparent = c.binder.ast.getNodeParent(parent);
+                return getModuleSpecifierFromNode(c, grandparent);
+            },
+            else => return 0,
+        }
     }
 
     pub fn getModuleSpecifierFromNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
