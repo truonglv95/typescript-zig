@@ -13981,10 +13981,10 @@ pub const Checker = struct {
         return c.anyTypeIndex orelse 0;
     }
 
-    pub fn getTypeForBindingElement(c: *Checker, declaration: *anyopaque) *anyopaque {
+    pub fn getTypeForBindingElement(c: *Checker, declaration: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = declaration;
-        return undefined;
+        return 0;
     }
 
     pub fn getTypeForBindingElementParent(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
@@ -14579,10 +14579,10 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTypeParametersFromDeclaration(c: *Checker, declaration: *anyopaque) *anyopaque {
+    pub fn getTypeParametersFromDeclaration(c: *Checker, declaration: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = declaration;
-        return undefined;
+        return 0;
     }
 
     pub fn getAnnotatedAccessorThisParameter(c: *Checker, accessor: *anyopaque) *anyopaque {
@@ -14655,10 +14655,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getReturnTypeFromAnnotation(c: *Checker, declaration: *anyopaque) *anyopaque {
+    pub fn getReturnTypeFromAnnotation(c: *Checker, declaration: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = declaration;
-        return undefined;
+        return 0;
     }
 
     pub fn getSignatureOfFullSignatureType(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -14887,10 +14887,10 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTypePredicateFromBody(c: *Checker, fn_: *anyopaque) *anyopaque {
+    pub fn getTypePredicateFromBody(c: *Checker, fn_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = fn_;
-        return undefined;
+        return 0;
     }
 
     /// Port of checker.go::checkIfExpressionRefinesAnyParameter.
@@ -15068,10 +15068,10 @@ pub const Checker = struct {
         return isThislessType(c, constraint.?);
     }
 
-    pub fn getDefaultConstructSignatures(c: *Checker, classType: *anyopaque) *anyopaque {
+    pub fn getDefaultConstructSignatures(c: *Checker, classType: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = classType;
-        return undefined;
+        return 0;
     }
 
     pub fn getTypeOfMappedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
@@ -15392,10 +15392,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getUnresolvedSymbolForEntityName(c: *Checker, name_: *anyopaque) *anyopaque {
+    pub fn getUnresolvedSymbolForEntityName(c: *Checker, name_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = name_;
-        return undefined;
+        return 0;
     }
 
     pub fn getSymbolPath(c: *Checker, symbol_: ast_gen.SymbolIndex) []const u8 {
@@ -15642,10 +15642,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn computeConstantEnumMemberValue(c: *Checker, member: *anyopaque) *anyopaque {
+    pub fn computeConstantEnumMemberValue(c: *Checker, member: ast_gen.NodeIndex) ast_gen.NodeIndex {
         _ = c;
         _ = member;
-        return undefined;
+        return 0;
     }
 
     pub fn evaluateEntity(c: *Checker, expr: *anyopaque, location: *anyopaque) *anyopaque {
@@ -15774,10 +15774,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getGlobalStrictFunctionType(c: *Checker, name_: *anyopaque) *anyopaque {
+    pub fn getGlobalStrictFunctionType(c: *Checker, name_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = name_;
-        return undefined;
+        return 0;
     }
 
     /// Port of checker.go::getGlobalImportMetaExpressionType.
@@ -15952,10 +15952,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn cloneTypeReference(c: *Checker, source: *anyopaque) *anyopaque {
+    pub fn cloneTypeReference(c: *Checker, source: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = source;
-        return undefined;
+        return 0;
     }
 
     pub fn setStructuredTypeMembers(c: *Checker, t: *anyopaque, members: *anyopaque, callSignatures: *anyopaque, constructSignatures: *anyopaque, indexInfos: *anyopaque) void {
@@ -16477,10 +16477,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getLiteralTypeFromPropertyName(c: *Checker, name_: *anyopaque) *anyopaque {
+    pub fn getLiteralTypeFromPropertyName(c: *Checker, name_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = name_;
-        return undefined;
+        return 0;
     }
 
     /// Port of `checker.go::isKeyTypeIncluded`. Returns true if `keyType`
@@ -17551,10 +17551,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newClassDecoratorContextType(c: *Checker, classType: *anyopaque) *anyopaque {
+    pub fn newClassDecoratorContextType(c: *Checker, classType: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = classType;
-        return undefined;
+        return 0;
     }
 
     pub fn newClassMethodDecoratorContextType(c: *Checker, classType: *anyopaque, valueType: *anyopaque) *anyopaque {
@@ -18207,10 +18207,10 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getSymbolOfNameOrPropertyAccessExpression(c: *Checker, name_: *anyopaque) *anyopaque {
+    pub fn getSymbolOfNameOrPropertyAccessExpression(c: *Checker, name_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = name_;
-        return undefined;
+        return 0;
     }
 
     pub fn isThisPropertyAndThisTyped(c: *Checker, node: *anyopaque) bool {
@@ -18252,10 +18252,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getRegularTypeOfExpression(c: *Checker, expr: *anyopaque) *anyopaque {
+    pub fn getRegularTypeOfExpression(c: *Checker, expr: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = expr;
-        return undefined;
+        return 0;
     }
 
     pub fn containsArgumentsReference(c: *Checker, node: *anyopaque) bool {
