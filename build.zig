@@ -92,7 +92,7 @@ pub fn build(b: *std.Build) void {
 
     // Split fourslash tests — run in parallel for speed
     const fourslash_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/fourslash_tests/test_root.zig"),
+        .root_source_file = b.path("src/test_root.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{},

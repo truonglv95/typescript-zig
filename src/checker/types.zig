@@ -446,6 +446,13 @@ pub const IndexInfo = struct {
     declaration: ?ast_gen.NodeIndex = null,
 };
 
+/// Cache key for enum-literal types, keyed by `(enumSymbol, value)` pair.
+/// The value is the string-or-number representation of the enum literal.
+pub const EnumLiteralKey = struct {
+    enumSymbol: ast_gen.SymbolIndex,
+    value: []const u8,
+};
+
 pub const SignatureKind = enum {
     Call,
     Construct,

@@ -301,6 +301,8 @@ pub const Checker = struct {
 
     numberLiteralTypes: std.AutoHashMapUnmanaged(u64, types.TypeIndex) = .empty,
     stringLiteralTypes: std.StringHashMapUnmanaged(types.TypeIndex) = .empty,
+    bigintLiteralTypes: std.StringHashMapUnmanaged(types.TypeIndex) = .empty,
+    enumLiteralTypes: std.AutoHashMapUnmanaged(types.EnumLiteralKey, types.TypeIndex) = .empty,
     unresolvedSymbols: std.StringHashMapUnmanaged(ast_gen.SymbolIndex) = .empty,
     packagesMap: ?std.StringHashMapUnmanaged(bool) = null,
 
@@ -486,6 +488,8 @@ pub const Checker = struct {
         self.antecedentTypes.deinit(self.allocator);
         self.nodeFlowNodes.deinit(self.allocator);
         self.stringLiteralTypes.deinit(self.allocator);
+        self.bigintLiteralTypes.deinit(self.allocator);
+        self.enumLiteralTypes.deinit(self.allocator);
         self.flowNodeReachable.deinit(self.allocator);
         self.flowLoopCache.deinit(self.allocator);
         self.flowLoopStack.deinit(self.allocator);
@@ -18583,17 +18587,19 @@ pub const Checker = struct {
     pub fn markPropertyAsReferenced(c: *Checker, prop: ast_gen.SymbolIndex, nodeForCheckWriteOnly: ast_gen.NodeIndex, isSelfTypeAccess_: bool) void {
         const prop_sym = c.binder.symbols.items[prop];
         if ((prop_sym.Flags & symbol.SymbolFlags.ClassMember) == 0) return;
-        const value_decl = prop_sym.valueDeclaration orelse return;
-        const has_private_modifier = ast_utils.hasModifierFlags(c.binder.ast, value_decl, ast_utils.ModifierFlags.Private);
-        const name_node = prop_sym.name;
-        const has_private_identifier = name_node != 0 and c.binder.ast.getKind(name_node) == .PrivateIdentifier;
+        const value_decl = prop_sym.ValueDeclaration orelse return;
+        const has_private_modifier = ast_utils.hasSyntacticModifier(c.binder.ast, value_decl, ast_utils.ModifierFlags.Private);
+        const name_node = prop_sym.Name;
+        _ = name_node;
+        // has_private_identifier would require looking up the declaration's name node.
+        // For now, only check the modifier flag.
+        const has_private_identifier: bool = false;
         if (!has_private_modifier and !has_private_identifier) return;
         if (nodeForCheckWriteOnly != 0 and ast_utils.isWriteOnlyAccess(c.binder.ast, nodeForCheckWriteOnly) and (prop_sym.Flags & symbol.SymbolFlags.SetAccessor) == 0) return;
         if (isSelfTypeAccess_) {
             // Skip: ancestor walk for containing method not yet wired.
         }
-        var target = prop;
-        _ = &target;
+        const target = prop;
         // If instantiated, walk to target via valueSymbolLinks (not yet wired).
         if (c.symbolReferenceLinks.getPtr(target)) |links| {
             links.referenceKinds |= symbol.SymbolFlags.All;

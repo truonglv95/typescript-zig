@@ -46,6 +46,7 @@ pub const SymbolFlags = struct {
     pub const Module: u32 = ValueModule | NamespaceModule;
     pub const Accessor: u32 = GetAccessor | SetAccessor;
     pub const PropertyOrAccessor: u32 = Property | Accessor;
+    pub const ClassMember: u32 = Method | Accessor | Property;
     pub const Enum: u32 = RegularEnum | ConstEnum;
     pub const FunctionScopedVariableExcludes: u32 = Value & ~FunctionScopedVariable;
     pub const BlockScopedVariableExcludes: u32 = Value;
