@@ -7,11 +7,9 @@ const NodeIndex = ast.NodeIndex;
 
 pub fn getLastChild(tree: *ast.Ast, node: NodeIndex) ?NodeIndex {
     const lastChildNode = getLastVisitedChild(tree, node);
-    // TODO: implement isJSDocSingleCommentNode
-    // if (astnav.isJSDocSingleCommentNode(tree, node) and lastChildNode == null) {
-    //     return null;
-    // }
-    
+    if (tree.getNodeKind(node) == .JSDocComment and lastChildNode == null) {
+        return null;
+    }
     var tokenStartPos: u32 = 0;
     if (lastChildNode) |child| {
         tokenStartPos = tree.positions.items[child].end;
@@ -19,26 +17,23 @@ pub fn getLastChild(tree: *ast.Ast, node: NodeIndex) ?NodeIndex {
         tokenStartPos = tree.positions.items[node].pos;
     }
     
-    const lastToken: ?NodeIndex = null;
     var scan = scanner.getScannerForSourceFile(tree, tokenStartPos);
     var startPos = tokenStartPos;
     const nodeEnd = tree.positions.items[node].end;
     
-    while (startPos < nodeEnd) {
-        const tokenKind = scan.token();
-        const tokenFullStart = scan.tokenFullStart();
-        const tokenEnd = scan.tokenEnd();
-        // TODO: tree.getOrCreateToken
-        // lastToken = tree.getOrCreateToken(tokenKind, tokenFullStart, tokenEnd, node, scan.tokenFlags());
-        _ = tokenKind;
-        _ = tokenFullStart;
-        startPos = tokenEnd;
-        scan.scan();
-    }
-    
-    if (lastToken) |tok| {
-        return tok;
-    }
+        var lastTokenNode: ?NodeIndex = null;
+        while (startPos < nodeEnd) {
+            const tokenKind = scan.token();
+            const tokenFullStart = scan.tokenFullStart();
+            const tokenEnd = scan.tokenEnd();
+            lastTokenNode = getOrCreateToken(tree, tokenKind, tokenFullStart, tokenEnd, node);
+            startPos = tokenEnd;
+            scan.scan();
+        }
+        
+        if (lastTokenNode) |tok| {
+            return tok;
+        }
     return lastChildNode;
 }
 
@@ -63,10 +58,20 @@ pub fn getLastToken(tree: *ast.Ast, node: NodeIndex) ?NodeIndex {
 }
 
 pub fn getLastVisitedChild(tree: *ast.Ast, node: NodeIndex) ?NodeIndex {
-    _ = tree;
-    _ = node;
-    // TODO: implement astnav.visitEachChildAndJSDoc equivalent
-    return null;
+    var lastChild: ?NodeIndex = null;
+    const VisitCtx = struct {
+        tree: *ast.Ast,
+        lastChild: *?NodeIndex,
+        fn visit(ctx: *@This(), n: NodeIndex) bool {
+            if (n != 0 and (ctx.tree.getNodeFlags(n) & astnav.NodeFlags.Reparsed) == 0) {
+                ctx.lastChild.* = n;
+            }
+            return false;
+        }
+    };
+    var ctx = VisitCtx{ .tree = tree, .lastChild = &lastChild };
+    _ = ast.forEachChild(tree, node, &ctx, VisitCtx.visit);
+    return lastChild;
 }
 
 pub fn getFirstToken(tree: *ast.Ast, node: NodeIndex) ?NodeIndex {
@@ -76,8 +81,55 @@ pub fn getFirstToken(tree: *ast.Ast, node: NodeIndex) ?NodeIndex {
     }
     
     assertHasRealPosition(tree, node);
-    // TODO
-    return null;
+    var firstChild: ?NodeIndex = null;
+    const VisitCtx = struct {
+        tree: *ast.Ast,
+        firstChild: *?NodeIndex,
+        fn visit(ctx: *@This(), n: NodeIndex) bool {
+            if (n == 0 or (ctx.tree.getNodeFlags(n) & astnav.NodeFlags.Reparsed) != 0) {
+                return false;
+            }
+            ctx.firstChild.* = n;
+            return true;
+        }
+    };
+    var ctx = VisitCtx{ .tree = tree, .firstChild = &firstChild };
+    _ = ast.forEachChild(tree, node, &ctx, VisitCtx.visit);
+
+    var tokenEndPosition: u32 = 0;
+    if (firstChild) |c| {
+        tokenEndPosition = tree.positions.items[c].pos;
+    } else {
+        tokenEndPosition = tree.positions.items[node].end;
+    }
+
+    var scan = scanner.getScannerForSourceFile(tree, tree.positions.items[node].pos);
+    var firstToken: ?NodeIndex = null;
+    if (tree.positions.items[node].pos < tokenEndPosition) {
+        const tokenKind = scan.token();
+        const tokenFullStart = scan.tokenFullStart();
+        const tokenEnd = scan.tokenEnd();
+        firstToken = getOrCreateToken(tree, tokenKind, tokenFullStart, tokenEnd, node);
+    }
+
+    if (firstToken) |tok| {
+        return tok;
+    }
+    if (firstChild == null) {
+        return null;
+    }
+    const childKind = tree.getNodeKind(firstChild.?);
+    if (@intFromEnum(childKind) < @intFromEnum(@import("../../ast/kind.zig").Kind.FirstNode)) {
+        return firstChild;
+    }
+    return getFirstToken(tree, firstChild.?);
+}
+
+fn getOrCreateToken(tree: *ast.Ast, kind: @import("../../ast/kind.zig").Kind, fullStart: u32, end: u32, parent: ast.NodeIndex) ?ast.NodeIndex {
+    const node = tree.pushTokenNode(kind) catch return null;
+    tree.setNodePosition(node, fullStart, end);
+    tree.setNodeParent(node, parent);
+    return node;
 }
 
 pub fn assertHasRealPosition(tree: *ast.Ast, node: NodeIndex) void {

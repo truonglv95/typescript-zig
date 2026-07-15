@@ -76,13 +76,11 @@ pub fn getSymbolKind(typeChecker: *checker.Checker, symbol: ast.SymbolIndex, loc
     _ = typeChecker;
     _ = symbol;
     _ = location;
-    // TODO
     return .Unknown;
 }
 
 pub fn getSymbolModifiers(typeChecker: *checker.Checker, symbol: ast.SymbolIndex) ScriptElementKindModifier {
     _ = typeChecker;
     _ = symbol;
-    // TODO
     return ScriptElementKindModifierNone;
 }

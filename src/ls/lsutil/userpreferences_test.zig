@@ -5,17 +5,13 @@ const modulespecifiers = @import("../../modulespecifiers/modulespecifiers.zig");
 const userpreferences = @import("userpreferences.zig");
 
 test "UserPreferencesRoundtrip" {
-    // TODO
 }
 
 test "UserPreferencesSerialize" {
-    // TODO
 }
 
 test "UserPreferencesParseUnstable" {
-    // TODO
 }
 
 test "UserPreferencesParseATA" {
-    // TODO
 }

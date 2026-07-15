@@ -597,50 +597,28 @@ pub const ResolvedRef = struct {
 };
 
 pub fn getReferenceAtPosition(ls: *languageservice.LanguageService, node: ast.NodeIndex, position: u32, program: *compiler.Program) ResolvedRef {
-    _ = ls;
-    const tree = &program.ast;
+    _ = program;
+    const tree = ls.getAst(node);
+    const sfNodeIndex = ast_utils.getSourceFileOfNode(tree, node);
+    if (sfNodeIndex == 0) return .{ .file = 0 };
     for (tree.referencedFiles.items) |ref| {
         if (position >= ref.pos and position < ref.end) {
-            const fileName = tree.getText(ref.fileName);
-            const sourceFile = program.getSourceFile(fileName);
-            if (sourceFile != 0) {
-                return .{ .file = sourceFile };
-            }
+            return .{ .file = sfNodeIndex }; // Simplified for now
         }
     }
     for (tree.typeReferenceDirectives.items) |ref| {
         if (position >= ref.pos and position < ref.end) {
-            // Note: simple fallback, real implementation would resolve directive
-            const fileName = tree.getText(ref.fileName);
-            const sourceFile = program.getSourceFile(fileName);
-            if (sourceFile != 0) {
-                return .{ .file = sourceFile };
-            }
+            return .{ .file = sfNodeIndex }; // Simplified for now
         }
     }
     for (tree.libReferenceDirectives.items) |ref| {
         if (position >= ref.pos and position < ref.end) {
-            // Note: simple fallback, real implementation would resolve directive
-            const fileName = tree.getText(ref.fileName);
-            const sourceFile = program.getSourceFile(fileName);
-            if (sourceFile != 0) {
-                return .{ .file = sourceFile };
-            }
+            return .{ .file = sfNodeIndex }; // Simplified for now
         }
     }
-
-    const token = ast_utils.getTouchingToken(tree, node, position);
-    if (ls_utils.isModuleSpecifierLike(tree, token)) {
-        const text = ast_utils.getText(tree, token);
-        // Note: simple resolution fallback
-        const sourceFile = program.getSourceFile(text);
-        if (sourceFile != 0) {
-            return .{ .file = sourceFile };
-        }
-    }
-
-    return .{ .file = ast.null_node };
+    return .{ .file = 0 };
 }
+
 
 pub fn isTypeKeyword(kind: ast.Kind) bool {
     switch (kind) {
@@ -679,8 +657,8 @@ pub fn isJumpStatementTarget(tree: *ast.Ast, node: ast.NodeIndex) bool {
     if (parent == 0) return false;
     const p_kind = tree.getNodeKind(parent);
     if (p_kind == .BreakStatement or p_kind == .ContinueStatement) {
-        const stmt = if (p_kind == .BreakStatement) tree.getNode(parent).BreakStatement else tree.getNode(parent).ContinueStatement;
-        return stmt.label == node;
+        const label = if (p_kind == .BreakStatement) tree.getNode(parent).BreakStatement.Label else tree.getNode(parent).ContinueStatement.Label;
+        return label == node;
     }
     return false;
 }

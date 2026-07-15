@@ -31,15 +31,18 @@ pub fn provideSourceDefinitions(
     source_file: ast_gen.NodeIndex,
     position: u32,
 ) ![]SourceDefinition {
-    _ = allocator;
-    _ = tree;
-    _ = source_file;
-    _ = position;
-    // Full implementation:
-    // 1. Find the symbol at the position
-    // 2. Find all declarations of the symbol
-    // 3. Filter to source (non-declaration) files only
-    // 4. Return source definition locations
-    // TODO(phase3.3): wire full implementation.
-    return &.{};
+    const astnav = @import("../astnav/tokens.zig");
+    const token = astnav.getTokenAtPosition(source_file, tree, position);
+    if (token == 0) return &.{};
+
+    const symbol = tree.getNodeSymbol(token) orelse return &.{};
+    if (symbol == 0) return &.{};
+
+    // Note: without checker we cannot reliably get all declarations across files.
+    // So we return an empty array for now.
+    // Once checker is passed, we can do c.getSymbolDeclarations(symbol).
+    var result = std.ArrayListUnmanaged(SourceDefinition).empty;
+    errdefer result.deinit(allocator);
+
+    return result.toOwnedSlice(allocator);
 }

@@ -33,8 +33,14 @@ pub fn deleteDeclaration(
                 const params_idx = tree.getNode(parent).ArrowFunction.Parameters;
                 const params = tree.getNodeList(params_idx);
                 if (params.len == 1) {
-                    // Replace parameter with `()`.
-                    // TODO(phase3.2): wire t.replaceRangeWithText.
+                    const start_pos = tree.getNodePos(node);
+                    const end_pos = tree.getNodeEnd(node);
+                    const range = tracker_mod.Range{
+                        .start = .{ .line = 0, .character = start_pos },
+                        .end = .{ .line = 0, .character = end_pos },
+                    };
+                    t.deleteRange(range);
+                    t.insertText(range, "()");
                 } else {
                     deleteNodeInList(t, tree, node);
                 }
@@ -71,14 +77,11 @@ pub fn deleteDeclaration(
 /// Deletes a node from a comma-separated list (handling trailing/leading commas).
 /// Port of Go's `deleteNodeInList`.
 fn deleteNodeInList(t: *tracker_mod.ChangeTracker, tree: *ast.Ast, node: ast_gen.NodeIndex) void {
-    _ = t;
-    _ = tree;
-    _ = node;
-    // Full implementation:
-    // 1. Find the parent list (Parameters, Imports, Exports, etc.)
-    // 2. Determine if the node is first, middle, or last in the list
-    // 3. Delete the node + appropriate comma + whitespace
-    // TODO(phase3.2): wire full implementation.
+    // Minimal implementation of deleteNodeInList replacing TODO
+    // Note: A full implementation requires format.GetContainingList
+    // and scanner logic to properly delete leading/trailing commas.
+    // For now, we fall back to just deleting the node.
+    deleteNode(t, tree, node, .IncludeAll, .Include);
 }
 
 /// Deletes a single node (not in a list).
@@ -90,13 +93,14 @@ fn deleteNode(
     leading: tracker_mod.LeadingTriviaOption,
     trailing: tracker_mod.TrailingTriviaOption,
 ) void {
-    _ = t;
-    _ = tree;
-    _ = node;
     _ = leading;
     _ = trailing;
-    // Full implementation:
-    // 1. Compute the range to delete (including trivia based on options)
-    // 2. Call t.deleteRange(range)
-    // TODO(phase3.2): wire full implementation.
+    const start_pos = tree.getNodePos(node);
+    const end_pos = tree.getNodeEnd(node);
+    
+    // Assuming tracker has access to line/char conversion
+    t.deleteRange(.{
+        .start = .{ .line = 0, .character = start_pos },
+        .end = .{ .line = 0, .character = end_pos },
+    });
 }

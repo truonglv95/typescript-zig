@@ -21,11 +21,11 @@ pub const TypeFormatFlags = struct {
     pub const UseAliasDefinedOutsideCurrentScope = types.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
     pub const UseInstantiationExpressions = types.TypeFormatFlags.UseInstantiationExpressions;
     // Missing flags based on go implementation:
-    pub const WriteCallStyleSignature = 1 << 4; // TODO: properly define
-    pub const WriteArrowStyleSignature = 1 << 5; // TODO: properly define
-    pub const WriteTypeArgumentsOfSignature = 1 << 6; // TODO: properly define
-    pub const MultilineObjectLiterals = 1 << 7; // TODO: properly define
-    pub const NodeBuilderFlagsMask = 0; // TODO: properly define
+    pub const WriteCallStyleSignature = types.TypeFormatFlags.WriteCallStyleSignature;
+    pub const WriteArrowStyleSignature = types.TypeFormatFlags.WriteArrowStyleSignature;
+    pub const WriteTypeArgumentsOfSignature = types.TypeFormatFlags.WriteTypeArgumentsOfSignature;
+    pub const MultilineObjectLiterals = types.TypeFormatFlags.MultilineObjectLiterals;
+    pub const NodeBuilderFlagsMask = types.TypeFormatFlags.NodeBuilderFlagsMask;
 };
 
 const symbol_format_flags: u32 =
@@ -130,7 +130,7 @@ pub fn provideHover(
     const symbol = getSymbolAtLocationForQuickInfo(chk, rangeNode);
 
     var vc = VerbosityContext{
-        .level = 0, // TODO: map from params
+        .level = params.verbosityLevel orelse 0,
         .maxTruncationLength = 160,
         .canIncreaseVerbosity = false,
         .truncated = false,
@@ -502,15 +502,38 @@ pub fn getNodeForQuickInfo(ls: *languageservice.LanguageService, file: compiler.
 
 /// Get symbol at location for quick info.
 /// Go: checks object literal contextual property symbols first.
+fn getContainingObjectLiteralElement(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    var elementNode = tree.getNodeParent(node);
+    while (elementNode != 0) {
+        const kind = tree.getNodeKind(elementNode);
+        if (kind == .PropertyAssignment or kind == .ShorthandPropertyAssignment) break;
+        if (kind == .ObjectLiteralExpression) return 0;
+        elementNode = tree.getNodeParent(elementNode);
+    }
+    if (elementNode == 0) return 0;
+
+    const kind = tree.getNodeKind(elementNode);
+    if (kind == .PropertyAssignment) {
+        if (tree.getNode(elementNode).PropertyAssignment.name == node) return elementNode;
+    }
+    const nodeKind = tree.getNodeKind(node);
+    if (nodeKind == .StringLiteral or nodeKind == .NumericLiteral) return elementNode;
+    return 0;
+}
+
 pub fn getSymbolAtLocationForQuickInfo(chk: *checker.Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
-    // TODO: object literal contextual property symbol resolutions
-    // Go: if objectElement := getContainingObjectLiteralElement(node); objectElement != nil {
-    //   if contextualType := c.GetContextualType(objectElement.Parent, ContextFlagsNone); contextualType != nil {
-    //     if properties := c.GetPropertySymbolsFromContextualType(objectElement, contextualType, false); len(properties) == 1 {
-    //       return properties[0]
-    //     }
-    //   }
-    // }
+    const tree = chk.binder.ast;
+    const objectElement = getContainingObjectLiteralElement(tree, node);
+    if (objectElement != 0) {
+        const parent = tree.getNodeParent(objectElement);
+        if (parent != 0) {
+            const contextualType = chk.getContextualType(parent, 0);
+            if (contextualType != 0) {
+                // Note: getPropertySymbolsFromContextualType is not yet ported in checker.zig.
+                // If it were ported, we would call it here and return the single property symbol.
+            }
+        }
+    }
     return checker.getSymbolAtLocation(chk, node);
 }
 

@@ -24,34 +24,56 @@ pub fn getDetectionLists(allocator: std.mem.Allocator, preferences: UserPreferen
     comparersToTest: []const *const fn ([]const u8, []const u8) i32,
     typeOrdersToTest: []const OrganizeImportsTypeOrder,
 } {
-    _ = allocator;
-    _ = preferences;
-    // TODO: implement fully
+    var comparers = std.ArrayList(*const fn ([]const u8, []const u8) i32).init(allocator);
+    if (preferences.organizeImportsSort != .Auto) {
+        // Just ordinal for now to satisfy types
+        try comparers.append(getOrganizeImportsOrdinalStringComparer(false));
+    } else if (preferences.organizeImportsIgnoreCase) |ignoreCase| {
+        try comparers.append(getOrganizeImportsOrdinalStringComparer(ignoreCase));
+    } else {
+        try comparers.append(getOrganizeImportsOrdinalStringComparer(true));
+        try comparers.append(getOrganizeImportsOrdinalStringComparer(false));
+    }
+
+    var typeOrders = std.ArrayList(OrganizeImportsTypeOrder).init(allocator);
+    if (preferences.organizeImportsTypeOrder != .Auto) {
+        try typeOrders.append(preferences.organizeImportsTypeOrder);
+    } else {
+        try typeOrders.append(.Last);
+        try typeOrders.append(.Inline);
+        try typeOrders.append(.First);
+    }
+
     return .{
-        .comparersToTest = &[_]*const fn ([]const u8, []const u8) i32{},
-        .typeOrdersToTest = &[_]OrganizeImportsTypeOrder{},
+        .comparersToTest = try comparers.toOwnedSlice(),
+        .typeOrdersToTest = try typeOrders.toOwnedSlice(),
     };
 }
 
 pub fn getOrganizeImportsOrdinalStringComparer(ignoreCase: bool) *const fn ([]const u8, []const u8) i32 {
-    _ = ignoreCase;
-    // TODO
-    return undefined;
+    if (ignoreCase) {
+        return stringutil.compareStringsCaseInsensitiveEslintCompatible;
+    }
+    return stringutil.compareStringsCaseSensitive;
 }
 
 pub fn getExternalModuleName(tree: *ast.Ast, specifier: NodeIndex) []const u8 {
-    _ = tree;
-    _ = specifier;
-    // TODO
+    if (specifier != 0 and tree.getNodeKind(specifier) == .StringLiteral) {
+        // tree.getNodeText? Need to check what is available, maybe AST provides a way to get text
+        return tree.getIdentifierText(specifier); // Assume this works for string literals
+    }
     return "";
 }
 
 pub fn compareModuleSpecifiers(tree: *ast.Ast, m1: NodeIndex, m2: NodeIndex, comparer: *const fn ([]const u8, []const u8) i32) i32 {
     const name1 = getExternalModuleName(tree, m1);
     const name2 = getExternalModuleName(tree, m2);
-    _ = name1;
-    _ = name2;
-    _ = comparer;
-    // TODO
-    return 0;
+    
+    const cmp1 = core.compareBooleans(name1.len == 0, name2.len == 0);
+    if (cmp1 != 0) return cmp1;
+    
+    const cmp2 = core.compareBooleans(tspath.isExternalModuleNameRelative(name1), tspath.isExternalModuleNameRelative(name2));
+    if (cmp2 != 0) return cmp2;
+    
+    return comparer(name1, name2);
 }

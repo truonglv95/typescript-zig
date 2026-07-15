@@ -111,14 +111,82 @@ pub fn addProjectReferenceOutputMappings(program: *compiler.Program, result: *st
     _ = result;
 }
 
-pub fn createCheckerPool(allocator: std.mem.Allocator, program: *checker.Program) !struct {
-    getChecker: *const fn () *checker.Checker,
-    closePool: *const fn () void,
-    getCreatedCount: *const fn () i32,
-} {
-    _ = allocator;
-    _ = program;
-    return error.NotImplemented;
+pub const CheckerPool = struct {
+    allocator: std.mem.Allocator,
+    program: *checker.Program,
+    max_size: i32,
+    created: std.atomic.Value(i32),
+    mutex: std.Thread.Mutex,
+    condition: std.Thread.Condition,
+    pool: std.ArrayListUnmanaged(*checker.Checker),
+
+    pub fn init(allocator: std.mem.Allocator, program: *checker.Program) !*CheckerPool {
+        const self = try allocator.create(CheckerPool);
+        const max_size: i32 = @intCast(std.Thread.getCpuCount() catch 1);
+        self.* = .{
+            .allocator = allocator,
+            .program = program,
+            .max_size = max_size,
+            .created = std.atomic.Value(i32).init(0),
+            .mutex = .{},
+            .condition = .{},
+            .pool = .empty,
+        };
+        try self.pool.ensureTotalCapacity(allocator, @intCast(max_size));
+        return self;
+    }
+
+    pub fn deinit(self: *CheckerPool) void {
+        self.pool.deinit(self.allocator);
+        self.allocator.destroy(self);
+    }
+
+    pub const CheckerAndRelease = struct {
+        checker: *checker.Checker,
+        release: *const fn (*CheckerPool, *checker.Checker) void,
+    };
+
+    pub fn getChecker(self: *CheckerPool) !CheckerAndRelease {
+        self.mutex.lock();
+        if (self.pool.items.len > 0) {
+            const ch = self.pool.pop();
+            self.mutex.unlock();
+            return .{ .checker = ch, .release = releaseChecker };
+        }
+        self.mutex.unlock();
+
+        while (true) {
+            const current = self.created.load(.monotonic);
+            if (current >= self.max_size) {
+                self.mutex.lock();
+                defer self.mutex.unlock();
+                while (self.pool.items.len == 0) {
+                    self.condition.wait(&self.mutex);
+                }
+                const ch = self.pool.pop();
+                return .{ .checker = ch, .release = releaseChecker };
+            }
+            if (self.created.cmpxchgStrong(current, current + 1, .monotonic, .monotonic) == null) {
+                const ch = try checker.Checker.init(self.allocator, self.program, null);
+                return .{ .checker = ch, .release = releaseChecker };
+            }
+        }
+    }
+
+    fn releaseChecker(self: *CheckerPool, ch: *checker.Checker) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.pool.appendAssumeCapacity(ch);
+        self.condition.signal();
+    }
+
+    pub fn getCreatedCount(self: *CheckerPool) i32 {
+        return self.created.load(.monotonic);
+    }
+};
+
+pub fn createCheckerPool(allocator: std.mem.Allocator, program: *checker.Program) !*CheckerPool {
+    return CheckerPool.init(allocator, program);
 }
 
 pub fn addPackageJsonDependencies(contents: *packagejson.PackageJson, deps: *collections.Set([]const u8)) void {

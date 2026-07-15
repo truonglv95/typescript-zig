@@ -53,8 +53,7 @@ pub fn symbolAndEntriesToRename(
         changes.deinit();
     }
 
-    const chk = program.getTypeCheckerForFile(sourceFile);
-    _ = chk;
+    _ = program.getTypeCheckerForFile(sourceFile);
 
     for (data.symbolsAndEntries) |s| {
         for (s.references) |ref| {
@@ -88,7 +87,6 @@ pub fn getRenameInfoForNode(
     sourceFile: ast.NodeIndex,
     program: *compiler.Program,
 ) !?RenameInfo {
-    _ = newName;
     var chk = program.getTypeCheckerForFile(sourceFile);
     const symbolIndex = chk.getSymbolAtLocation(node);
 
@@ -129,7 +127,6 @@ pub fn getRenameInfoForNode(
     }
 
     if (try renameBlockedReason(ls, sourceFile, node, symbolIndex, &chk, program)) |msg| {
-        _ = allocator;
         return RenameInfo{
             .canRename = false,
             .localizedErrorMessage = msg,
@@ -141,6 +138,17 @@ pub fn getRenameInfoForNode(
     }
 
     // TODO: allow rename of import path logic
+    if (ast_utils.isStringLiteralLike(&program.ast, node)) {
+        const importFrom = ast_utils.tryGetImportFromModuleSpecifier(&program.ast, node);
+        if (importFrom != 0) {
+            if (ls.userPreferences().allowRenameOfImportPath == .True) {
+                if (getRenameInfoForModule(ls, allocator, newName, node, sourceFile, symbolIndex, chk)) |info| {
+                    return info;
+                }
+            }
+            return null;
+        }
+    }
 
     const displayName = if (symbol.escapedName < chk.binder.identifiers.items.len)
         chk.binder.identifiers.items[symbol.escapedName]
@@ -182,8 +190,6 @@ fn renameBlockedReason(
     chk: *checker.Checker,
     program: *compiler.Program,
 ) !?[]const u8 {
-    _ = ls;
-    _ = sourceFile;
     const symbol = chk.binder.symbols.items[symbolIndex];
     for (symbol.Declarations.items) |declNode| {
         if (isDefinedInLibraryFile(program, declNode)) {
@@ -203,7 +209,16 @@ fn renameBlockedReason(
         }
     }
 
-    // TODO: wouldRenameInOtherNodeModules check
+    if (wouldRenameInOtherNodeModules(ls, sourceFile, symbolIndex, chk, program)) |msg| {
+        return RenameInfo{
+            .canRename = false,
+            .localizedErrorMessage = msg,
+            .displayName = "",
+            .triggerSpan = lsproto.Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+            .fileToRename = null,
+            .newFileName = null,
+        };
+    }
 
     return null;
 }
@@ -217,4 +232,74 @@ fn isDefinedInLibraryFile(program: *compiler.Program, declNode: ast.NodeIndex) b
         return isLib;
     }
     return false;
+}
+
+fn getRenameInfoForModule(
+    ls: *languageservice.LanguageService,
+    allocator: std.mem.Allocator,
+    newName: []const u8,
+    specifier: ast.NodeIndex,
+    sourceFile: ast.NodeIndex,
+    _: u32,
+    chk: *checker.Checker,
+) ?RenameInfo {
+    _ = allocator;
+    _ = newName;
+    const specifierText = ast_utils.getTextOfNode(chk.binder.ast, specifier);
+    const tspath = @import("../tspath/tspath.zig");
+    if (!tspath.isExternalModuleNameRelative(specifierText)) {
+        return getRenameInfoError(ls, "You cannot rename a module via a global import");
+    }
+    // Simplification for now since we don't have all client capability logic ported
+    return getRenameInfoSuccess(ls, chk.binder.ast, specifier, sourceFile, specifierText);
+}
+
+fn getRenameInfoError(ls: *languageservice.LanguageService, message: []const u8) RenameInfo {
+    _ = ls;
+    return RenameInfo{
+        .canRename = false,
+        .localizedErrorMessage = message,
+        .displayName = "",
+        .triggerSpan = lsproto.Range{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+        .fileToRename = null,
+        .newFileName = null,
+    };
+}
+
+fn wouldRenameInOtherNodeModules(
+    ls: *languageservice.LanguageService,
+    originalFile: ast.NodeIndex,
+    symbolIndex: u32,
+    chk: *checker.Checker,
+    program: *compiler.Program,
+) ?[]const u8 {
+    _ = ls;
+    const module = @import("../module/util.zig");
+    const sym = chk.binder.symbols.items[symbolIndex];
+    const declarations = sym.Declarations.items;
+    if (declarations.len == 0) return null;
+
+    const originalFileNode = program.ast.getNode(originalFile).SourceFile;
+    const originalPackage = module.parseNodeModuleFromPath(originalFileNode.fileName, false);
+    
+    if (originalPackage.len == 0) {
+        for (declarations) |decl| {
+            const sf = ast_utils.getSourceFileOfNode(&program.ast, decl);
+            const sfNode = program.ast.getNode(sf).SourceFile;
+            if (std.mem.indexOf(u8, sfNode.fileName, "node_modules") != null) {
+                return "You cannot rename elements that are defined in a node_modules folder.";
+            }
+        }
+        return null;
+    }
+    
+    for (declarations) |decl| {
+        const sf = ast_utils.getSourceFileOfNode(&program.ast, decl);
+        const sfNode = program.ast.getNode(sf).SourceFile;
+        const declPackage = module.parseNodeModuleFromPath(sfNode.fileName, false);
+        if (declPackage.len > 0 and !std.mem.eql(u8, declPackage, originalPackage)) {
+            return "You cannot rename elements that are defined in another node_modules folder.";
+        }
+    }
+    return null;
 }

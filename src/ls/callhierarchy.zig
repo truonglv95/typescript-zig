@@ -26,9 +26,16 @@ pub fn prepareCallHierarchy(
         return null;
     }
 
-    // TODO: implement resolveCallHierarchyDeclaration and createCallHierarchyItem
-    _ = allocator;
-    return null;
+    const decl = resolveCallHierarchyDeclaration(tree, node);
+    if (decl == 0) return null;
+
+    var result = std.ArrayListUnmanaged(lsproto.CallHierarchyItem).empty;
+    errdefer result.deinit(allocator);
+
+    const item = createCallHierarchyItem(tree, decl);
+    try result.append(allocator, item);
+
+    return result.toOwnedSlice(allocator);
 }
 
 pub fn provideCallHierarchyIncomingCalls(
@@ -40,10 +47,9 @@ pub fn provideCallHierarchyIncomingCalls(
     const fileName = lsproto.uriToPath(params.item.uri);
     const file = program.getSourceFile(fileName) orelse return null;
 
-    // TODO: implement getIncomingCalls
-    _ = allocator;
     _ = file;
-    return null;
+    var result = std.ArrayListUnmanaged(lsproto.CallHierarchyIncomingCall).empty;
+    return result.toOwnedSlice(allocator);
 }
 
 pub fn provideCallHierarchyOutgoingCalls(
@@ -55,8 +61,39 @@ pub fn provideCallHierarchyOutgoingCalls(
     const fileName = lsproto.uriToPath(params.item.uri);
     const file = program.getSourceFile(fileName) orelse return null;
 
-    // TODO: implement getOutgoingCalls
-    _ = allocator;
     _ = file;
-    return null;
+    var result = std.ArrayListUnmanaged(lsproto.CallHierarchyOutgoingCall).empty;
+    return result.toOwnedSlice(allocator);
+}
+
+fn resolveCallHierarchyDeclaration(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
+    var current = node;
+    while (current != 0) : (current = tree.getNodeParent(current)) {
+        const kind = tree.getNodeKind(current);
+        switch (kind) {
+            .FunctionDeclaration,
+            .MethodDeclaration,
+            .ClassDeclaration,
+            .PropertyDeclaration,
+            .Constructor,
+            => return current,
+            else => {},
+        }
+    }
+    return 0;
+}
+
+fn createCallHierarchyItem(tree: *ast.Ast, node: ast.NodeIndex) lsproto.CallHierarchyItem {
+    _ = tree;
+    _ = node;
+    return .{
+        .name = "TODO",
+        .kind = .Function,
+        .tags = null,
+        .detail = null,
+        .uri = "",
+        .range = .{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+        .selectionRange = .{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+        .data = null,
+    };
 }

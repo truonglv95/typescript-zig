@@ -315,7 +315,36 @@ fn tryGetParameterInfo(
             }
         }
     } else if (parent_kind == .BinaryExpression) {
-        // TODO: handle BinaryExpression contextual signature
+        const highestBinary = getHighestBinary(tree, parent);
+        const contextualType = c.getContextualType(highestBinary, 0);
+        
+        var argumentIndex: usize = 0;
+        if (std.meta.activeTag(tree.getNode(startingToken)) != .OpenParenToken) {
+            argumentIndex = countBinaryExpressionParameters(tree, parent) - 1;
+            const argumentCount = countBinaryExpressionParameters(tree, highestBinary);
+            if (contextualType != 0) {
+                // For simplicity, just get signatures of contextualType
+                const signatures = c.getSignaturesOfType(contextualType, .Call); // Call
+                if (signatures.len > 0) {
+                    const signature = c.resolvedSignaturesPool.items[signatures.start + signatures.len - 1];
+                    const symbol = c.getSymbolOfType(contextualType);
+
+                    return ArgumentListInfo{
+                        .isTypeParameterList = false,
+                        .invocation = .{
+                            .contextual = .{
+                                .signature = signature,
+                                .node = startingToken,
+                                .symbol = symbol,
+                            },
+                        },
+                        .argumentsSpan = .{ .pos = tree.getNodePos(parent), .end = tree.getNodeEnd(parent) },
+                        .argumentIndex = argumentIndex,
+                        .argumentCount = argumentCount,
+                    };
+                }
+            }
+        }
     }
 
     return null;
@@ -333,14 +362,32 @@ fn getImmediatelyContainingArgumentInfo(
     const parent_kind = std.meta.activeTag(tree.getNode(parent));
 
     if (parent_kind == .CallExpression or parent_kind == .NewExpression) {
-        if (getArgumentOrParameterListInfo(tree, node, sourceFile, c)) |info| {
-            const isTypeParameterList = false; // TODO: properly check TypeArgumentList
+        if (getArgumentOrParameterListAndIndex(tree, node, sourceFile, c)) |listInfo| {
+            var isTypeParameterList = false;
+            if (parent_kind == .CallExpression) {
+                const typeArgs = tree.getNode(parent).CallExpression.TypeArguments;
+                if (typeArgs != 0 and typeArgs == listInfo.list) isTypeParameterList = true;
+            } else if (parent_kind == .NewExpression) {
+                if (tree.getNode(parent).NewExpression.TypeArguments) |typeArgs| {
+                    if (typeArgs != 0 and typeArgs == listInfo.list) isTypeParameterList = true;
+                }
+            }
+            
+            var invocation = Invocation{ .call = .{ .node = parent } };
+            if (isTypeParameterList) {
+                const expression = if (parent_kind == .CallExpression) tree.getNode(parent).CallExpression.Expression else tree.getNode(parent).NewExpression.Expression;
+                invocation = .{ .type_args = .{ .called = expression } };
+            }
+
+            const argumentCount = getArgumentCount(tree, node, listInfo.list, sourceFile, c);
+            const argumentsSpan = getApplicableSpanForArguments(tree, listInfo.list, node, sourceFile);
+
             return ArgumentListInfo{
                 .isTypeParameterList = isTypeParameterList,
-                .invocation = .{ .call = .{ .node = parent } },
-                .argumentsSpan = info.argumentsSpan,
-                .argumentIndex = info.argumentIndex,
-                .argumentCount = info.argumentCount,
+                .invocation = invocation,
+                .argumentsSpan = argumentsSpan,
+                .argumentIndex = listInfo.argumentIndex,
+                .argumentCount = argumentCount,
             };
         }
     } else if (node_kind == .NoSubstitutionTemplateLiteral and parent_kind == .TaggedTemplateExpression) {
@@ -357,8 +404,15 @@ fn getImmediatelyContainingArgumentInfo(
         if (std.meta.activeTag(tree.getNode(grandparent)) == .TemplateExpression) {
             const greatgrandparent = tree.parents.items[grandparent];
             if (std.meta.activeTag(tree.getNode(greatgrandparent)) == .TaggedTemplateExpression) {
-                // TODO: calculate index
-                const argumentIndex: usize = 1;
+                var argumentIndex: usize = 1;
+                const templateExpr = tree.getNode(grandparent).TemplateExpression;
+                if (templateExpr.TemplateSpans != 0) {
+                    const spans = tree.getNodeList(templateExpr.TemplateSpans);
+                    for (spans) |span| {
+                        if (span == parent) break;
+                        argumentIndex += 1;
+                    }
+                }
                 return getArgumentListInfoForTemplate(tree, greatgrandparent, argumentIndex, sourceFile);
             }
         }
@@ -509,14 +563,19 @@ fn findContainingList(
     const parent = tree.parents.items[node];
     const parent_node = tree.getNode(parent);
 
-    // Naive implementation: just return Arguments list if it's a Call/New expression.
-    // TODO: support TypeArguments when cursor is inside them.
+    const nodePos = tree.getNodePos(node);
     switch (parent_node) {
         .CallExpression => |call_expr| {
+            if (call_expr.TypeArguments) |targs| {
+                if (targs != 0 and nodePos >= tree.getNodePos(targs) and nodePos < tree.getNodeEnd(targs)) return targs;
+            }
             if (call_expr.Arguments != 0) return call_expr.Arguments;
         },
         .NewExpression => |new_expr| {
-            if (new_expr.Arguments != 0) return new_expr.Arguments;
+            if (new_expr.TypeArguments) |targs| {
+                if (targs != 0 and nodePos >= tree.getNodePos(targs) and nodePos < tree.getNodeEnd(targs)) return targs;
+            }
+            if (new_expr.Arguments) |args| if (args != 0) return args;
         },
         else => {},
     }
@@ -559,11 +618,20 @@ fn getArgumentCount(
     c: *checker.Checker,
 ) usize {
     _ = node;
-    _ = sourceFile;
+
     _ = c;
     const items = tree.getNodeList(list);
-    // TODO: adjust if there is a trailing comma or incomplete code
-    return items.len;
+    const listCount = items.len;
+    if (listCount == 0) return 0;
+    
+    var hasTrailingComma = false;
+    const lastItem = items[listCount - 1];
+    const token = @import("../astnav/tokens.zig").getTokenAtPosition(sourceFile, tree, tree.getNodeEnd(lastItem));
+    if (token != 0 and tree.getNodeKind(token) == .CommaToken) {
+        hasTrailingComma = true;
+    }
+    if (hasTrailingComma) return listCount + 1;
+    return listCount;
 }
 
 fn getApplicableSpanForArguments(
@@ -676,4 +744,20 @@ fn isSyntacticOwner(
         return containsPrecedingToken(tree, startingToken, new_expr.Expression);
     }
     return false;
+}
+
+fn getHighestBinary(tree: *ast.Ast, b: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    const parent = tree.getNodeParent(b);
+    if (parent != 0 and std.meta.activeTag(tree.getNode(parent)) == .BinaryExpression) {
+        return getHighestBinary(tree, parent);
+    }
+    return b;
+}
+
+fn countBinaryExpressionParameters(tree: *ast.Ast, b: ast_gen.NodeIndex) usize {
+    const left = tree.getNode(b).BinaryExpression.Left;
+    if (left != 0 and std.meta.activeTag(tree.getNode(left)) == .BinaryExpression) {
+        return countBinaryExpressionParameters(tree, left) + 1;
+    }
+    return 2;
 }

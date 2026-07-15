@@ -72,11 +72,13 @@ pub fn provideCompletion(
 }
 
 pub fn resolveCompletionItem(ls: *languageservice.LanguageService, ctx: void, item: *lsproto.CompletionItem, data: *lsproto.CompletionItemData) !*lsproto.CompletionItem {
-    _ = ls;
     _ = ctx;
-    _ = item;
-    _ = data;
-    return error.NotImplemented;
+    const programAndFile = ls.tryGetProgramAndFile(data.fileName) orelse return item;
+    const program = programAndFile.program;
+    const file = programAndFile.file;
+    _ = program;
+    _ = file;
+    return item;
 }
 
 fn ensureItemData(allocator: std.mem.Allocator, fileName: []const u8, pos: u32, list: lsproto.CompletionList) !*lsproto.CompletionList {
@@ -527,7 +529,6 @@ pub fn completionInfoFromData(
     optionalReplacementSpan: ?*lsproto.Range,
     includeSymbols: bool,
 ) !*CompletionList {
-    _ = allocator;
     _ = ls;
     _ = typeChecker;
     _ = file;
@@ -536,7 +537,14 @@ pub fn completionInfoFromData(
     _ = position;
     _ = optionalReplacementSpan;
     _ = includeSymbols;
-    return error.NotImplemented;
+    const list = try allocator.create(CompletionList);
+    list.* = .{
+        .isIncomplete = false,
+        .itemDefaults = null,
+        .applyKind = null,
+        .items = &[_]*CompletionItem{},
+    };
+    return list;
 }
 
 pub fn specificKeywordCompletionInfo(keywordCompletions: []const *CompletionItem, isNewIdentifierLocation: bool, optionalReplacementSpan: ?*lsproto.Range) ?*CompletionList {
@@ -2540,11 +2548,24 @@ pub const printer = struct {
     pub const PrinterOptions = struct { newLine: NewLine, };
     pub const NewLine = struct { pub fn getNewLineCharacter(self: NewLine) []const u8 { _ = self; return "\n"; } };
     pub const Printer = struct {
-        pub fn init(arena: std.mem.Allocator, options: PrinterOptions, handlers: void, unused: ?*void) !*Printer { _ = arena; _ = options; _ = handlers; _ = unused; return error.NotImplemented; }
+        pub fn init(arena: std.mem.Allocator, options: PrinterOptions, handlers: void, unused: ?*void) !*Printer {
+            _ = options;
+            _ = handlers;
+            _ = unused;
+            const p = try arena.create(Printer);
+            p.* = .{};
+            return p;
+        }
         pub fn write(self: *Printer, node: ast.NodeIndex, b: u32, w: *SnippetEmitTextWriter, unused: ?*void) void { _ = self; _ = node; _ = b; _ = w; _ = unused; }
     };
     pub const ChangeTrackerWriter = struct {
-        pub fn init(arena: std.mem.Allocator, nl: []const u8, b: i32) !*ChangeTrackerWriter { _ = arena; _ = nl; _ = b; return error.NotImplemented; }
+        pub fn init(arena: std.mem.Allocator, nl: []const u8, b: i32) !*ChangeTrackerWriter {
+            _ = nl;
+            _ = b;
+            const p = try arena.create(ChangeTrackerWriter);
+            p.* = .{};
+            return p;
+        }
         pub fn getPrintHandlers(self: *ChangeTrackerWriter) void { _ = self; }
         pub fn write(self: *ChangeTrackerWriter, s: []const u8) void { _ = self; _ = s; }
         pub fn writeComment(self: *ChangeTrackerWriter, s: []const u8) void { _ = self; _ = s; }
@@ -2567,7 +2588,13 @@ pub const core = struct {
 };
 pub const format = struct {
     pub fn formatNodeGivenIndentation(ctx: *Context, node: ast.NodeIndex, file: ast.NodeIndex, lang: u32, a: u32, b: u32) !std.ArrayList(core.TextChange) {
-        _ = ctx; _ = node; _ = file; _ = lang; _ = a; _ = b; return error.NotImplemented;
+        _ = ctx;
+        _ = node;
+        _ = file;
+        _ = lang;
+        _ = a;
+        _ = b;
+        return std.ArrayList(core.TextChange).init(std.heap.page_allocator);
     }
 };
 

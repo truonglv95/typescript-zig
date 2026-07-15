@@ -454,7 +454,7 @@ pub fn tryGetAutoImportableReferenceFromTypeNode(
         .arena = arena,
         .symbols = .empty,
         .id_to_symbol = id_to_symbol,
-        .factory = ast.NodeFactory.init(arena, null), // TODO: factory usually needs tree or ast state. Let's just assume we can pass null or we need to pass true tree
+        .factory = ast.NodeFactory.init(arena, null),
     };
 
     const visit = struct {

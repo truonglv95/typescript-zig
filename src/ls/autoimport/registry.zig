@@ -400,7 +400,9 @@ pub const Registry = struct {
 
         if (change.UserPreferences) |prefs| {
             builder.userPreferences = prefs.*;
-            // TODO check autoImportSpecifierExcludeRegexes diff
+            if (!core.unorderedEqual([]const u8, builder.userPreferences.autoImportSpecifierExcludeRegexes, self.userPreferences.autoImportSpecifierExcludeRegexes)) {
+                builder.specifierCache.clearRetainingCapacity();
+            }
         }
 
         try builder.updateBucketAndDirectoryExistence(change, logger);

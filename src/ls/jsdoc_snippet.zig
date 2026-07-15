@@ -1,68 +1,79 @@
 const std = @import("std");
-
-//! JSDoc snippet generation.
-//!
-//! Port of `internal/ls/jsdoc_snippet.go` (594 LOC).
-//!
-//! Generates JSDoc comment templates for completions. When the user types
-//! `/**` and triggers completion, this module generates a JSDoc template
-//! with `@param` tags for each parameter and `@returns` tag.
-
 const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
+const astnav = @import("../astnav/tokens.zig");
+const scanner = @import("../scanner/scanner.zig");
 
-/// A JSDoc snippet entry.
 pub const JSDocSnippet = struct {
-    /// The generated JSDoc text (may contain snippet placeholders like `${1:description}`).
     text: []const u8,
-    /// The position where the snippet should be inserted.
     position: u32,
 };
 
-/// Generates a JSDoc snippet for the declaration at the given position.
-/// Port of Go's `getJSDocSnippet`.
 pub fn getJSDocSnippet(
     allocator: std.mem.Allocator,
     tree: *ast.Ast,
     source_file: ast_gen.NodeIndex,
     position: u32,
 ) ?JSDocSnippet {
-    _ = allocator;
-    _ = tree;
-    _ = source_file;
-    _ = position;
-    // Full implementation:
-    // 1. Find the declaration node after the cursor
-    // 2. Extract parameters (for functions/methods)
-    // 3. Generate JSDoc template with @param tags
-    // 4. Add @returns tag if the function has a return type
-    // TODO(phase3.3): wire full implementation.
-    return null;
+    const token = astnav.getTokenAtPosition(source_file, tree, position);
+    if (token == 0) return null;
+    
+    var current: ast_gen.NodeIndex = token;
+    var declaration: ast_gen.NodeIndex = 0;
+    while (current != 0) : (current = tree.getNodeParent(current)) {
+        const kind = tree.getNodeKind(current);
+        if (kind == .FunctionDeclaration or kind == .MethodDeclaration or kind == .Constructor or kind == .MethodSignature or kind == .ArrowFunction) {
+            declaration = current;
+            break;
+        }
+    }
+    
+    if (declaration == 0) return null;
+    
+    const paramsNode = ast.getParametersNode(tree, declaration);
+    var param_names = std.ArrayList([]const u8).init(allocator);
+    defer param_names.deinit();
+    
+    if (paramsNode != 0) {
+        const params = tree.getNodeList(paramsNode);
+        for (params) |param| {
+            const nameNode = ast.getNameOfDeclaration(tree, param);
+            if (nameNode != 0 and tree.getNodeKind(nameNode) == .Identifier) {
+                param_names.append(scanner.getTextOfNode(tree, nameNode)) catch continue;
+            } else {
+                param_names.append("param") catch continue;
+            }
+        }
+    }
+    
+    const has_return = tree.getNodeKind(declaration) != .Constructor;
+    
+    const text = generateJSDocTemplate(allocator, param_names.items, has_return) catch return null;
+    return JSDocSnippet{ .text = text, .position = position };
 }
 
-/// Generates JSDoc template text for a function with the given parameter names.
 pub fn generateJSDocTemplate(
     allocator: std.mem.Allocator,
     param_names: []const []const u8,
     has_return: bool,
 ) ![]const u8 {
-    var result = std.ArrayList(u8).empty;
-    defer result.deinit(allocator);
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
 
-    try result.appendSlice(allocator, "/**\n");
-    try result.appendSlice(allocator, " * $1\n"); // Description placeholder
+    try result.appendSlice("/**\n");
+    try result.appendSlice(" * $1\n");
 
     for (param_names) |name| {
-        try result.appendSlice(allocator, " * @param ");
-        try result.appendSlice(allocator, name);
-        try result.appendSlice(allocator, " $2\n"); // Param description placeholder
+        try result.appendSlice(" * @param ");
+        try result.appendSlice(name);
+        try result.appendSlice(" $2\n");
     }
 
     if (has_return) {
-        try result.appendSlice(allocator, " * @returns $3\n");
+        try result.appendSlice(" * @returns $3\n");
     }
 
-    try result.appendSlice(allocator, " */");
+    try result.appendSlice(" */");
 
-    return result.toOwnedSlice(allocator);
+    return result.toOwnedSlice();
 }

@@ -45,9 +45,55 @@ pub fn provideDefinitionWorker(
 
     const originSelectionRange = @import("findallreferences.zig").getLspRangeOfNode(ls, file, initialNode, null, 0);
 
-    // TODO: getReferenceAtPosition, getSymbolForOverriddenMember, isJumpStatementTarget, etc.
+    const program = ls.getProgram();
+    const reference = findallreferences.getReferenceAtPosition(ls, initialNode, pos, program);
+    if (reference.file != 0) {
+        const empty_decls = std.ArrayListUnmanaged(ast.NodeIndex).empty;
+        return try createDefinitionLocations(ls, tree, file, originSelectionRange, clientSupportsLink, empty_decls.items);
+    }
 
     const chk = ls.getTypeCheckerForFile(file);
+
+    if (tree.getNodeKind(initialNode) == .OverrideKeyword) {
+        if (getSymbolForOverriddenMember(chk, initialNode)) |symIndex| {
+            const sym = chk.binder.symbols.items[symIndex];
+            return try createDefinitionLocations(ls, tree, file, originSelectionRange, clientSupportsLink, sym.Declarations.items);
+        }
+    }
+
+    if (findallreferences.isJumpStatementTarget(tree, initialNode)) {
+        const parent = tree.getNodeParent(initialNode);
+        const text = ast_utils.getTextOfNode(tree, initialNode);
+        const label = findallreferences.getTargetLabel(tree, parent, text);
+        if (label != 0) {
+            var label_arr = [_]ast.NodeIndex{label};
+            return try createDefinitionLocations(ls, tree, file, originSelectionRange, clientSupportsLink, &label_arr);
+        }
+    }
+
+    if (tree.getNodeKind(initialNode) == .CaseKeyword or (tree.getNodeKind(initialNode) == .DefaultKeyword and tree.getNodeKind(tree.getNodeParent(initialNode)) == .DefaultClause)) {
+        const stmt = ast_utils.findAncestorKind(tree, tree.getNodeParent(initialNode), .SwitchStatement);
+        if (stmt != 0) {
+            const stmtFile = ast_utils.getSourceFileOfNode(tree, stmt);
+            const scanner = @import("../scanner/scanner.zig");
+            const range = scanner.getRangeOfTokenAtPosition(tree.sourceText, tree.positions.items[stmt].pos);
+            var locations = std.ArrayListUnmanaged(lsproto.Location).empty;
+            const uri = try lsconv.fileNameToDocumentURI(ls.allocator, tree.fileName);
+            const startPos = ls.converters.*.positionToLineAndCharacter(ls.getScript(stmtFile), range.pos);
+            const endPos = ls.converters.*.positionToLineAndCharacter(ls.getScript(stmtFile), range.end);
+            try locations.append(ls.allocator, lsproto.Location{ .uri = uri, .range = .{ .start = startPos, .end = endPos } });
+            return lsproto.DefinitionResponse{ .LocationOrLocationsOrDefinitionLinksOrNull = .{ .locations = try locations.toOwnedSlice(ls.allocator) } };
+        }
+    }
+
+    if (tree.getNodeKind(initialNode) == .ReturnKeyword or tree.getNodeKind(initialNode) == .YieldKeyword or tree.getNodeKind(initialNode) == .AwaitKeyword) {
+        const fnNode = ast_utils.findAncestor(tree, initialNode, ast_utils.isFunctionLikeDeclaration);
+        if (fnNode != 0) {
+            var fn_arr = [_]ast.NodeIndex{fnNode};
+            return try createDefinitionLocations(ls, tree, file, originSelectionRange, clientSupportsLink, &fn_arr);
+        }
+    }
+
     const node = getDeclarationNameForKeyword(tree, initialNode);
 
     var declarations = std.ArrayListUnmanaged(ast.NodeIndex).empty;
@@ -57,7 +103,7 @@ pub fn provideDefinitionWorker(
     if (symbolIndex != 0) {
         const symbol = chk.binder.symbols.items[symbolIndex];
 
-        // TODO: getDeclarationsFromObjectLiteralElement
+
 
         for (symbol.Declarations.items) |declNode| {
             try declarations.append(ls.allocator, declNode);
@@ -84,13 +130,13 @@ pub fn provideTypeDefinition(
 
     const pos = ls.converters.*.lineAndCharacterToPosition(ls.getScript(file), position);
     const initialNode = astnav.getTouchingPropertyName(file, tree, pos);
+    const chk = programAndFile.program.getTypeCheckerForFile(file);
 
     if (tree.getNodeKind(initialNode) == .SourceFile) {
         return lsproto.TypeDefinitionResponse{ .LocationOrLocationsOrDefinitionLinksOrNull = .{ .locations = null } };
     }
 
     const originSelectionRange = @import("findallreferences.zig").getLspRangeOfNode(ls, file, initialNode, null, 0);
-    const chk = ls.getTypeCheckerForFile(file);
 
     const node = getDeclarationNameForKeyword(tree, initialNode);
     const symbolIndex = checker.getSymbolAtLocation(chk, node);
@@ -104,7 +150,11 @@ pub fn provideTypeDefinition(
 
         try getDeclarationsFromType(chk, symbolType, &declarations);
 
-        // TODO: GetFirstTypeArgumentFromKnownType
+        const checker_services = @import("../checker/services.zig");
+        const typeArg = checker_services.getFirstTypeArgumentFromKnownType(chk, @ptrFromInt(symbolType));
+        if (@intFromPtr(typeArg) != 0) {
+            try getDeclarationsFromType(chk, @intCast(@intFromPtr(typeArg)), &declarations);
+        }
 
         if (declarations.items.len == 0) {
             if ((symbol.Flags & ast.SymbolFlags.Value) == 0 and (symbol.Flags & ast.SymbolFlags.Type) != 0) {
@@ -216,4 +266,35 @@ fn createDefinitionLocations(
     }
 
     return lsproto.DefinitionResponse{ .LocationOrLocationsOrDefinitionLinksOrNull = .{ .locations = null } };
+}
+
+fn getSymbolForOverriddenMember(chk: *checker.Checker, node: ast.NodeIndex) ?u32 {
+    const classElement = ast_utils.findAncestor(chk.binder.ast, node, ast_utils.isClassElement);
+    if (classElement == 0) return null;
+    const nameNode = ast_utils.getNameOfNode(chk.binder.ast, classElement);
+    if (nameNode == 0) return null;
+
+    const baseDeclaration = ast_utils.findAncestor(chk.binder.ast, classElement, ast_utils.isClassLike);
+    if (baseDeclaration == 0) return null;
+
+    const baseTypeNode = ast_utils.getClassExtendsHeritageElement(chk.binder.ast, baseDeclaration);
+    if (baseTypeNode == 0) return null;
+
+    const expr = ast_utils.skipParentheses(chk.binder.ast, chk.binder.ast.getNode(baseTypeNode).ExpressionWithTypeArguments.Expression);
+    
+    var baseSymbol: u32 = 0;
+    if (chk.binder.ast.getNodeKind(expr) == .ClassExpression) {
+        if (chk.binder.ast.symbols.items.len > expr) {
+            baseSymbol = @intCast(expr); // Approximation for class expression symbol
+        }
+    } else {
+        baseSymbol = checker.getSymbolAtLocation(chk, expr);
+    }
+    if (baseSymbol == 0) return null;
+
+    const nameText = ast_utils.getTextOfNode(chk.binder.ast, nameNode);
+    if (ast_utils.hasStaticModifier(chk.binder.ast, classElement)) {
+        return chk.getPropertyOfType(chk.getTypeOfSymbol(baseSymbol) catch 0, nameText);
+    }
+    return chk.getPropertyOfType(chk.getDeclaredTypeOfSymbol(baseSymbol), nameText);
 }

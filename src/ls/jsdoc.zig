@@ -27,8 +27,8 @@ pub fn getSymbolDocumentationComment(
     var seen = std.AutoHashMapUnmanaged(ast_gen.NodeIndex, void).empty;
     defer seen.deinit(allocator);
 
-    const a = self.getAst(self.getSourceFileNode(0)); // TODO: handle proper AST
-    const decls = a.getSymbolDeclarations(symbol);
+    const a = c.binder.ast;
+    const decls = c.getSymbolDeclarations(symbol) orelse &[_]ast_gen.NodeIndex{};
 
     for (decls) |decl| {
         if (decl == 0) continue;
@@ -64,8 +64,8 @@ pub fn getSymbolJSDocTags(
     var seen = std.AutoHashMapUnmanaged(ast_gen.NodeIndex, void).empty;
     defer seen.deinit(allocator);
 
-    const a = self.getAst(self.getSourceFileNode(0)); // TODO: proper AST
-    const decls = a.getSymbolDeclarations(symbol);
+    const a = c.binder.ast;
+    const decls = c.getSymbolDeclarations(symbol) orelse &[_]ast_gen.NodeIndex{};
 
     for (decls) |decl| {
         if (decl == 0) continue;

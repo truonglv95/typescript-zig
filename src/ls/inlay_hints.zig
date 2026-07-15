@@ -13,7 +13,7 @@ pub fn provideInlayHints(
     allocator: std.mem.Allocator,
     params: *lsproto.InlayHintParams,
 ) !?[]lsproto.InlayHint {
-    _ = allocator;
+
 
     const userPreferences = ls.userPreferences;
     const inlayHintPreferences = userPreferences.inlayHints;
@@ -25,10 +25,47 @@ pub fn provideInlayHints(
     const typeChecker, const done = try program.getTypeCheckerForFile(sourceFile);
     defer done();
 
-    // TODO: implement AST visitor
-    _ = typeChecker;
-    return null;
+    var result = std.ArrayListUnmanaged(lsproto.InlayHint){};
+    errdefer result.deinit(allocator);
+
+    var visitor = InlayHintVisitor{
+        .allocator = allocator,
+        .tree = typeChecker.binder.ast,
+        .checker = typeChecker,
+        .preferences = inlayHintPreferences,
+        .result = &result,
+    };
+    try visitor.visitNode(sourceFile);
+
+    return result.toOwnedSlice(allocator);
 }
+
+const InlayHintVisitor = struct {
+    allocator: std.mem.Allocator,
+    tree: *ast.Ast,
+    checker: *checker.Checker,
+    preferences: userpreferences.InlayHintsPreferences,
+    result: *std.ArrayListUnmanaged(lsproto.InlayHint),
+
+    pub fn visitNode(self: *@This(), node: ast_gen.NodeIndex) anyerror!void {
+        if (node == 0) return;
+
+        // In a full implementation, we would call:
+        // visitForParameterNameHints(self, node);
+        // visitForTypeHints(self, node);
+        // visitForFunctionReturnTypeHints(self, node);
+        // visitForEnumMemberValueHints(self, node);
+        // For now, we traverse children.
+        
+        try ast.forEachChild(self.tree, node, self);
+    }
+
+    pub fn visitList(self: *@This(), list: u32) anyerror!void {
+        for (self.tree.getNodeList(list)) |child| {
+            try self.visitNode(child);
+        }
+    }
+};
 
 fn isAnyInlayHintEnabled(prefs: userpreferences.InlayHintsPreferences) bool {
     if (prefs.includeInlayParameterNameHints != .None) return true;

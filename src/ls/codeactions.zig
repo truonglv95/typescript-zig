@@ -46,7 +46,10 @@ pub const CodeFixProvider = struct {
 };
 
 const codeFixProviders = [_]CodeFixProvider{
-    // stub providers until implemented
+    @import("codeactions_importfixes.zig").importFixProvider,
+    @import("codeactions_fixmissingtypeannotation.zig").isolatedDeclarationsFixProvider,
+    @import("codeactions_fixclassincorrectlyimplementsinterface.zig").fixClassIncorrectlyImplementsInterfaceProvider,
+    @import("codeactions_missingmemberfixer.zig").missingMemberFixProvider,
 };
 
 pub fn getCodeActions(

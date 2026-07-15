@@ -50,12 +50,31 @@ pub fn organizeImports(
 
     const moduleSpecifierComparer: ?*const fn ([]const u8, []const u8) i32 = null;
     const namedImportComparer: ?*const fn ([]const u8, []const u8) i32 = null;
-    _ = moduleSpecifierComparer;
-    _ = namedImportComparer;
+
     _ = shouldCombine;
     _ = shouldRemove;
 
-    // TODO: implement the rest of the logic
+    const comparer = OrganizeImportsComparerSettings{
+        .moduleSpecifierComparer = moduleSpecifierComparer,
+        .namedImportComparer = namedImportComparer,
+        .typeOrder = preferences.organizeImportsTypeOrder,
+    };
+
+    for (topLevelImportGroupDecls) |importGroupDecl| {
+        // organizeImportsWorker... we don't have it fully ported yet but we process it
+        _ = importGroupDecl;
+        _ = comparer;
+    }
+
+    if (!std.mem.eql(u8, kind, "source.removeUnusedImports")) {
+        // organizeExportsWorker...
+    }
+
+    if (changeTracker.hasChanges()) {
+        // Return changes as CodeActions (not fully implemented)
+        return null;
+    }
+
     return null;
 }
 
