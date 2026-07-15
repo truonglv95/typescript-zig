@@ -5027,12 +5027,52 @@ pub const Checker = struct {
         return (c.getObjectFlags(source) & types.ObjectFlags.JsxAttributes != 0) and relater.isHyphenatedJsxName(c.getSymbolName(prop));
     }
 
-    pub fn getLiteralTypeFromProperty(c: *Checker, prop: ast_gen.SymbolIndex, include: u32, stringify: bool) types.TypeIndex {
-        _ = c;
-        _ = prop;
+    /// Port of `checker.go::getLiteralTypeFromProperties`. Returns a union
+    /// of literal types derived from the properties and index infos of `t`.
+    pub fn getLiteralTypeFromProperties(c: *Checker, t: types.TypeIndex, include: u32, includeOrigin: bool) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        var origin: types.TypeIndex = 0;
+        if (includeOrigin) {
+            const obj_flags = c.typesList.items[t].objectFlags;
+            if ((obj_flags & (types.ObjectFlags.ClassOrInterface | types.ObjectFlags.Reference)) != 0 or c.typesList.items[t].alias != null) {
+                origin = c.newIndexType(t, types.IndexFlags.None);
+            }
+        }
+        const props = c.getPropertiesOfType(t);
+        const index_infos = c.getIndexInfosOfType(t);
+        var types_list = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer types_list.deinit(c.allocator);
+        for (props) |prop| {
+            const lt = c.getLiteralTypeFromProperty(prop, include, false);
+            if (lt != 0) types_list.append(c.allocator, lt) catch {};
+        }
+        for (index_infos) |info| {
+            if (c.isKeyTypeIncluded(info.keyType, include)) {
+                types_list.append(c.allocator, info.keyType) catch {};
+            }
+        }
+        return c.getUnionTypeEx(types_list.items, .Literal, null, if (origin != 0) origin else null);
+    }
+
+    /// Port of `checker.go::getLiteralTypeFromProperty`. Returns the
+    /// literal type of a property's name. For numeric names, returns a
+    /// number literal; for string names, returns a string literal.
+    pub fn getLiteralTypeFromProperty(c: *Checker, prop: ast_gen.SymbolIndex, include: u32, includeNonPublic: bool) types.TypeIndex {
+        if (prop == 0 or prop >= c.binder.symbols.items.len) return 0;
+        if (!includeNonPublic) {
+            const mod_flags = c.getDeclarationModifierFlagsFromSymbol(prop);
+            const NonPublicAccess: u32 = ast_utils.ModifierFlags.Protected | ast_utils.ModifierFlags.Private;
+            if ((mod_flags & NonPublicAccess) != 0) return 0;
+        }
         _ = include;
-        _ = stringify;
-        return 0; // Skipped
+        const sym = c.binder.symbols.items[prop];
+        const name = sym.Name;
+        if (name.len == 0) return 0;
+        // Numeric name → number literal; otherwise string literal.
+        if (std.fmt.parseFloat(f64, name) catch null != null) {
+            return c.getNumberLiteralType(std.fmt.parseFloat(f64, name) catch 0.0);
+        }
+        return c.getStringLiteralType(name);
     }
 
     pub fn getNonMissingTypeOfSymbol(c: *Checker, prop: ast_gen.SymbolIndex) types.TypeIndex {
@@ -18490,7 +18530,7 @@ pub const Checker = struct {
         return c.stringTypeIndex orelse 0;
     }
 
-    pub fn getLiteralTypeFromProperties(c: *Checker, t: types.TypeIndex, include: ast_gen.NodeIndex, includeOrigin: bool) types.TypeIndex {
+    pub fn getLiteralTypeFromProperties_DEPRECATED(c: *Checker, t: types.TypeIndex, include: ast_gen.NodeIndex, includeOrigin: bool) types.TypeIndex {
         _ = c;
         _ = t;
         _ = include;
