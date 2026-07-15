@@ -571,9 +571,15 @@ pub const Checker = struct {
     // Skippeds for Relater
     // =========================================================================
 
-    pub fn getParentOfSymbol(self: *Checker, sym: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = self;
-        return sym;
+    pub fn getParentOfSymbol(c: *Checker, sym: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Go: if symbol.Parent != nil { return c.getMergedSymbol(c.getLateBoundSymbol(symbol.Parent)) }
+        //   return nil
+        const src = c.binder.symbols.items[sym];
+        if (src.Parent) |parent| {
+            const late_bound = c.getLateBoundSymbol(parent);
+            return getMergedSymbol(c, late_bound);
+        }
+        return 0;
     }
 
     pub fn resolveStructuredTypeMembers(c: *Checker, t: types.TypeIndex) types.StructuredTypeMembers {
@@ -12807,10 +12813,31 @@ pub const Checker = struct {
         return result;
     }
 
-    pub fn cloneSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn cloneSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Go: result := c.newSymbol(symbol.Flags, symbol.Name)
+        //   result.Declarations = symbol.Declarations[0:len:len]
+        //   result.Parent = symbol.Parent
+        //   result.ValueDeclaration = symbol.ValueDeclaration
+        //   result.Members = maps.Clone(symbol.Members)
+        //   result.Exports = maps.Clone(symbol.Exports)
+        //   c.recordMergedSymbol(result, symbol)
+        //   return result
+        // Simplified: newSymbol not yet wired; create a shallow copy in binder.symbols.
+        const src = c.binder.symbols.items[symbol_];
+        const new_idx = c.binder.symbols.items.len;
+        c.binder.symbols.append(c.allocator, .{
+            .Flags = src.Flags,
+            .Name = src.Name,
+            .Declarations = src.Declarations.clone(c.allocator) catch return symbol_,
+            .ValueDeclaration = src.ValueDeclaration,
+            .Members = .{},
+            .Exports = .{},
+            .Parent = src.Parent,
+            .ExportSymbol = src.ExportSymbol,
+            .CheckFlags = src.CheckFlags,
+        }) catch return symbol_;
+        c.recordMergedSymbol(@intCast(new_idx), symbol_);
+        return @intCast(new_idx);
     }
 
     pub fn recordMergedSymbol(c: *Checker, target: ast_gen.SymbolIndex, source: ast_gen.SymbolIndex) void {
@@ -13047,16 +13074,36 @@ pub const Checker = struct {
         return getResolvedSymbolOrNil(c, expression);
     }
 
-    pub fn getTargetOfNamespaceExportDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTargetOfNamespaceExportDeclaration(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: if ast.CanHaveSymbol(node.Parent) {
+        //   resolved := c.resolveExternalModuleSymbol(node.Parent.Symbol(), true)
+        //   c.markSymbolOfAliasDeclarationIfTypeOnly(node, nil)
+        //   return resolved
+        // }
+        // return nil
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        const parent_sym = c.binder.ast.getNodeSymbol(parent) orelse return 0;
+        const resolved = c.resolveExternalModuleSymbol(parent_sym, true);
+        _ = c.markSymbolOfAliasDeclarationIfTypeOnly(node, 0);
+        return resolved;
     }
 
-    pub fn getTargetOfAccessExpression(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTargetOfAccessExpression(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: if ast.IsBinaryExpression(node.Parent) {
+        //   expr := node.Parent.AsBinaryExpression()
+        //   if expr.Left == node && expr.OperatorToken.Kind == ast.KindEqualsToken {
+        //     return c.getTargetOfAliasLikeExpression(expr.Right)
+        //   }
+        // }
+        // return nil
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        if (c.binder.ast.getKind(parent) != .BinaryExpression) return 0;
+        const be = c.binder.ast.getNode(parent).BinaryExpression;
+        if (be.Left != node) return 0;
+        if (c.binder.ast.getKind(be.OperatorToken) != .EqualsToken) return 0;
+        return getTargetOfAliasLikeExpression(c, be.Right);
     }
 
     pub fn getModuleSpecifierForImportOrExport(c: *Checker, node: *anyopaque) *anyopaque {
