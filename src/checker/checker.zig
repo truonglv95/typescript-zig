@@ -10881,15 +10881,19 @@ pub const Checker = struct {
         return t;
     }
 
+    /// Port of `checker.go::getConstituentProperty`. Returns the property
+    /// named `propertyName` from the apparent type of `objectType`, walking
+    /// distributed union constituents.
     pub fn getConstituentProperty(c: *Checker, objectType: types.TypeIndex, propertyName: []const u8) ast_gen.SymbolIndex {
-        // Go: for _, t := range c.getApparentType(objectType).Distributed() {
-        //   prop := c.getPropertyOfType(t, propertyName)
-        //   if prop != nil { return prop }
-        // }
-        // return nil
-        // Simplified: Distributed() not yet wired; check apparent type directly.
+        if (objectType == 0 or objectType >= c.typesList.items.len) return 0;
         const apparent = c.getApparentType(objectType);
-        return c.getPropertyOfType(apparent, propertyName) orelse 0;
+        const constituents = c.distributedTypes(apparent);
+        for (constituents) |t| {
+            if (c.getPropertyOfType(t, propertyName)) |prop| {
+                return prop;
+            }
+        }
+        return 0;
     }
 
     /// Port of checker.go::checkImportCallExpression. Checks an
