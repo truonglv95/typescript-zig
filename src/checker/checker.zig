@@ -13174,14 +13174,23 @@ pub const Checker = struct {
         return true;
     }
 
+    /// Port of `checker.go::checkForDisallowedESSymbolOperand`. Reports
+    /// an error if either operand is an ES symbol-like type in a binary
+    /// expression that doesn't allow symbols. Returns false if an error
+    /// was reported, true otherwise.
     pub fn checkForDisallowedESSymbolOperand(c: *Checker, left: ast_gen.NodeIndex, right: ast_gen.NodeIndex, leftType: types.TypeIndex, rightType: types.TypeIndex, operator: u32) bool {
-        _ = c;
-        _ = left;
-        _ = right;
-        _ = leftType;
-        _ = rightType;
         _ = operator;
-        return false;
+        var offending: ast_gen.NodeIndex = 0;
+        if (c.maybeTypeOfKindConsideringBaseConstraint(leftType, types.TypeFlags.ESSymbolLike)) {
+            offending = left;
+        } else if (c.maybeTypeOfKindConsideringBaseConstraint(rightType, types.TypeFlags.ESSymbolLike)) {
+            offending = right;
+        }
+        if (offending != 0) {
+            c.reportErrorWithArgs(offending, &diagnostics_gen.The_0_operator_cannot_be_applied_to_type_symbol, &.{""});
+            return false;
+        }
+        return true;
     }
 
     /// Port of checker.go::checkNaNEquality. Reports warnings when NaN
