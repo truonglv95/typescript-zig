@@ -8317,13 +8317,29 @@ pub const Checker = struct {
         return false;
     }
 
-    /// Port of checker.go::onFailedToResolveSymbol. Simplified: no-op.
+    /// Port of `checker.go::onFailedToResolveSymbol`. Reports a
+    /// "cannot find name" diagnostic for `name_node`, attempting
+    /// spelling suggestions and lib suggestions first.
     pub fn onFailedToResolveSymbol(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32, name_not_found_message: ?*const diagnostics_gen.Message) void {
-        _ = c;
-        _ = error_location;
-        _ = name_node;
-        _ = meaning;
-        _ = name_not_found_message;
+        if (name_node == 0) return;
+        const name_text = ast_utils.getTextOfNode(c.binder.ast, name_node);
+        // Try spelling suggestions first.
+        const suggestion = c.getSuggestedSymbolForNonexistentSymbol(error_location, name_text, meaning);
+        if (suggestion != 0) {
+            const suggestion_name = c.symbolToString(suggestion);
+            const msg: *const diagnostics_gen.Message = if (meaning == symbol.SymbolFlags.Namespace)
+                &diagnostics_gen.Cannot_find_namespace_0_Did_you_mean_1
+            else
+                &diagnostics_gen.Cannot_find_name_0_Did_you_mean_1;
+            c.reportErrorWithArgs(error_location, msg, &.{ name_text, suggestion_name });
+            return;
+        }
+        // Fall back to "cannot find name".
+        if (name_not_found_message) |msg| {
+            c.reportErrorWithArgs(error_location, msg, &.{name_text});
+        } else {
+            c.reportErrorWithArgs(error_location, &diagnostics_gen.Cannot_find_name_0, &.{name_text});
+        }
     }
 
     /// Port of checker.go::checkAndReportErrorForUsingTypeAsNamespace.
