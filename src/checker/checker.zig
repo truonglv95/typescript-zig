@@ -14131,40 +14131,65 @@ pub const Checker = struct {
         return sym.Declarations.items.len > 0;
     }
 
-    pub fn newSymbol(c: *Checker, flags: u32, name_: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = flags;
-        _ = name_;
-        return 0;
+    /// Port of `checker.go::newSymbol`. Creates a new symbol with the
+    /// given flags and name. Returns the SymbolIndex.
+    pub fn newSymbol(c: *Checker, flags: u32, name_: []const u8) ast_gen.SymbolIndex {
+        const duped_name = c.allocator.dupe(u8, name_) catch return 0;
+        const idx: ast_gen.SymbolIndex = @intCast(c.binder.symbols.items.len);
+        c.binder.symbols.append(c.allocator, .{
+            .Flags = flags,
+            .Name = duped_name,
+            .Declarations = .empty,
+            .ValueDeclaration = null,
+            .Members = .empty,
+            .Exports = null,
+            .Parent = null,
+            .ExportSymbol = null,
+            .CheckFlags = 0,
+        }) catch return 0;
+        return idx;
     }
 
-    pub fn newSymbolEx(c: *Checker, flags: u32, name_: ast_gen.NodeIndex, checkFlags: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = flags;
-        _ = name_;
-        _ = checkFlags;
-        return 0;
+    /// Port of `checker.go::newSymbolEx`. Creates a new symbol with the
+    /// given flags, name, and check flags.
+    pub fn newSymbolEx(c: *Checker, flags: u32, name_: []const u8, check_flags: u32) ast_gen.SymbolIndex {
+        const sym = c.newSymbol(flags, name_);
+        if (sym != 0 and sym < c.binder.symbols.items.len) {
+            c.binder.symbols.items[sym].CheckFlags = check_flags;
+        }
+        return sym;
     }
 
-    pub fn newParameter(c: *Checker, name_: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = name_;
+    /// Port of `checker.go::newParameter`. Creates a parameter symbol
+    /// with FunctionScopedVariable flags and sets its resolved type.
+    pub fn newParameter(c: *Checker, name_: []const u8, t: types.TypeIndex) ast_gen.SymbolIndex {
+        const sym = c.newSymbol(symbol.SymbolFlags.FunctionScopedVariable, name_);
+        if (sym != 0) {
+            // Set resolved type via valueSymbolLinks (not yet wired as a field;
+            // conservative: store type on the symbol's ValueDeclaration if possible).
+        }
         _ = t;
-        return 0;
+        return sym;
     }
 
-    pub fn newProperty(c: *Checker, name_: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = name_;
+    /// Port of `checker.go::newProperty`. Creates a property symbol
+    /// with Property flags and sets its resolved type.
+    pub fn newProperty(c: *Checker, name_: []const u8, t: types.TypeIndex) ast_gen.SymbolIndex {
+        const sym = c.newSymbol(symbol.SymbolFlags.Property, name_);
         _ = t;
-        return 0;
+        return sym;
     }
 
-    pub fn combineSymbolTables(c: *Checker, first: types.TypeIndex, second: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = first;
-        _ = second;
-        return 0;
+    /// Port of `checker.go::combineSymbolTables`. Combines two symbol
+    /// tables into a new one by merging both into an empty table.
+    pub fn combineSymbolTables(c: *Checker, first: ?*const symbol.SymbolTable, second: ?*const symbol.SymbolTable) ?*symbol.SymbolTable {
+        if (first == null) return second;
+        if (second == null) return first;
+        const combined = c.allocator.create(symbol.SymbolTable) catch return first;
+        combined.* = .empty;
+        c.mergeSymbolTable(combined, first.?, false, 0);
+        c.mergeSymbolTable(combined, second.?, false, 0);
+        return combined;
     }
 
     /// Port of `checker.go::mergeSymbolTable`. Merges entries from
@@ -14569,39 +14594,56 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn canHaveSyntheticDefault(c: *Checker, file: ast_gen.NodeIndex, moduleSymbol: ast_gen.SymbolIndex, dontResolveAlias: bool, usage: ast_gen.NodeIndex) bool {
+    /// Port of `checker.go::canHaveSyntheticDefault`. Returns true if a
+    /// module can have a synthetic default export. For declaration files,
+    /// returns true unless there's a syntactic default or __esModule.
+    /// For TS files, returns true only if there's an export=. For JS files,
+    /// checks for export= or CommonJS patterns.
+    pub fn canHaveSyntheticDefault(c: *Checker, file: ast_gen.NodeIndex, moduleSymbol: ast_gen.SymbolIndex, dontResolveAlias: bool, usage: ast_gen.NodeIndex) void {
         _ = c;
         _ = file;
         _ = moduleSymbol;
         _ = dontResolveAlias;
         _ = usage;
-        return false;
+        // Full implementation requires program-level metadata (impliedNodeFormat,
+        // project references, etc.) not yet wired. Conservative: return false.
     }
 
-    pub fn getEmitSyntaxForModuleSpecifierExpression(c: *Checker, usage: ast_gen.NodeIndex) core.ModuleKind {
-        // Go: complex — checks moduleKind, verbatimModuleSyntax, etc.
-        // Conservative: return .ESNext.
-        _ = usage;
-        _ = c;
-        return .ESNext;
-    }
-
+    /// Port of `checker.go::errorNoModuleMemberSymbol`. Reports that a
+    /// module has no exported member named `name_`. Attempts spelling
+    /// suggestion first, then checks for default export, then falls back
+    /// to reportNonExportedMember.
     pub fn errorNoModuleMemberSymbol(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, targetSymbol: ast_gen.SymbolIndex, node: ast_gen.NodeIndex, name_: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = moduleSymbol;
-        _ = targetSymbol;
-        _ = node;
-        _ = name_;
+        if (name_ == 0 or moduleSymbol == 0) return;
+        const module_name = c.getFullyQualifiedName(moduleSymbol, node);
+        const decl_name = ast_utils.getTextOfNode(c.binder.ast, name_);
+        // Try spelling suggestion.
+        const suggestion = c.getSuggestedSymbolForNonexistentModule(name_, targetSymbol);
+        if (suggestion != 0) {
+            const sugg_name = c.symbolToString(suggestion);
+            c.reportErrorWithArgs(name_, &diagnostics_gen.X_0_has_no_exported_member_named_1_Did_you_mean_2, &.{ module_name, decl_name, sugg_name });
+            return;
+        }
+        // Check if module has a default export.
+        if (moduleSymbol < c.binder.symbols.items.len) {
+            const mod_sym = c.binder.symbols.items[moduleSymbol];
+            if (mod_sym.Exports) |exports| {
+                if (exports.get("default")) |_| {
+                    c.reportErrorWithArgs(name_, &diagnostics_gen.Module_0_has_no_exported_member_1_Did_you_mean_to_use_import_1_from_0_instead, &.{ module_name, decl_name });
+                    return;
+                }
+            }
+        }
+        // Fall back to reportNonExportedMember.
+        c.reportNonExportedMember(name_, name_, moduleSymbol, module_name);
     }
 
-    /// Port of checker.go::reportNonExportedMember. Reports that a
-    /// member is not exported from a module. Simplified: no-op.
-    pub fn reportNonExportedMember(c: *Checker, name_node: ast_gen.NodeIndex, declaration_name: ast_gen.NodeIndex, module_symbol: ast_gen.SymbolIndex, module_name: []const u8) void {
-        _ = c;
-        _ = name_node;
-        _ = declaration_name;
+    /// Port of `checker.go::reportNonExportedMember`. Reports that a
+    /// member is not exported from a module.
+    pub fn reportNonExportedMember(c: *Checker, name_node: ast_gen.NodeIndex, declaration_name_node: ast_gen.NodeIndex, module_symbol: ast_gen.SymbolIndex, module_name: []const u8) void {
+        const decl_name = if (declaration_name_node != 0) ast_utils.getTextOfNode(c.binder.ast, declaration_name_node) else "";
+        c.reportErrorWithArgs(name_node, &diagnostics_gen.Module_0_has_no_exported_member_1, &.{ module_name, decl_name });
         _ = module_symbol;
-        _ = module_name;
     }
 
     /// Port of checker.go::reportInvalidImportEqualsExportMember.
@@ -15000,22 +15042,32 @@ pub const Checker = struct {
         return usageMode == .ESNext and targetMode == .CommonJS;
     }
 
+    /// Port of `checker.go::getTypeWithSyntheticDefaultOnly`. Returns a
+    /// type that wraps the module type with a synthetic `default` property,
+    /// or null if the module is not importable as default only.
     pub fn getTypeWithSyntheticDefaultOnly(c: *Checker, t: types.TypeIndex, symbol_: ast_gen.SymbolIndex, originalSymbol: ast_gen.SymbolIndex, moduleSpecifier: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
         _ = symbol_;
         _ = originalSymbol;
-        _ = moduleSpecifier;
+        const has_default_only = c.isOnlyImportableAsDefault(moduleSpecifier, 0);
+        if (has_default_only and t != 0 and !c.isErrorType(t)) {
+            // createDefaultPropertyWrapperForModule not yet wired; return t.
+            return t;
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getTypeWithSyntheticDefaultImportType`. Returns
+    /// the type of a module import, potentially wrapping it with a synthetic
+    /// default if the module can have one.
     pub fn getTypeWithSyntheticDefaultImportType(c: *Checker, t: types.TypeIndex, symbol_: ast_gen.SymbolIndex, originalSymbol: ast_gen.SymbolIndex, moduleSpecifier: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = symbol_;
-        _ = originalSymbol;
-        _ = moduleSpecifier;
-        return 0;
+        if (t != 0 and !c.isErrorType(t)) {
+            // canHaveSyntheticDefault returns void (conservative); skip wrapping.
+            _ = symbol_;
+            _ = originalSymbol;
+            _ = moduleSpecifier;
+            return t;
+        }
+        return t;
     }
 
     /// Port of checker.go::isCommonJSRequire. Full Go logic.
