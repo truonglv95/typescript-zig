@@ -13284,7 +13284,7 @@ pub const Checker = struct {
 
     /// Port of `checker.go::removeMissingOrUndefinedType`. Strips undefined
     /// (and missing, when exactOptionalPropertyTypes) from `t`.
-    pub fn removeMissingOrUndefinedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+    pub fn removeMissingOrUndefinedTypeOriginal(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         if (c.exactOptionalPropertyTypes) {
             // Full removeType implementation needed; for now use NEUndefined
             return c.getTypeWithFacts(t, types.TypeFacts.NEUndefined);
@@ -19335,28 +19335,74 @@ pub const Checker = struct {
         return undefined;
     }
 
+    /// Port of `checker.go::removeMissingOrUndefinedType`. In
+    /// exactOptionalPropertyTypes mode, removes `missingType` from `t`;
+    /// otherwise removes `undefined` via `TypeFacts.NEUndefined`.
+    pub fn removeMissingOrUndefinedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (c.exactOptionalPropertyTypes) {
+            return c.removeType(t, c.missingTypeIndex orelse 0);
+        }
+        return c.getTypeWithFacts(t, types.TypeFacts.NEUndefined);
+    }
+
+    /// Back-compat alias for `removeMissingOrUndefinedType`.
     pub fn removeMissingOrUndefinedTypeStub(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        return c.removeMissingOrUndefinedType(t);
     }
 
+    /// Port of `checker.go::removeDefinitelyFalsyTypes`. Returns `t` with
+    /// all definitely-falsy constituents removed.
     pub fn removeDefinitelyFalsyTypes(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        return c.filterType(t, struct {
+            fn apply(ch: *Checker, x: types.TypeIndex, _: void) bool {
+                return ch.hasTypeFacts(x, types.TypeFacts.Truthy);
+            }
+        }.apply, {});
     }
 
+    /// Port of `checker.go::extractDefinitelyFalsyTypes`. Returns the
+    /// definitely-falsy part of `t` via `getDefinitelyFalsyPartOfType`.
     pub fn extractDefinitelyFalsyTypes(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return undefined;
+        return c.mapType(t, struct {
+            fn apply(ch: *Checker, x: types.TypeIndex, _: void) types.TypeIndex {
+                return ch.getDefinitelyFalsyPartOfType(x);
+            }
+        }.apply, {});
     }
 
+    /// Port of `checker.go::getDefinitelyFalsyPartOfType`. Returns the
+    /// falsy part of a unit type: empty string for string, zero for
+    /// number/bigint, false for boolean, and the type itself for void/
+    /// undefined/null/any/unknown/empty literals.
     pub fn getDefinitelyFalsyPartOfType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return c.neverTypeIndex orelse 0;
+        const ty = c.typesList.items[t];
+        const flags = ty.flags;
+        if ((flags & types.TypeFlags.String) != 0) {
+            return c.stringTypeIndex orelse 0;
+        }
+        if ((flags & types.TypeFlags.Number) != 0) {
+            return c.numberTypeIndex orelse 0;
+        }
+        if ((flags & types.TypeFlags.BigInt) != 0) {
+            return c.bigintTypeIndex orelse 0;
+        }
+        if ((flags & (types.TypeFlags.Void | types.TypeFlags.Undefined | types.TypeFlags.Null | types.TypeFlags.AnyOrUnknown)) != 0) {
+            return t;
+        }
+        if ((flags & types.TypeFlags.BooleanLiteral) != 0) {
+            if (ty.data == .BooleanLiteral and !ty.data.BooleanLiteral.value) return t;
+        }
+        if ((flags & types.TypeFlags.StringLiteral) != 0) {
+            if (ty.data == .StringLiteral and ty.data.StringLiteral.text.len == 0) return t;
+        }
+        if ((flags & types.TypeFlags.NumberLiteral) != 0) {
+            if (ty.data == .NumberLiteral and ty.data.NumberLiteral.value == 0.0) return t;
+        }
+        if ((flags & types.TypeFlags.BigIntLiteral) != 0) {
+            if (ty.data == .BigIntLiteral and (ty.data.BigIntLiteral.text.len == 0 or std.mem.eql(u8, ty.data.BigIntLiteral.text, "0"))) return t;
+        }
+        return c.neverTypeIndex orelse 0;
     }
 
     pub fn substituteIndexedMappedType(c: *Checker, objectType: types.TypeIndex, index: u32) types.TypeIndex {
