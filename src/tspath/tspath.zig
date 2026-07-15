@@ -401,3 +401,104 @@ pub fn getRelativePathToDirectoryOrUrl(allocator: std.mem.Allocator, directoryPa
 
     return GetPathFromPathComponents(allocator, components);
 }
+
+// === Additional path utilities (ported from Go tspath/path.go) ===
+
+/// Port of RemoveTrailingDirectorySeparator.
+pub fn removeTrailingDirectorySeparator(path: []const u8) []const u8 {
+    if (path.len > 0 and isAnyDirectorySeparator(path[path.len - 1])) {
+        return path[0 .. path.len - 1];
+    }
+    return path;
+}
+
+/// Port of RemoveTrailingDirectorySeparators (removes ALL trailing separators).
+pub fn removeTrailingDirectorySeparators(path: []const u8) []const u8 {
+    var result = path;
+    while (result.len > 0 and isAnyDirectorySeparator(result[result.len - 1])) {
+        result = result[0 .. result.len - 1];
+    }
+    return result;
+}
+
+/// Port of ResolvePath. Combines paths and normalizes.
+pub fn resolvePath(allocator: std.mem.Allocator, path: []const u8, paths: []const []const u8) ![]const u8 {
+    if (paths.len > 0) {
+        const combined = try combinePaths(allocator, path, paths);
+        defer allocator.free(combined);
+        return normalizePath(allocator, combined);
+    }
+    const norm = try normalizeSlashes(allocator, path);
+    defer allocator.free(norm);
+    return normalizePath(allocator, norm);
+}
+
+/// Port of ResolveTripleslashReference.
+pub fn resolveTripleslashReference(allocator: std.mem.Allocator, module_name: []const u8, containing_file: []const u8) ![]const u8 {
+    if (isRootedDiskPath(module_name)) {
+        return normalizePath(allocator, module_name);
+    }
+    const base_path = try getDirectoryPath(allocator, containing_file);
+    defer allocator.free(base_path);
+    const combined = try combinePaths(allocator, base_path, &[_][]const u8{module_name});
+    defer allocator.free(combined);
+    return normalizePath(allocator, combined);
+}
+
+/// Port of GetNormalizedPathComponents.
+pub fn getNormalizedPathComponents(allocator: std.mem.Allocator, path: []const u8, current_directory: []const u8) ![][]const u8 {
+    const combined = try getNormalizedAbsolutePath(allocator, path, current_directory);
+    defer allocator.free(combined);
+    return getPathComponents(allocator, combined, "");
+}
+
+/// Port of GetNormalizedAbsolutePathWithoutRoot.
+pub fn getNormalizedAbsolutePathWithoutRoot(allocator: std.mem.Allocator, file_name: []const u8, current_directory: []const u8) ![]const u8 {
+    const full = try getNormalizedAbsolutePath(allocator, file_name, current_directory);
+    const root_len = getRootLength(full);
+    if (root_len < full.len) {
+        const result = try allocator.dupe(u8, full[root_len..]);
+        allocator.free(full);
+        return result;
+    }
+    return full;
+}
+
+/// Port of ToFileNameLowerCase.
+pub fn toFileNameLowerCase(allocator: std.mem.Allocator, file_name: []const u8) ![]const u8 {
+    const result = try allocator.alloc(u8, file_name.len);
+    for (file_name, 0..) |c, i| {
+        result[i] = std.ascii.toLower(c);
+    }
+    return result;
+}
+
+/// Port of ConvertToRelativePath.
+pub fn convertToRelativePath(allocator: std.mem.Allocator, absolute_or_relative_path: []const u8, options: ComparePathsOptions) ![]const u8 {
+    return getRelativePathFromDirectory(allocator, options.currentDirectory, absolute_or_relative_path, options);
+}
+
+/// Port of GetRelativePathFromDirectory.
+pub fn getRelativePathFromDirectory(allocator: std.mem.Allocator, from_directory: []const u8, to: []const u8, options: ComparePathsOptions) ![]const u8 {
+    const components = try GetPathComponentsRelativeTo(allocator, from_directory, to, options);
+    defer allocator.free(components);
+    return GetPathFromPathComponents(allocator, components);
+}
+
+/// Port of GetRelativePathFromFile.
+pub fn getRelativePathFromFile(allocator: std.mem.Allocator, from: []const u8, to: []const u8, options: ComparePathsOptions) ![]const u8 {
+    const dir = try getDirectoryPath(allocator, from);
+    defer allocator.free(dir);
+    return getRelativePathFromDirectory(allocator, dir, to, options);
+}
+
+/// Port of hasRelativePathSegment (internal helper).
+pub fn hasRelativePathSegment(p: []const u8) bool {
+    // Check for "./" or "../" segments
+    if (std.mem.startsWith(u8, p, "../")) return true;
+    if (std.mem.startsWith(u8, p, "./")) return true;
+    if (std.mem.indexOf(u8, p, "/../")) |_| return true;
+    if (std.mem.indexOf(u8, p, "/./")) |_| return true;
+    if (std.mem.eql(u8, p, "..") or std.mem.eql(u8, p, ".")) return true;
+    return false;
+}
