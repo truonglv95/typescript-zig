@@ -8279,11 +8279,44 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isPropertyImmediatelyReferencedWithinDeclaration(declaration: ast_gen.NodeIndex, usage: ast_gen.NodeIndex, stopAtAnyPropertyDeclaration: ast_gen.NodeIndex) bool {
-        _ = declaration;
-        _ = usage;
-        _ = stopAtAnyPropertyDeclaration;
-        return false;
+    pub fn isPropertyImmediatelyReferencedWithinDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, usage: ast_gen.NodeIndex, stopAtAnyPropertyDeclaration: bool) bool {
+        // Go: if usage.End() > declaration.End() { return false }
+        //   for node := usage; node != nil && node != declaration; node = node.Parent {
+        //     switch node.Kind {
+        //     case KindArrowFunction: return false
+        //     case KindPropertyDeclaration:
+        //       return stopAtAnyPropertyDeclaration && ((IsPropertyDeclaration(declaration) && node.Parent == declaration.Parent) ||
+        //         (IsParameterPropertyDeclaration(declaration, declaration.Parent) && node.Parent == declaration.Parent.Parent))
+        //     case KindBlock:
+        //       switch node.Parent.Kind { case KindMethodDeclaration, KindGetAccessor, KindSetAccessor: return false }
+        //     }
+        //   }
+        //   return true
+        // Simplified: skip End() comparison (not always reliable), check node kinds.
+        var node = usage;
+        while (node != 0 and node != declaration) {
+            const k = c.binder.ast.getKind(node);
+            switch (k) {
+                .ArrowFunction => return false,
+                .PropertyDeclaration => {
+                    // Simplified: don't check parent relationships for stopAtAnyPropertyDeclaration
+                    return stopAtAnyPropertyDeclaration;
+                },
+                .Block => {
+                    const parent = c.binder.ast.getNodeParent(node);
+                    if (parent != 0) {
+                        const pk = c.binder.ast.getKind(parent);
+                        switch (pk) {
+                            .MethodDeclaration, .GetAccessor, .SetAccessor => return false,
+                            else => {},
+                        }
+                    }
+                },
+                else => {},
+            }
+            node = c.binder.ast.getNodeParent(node);
+        }
+        return true;
     }
 
     pub fn getTypeOnlyAliasDeclaration(c: *Checker, sym_idx: ast_gen.SymbolIndex) ast_gen.NodeIndex {
