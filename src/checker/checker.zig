@@ -15473,14 +15473,32 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getConstituentCount(t: *anyopaque) i32 {
-        _ = t;
-        return 0;
+    pub fn getConstituentCount(c: *Checker, t: types.TypeIndex) i32 {
+        // Go: switch {
+        //   case t.flags&TypeFlagsUnionOrIntersection == 0 || t.alias != nil: return 1
+        //   case t.flags&TypeFlagsUnion != 0 && t.AsUnionType().origin != nil: return getConstituentCount(t.AsUnionType().origin)
+        // }
+        // return getConstituentCountOfTypes(t.Types())
+        const ty = c.typesList.items[t];
+        if ((ty.flags & types.TypeFlags.UnionOrIntersection) == 0 or ty.alias != null) return 1;
+        if ((ty.flags & types.TypeFlags.Union) != 0) {
+            const origin = ty.data.Union.origin;
+            if (origin) |o| return getConstituentCount(c, o);
+        }
+        if ((ty.flags & types.TypeFlags.Union) != 0) {
+            return getConstituentCountOfTypes(c, c.getTypesFromUnion(t));
+        } else {
+            return getConstituentCountOfTypes(c, c.getTypesFromIntersection(t));
+        }
     }
 
-    pub fn getConstituentCountOfTypes(types_: *anyopaque) i32 {
-        _ = types_;
-        return 0;
+    pub fn getConstituentCountOfTypes(c: *Checker, types_: []const types.TypeIndex) i32 {
+        // Go: n := 0; for _, t := range types { n += getConstituentCount(t) }; return n
+        var n: i32 = 0;
+        for (types_) |t| {
+            n += getConstituentCount(c, t);
+        }
+        return n;
     }
 
     pub fn filterTypes(c: *Checker, types_: *anyopaque, predicate: *anyopaque) bool {
@@ -15778,9 +15796,23 @@ pub const Checker = struct {
         return (flags & types.TypeFlags.Enum) != 0 and (flags & types.TypeFlags.EnumLiteral) == 0;
     }
 
-    pub fn isConstEnumSymbol(symbol_: *anyopaque) bool {
+    pub fn isConstEnumSymbol(symbol_: ast_gen.SymbolIndex) bool {
+        // Go: return symbol.Flags & ast.SymbolFlagsConstEnum != 0
+        // SymbolIndex is u32 but we don't have direct access to binder here; the
+        // caller is expected to pass a symbol index from c.binder.symbols.
+        // We use an indirection via the global binder pointer for now — but
+        // since the symbol_ is just u32, we can only check flags via Checker.
+        // Conservative: just check the flag — but we don't have Checker arg.
+        // Since Go's isConstEnumSymbol is a free function that takes the
+        // symbol pointer directly, the Zig equivalent needs the binder too.
+        // For now we return false; callers using checker.isConstEnumSymbol
+        // should migrate to the typed variant in Checker.
         _ = symbol_;
         return false;
+    }
+
+    pub fn isConstEnumSymbolTyped(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        return (c.binder.symbols.items[symbol_].Flags & symbol.SymbolFlags.ConstEnum) != 0;
     }
 
     pub fn compareProperties(c: *Checker, sourceProp: *anyopaque, targetProp: *anyopaque, compareTypes: *anyopaque, target: *anyopaque) *anyopaque {
@@ -15821,14 +15853,37 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn hasRestParameter(signature: *anyopaque) bool {
-        _ = signature;
+    pub fn hasRestParameter(c: *Checker, signature: ast_gen.NodeIndex) bool {
+        // Go: last := core.LastOrNil(signature.Parameters())
+        //     return last != nil && isRestParameter(last)
+        const params_list: ?ast_gen.NodeListIndex = switch (c.binder.ast.getNode(signature)) {
+            .FunctionDeclaration => |n| n.Parameters,
+            .MethodDeclaration => |n| n.Parameters,
+            .GetAccessor => |n| n.Parameters,
+            .SetAccessor => |n| n.Parameters,
+            .Constructor => |n| n.Parameters,
+            .FunctionExpression => |n| n.Parameters,
+            .ArrowFunction => |n| n.Parameters,
+            .MethodSignature => |n| n.Parameters,
+            .CallSignature => |n| n.Parameters,
+            .ConstructSignature => |n| n.Parameters,
+            .FunctionType => |n| n.Parameters,
+            .ConstructorType => |n| n.Parameters,
+            else => null,
+        };
+        if (params_list) |p| {
+            const params = c.binder.ast.getNodeList(p);
+            if (params.len == 0) return false;
+            const last = params[params.len - 1];
+            if (last == 0) return false;
+            return c.binder.ast.getNode(last).Parameter.DotDotDotToken != null;
+        }
         return false;
     }
 
-    pub fn isRestParameter_stub(param: *anyopaque) bool {
-        _ = param;
-        return false;
+    pub fn isRestParameter_stub(c: *Checker, param: ast_gen.NodeIndex) bool {
+        // Go: return param.AsParameterDeclaration().DotDotDotToken != nil
+        return c.binder.ast.getNode(param).Parameter.DotDotDotToken != null;
     }
 
     pub fn getNameFromIndexInfo(info: *anyopaque) *anyopaque {
@@ -15961,9 +16016,13 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isInternalModuleImportEqualsDeclaration(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn isInternalModuleImportEqualsDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: return node.Kind == ast.KindImportEqualsDeclaration &&
+        //   node.AsImportEqualsDeclaration().ModuleReference.Kind != ast.KindExternalModuleReference
+        if (c.binder.ast.getKind(node) != .ImportEqualsDeclaration) return false;
+        const module_ref = c.binder.ast.getNode(node).ImportEqualsDeclaration.ModuleReference;
+        if (module_ref == 0) return false; // nil ModuleReference is treated as not external (internal)
+        return c.binder.ast.getKind(module_ref) != .ExternalModuleReference;
     }
 
     /// Port of checker.go::markIdentifierAliasReferenced. Marks an
@@ -16779,9 +16838,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isZeroBigInt(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn isZeroBigInt(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return getBigIntLiteralValue(t) == jsnum.PseudoBigInt{}
+        // Zig stores BigIntLiteral.text as []const u8 (e.g. "0n" or "100n").
+        // A zero big int literal has text equal to "0n".
+        if ((c.typesList.items[t].flags & types.TypeFlags.BigIntLiteral) == 0) return false;
+        const text = c.typesList.items[t].data.BigIntLiteral.text;
+        return std.mem.eql(u8, text, "0n") or std.mem.eql(u8, text, "0");
     }
 
     pub fn convertAutoToAny(c: *Checker, t: *anyopaque) *anyopaque {
