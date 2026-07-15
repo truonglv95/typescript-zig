@@ -8235,10 +8235,29 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isImmediatelyUsedInInitializerOfBlockScopedVariable(declaration: ast_gen.NodeIndex, usage: ast_gen.NodeIndex, declContainer: ast_gen.NodeIndex) bool {
-        _ = declaration;
-        _ = usage;
-        _ = declContainer;
+    pub fn isImmediatelyUsedInInitializerOfBlockScopedVariable(c: *Checker, declaration: ast_gen.NodeIndex, usage: ast_gen.NodeIndex, declContainer: ast_gen.NodeIndex) bool {
+        // Go: switch declaration.Parent.Parent.Kind {
+        //   case KindVariableStatement, KindForStatement, KindForOfStatement:
+        //     if isSameScopeDescendentOf(usage, declaration, declContainer) { return true }
+        //   }
+        //   grandparent := declaration.Parent.Parent
+        //   return ast.IsForInOrOfStatement(grandparent) && isSameScopeDescendentOf(usage, grandparent.Expression(), declContainer)
+        const parent = c.binder.ast.getNodeParent(declaration);
+        if (parent == 0) return false;
+        const grandparent = c.binder.ast.getNodeParent(parent);
+        if (grandparent == 0) return false;
+        const gp_kind = c.binder.ast.getKind(grandparent);
+        switch (gp_kind) {
+            .VariableStatement, .ForStatement, .ForOfStatement => {
+                if (c.isSameScopeDescendentOf(usage, declaration, declContainer)) return true;
+            },
+            else => {},
+        }
+        // ForIn/ForOf case
+        if (gp_kind == .ForInStatement or gp_kind == .ForOfStatement) {
+            const expr = c.binder.ast.getNode(grandparent).ForInOrOfStatement.Expression;
+            if (expr != 0 and c.isSameScopeDescendentOf(usage, expr, declContainer)) return true;
+        }
         return false;
     }
 
