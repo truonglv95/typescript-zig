@@ -13422,10 +13422,10 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn tryGetQualifiedNameAsValue(c: *Checker, node: *anyopaque) *anyopaque {
+    pub fn tryGetQualifiedNameAsValue(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
         _ = c;
         _ = node;
-        return undefined;
+        return 0;
     }
 
     pub fn getSuggestedSymbolForNonexistentModule(c: *Checker, name_: *anyopaque, targetModule: *anyopaque) *anyopaque {
