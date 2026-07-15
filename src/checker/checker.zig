@@ -13392,10 +13392,23 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTargetOfAliasDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTargetOfAliasDeclaration(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: complex — switch on node.Kind calling getTargetOfImportEqualsDeclaration,
+        //   getTargetOfImportClause, getTargetOfNamespaceImport, etc.
+        // Simplified: dispatch based on kind to the appropriate getTargetOf* method.
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .ImportEqualsDeclaration => return c.getTargetOfImportEqualsDeclaration(node),
+            .ImportClause => return c.getTargetOfImportClause(node),
+            .NamespaceImport => return c.getTargetOfNamespaceImport(node),
+            .NamespaceExport => return c.getTargetOfNamespaceExport(node),
+            .ImportSpecifier => return c.getTargetOfImportSpecifier(node),
+            .ExportSpecifier => return c.getTargetOfImportSpecifier(node),
+            .ExportAssignment => return c.getTargetOfExportAssignment(node),
+            .NamespaceExportDeclaration => return c.getTargetOfNamespaceExportDeclaration(node),
+            .BinaryExpression => return c.getTargetOfBinaryExpression(node),
+            else => return 0,
+        }
     }
 
     pub fn resolveQualifiedName(c: *Checker, name_: *anyopaque, left: *anyopaque, right: *anyopaque, meaning: *anyopaque, ignoreErrors: *anyopaque, location: *anyopaque) *anyopaque {
@@ -13505,10 +13518,20 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn tryResolveAlias(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn tryResolveAlias(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Go: links := c.aliasSymbolLinks.Get(symbol)
+        //   if links.aliasTarget != nil || c.findResolutionCycleStartIndex(symbol, TypeSystemPropertyNameAliasTarget) < 0 {
+        //     return c.resolveAlias(symbol)
+        //   }
+        //   return nil
+        // Simplified: findResolutionCycleStartIndex not yet wired; check aliasTarget.
+        if (c.aliasSymbolLinks.get(symbol_)) |links| {
+            if (links.aliasTarget != null) {
+                return c.resolveAlias(symbol_);
+            }
+        }
+        // Conservative: assume no cycle, try resolveAlias.
+        return c.resolveAlias(symbol_);
     }
 
     pub fn resolveAliasWithDeprecationCheck(c: *Checker, symbol_: ast_gen.SymbolIndex, location: ast_gen.NodeIndex) ast_gen.SymbolIndex {
@@ -13656,10 +13679,15 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getPropertyNameFromBindingElement(c: *Checker, e: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getPropertyNameFromBindingElement(c: *Checker, e: ast_gen.NodeIndex) []const u8 {
+        // Go: exprType := c.getLiteralTypeFromPropertyName(e.PropertyNameOrName())
+        //   if isTypeUsableAsPropertyName(exprType) { return getPropertyNameFromType(exprType) }
+        //   return ast.InternalSymbolNameMissing
+        // Simplified: getLiteralTypeFromPropertyName and isTypeUsableAsPropertyName
+        // not yet wired; return InternalSymbolNameMissing.
         _ = e;
-        return undefined;
+        _ = c;
+        return symbol.InternalSymbolNameMissing;
     }
 
     pub fn padTupleType(c: *Checker, t: *anyopaque, pattern: *anyopaque) *anyopaque {
