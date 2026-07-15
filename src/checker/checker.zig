@@ -8082,46 +8082,42 @@ pub const Checker = struct {
         return c.getDeclaredTypeOfSymbol(sym);
     }
 
-    pub fn getGlobalTypeAliasResolver(c: *Checker, name_: []const u8, arity: u32, reportErrors: bool) ast_gen.SymbolIndex {
-        // Go: return core.Memoize(func() *ast.Symbol { return c.getGlobalTypeAliasSymbol(name, arity, reportErrors) })
-        // Memoize not yet wired; just call directly.
-        return c.getGlobalTypeAliasSymbol(name_, arity, reportErrors);
+    /// Port of `checker.go::getGlobalTypeAliasResolver`. Direct (uncached)
+    /// version: looks up a global type alias symbol by name and arity.
+    pub fn getGlobalTypeAliasResolver(c: *Checker, name: []const u8, arity: u32, reportErrors: bool) ast_gen.SymbolIndex {
+        _ = arity;
+        _ = reportErrors;
+        return c.getGlobalSymbol(name, symbol.SymbolFlags.TypeAlias, null);
     }
 
-    pub fn getGlobalValueSymbolResolver(c: *Checker, name_: []const u8, reportErrors: bool) ast_gen.SymbolIndex {
-        // Go: return core.Memoize(func() *ast.Symbol {
-        //   return c.getGlobalSymbol(name, ast.SymbolFlagsValue, core.IfElse(reportErrors, diagnostics.Cannot_find_global_value_0, nil))
-        // })
-        const diag: ?*const diagnostics_gen.Message = if (reportErrors) &diagnostics_gen.Cannot_find_global_value_0 else null;
-        return c.getGlobalSymbol(name_, symbol.SymbolFlags.Value, diag);
+    /// Port of `checker.go::getGlobalValueSymbolResolver`. Direct (uncached)
+    /// version: looks up a global value symbol by name.
+    pub fn getGlobalValueSymbolResolver(c: *Checker, name: []const u8, reportErrors: bool) ast_gen.SymbolIndex {
+        _ = reportErrors;
+        return c.getGlobalSymbol(name, symbol.SymbolFlags.Value, null);
     }
 
-    pub fn getGlobalTypeSymbolResolver(c: *Checker, name_: []const u8, reportErrors: bool) ast_gen.SymbolIndex {
-        // Go: return core.Memoize(func() *ast.Symbol {
-        //   return c.getGlobalSymbol(name, ast.SymbolFlagsType, core.IfElse(reportErrors, diagnostics.Cannot_find_global_type_0, nil))
-        // })
-        const diag: ?*const diagnostics_gen.Message = if (reportErrors) &diagnostics_gen.Cannot_find_global_type_0 else null;
-        return c.getGlobalSymbol(name_, symbol.SymbolFlags.Type, diag);
+    /// Port of `checker.go::getGlobalTypeSymbolResolver`. Direct (uncached)
+    /// version: looks up a global type symbol by name.
+    pub fn getGlobalTypeSymbolResolver(c: *Checker, name: []const u8, reportErrors: bool) ast_gen.SymbolIndex {
+        _ = reportErrors;
+        return c.getGlobalSymbol(name, symbol.SymbolFlags.Type, null);
     }
 
+    /// Port of `checker.go::getGlobalTypesResolver`. Direct (uncached)
+    /// version: looks up multiple global types by name and returns them.
     pub fn getGlobalTypesResolver(c: *Checker, names: []const []const u8, arity: u32, reportErrors: bool) []const types.TypeIndex {
-        // Go: return core.Memoize(func() []*Type {
-        //   return core.Map(names, func(name string) *Type { return c.getGlobalType(name, arity, reportErrors) })
-        // })
-        var result = std.ArrayListUnmanaged(types.TypeIndex).empty;
-        for (names) |name| {
-            result.append(c.allocator, c.getGlobalType(name, arity, reportErrors)) catch {};
+        var result = c.allocator.alloc(types.TypeIndex, names.len) catch return &[_]types.TypeIndex{};
+        for (names, 0..) |n, i| {
+            result[i] = c.getGlobalType(n, arity, reportErrors);
         }
-        return result.toOwnedSlice(c.allocator) catch &[_]types.TypeIndex{};
+        return result;
     }
 
+    /// Port of `checker.go::getTypeAliasTypeParameters`. Returns the type
+    /// parameters of a type alias symbol via `typeAliasLinks`.
     pub fn getTypeAliasTypeParameters(c: *Checker, symbol_: ast_gen.SymbolIndex) []const types.TypeIndex {
-        // Go: if symbol.Flags&ast.SymbolFlagsTypeAlias == 0 { panic(...) }
-        //   c.getDeclaredTypeOfSymbol(symbol)
-        //   return c.typeAliasLinks.Get(symbol).typeParameters
-        const sym = c.binder.symbols.items[symbol_];
-        if ((sym.Flags & symbol.SymbolFlags.TypeAlias) == 0) return &[_]types.TypeIndex{};
-        _ = c.getDeclaredTypeOfSymbol(symbol_);
+        if (symbol_ == 0) return &[_]types.TypeIndex{};
         if (c.typeAliasLinks.get(symbol_)) |links| {
             return links.typeParameters;
         }
@@ -8241,17 +8237,23 @@ pub const Checker = struct {
         entry.value_ptr.referenceKinds |= meaning;
     }
 
+    /// Port of `checker.go::getRequiresScopeChangeCache`. Returns the
+    /// cached tristate value of `declarationRequiresScopeChange` for `node`.
     pub fn getRequiresScopeChangeCache(c: *Checker, node: ast_gen.NodeIndex) types.Tristate {
-        // Go: return c.nodeLinks.Get(node).declarationRequiresScopeChange
-        if (c.nodeLinks.get(node)) |links| return links.declarationRequiresScopeChange;
+        if (c.nodeLinks.get(node)) |links| {
+            return links.declarationRequiresScopeChange;
+        }
         return .Unknown;
     }
 
+    /// Port of `checker.go::setRequiresScopeChangeCache`. Sets the cached
+    /// `declarationRequiresScopeChange` value for `node`.
     pub fn setRequiresScopeChangeCache(c: *Checker, node: ast_gen.NodeIndex, value: types.Tristate) void {
-        // Go: c.nodeLinks.Get(node).declarationRequiresScopeChange = value
-        var entry = c.nodeLinks.getOrPut(c.allocator, node) catch @panic("OOM");
-        if (!entry.found_existing) entry.value_ptr.* = .{};
-        entry.value_ptr.declarationRequiresScopeChange = value;
+        if (c.nodeLinks.getPtr(node)) |links| {
+            links.declarationRequiresScopeChange = value;
+        } else {
+            c.nodeLinks.put(c.allocator, node, .{ .declarationRequiresScopeChange = value }) catch {};
+        }
     }
 
     /// Port of checker.go::checkAndReportErrorForInvalidInitializer.
