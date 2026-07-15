@@ -18578,11 +18578,26 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn markPropertyAsReferenced(c: *Checker, prop: ast_gen.SymbolIndex, nodeForCheckWriteOnly: u32, isSelfTypeAccess_: bool) void {
-        _ = c;
-        _ = prop;
-        _ = nodeForCheckWriteOnly;
-        _ = isSelfTypeAccess_;
+    /// Port of `checker.go::markPropertyAsReferenced`. Marks a private
+    /// property as referenced in `symbolReferenceLinks`.
+    pub fn markPropertyAsReferenced(c: *Checker, prop: ast_gen.SymbolIndex, nodeForCheckWriteOnly: ast_gen.NodeIndex, isSelfTypeAccess_: bool) void {
+        const prop_sym = c.binder.symbols.items[prop];
+        if ((prop_sym.Flags & symbol.SymbolFlags.ClassMember) == 0) return;
+        const value_decl = prop_sym.valueDeclaration orelse return;
+        const has_private_modifier = ast_utils.hasModifierFlags(c.binder.ast, value_decl, ast_utils.ModifierFlags.Private);
+        const name_node = prop_sym.name;
+        const has_private_identifier = name_node != 0 and c.binder.ast.getKind(name_node) == .PrivateIdentifier;
+        if (!has_private_modifier and !has_private_identifier) return;
+        if (nodeForCheckWriteOnly != 0 and ast_utils.isWriteOnlyAccess(c.binder.ast, nodeForCheckWriteOnly) and (prop_sym.Flags & symbol.SymbolFlags.SetAccessor) == 0) return;
+        if (isSelfTypeAccess_) {
+            // Skip: ancestor walk for containing method not yet wired.
+        }
+        var target = prop;
+        _ = &target;
+        // If instantiated, walk to target via valueSymbolLinks (not yet wired).
+        if (c.symbolReferenceLinks.getPtr(target)) |links| {
+            links.referenceKinds |= symbol.SymbolFlags.All;
+        }
     }
 
     pub fn expandSignatureParametersWithTupleMembers(c: *Checker, signature: types.SignatureIndex, restType: types.TypeIndex, restIndex: u32, restSymbol: ast_gen.SymbolIndex) types.TypeIndex {
