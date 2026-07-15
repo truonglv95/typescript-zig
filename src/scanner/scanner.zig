@@ -11,7 +11,7 @@ pub fn getECMALineOfPosition(text: []const u8, pos: usize) i64 {
     }
     return line;
 }
-const stringutil = @import("../stringutil/stringutil.zig");
+const stringutil_mod = @import("../stringutil/stringutil.zig");
 const identifier_pkg = @import("../stringutil/identifier.zig");
 const ast = @import("../ast/ast.zig");
 const kind = @import("../ast/kind.zig");
@@ -1872,4 +1872,97 @@ fn validateTemplateEscape(text: []const u8, start: usize, pos_ptr: *usize) bool 
             return true;
         },
     }
+}
+
+// === Additional scanner utility functions (ported from Go scanner/utilities.go and scanner.go) ===
+
+const stringutil = @import("../stringutil/util.zig");
+
+/// Port of tokenIsIdentifierOrKeyword.
+pub fn tokenIsIdentifierOrKeyword(token: kind.Kind) bool {
+    return @intFromEnum(token) >= @intFromEnum(kind.Kind.Identifier);
+}
+
+/// Port of IsIdentifierStart.
+pub fn isIdentifierStart(ch: u21) bool {
+    return stringutil.isASCIILetter(ch) or ch == '_' or ch == '$';
+}
+
+/// Port of IsIdentifierPart.
+pub fn isIdentifierPart(ch: u21) bool {
+    return isIdentifierPartEx(ch, .Standard);
+}
+
+/// Port of IsIdentifierPartEx.
+pub fn isIdentifierPartEx(ch: u21, language_variant: @import("../core/core.zig").LanguageVariant) bool {
+    return isWordCharacter(ch) or ch == '$' or
+        (language_variant == .JSX and (ch == '-' or ch == ':'));
+}
+
+/// Port of isWordCharacter.
+pub fn isWordCharacter(ch: u21) bool {
+    return stringutil.isASCIILetter(ch) or stringutil.isDigit(ch) or ch == '_';
+}
+
+/// Port of IsValidIdentifier.
+pub fn isValidIdentifier(s: []const u8) bool {
+    if (s.len == 0) return false;
+    var i: usize = 0;
+    var first = true;
+    while (i < s.len) {
+        const len = std.unicode.utf8ByteSequenceLength(s[i]) catch return false;
+        if (i + len > s.len) return false;
+        const ch = std.unicode.utf8Decode(s[i .. i + len]) catch return false;
+        if (first) {
+            if (!isIdentifierStart(ch)) return false;
+            first = false;
+        } else {
+            if (!isIdentifierPart(ch)) return false;
+        }
+        i += len;
+    }
+    return true;
+}
+
+/// Port of IsIdentifierText.
+pub fn isIdentifierText(name: []const u8, language_variant: @import("../core/core.zig").LanguageVariant) bool {
+    if (name.len == 0) return false;
+    var i: usize = 0;
+    var first = true;
+    while (i < name.len) {
+        const len = std.unicode.utf8ByteSequenceLength(name[i]) catch return false;
+        if (i + len > name.len) return false;
+        const ch = std.unicode.utf8Decode(name[i .. i + len]) catch return false;
+        if (first) {
+            if (!isIdentifierStart(ch)) return false;
+            first = false;
+        } else {
+            if (!isIdentifierPartEx(ch, language_variant)) return false;
+        }
+        i += len;
+    }
+    return true;
+}
+
+/// Port of IsIntrinsicJsxName.
+pub fn isIntrinsicJsxName(name: []const u8) bool {
+    if (name.len == 0) return false;
+    const first = name[0];
+    return (first >= 'a' and first <= 'z') or std.mem.indexOfScalar(u8, name, '-') != null;
+}
+
+/// Port of couldStartTrivia.
+pub fn couldStartTrivia(text: []const u8, pos: usize) bool {
+    if (pos >= text.len) return false;
+    return switch (text[pos]) {
+        '\r', '\n', '\t', '\x0B', '\x0C', ' ', '/', '<', '|', '=', '>' => true,
+        '#' => pos == 0,
+        else => text[pos] > 127,
+    };
+}
+
+/// Port of DeclarationNameToString.
+pub fn declarationNameToString(allocator: std.mem.Allocator, tree: *@import("../ast/ast.zig").Ast, name: @import("../ast/ast_generated.zig").NodeIndex) ![]const u8 {
+    if (name == 0) return "(Missing)";
+    return try allocator.dupe(u8, @import("../ast/ast_utils.zig").getTextOfNode(tree, name));
 }
