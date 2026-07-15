@@ -20165,15 +20165,42 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::getNonUndefinedType`. Returns `t` with
+    /// `undefined` removed. If `t` is a generic type with an undefined
+    /// constraint, maps the constraint through.
     pub fn getNonUndefinedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        var type_or_constraint = t;
+        if (c.someType(t, struct {
+            fn apply(ch: *Checker, x: types.TypeIndex, _: void) bool {
+                return ch.isGenericTypeWithUndefinedConstraint(x);
+            }
+        }.apply, {})) {
+            type_or_constraint = c.mapType(t, struct {
+                fn apply(ch: *Checker, x: types.TypeIndex, _: void) types.TypeIndex {
+                    if ((ch.typesList.items[x].flags & types.TypeFlags.Instantiable) != 0) {
+                        return ch.getBaseConstraintOrType(x);
+                    }
+                    return x;
+                }
+            }.apply, {});
+        }
+        // TypeFactsNEUndefined: remove undefined from the type.
+        return c.getTypeWithFacts(type_or_constraint, types.TypeFacts.NEUndefined);
     }
 
+    /// Port of `checker.go::isGenericTypeWithUndefinedConstraint`. Returns
+    /// true if `t` is an instantiable type whose base constraint includes
+    /// `undefined`.
     pub fn isGenericTypeWithUndefinedConstraint(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Instantiable) != 0) {
+            const constraint = c.getBaseConstraintOfType(t);
+            if (constraint != 0) {
+                return c.maybeTypeOfKind(constraint, types.TypeFlags.Undefined);
+            }
+        }
         return false;
     }
 
