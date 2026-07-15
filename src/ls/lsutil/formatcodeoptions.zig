@@ -59,3 +59,14 @@ pub fn getDefaultFormatCodeSettings() FormatCodeSettings {
         },
     };
 }
+
+pub fn fromLSFormatOptions(f: FormatCodeSettings, opt: *const @import("../../lsp/lsproto/lsproto.zig").FormattingOptions) FormatCodeSettings {
+    var updated = f;
+    updated.editorSettings.tabSize = @intCast(opt.tabSize);
+    updated.editorSettings.indentSize = @intCast(opt.tabSize);
+    updated.editorSettings.convertTabsToSpaces = core.boolToTristate(opt.insertSpaces);
+    if (opt.trimTrailingWhitespace) |t| {
+        updated.editorSettings.trimTrailingWhitespace = core.boolToTristate(t);
+    }
+    return updated;
+}

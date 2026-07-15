@@ -263,7 +263,7 @@ pub const View = struct {
                 target = e.target;
             }
 
-            var ambient = core.firstNonZero(e.ambientModuleName(), e.packageName);
+            const ambient = core.firstNonZero(e.ambientModuleName(), e.packageName);
             var key = ExportGroupKey{
                 .target = target,
                 .name = name,

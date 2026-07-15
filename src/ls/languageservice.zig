@@ -2,6 +2,7 @@ const std = @import("std");
 const ast = @import("../ast/ast.zig");
 const compiler = @import("../compiler/program.zig");
 const checker = @import("../checker/checker.zig");
+const types = @import("../checker/types.zig");
 const autoimport = @import("../project/autoimport.zig");
 const lsconv = @import("lsconv.zig");
 const lsutil = @import("lsutil/lsutil.zig");
@@ -11,7 +12,11 @@ const tspath = @import("../tspath/tspath.zig");
 const vfsmatch = @import("../vfs/vfsmatch.zig");
 const host_module = @import("host.zig");
 const diagnostics = @import("diagnostics.zig");
+const api = @import("api.zig");
+const astnav = @import("../astnav/tokens.zig");
+const autoinsert = @import("autoinsert.zig");
 const definition = @import("definition.zig");
+const format = @import("format.zig");
 const hover = @import("hover.zig");
 const completions = @import("completions.zig");
 const codeactions = @import("codeactions.zig");
@@ -144,6 +149,27 @@ pub const LanguageService = struct {
         return chk;
     }
 
+    pub fn getSymbolAtPosition(self: *LanguageService, fileName: []const u8, position: u32) !ast.SymbolIndex {
+        const res = self.tryGetProgramAndFile(fileName) orelse return api.ErrNoSourceFile;
+        const a = self.getAst(res.file);
+        const source_file = self.getSourceFileNode(res.file);
+        const node = astnav.getTokenAtPosition(source_file, a, position);
+        if (node == 0) return api.ErrNoTokenAtPosition;
+
+        const chk = self.getTypeCheckerForFile(res.file);
+        return chk.getSymbolAtLocation(node);
+    }
+
+    pub fn getSymbolAtLocation(self: *LanguageService, file: compiler.FileId, node: ast.NodeIndex) ast.SymbolIndex {
+        const chk = self.getTypeCheckerForFile(file);
+        return chk.getSymbolAtLocation(node);
+    }
+
+    pub fn getTypeOfSymbol(self: *LanguageService, file: compiler.FileId, symbol: ast.SymbolIndex) types.TypeIndex {
+        const chk = self.getTypeCheckerForFile(file);
+        return chk.getTypeOfSymbolAtLocation(symbol, 0);
+    }
+
     pub fn readFile(self: *LanguageService, fileName: []const u8) ?[]const u8 {
         return self.host.readFile(fileName, self.allocator);
     }
@@ -209,12 +235,50 @@ pub const LanguageService = struct {
         return definition.provideDefinition(self, allocator, documentURI, position);
     }
 
+    pub fn provideOnAutoInsert(
+        self: *LanguageService,
+        allocator: std.mem.Allocator,
+        params: *lsproto.VSOnAutoInsertParams,
+    ) !?lsproto.VSOnAutoInsertResponse {
+        return autoinsert.provideOnAutoInsert(self, allocator, params);
+    }
+
     pub fn provideHover(
         self: *LanguageService,
         allocator: std.mem.Allocator,
         params: *lsproto.HoverParams,
     ) !lsproto.HoverOrNull {
         return hover.provideHover(self, allocator, params);
+    }
+
+    pub fn provideFormatDocument(
+        self: *LanguageService,
+        allocator: std.mem.Allocator,
+        documentURI: lsproto.DocumentUri,
+        options: *const lsproto.FormattingOptions,
+    ) !lsproto.TextEditsOrNull {
+        return format.provideFormatDocument(self, allocator, documentURI, options);
+    }
+
+    pub fn provideFormatDocumentRange(
+        self: *LanguageService,
+        allocator: std.mem.Allocator,
+        documentURI: lsproto.DocumentUri,
+        options: *const lsproto.FormattingOptions,
+        range: lsproto.Range,
+    ) !lsproto.TextEditsOrNull {
+        return format.provideFormatDocumentRange(self, allocator, documentURI, options, range);
+    }
+
+    pub fn provideFormatDocumentOnType(
+        self: *LanguageService,
+        allocator: std.mem.Allocator,
+        documentURI: lsproto.DocumentUri,
+        options: *const lsproto.FormattingOptions,
+        position: lsproto.Position,
+        character: []const u8,
+    ) !lsproto.TextEditsOrNull {
+        return format.provideFormatDocumentOnType(self, allocator, documentURI, options, position, character);
     }
 
     pub fn provideCompletion(

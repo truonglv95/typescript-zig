@@ -297,7 +297,7 @@ pub const ImportAdder = struct {
         const type_only_entry = self.new_imports.get(type_only_key);
         const non_type_only_entry = self.new_imports.get(non_type_only_key);
         
-        var new_entry = self.arena.create(ImportsCollection) catch @panic("OOM");
+        const new_entry = self.arena.create(ImportsCollection) catch @panic("OOM");
         new_entry.* = .{
             .use_require = use_require,
         };
@@ -333,6 +333,7 @@ pub const ImportAdder = struct {
     }
 
     fn getImportFixForSymbol(self: *ImportAdder, view: *View, file: ast.NodeIndex, exports: []*Export, is_valid_type_only_use_site: bool) ?*Fix {
+        _ = file;
         var fixes = std.ArrayList(*Fix).init(self.arena);
         for (exports) |export_info| {
             const export_fixes = view.getFixes(export_info, false, is_valid_type_only_use_site, null);
@@ -373,7 +374,11 @@ fn sortedNamedImports(arena: std.mem.Allocator, m: std.StringHashMapUnmanaged(*N
     while (it.next()) |k| {
         keys.append(k.*) catch @panic("OOM");
     }
-    std.mem.sort([]const u8, keys.items, {}, stringutil.lessThan);
+    std.mem.sort([]const u8, keys.items, {}, struct {
+        fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.lessThan);
     
     var result = std.ArrayList(*NewImportBinding).init(arena);
     for (keys.items) |k| {

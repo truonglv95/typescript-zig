@@ -1,5 +1,3 @@
-const std = @import("std");
-
 //! Display parts writer — captures classified text for hover/signature help.
 //!
 //! Port of `internal/ls/displaypartswriter.go` (217 LOC).
@@ -7,6 +5,8 @@ const std = @import("std");
 //! Implements a text writer that captures classified text runs for VS Code
 //! colorized labels while also building a plain string. When VS capability
 //! is false, only the plain string is built.
+const std = @import("std");
+
 
 /// A classified text run (for VS Code colorized hover).
 pub const VSClassifiedTextRun = struct {

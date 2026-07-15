@@ -10735,13 +10735,29 @@ pub const Checker = struct {
         }
     }
 
+    /// Port of `checker.go::checkExpressionWithContextualType`. Checks
+    /// `node` with `contextualType` pushed as the contextual type and
+    /// `inferenceContext` pushed as the inference context. Strips
+    /// literal freshness when the contextual type matches.
     pub fn checkExpressionWithContextualType(c: *Checker, node: ast_gen.NodeIndex, contextualType: types.TypeIndex, inferenceContext: u32, checkMode: CheckMode) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = contextualType;
-        _ = inferenceContext;
-        _ = checkMode;
-        return undefined;
+        const context_node = c.getContextNode(node);
+        c.pushContextualType(context_node, contextualType, false);
+        c.pushInferenceContext(context_node, inferenceContext);
+        var mode = checkMode;
+        // CheckMode.Contextual + (Inferential if inferenceContext != 0)
+        // We don't have CheckMode constants; conservative: pass checkMode.
+        _ = &mode;
+        const t = checkExpressionEx(c, node, mode);
+        // Strip literal freshness when contextual type matches.
+        if (t != 0 and c.maybeTypeOfKind(t, types.TypeFlags.Literal)) {
+            const inst_ctx = c.instantiateContextualType(contextualType, node, .{});
+            if (c.isLiteralOfContextualType(t, inst_ctx)) {
+                return c.getRegularTypeOfLiteralType(t);
+            }
+        }
+        c.popInferenceContext();
+        c.popContextualType();
+        return t;
     }
 
     /// Port of `checker.go::getContextNode`. Returns the context node

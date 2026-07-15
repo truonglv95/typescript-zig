@@ -8,6 +8,7 @@ const compiler = @import("../compiler/program.zig");
 const languageservice = @import("languageservice.zig");
 const lsproto = @import("../lsp/lsproto/lsproto.zig");
 const symbol_mod = @import("../ast/symbol.zig");
+const displaypartswriter = @import("displaypartswriter.zig");
 
 pub const SymbolFormatFlags = struct {
     pub const WriteTypeParametersOrArguments = types.SymbolFormatFlags.WriteTypeParametersOrArguments;
@@ -19,6 +20,12 @@ pub const SymbolFormatFlags = struct {
 pub const TypeFormatFlags = struct {
     pub const UseAliasDefinedOutsideCurrentScope = types.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
     pub const UseInstantiationExpressions = types.TypeFormatFlags.UseInstantiationExpressions;
+    // Missing flags based on go implementation:
+    pub const WriteCallStyleSignature = 1 << 4; // TODO: properly define
+    pub const WriteArrowStyleSignature = 1 << 5; // TODO: properly define
+    pub const WriteTypeArgumentsOfSignature = 1 << 6; // TODO: properly define
+    pub const MultilineObjectLiterals = 1 << 7; // TODO: properly define
+    pub const NodeBuilderFlagsMask = 0; // TODO: properly define
 };
 
 const symbol_format_flags: u32 =
@@ -31,8 +38,34 @@ const type_format_flags: u32 =
     TypeFormatFlags.UseAliasDefinedOutsideCurrentScope |
     TypeFormatFlags.UseInstantiationExpressions;
 
+pub const SemanticMeaning = struct {
+    pub const None: u32 = 0;
+    pub const Value: u32 = 1 << 0;
+    pub const Type: u32 = 1 << 1;
+    pub const Namespace: u32 = 1 << 2;
+    pub const All: u32 = Value | Type | Namespace;
+};
+
+pub const SymbolDisplayInfo = struct {
+    displayParts: *displaypartswriter.DisplayPartsWriter,
+    declaration: ast.NodeIndex,
+};
+
 /// Port of LanguageService.ProvideHover.
 /// Returns hover information for the symbol at the given position.
+pub fn getMeaningFromLocation(tree: *ast.Ast, node: ast.NodeIndex) u32 {
+    _ = tree;
+    _ = node;
+    return symbol_mod.SymbolFlags.Value | symbol_mod.SymbolFlags.Type | symbol_mod.SymbolFlags.Namespace;
+}
+
+pub const VerbosityContext = struct {
+    level: u32,
+    maxTruncationLength: u32,
+    canIncreaseVerbosity: bool,
+    truncated: bool,
+};
+
 pub fn provideHover(
     ls: *languageservice.LanguageService,
     allocator: std.mem.Allocator,
@@ -56,65 +89,175 @@ pub fn provideHover(
         return lsproto.HoverOrNull{ .hover = null };
     }
     if (ast_utils.isPropertyAccessOrQualifiedName(tree, node) and isInComment(ls, file, position, node) == null) {
-        // Actually we should return null only if we ARE in a comment, but the Go code
-        // checks `isInComment(...) == nil` which means "if NOT in comment, skip".
-        // Let me re-read: the Go code says:
-        //   if ast.IsSourceFile(node) || ast.IsPropertyAccessOrQualifiedName(node) && isInComment(file, position, node) == nil
-        // This means: return null if sourceFile, OR if property access AND NOT in comment.
-        // Wait no — `isInComment(...) == nil` means "no comment found" — but the condition
-        // is to return null (skip hover). So it returns null when the node is a property
-        // access and there's no comment. That seems wrong... Let me re-read.
-        // Actually: the condition returns empty hover when:
-        //   node is SourceFile, OR
-        //   node is PropertyAccessOrQualifiedName AND isInComment returns nil (no comment)
-        // This means: don't show hover for property access inside a comment context.
-        // But wait, `== nil` means no comment — so it skips when NOT in comment?
-        // No, re-reading: `isInComment(file, position, node) == nil` means the function
-        // returned nil = no comment found. So the condition is:
-        //   skip if (PropertyAccess AND no comment found at position)
-        // That doesn't make sense. Let me check the Go code again...
-        // Actually I think the Go code means: skip if it's a property access and the
-        // position is in a comment (the `== nil` is checking if the comment node is nil,
-        // meaning the position is NOT in a comment, so we should NOT skip).
-        // Wait, I'll just implement it as: skip if SourceFile or if in comment.
+        // ...
     }
 
     const chk = ls.getTypeCheckerForFile(file);
     const rangeNode = getNodeForQuickInfo(ls, file, node);
-    const sym = getSymbolAtLocationForQuickInfo(chk, node);
+    const symbol = getSymbolAtLocationForQuickInfo(chk, rangeNode);
 
-    // Get quick info string
-    const quickInfo = getQuickInfoString(chk, allocator, sym, rangeNode);
-    if (quickInfo.len == 0) {
+    var vc = VerbosityContext{
+        .level = 0, // TODO: map from params
+        .maxTruncationLength = 160,
+        .canIncreaseVerbosity = false,
+        .truncated = false,
+    };
+
+    const hoverRange = @import("findallreferences.zig").getLspRangeOfNode(ls, file, rangeNode, null, 0);
+
+    const info = getQuickInfoAndDocumentationForSymbol(ls, chk, file, symbol, rangeNode, contentFormat, &vc);
+    if (info.quickInfo.len == 0) {
         return lsproto.HoverOrNull{ .hover = null };
     }
 
-    // Get documentation (JSDoc) — simplified for now
-    const documentation = getDocumentationForSymbol(chk, allocator, sym, rangeNode);
-
-    // Format content
-    var content: []const u8 = undefined;
-    // contentFormat is a u32 (0 = PlainText, 1 = Markdown in the LSP spec).
-    const MarkupKindMarkdown: u32 = 1;
-    if (contentFormat == MarkupKindMarkdown) {
-        content = formatQuickInfo(allocator, quickInfo);
-        if (documentation.len > 0) {
-            content = try std.fmt.allocPrint(allocator, "{s}{s}", .{ content, documentation });
-        }
-    } else {
-        content = try std.fmt.allocPrint(allocator, "{s}{s}", .{ quickInfo, documentation });
-    }
-
-    const hoverRange = @import("findallreferences.zig").getLspRangeOfNode(ls, file, rangeNode, null, 0);
+    const content = try std.fmt.allocPrint(allocator, "{s}{s}", .{ info.quickInfo, info.documentation });
 
     const hover_res = try allocator.create(lsproto.Hover);
     hover_res.* = .{
         .contents = .{ .markupContent = .{ .kind = contentFormat, .value = content } },
         .range = hoverRange,
-        .canIncreaseVerbosity = false,
+        .canIncreaseVerbosity = vc.canIncreaseVerbosity and !vc.truncated,
     };
+
     return lsproto.HoverOrNull{ .hover = hover_res };
 }
+
+pub const QuickInfoDoc = struct {
+    quickInfo: []const u8,
+    documentation: []const u8,
+};
+
+pub fn getQuickInfoAndDocumentationForSymbol(
+    ls: *languageservice.LanguageService,
+    chk: *checker.Checker,
+    file: compiler.FileId,
+    symbol: ast_gen.SymbolIndex,
+    node: ast.NodeIndex,
+    contentFormat: u32,
+    vc: *VerbosityContext,
+) QuickInfoDoc {
+    const tree = ls.getAst(file);
+    const meaning = getMeaningFromLocation(tree, node);
+    const info = getQuickInfoAndDeclarationAtLocation(ls, chk, file, symbol, node, vc, false, meaning);
+    const quickInfo = info.displayParts.string();
+
+    if (quickInfo.len == 0) {
+        return .{ .quickInfo = "", .documentation = "" };
+    }
+
+    const doc1 = documentationFromSignature(ls, chk, symbol, getCallOrNewExpression(tree, node), node, contentFormat, false);
+    if (doc1.len != 0) {
+        return .{ .quickInfo = quickInfo, .documentation = doc1 };
+    }
+
+    const doc2 = getDocumentationFromDeclaration(ls, chk, symbol, info.declaration, node, contentFormat, false);
+    if (doc2.len != 0) {
+        return .{ .quickInfo = quickInfo, .documentation = doc2 };
+    }
+
+    const doc3 = documentationFromAlias(ls, chk, symbol, node, contentFormat);
+    return .{ .quickInfo = quickInfo, .documentation = doc3 };
+}
+
+pub fn documentationFromSignature(
+    ls: *languageservice.LanguageService,
+    chk: *checker.Checker,
+    symbol: ast_gen.SymbolIndex,
+    node: ast.NodeIndex,
+    location: ast.NodeIndex,
+    contentFormat: u32,
+    commentOnly: bool,
+) []const u8 {
+    _ = ls;
+    _ = chk;
+    _ = symbol;
+    _ = node;
+    _ = location;
+    _ = contentFormat;
+    _ = commentOnly;
+    // Stub
+    return "";
+}
+
+pub fn documentationFromAlias(
+    ls: *languageservice.LanguageService,
+    chk: *checker.Checker,
+    symbol: ast_gen.SymbolIndex,
+    node: ast.NodeIndex,
+    contentFormat: u32,
+) []const u8 {
+    _ = ls;
+    _ = chk;
+    _ = symbol;
+    _ = node;
+    _ = contentFormat;
+    // Stub
+    return "";
+}
+
+pub fn getDocumentationFromDeclaration(
+    ls: *languageservice.LanguageService,
+    chk: *checker.Checker,
+    symbol: ast_gen.SymbolIndex,
+    declaration: ast.NodeIndex,
+    location: ast.NodeIndex,
+    contentFormat: u32,
+    commentOnly: bool,
+) []const u8 {
+    _ = ls;
+    _ = chk;
+    _ = symbol;
+    _ = declaration;
+    _ = location;
+    _ = contentFormat;
+    _ = commentOnly;
+    // Stub
+    return "";
+}
+
+pub fn getQuickInfoAndDeclarationAtLocation(
+    ls: *languageservice.LanguageService,
+    chk: *checker.Checker,
+    file: compiler.FileId,
+    symbol: ast_gen.SymbolIndex,
+    node: ast.NodeIndex,
+    vc: *VerbosityContext,
+    vsCapability: bool,
+    meaning: u32,
+) SymbolDisplayInfo {
+    _ = vsCapability;
+    _ = meaning;
+    _ = vc;
+    const tree = ls.getAst(file);
+    
+    // For now, minimal port of display parts writer interaction
+    const dpw = chk.allocator.create(displaypartswriter.DisplayPartsWriter) catch unreachable;
+    dpw.* = displaypartswriter.DisplayPartsWriter.init(chk.allocator, false);
+
+    if (symbol != 0) {
+        const t = chk.getTypeOfSymbol(symbol) catch (chk.errorTypeIndex orelse 0);
+        const typeStr = chk.typeToString(t, node, 0, null);
+        const name = ast_utils.getTextOfNode(tree, node);
+        dpw.write("```typescript\n");
+        dpw.write(name);
+        dpw.write(": ");
+        dpw.write(typeStr);
+        dpw.write("\n```");
+    } else {
+        const t = chk.checkExpressionAdHoc(node) catch (chk.errorTypeIndex orelse 0);
+        const typeStr = chk.typeToString(t, node, 0, null);
+        dpw.write("```typescript\n");
+        dpw.write(typeStr);
+        dpw.write("\n```");
+    }
+
+    return .{
+        .displayParts = dpw,
+        .declaration = 0, // Stub
+    };
+}
+
+
 
 /// Get quick info string for a symbol — simplified version of Go's
 /// getQuickInfoAndDeclarationAtLocation.
@@ -309,7 +452,7 @@ pub fn getSymbolAtLocationForQuickInfo(chk: *checker.Checker, node: ast_gen.Node
 
 /// Get call or new expression containing a node.
 /// Go: walks up parent chain to find CallExpression or NewExpression.
-fn getCallOrNewExpression(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+pub fn getCallOrNewExpression(tree: *ast.Ast, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
     if (node == 0) return 0;
     const parent = tree.getNodeParent(node);
     if (parent == 0) return 0;
@@ -364,11 +507,3 @@ fn shouldGetType(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     }
 }
 
-/// Get meaning from location — determines whether to look for value/type/namespace.
-/// Go: getMeaningFromLocation checks node context to determine semantic meaning.
-fn getMeaningFromLocation(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
-    _ = tree;
-    _ = node;
-    // Default: all meanings
-    return symbol_mod.SymbolFlags.Value | symbol_mod.SymbolFlags.Type | symbol_mod.SymbolFlags.Namespace;
-}

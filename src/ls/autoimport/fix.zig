@@ -137,6 +137,8 @@ pub fn addImportType(arena: std.mem.Allocator, f: *Fix, tree: *ast.Ast, fileInde
 }
 
 pub fn addNamespaceQualifier(arena: std.mem.Allocator, f: *Fix, tracker: *change.Tracker, tree: *ast.Ast, fileIndex: ast.NodeIndex, loc: locale.Locale) ![]const u8 {
+    _ = tree;
+
     if (f.autoImportFix.UsagePosition == null or f.autoImportFix.NamespacePrefix.len == 0) {
         @panic("namespace fix requires usage position and prefix");
     }
@@ -555,7 +557,7 @@ pub fn promoteFromTypeOnly(
 ) !ast.NodeIndex {
     _ = changes;
     _ = tree;
-    _ = aliasDeclaration;
+
     _ = compilerOptions;
     _ = fileIndex;
     _ = preferences;

@@ -1,13 +1,14 @@
 const std = @import("std");
 const ast = @import("../ast/ast.zig");
 const astnav = @import("../ast/ast_utils.zig");
+const format_scanner = @import("scanner.zig");
+const kind = @import("../ast/kind.zig");
 const core = @import("../core/core.zig");
 const textchange = @import("../core/textchange.zig");
 const lsutil = @import("../ls/lsutil/lsutil.zig");
 const scanner = @import("../scanner/scanner.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 const stringutil = @import("../stringutil/stringutil.zig");
-const format_scanner = @import("scanner.zig");
 const context = @import("context.zig");
 const api = @import("api.zig");
 const rule = @import("rule.zig");
@@ -22,17 +23,31 @@ pub const DynamicIndenter = struct {
     options: lsutil.FormatCodeSettings,
     tree: *ast.Ast,
 
-    pub fn getIndentationForComment(self: *DynamicIndenter, kind: std.meta.Tag(ast_gen.NodeData), tokenIndentation: i32, container: ast.NodeIndex) i32 {
-        _ = kind; _ = container;
-        if (tokenIndentation != -1) return tokenIndentation;
-        return self.indentation;
+    pub fn getIndentationForComment(self: *DynamicIndenter, node_kind: std.meta.Tag(ast_gen.NodeData), tokenIndentation: i32, container: ast.NodeIndex) i32 {
+        _ = self;
+        _ = node_kind;
+        _ = tokenIndentation;
+        _ = container;
+        return 0; // Not fully ported
     }
-    
-    pub fn getIndentationForToken(self: *DynamicIndenter, line: i32, kind: std.meta.Tag(ast_gen.NodeData), container: ast.NodeIndex, suppressDelta: bool) i32 {
-        _ = line; _ = kind; _ = container; _ = suppressDelta;
-        return self.indentation;
+
+    pub fn getIndentationForToken(self: *DynamicIndenter, line: i32, node_kind: std.meta.Tag(ast_gen.NodeData), container: ast.NodeIndex, suppressDelta: bool) i32 {
+        _ = self;
+        _ = line;
+        _ = node_kind;
+        _ = container;
+        _ = suppressDelta;
+        return 0; // Not fully ported
     }
-    
+
+    pub fn getIndentationForNode(self: *DynamicIndenter, line: i32, node: ast.NodeIndex, container: ast.NodeIndex) i32 {
+        _ = self;
+        _ = line;
+        _ = node;
+        _ = container;
+        return 0; // Not fully ported
+    }
+
     pub fn getIndentation(self: *DynamicIndenter) i32 {
         return self.indentation;
     }
@@ -46,9 +61,12 @@ pub const DynamicIndenter = struct {
         _ = self; _ = lineAdded; _ = parent;
     }
     
-    pub fn shouldAddDelta(self: *DynamicIndenter, line: i32, kind: std.meta.Tag(ast_gen.NodeData), container: ast.NodeIndex) bool {
-        _ = self; _ = line; _ = kind; _ = container;
-        return false;
+    pub fn shouldAddDelta(self: *DynamicIndenter, line: i32, node_kind: std.meta.Tag(ast_gen.NodeData), container: ast.NodeIndex) bool {
+        _ = self;
+        _ = line;
+        _ = node_kind;
+        _ = container;
+        return false; // Not fully ported
     }
 };
 
@@ -471,14 +489,14 @@ pub fn processPair(
 /// Port of applyRuleEdits. Applies formatting rule edits.
 pub fn applyRuleEdits(
     self: *FormatSpanWorker,
-    rule: anytype,
+    format_rule: anytype,
     previous_range: anytype,
     previous_start_line: i32,
     current_range: anytype,
     current_start_line: i32,
 ) u32 {
     _ = self;
-    _ = rule;
+    _ = format_rule;
     _ = previous_range;
     _ = previous_start_line;
     _ = current_range;

@@ -577,13 +577,54 @@ pub fn getCandidateOrTypeInfo(
     }
 }
 
+fn containsPrecedingToken(
+    tree: *ast.Ast,
+    startingToken: ast_gen.NodeIndex,
+    container: ast_gen.NodeIndex,
+) bool {
+    if (container == 0) return false;
+    const container_pos = tree.getNodePos(container);
+    const container_end = tree.getNodeEnd(container);
+    const token_end = tree.getNodeEnd(startingToken);
+    return container_pos <= token_end and token_end <= container_end;
+}
+
 fn isSyntacticOwner(
     tree: *ast.Ast,
     startingToken: ast_gen.NodeIndex,
     node: ast_gen.NodeIndex,
 ) bool {
-    _ = tree;
-    _ = startingToken;
-    _ = node;
-    return true;
+    const node_kind = std.meta.activeTag(tree.getNode(node));
+    if (node_kind == .Decorator) {
+        return containsPrecedingToken(tree, startingToken, node);
+    }
+    if (node_kind == .JsxOpeningElement or node_kind == .JsxSelfClosingElement) {
+        return containsPrecedingToken(tree, startingToken, node);
+    }
+    if (node_kind == .TaggedTemplateExpression) {
+        const tagged = tree.getNode(node).TaggedTemplateExpression;
+        if (tagged.Template != 0) return containsPrecedingToken(tree, startingToken, tagged.Template);
+        return false;
+    }
+    if (node_kind == .CallExpression) {
+        const call_expr = tree.getNode(node).CallExpression;
+        if (call_expr.Arguments != 0) {
+            return containsPrecedingToken(tree, startingToken, call_expr.Arguments);
+        }
+        if (call_expr.TypeArguments) |t| {
+            if (t != 0) return containsPrecedingToken(tree, startingToken, t);
+        }
+        return containsPrecedingToken(tree, startingToken, call_expr.Expression);
+    }
+    if (node_kind == .NewExpression) {
+        const new_expr = tree.getNode(node).NewExpression;
+        if (new_expr.Arguments) |args| {
+            if (args != 0) return containsPrecedingToken(tree, startingToken, args);
+        }
+        if (new_expr.TypeArguments) |t| {
+            if (t != 0) return containsPrecedingToken(tree, startingToken, t);
+        }
+        return containsPrecedingToken(tree, startingToken, new_expr.Expression);
+    }
+    return false;
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("../ast/ast.zig");
+const kind = @import("../ast/kind.zig");
 const lsutil = @import("../ls/lsutil/lsutil.zig");
 
 pub fn getIndentationForNode(n: ast.NodeIndex, originalRange: *const ast.TextRange, tree: *ast.Ast, options: lsutil.FormatCodeSettings) u32 {

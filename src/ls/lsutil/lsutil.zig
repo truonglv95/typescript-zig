@@ -11,6 +11,7 @@ pub const FormatCodeSettings = formatcodeoptions.FormatCodeSettings;
 pub const EditorSettings = formatcodeoptions.EditorSettings;
 pub const SemicolonPreference = formatcodeoptions.SemicolonPreference;
 pub const getDefaultFormatCodeSettings = formatcodeoptions.getDefaultFormatCodeSettings;
+pub const fromLSFormatOptions = formatcodeoptions.fromLSFormatOptions;
 
 pub const UserPreferences = userpreferences.UserPreferences;
 pub const QuotePreference = userpreferences.QuotePreference;

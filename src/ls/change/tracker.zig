@@ -1,11 +1,11 @@
-const std = @import("std");
-
 //! Text change tracker — records edits to source files.
 //!
 //! Port of `internal/ls/change/tracker.go` (751 LOC).
 //!
 //! The change tracker accumulates text edits (insertions, deletions,
 //! replacements) and produces `TextEdit` arrays for LSP responses.
+const std = @import("std");
+
 
 const ast = @import("../../ast/ast.zig");
 const ast_gen = @import("../../ast/ast_generated.zig");

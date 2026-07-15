@@ -48,7 +48,7 @@ pub fn getModuleSpecifier(
         }
     }
 
-    var cache = v.registry.specifierCache.getPtr(v.importingFileName);
+    const cache = v.registry.specifierCache.getPtr(v.importingFileName);
     if (export_data.PackageName.len == 0) {
         if (cache) |c| {
             if (c.load(export_data.Path)) |specifier| {

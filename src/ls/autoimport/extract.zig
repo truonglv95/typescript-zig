@@ -35,8 +35,8 @@ pub const SymbolExtractor = struct {
         toPath: ?*const fn (fileName: []const u8) tspath.Path,
         realpath: ?*const fn (fileName: []const u8) []const u8,
     ) *SymbolExtractor {
-        var e = allocator.create(SymbolExtractor) catch unreachable;
-        var stats = allocator.create(ExtractorStats) catch unreachable;
+        const e = allocator.create(SymbolExtractor) catch unreachable;
+        const stats = allocator.create(ExtractorStats) catch unreachable;
         stats.* = .{ .exports = 0, .usedChecker = 0 };
 
         e.* = .{
@@ -213,7 +213,7 @@ pub const ExportExtractor = struct {
         symbolExtractor: *SymbolExtractor,
         moduleResolver: *module.Resolver,
     ) *ExportExtractor {
-        var e = allocator.create(ExportExtractor) catch unreachable;
+        const e = allocator.create(ExportExtractor) catch unreachable;
         e.* = .{
             .symbolExtractor = symbolExtractor,
             .moduleResolver = moduleResolver,

@@ -34,9 +34,7 @@ pub fn findChildOfKind(node: ast.NodeIndex, k: kind.Kind, tree: *ast.Ast) ast.No
 
 // === Missing format/util.go functions ===
 
-const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
-const kind = @import("../ast/kind.zig");
 
 /// Port of getCloseTokenForOpenToken.
 pub fn getCloseTokenForOpenToken(k: kind.Kind) kind.Kind {
@@ -110,7 +108,6 @@ pub fn findOutermostNodeWithinListLevel(tree: *ast.Ast, node: ast_gen.NodeIndex)
 
 /// Port of isListElement. Returns true if node is an element in a parent's list.
 pub fn isListElement(tree: *ast.Ast, parent: ast_gen.NodeIndex, node: ast_gen.NodeIndex) bool {
-    _ = tree;
     _ = node;
     const k = tree.getNodeKind(parent);
     return switch (k) {
