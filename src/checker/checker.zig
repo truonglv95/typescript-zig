@@ -8733,9 +8733,15 @@ pub const Checker = struct {
     }
 
     pub fn isUnwrappedReturnTypeUndefinedVoidOrAny(c: *Checker, fn_: ast_gen.NodeIndex, returnType: types.TypeIndex) bool {
-        _ = c;
+        // Go: t := c.unwrapReturnType(returnType, ast.GetFunctionFlags(fn))
+        //   return t != nil && (c.maybeTypeOfKind(t, TypeFlagsVoid) || t.flags&(TypeFlagsAny|TypeFlagsUndefined) != 0)
+        // Simplified: unwrapReturnType is still a stub returning 0.
+        // Check returnType flags directly (conservative).
         _ = fn_;
-        _ = returnType;
+        if (returnType == 0) return false;
+        const flags = c.typesList.items[returnType].flags;
+        if (c.maybeTypeOfKind(returnType, types.TypeFlags.Void)) return true;
+        if ((flags & (types.TypeFlags.Any | types.TypeFlags.Undefined)) != 0) return true;
         return false;
     }
 
@@ -9271,10 +9277,21 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn hasExportedMembersOfKind(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, kind_: types.SignatureKind) bool {
-        _ = c;
-        _ = moduleSymbol;
-        _ = kind_;
+    pub fn hasExportedMembersOfKind(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, kind_: u32) bool {
+        // Go: for _, symbol := range moduleSymbol.Exports {
+        //   if symbol.Name != ast.InternalSymbolNameExportEquals && c.getSymbolFlags(symbol)&kind != 0 { return true }
+        // }
+        // return false
+        const sym = c.binder.symbols.items[moduleSymbol];
+        var it = sym.Exports.iterator();
+        while (it.next()) |entry| {
+            const child_sym = entry.value_ptr.*;
+            if (child_sym == 0) continue;
+            const child = c.binder.symbols.items[child_sym];
+            if (!std.mem.eql(u8, child.Name, symbol.InternalSymbolNameExportEquals)) {
+                if ((c.getSymbolFlags(child_sym) & kind_) != 0) return true;
+            }
+        }
         return false;
     }
 
@@ -9738,11 +9755,23 @@ pub const Checker = struct {
         // TODO(phase1.2): deprecated symbol suggestions
     }
 
-    pub fn areDeclarationFlagsIdentical(c: *Checker, left: types.TypeIndex, right: types.TypeIndex) bool {
-        _ = c;
-        _ = left;
-        _ = right;
-        return false;
+    pub fn areDeclarationFlagsIdentical(c: *Checker, left: ast_gen.NodeIndex, right: ast_gen.NodeIndex) bool {
+        // Go: if IsParameterDeclaration(left) && IsVariableDeclaration(right) ||
+        //   IsVariableDeclaration(left) && IsParameterDeclaration(right) { return true }
+        //   if isOptionalDeclaration(left) != isOptionalDeclaration(right) { return false }
+        //   interestingFlags := ModifierFlagsPrivate | ModifierFlagsProtected | ModifierFlagsAsync | ModifierFlagsAbstract | ModifierFlagsReadonly | ModifierFlagsStatic
+        //   return getSelectedModifierFlags(left, interestingFlags) == getSelectedModifierFlags(right, interestingFlags)
+        // Simplified: check parameter/variable cross-cases, then modifier flags.
+        const left_is_param = ast_utils.isParameterDeclaration(c.binder.ast, left);
+        const right_is_param = ast_utils.isParameterDeclaration(c.binder.ast, right);
+        const left_is_var = c.binder.ast.getKind(left) == .VariableDeclaration;
+        const right_is_var = c.binder.ast.getKind(right) == .VariableDeclaration;
+        if ((left_is_param and right_is_var) or (left_is_var and right_is_param)) return true;
+        // isOptionalDeclaration and getSelectedModifierFlags not fully wired.
+        // Conservative: compare combined modifier flags.
+        const left_flags = ast_utils.getCombinedModifierFlags(c.binder.ast, left);
+        const right_flags = ast_utils.getCombinedModifierFlags(c.binder.ast, right);
+        return left_flags == right_flags;
     }
 
     /// Port of checker.go::checkTypeNameIsReserved. Reports an error if
