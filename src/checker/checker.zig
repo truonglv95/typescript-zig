@@ -12044,13 +12044,26 @@ pub const Checker = struct {
         return checkTruthinessOfType(c, t, node);
     }
 
-    pub fn getYieldedTypeOfYieldExpression(c: *Checker, node: ast_gen.NodeIndex, expressionType: ast_gen.NodeIndex, sentType: ast_gen.NodeIndex, isAsync: bool) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = expressionType;
-        _ = sentType;
-        _ = isAsync;
-        return 0;
+    /// Port of `checker.go::getYieldedTypeOfYieldExpression`. Returns the
+    /// yielded type of a yield expression. For `yield*`, iterates the
+    /// operand. For async generators, awaits the result.
+    pub fn getYieldedTypeOfYieldExpression(c: *Checker, node: ast_gen.NodeIndex, expressionType: types.TypeIndex, sentType: types.TypeIndex, isAsync: bool) types.TypeIndex {
+        const yield_expr = c.binder.ast.getNode(node).YieldExpression;
+        const error_node: ast_gen.NodeIndex = yield_expr.Expression orelse node;
+        const is_yield_star = yield_expr.AsteriskToken != null and yield_expr.AsteriskToken.? != 0;
+        var yielded_type = expressionType;
+        if (is_yield_star) {
+            // For yield*, iterate the operand.
+            yielded_type = c.checkIteratedTypeOrElementType(
+                if (isAsync) 4 else 3, // IterationUseAsyncYieldStar / IterationUseYieldStar
+                expressionType,
+                sentType,
+                error_node,
+            );
+        }
+        if (!isAsync) return yielded_type;
+        // For async generators, await the yielded type.
+        return c.checkAwaitedType(yielded_type, true, error_node, &diagnostics_gen.Type_of_yield_operand_in_an_async_generator_must_either_be_a_valid_promise_or_must_not_contain_a_callable_then_member);
     }
 
     pub fn isSameScopedBindingElement(c: *Checker, node: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex) bool {
@@ -13110,13 +13123,32 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::checkAssignmentOperator`. Validates that the
+    /// left-hand side of an assignment is a valid reference and that the
+    /// right-hand side is assignable to the left-hand side's type.
     pub fn checkAssignmentOperator(c: *Checker, left: ast_gen.NodeIndex, operator: kind.Kind, right: ast_gen.NodeIndex, leftType: types.TypeIndex, rightType: types.TypeIndex) void {
-        _ = c;
-        _ = left;
-        _ = operator;
-        _ = right;
-        _ = leftType;
-        _ = rightType;
+        if (!ast_utils.isAssignmentOperator(operator)) return;
+        // For compound assignments on property access, re-check with writeOnly.
+        var effective_left_type = leftType;
+        if (ast_utils.isCompoundAssignment(operator) and c.binder.ast.getKind(left) == .PropertyAccessExpression) {
+            effective_left_type = checkPropertyAccessExpression(c, left, .Normal, true);
+        }
+        // Check that left is a valid reference.
+        if (c.checkReferenceExpression(
+            left,
+            diagnostics_gen.The_left_hand_side_of_an_assignment_expression_must_be_a_variable_or_a_property_access,
+            diagnostics_gen.The_left_hand_side_of_an_assignment_expression_may_not_be_an_optional_property_access,
+        )) {
+            // Check assignability of right to left.
+            c.checkTypeAssignableToAndOptionallyElaborate(
+                rightType,
+                effective_left_type,
+                left,
+                right,
+                null,
+                null,
+            );
+        }
     }
 
     pub fn bothAreBigIntLike(c: *Checker, left: types.TypeIndex, right: types.TypeIndex) bool {
