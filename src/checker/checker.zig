@@ -14412,15 +14412,36 @@ pub const Checker = struct {
     }
 
     pub fn isParameterOfContextSensitiveSignature(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = symbol_;
+        // Go: decl := symbol.ValueDeclaration
+        //   if decl == nil { return false }
+        //   if ast.IsBindingElement(decl) { decl = ast.WalkUpBindingElementsAndPatterns(decl) }
+        //   if ast.IsParameterDeclaration(decl) { return c.isContextSensitiveFunctionOrObjectLiteralMethod(decl.Parent) }
+        //   return false
+        const sym = c.binder.symbols.items[symbol_];
+        const decl = sym.ValueDeclaration orelse return false;
+        if (decl == 0) return false;
+        const d = decl;
+        if (ast_utils.isBindingElement(c.binder.ast, d)) {
+            // WalkUpBindingElementsAndPatterns not yet wired; conservative false.
+            return false;
+        }
+        if (ast_utils.isParameterDeclaration(c.binder.ast, d)) {
+            // isContextSensitiveFunctionOrObjectLiteralMethod not yet wired; conservative false.
+            return false;
+        }
         return false;
     }
 
     pub fn getTypeOfVariableOrParameterOrPropertyWorker(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+        // Go: if symbol.Flags&ast.SymbolFlagsPrototype != 0 { return c.getTypeOfPrototypeProperty(symbol) }
+        //   if symbol == c.requireSymbol { return c.anyType }
+        //   ... (complex ValueDeclaration checking)
+        // Simplified: check Prototype flag, then delegate to getTypeOfSymbol.
+        const sym = c.binder.symbols.items[symbol_];
+        if ((sym.Flags & symbol.SymbolFlags.Prototype) != 0) {
+            return c.getTypeOfPrototypeProperty(symbol_);
+        }
+        return c.getTypeOfSymbol(symbol_) catch (c.anyTypeIndex orelse 0);
     }
 
     pub fn getWidenedTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {
@@ -14497,15 +14518,32 @@ pub const Checker = struct {
     }
 
     pub fn getTypeOfFuncClassEnumModule(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+        // Go: links := c.valueSymbolLinks.Get(symbol)
+        //   if links.resolvedType == nil { links.resolvedType = c.getTypeOfFuncClassEnumModuleWorker(symbol) }
+        //   return links.resolvedType
+        if (c.valueSymbolLinks.getPtr(symbol_)) |links| {
+            if (links.resolvedType) |t| return t;
+        }
+        return c.getTypeOfFuncClassEnumModuleWorker(symbol_);
     }
 
     pub fn getTypeOfFuncClassEnumModuleWorker(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+        // Go: if Module && isShorthandAmbientModuleSymbol { return anyType }
+        //   if ValueModule && ValueDeclaration is SourceFile with CommonJSModuleIndicator {
+        //     resolvedModule := c.resolveExternalModuleSymbol(symbol, false)
+        //     if resolvedModule != symbol { return c.getTypeOfSymbol(resolvedModule) }
+        //   }
+        //   t := c.newObjectType(ObjectFlagsAnonymous, symbol)
+        //   if Class { ... getBaseTypeVariableOfClass ... }
+        //   if strictNullChecks && Optional { return c.getOptionalType(t, true) }
+        //   return t
+        // Simplified: check Module flag for shorthand ambient, otherwise delegate to getTypeOfSymbol.
+        const sym = c.binder.symbols.items[symbol_];
+        if ((sym.Flags & symbol.SymbolFlags.Module) != 0) {
+            // Shorthand ambient module check not yet wired; return anyType.
+            return c.anyTypeIndex orelse 0;
+        }
+        return c.getTypeOfSymbol(symbol_) catch (c.anyTypeIndex orelse 0);
     }
 
     pub fn getBaseTypeVariableOfClass(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
@@ -14527,9 +14565,11 @@ pub const Checker = struct {
     }
 
     pub fn getConstraintOrUnknownFromTypeParameter(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        // Go: result := c.getConstraintFromTypeParameter(t)
+        //   return core.IfElse(result != nil, result, c.unknownType)
+        const result = c.getConstraintFromTypeParameter(t);
+        if (result != 0) return result;
+        return c.unknownTypeIndex orelse 0;
     }
 
     pub fn getInferredTypeParameterConstraint(c: *Checker, t: types.TypeIndex, omitTypeReferences: ast_gen.NodeIndex) types.TypeIndex {
