@@ -13877,8 +13877,52 @@ pub const Checker = struct {
     }
 
     pub fn getExternalModuleFileFromDeclaration(c: *Checker, declaration: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = declaration;
+        // Go: var specifier *ast.Node
+        //   if declaration.Kind == KindModuleDeclaration {
+        //     if ast.IsStringLiteral(declaration.Name()) { specifier = declaration.Name() }
+        //   } else { specifier = ast.GetExternalModuleName(declaration) }
+        //   moduleSymbol := c.resolveExternalModuleNameWorker(specifier, specifier, nil, false, false)
+        //   if moduleSymbol == nil { return nil }
+        //   decl := ast.GetDeclarationOfKind(moduleSymbol, ast.KindSourceFile)
+        //   if decl == nil { return nil }
+        //   return decl.AsSourceFile()
+        var specifier: ast_gen.NodeIndex = 0;
+        const decl_kind = c.binder.ast.getKind(declaration);
+        if (decl_kind == .ModuleDeclaration) {
+            const name = c.binder.ast.getNode(declaration).ModuleDeclaration.name;
+            if (name != 0 and ast_utils.isStringLiteral(c.binder.ast, name)) {
+                specifier = name;
+            }
+        } else {
+            // GetExternalModuleName: switch on kind
+            switch (decl_kind) {
+                .ImportDeclaration, .JSImportDeclaration => {
+                    specifier = c.binder.ast.getNode(declaration).ImportDeclaration.ModuleSpecifier;
+                },
+                .ExportDeclaration => {
+                    specifier = c.binder.ast.getNode(declaration).ExportDeclaration.ModuleSpecifier orelse 0;
+                },
+                .ImportEqualsDeclaration => {
+                    const module_ref = c.binder.ast.getNode(declaration).ImportEqualsDeclaration.ModuleReference;
+                    if (module_ref != 0 and c.binder.ast.getKind(module_ref) == .ExternalModuleReference) {
+                        specifier = c.binder.ast.getNode(module_ref).ExternalModuleReference.Expression;
+                    }
+                },
+                .CallExpression => {
+                    const args = c.binder.ast.getNodeList(c.binder.ast.getNode(declaration).CallExpression.Arguments);
+                    if (args.len > 0) specifier = args[0];
+                },
+                else => {},
+            }
+        }
+        if (specifier == 0) return 0;
+        const module_symbol = c.resolveExternalModuleNameWorker(specifier, specifier, null, false, false);
+        if (module_symbol == 0) return 0;
+        // GetDeclarationOfKind: find SourceFile declaration in symbol.Declarations
+        const sym = c.binder.symbols.items[module_symbol];
+        for (sym.Declarations.items) |decl| {
+            if (decl != 0 and c.binder.ast.getKind(decl) == .SourceFile) return decl;
+        }
         return 0;
     }
 
