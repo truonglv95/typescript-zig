@@ -369,6 +369,8 @@ pub const Checker = struct {
     ownedDiagnosticArgs: std.ArrayListUnmanaged([]const []const u8) = .empty,
     ownedStrings: std.ArrayListUnmanaged([]const u8) = .empty,
     suggestionDiagnostics: std.ArrayListUnmanaged(diagnostics.Diagnostic) = .empty,
+    saveDeferredDiagnostics: bool = false,
+    deferredDiagnosticCallbacks: std.ArrayListUnmanaged(*const fn () void) = .empty,
 
     typeNodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.TypeNodeLinks) = .empty,
     symbolNodeLinks: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, types.SymbolNodeLinks) = .empty,
@@ -12441,10 +12443,17 @@ pub const Checker = struct {
         return c.checkExpressionCached(node);
     }
 
-    pub fn getReferencedValueOrAliasSymbol(c: *Checker, reference: *anyopaque) *anyopaque {
-        _ = c;
-        _ = reference;
-        return undefined;
+    pub fn getReferencedValueOrAliasSymbol(c: *Checker, reference: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: resolvedSymbol := c.symbolNodeLinks.Get(reference).resolvedSymbol
+        //   if resolvedSymbol != nil && resolvedSymbol != c.unknownSymbol { return resolvedSymbol }
+        //   return c.resolveName(reference, reference.Text(), ast.SymbolFlagsValue|ast.SymbolFlagsExportValue|ast.SymbolFlagsAlias, nil, true, false)
+        if (c.symbolNodeLinks.get(reference)) |links| {
+            if (links.resolvedSymbol != 0 and links.resolvedSymbol != c.unknownSymbol) {
+                return links.resolvedSymbol;
+            }
+        }
+        const text = ast_utils.getTextOfNode(c.binder.ast, reference);
+        return resolveName(c, reference, text, symbol.SymbolFlags.Value | symbol.SymbolFlags.ExportValue | symbol.SymbolFlags.Alias, null, true, false);
     }
 
     pub fn getCannotFindNameDiagnosticForName(c: *Checker, node: *anyopaque) *anyopaque {
@@ -12474,14 +12483,22 @@ pub const Checker = struct {
         return &.{};
     }
 
-    pub fn addDeferredDiagnostic(c: *Checker, callback: *anyopaque) *anyopaque {
-        _ = c;
-        _ = callback;
-        return undefined;
+    pub fn addDeferredDiagnostic(c: *Checker, callback: *const fn () void) void {
+        // Go: if c.saveDeferredDiagnostics {
+        //   c.deferredDiagnosticCallbacks = append(c.deferredDiagnosticCallbacks, callback)
+        // }
+        if (c.saveDeferredDiagnostics) {
+            c.deferredDiagnosticCallbacks.append(c.allocator, callback) catch {};
+        }
     }
 
     pub fn produceDeferredDiagnostics(c: *Checker) void {
-        _ = c;
+        // Go: for _, cb := range c.deferredDiagnosticCallbacks { cb() }
+        //   c.deferredDiagnosticCallbacks = nil
+        for (c.deferredDiagnosticCallbacks.items) |cb| {
+            cb();
+        }
+        c.deferredDiagnosticCallbacks.clearRetainingCapacity();
     }
 
     pub fn addSuggestionDiagnostic(c: *Checker, diagnostic: diagnostics.Diagnostic) void {
