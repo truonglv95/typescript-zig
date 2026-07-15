@@ -14928,9 +14928,13 @@ pub const Checker = struct {
     }
 
     pub fn isGlobalSymbolConstructor(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        // Go: symbol := c.getSymbolOfNode(node)
+        //   globalSymbol := c.getGlobalESSymbolConstructorTypeSymbolOrNil()
+        //   return globalSymbol != nil && symbol == globalSymbol
+        // getGlobalESSymbolConstructorTypeSymbolOrNil not yet wired; check name == 'Symbol'
+        const sym = c.binder.ast.getNodeSymbol(node) orelse return false;
+        const name = c.binder.symbols.items[sym].Name;
+        return std.mem.eql(u8, name, "Symbol");
     }
 
     pub fn widenTypeForVariableLikeDeclaration(c: *Checker, t: types.TypeIndex, declaration: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {
@@ -14987,21 +14991,51 @@ pub const Checker = struct {
     }
 
     pub fn getUndefinedProperty(c: *Checker, prop: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Go: if cached := c.undefinedProperties[prop.Name]; cached != nil { return cached }
+        //   result := c.createSymbolWithType(prop, c.undefinedOrMissingType)
+        //   result.Flags |= ast.SymbolFlagsOptional
+        //   c.undefinedProperties[prop.Name] = result
+        //   return result
+        // Simplified: return prop directly (createSymbolWithType not yet wired).
         _ = c;
-        _ = prop;
-        return 0;
+        return prop;
     }
 
-    pub fn getTypeOfEnumMember(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+    pub fn getTypeOfEnumMember(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        // Go: links := c.valueSymbolLinks.Get(symbol)
+        //   if links.resolvedType == nil { links.resolvedType = c.getDeclaredTypeOfEnumMember(symbol) }
+        //   return links.resolvedType
+        if (c.valueSymbolLinks.getPtr(symbol_)) |links| {
+            if (links.resolvedType) |t| return t;
+            // getDeclaredTypeOfEnumMember not fully wired; delegate to getTypeOfSymbol
+        }
+        return c.getTypeOfSymbol(symbol_) catch 0;
     }
 
-    pub fn getTypeOfAccessors(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+    pub fn getTypeOfAccessors(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        // Go: links := c.valueSymbolLinks.Get(symbol)
+        //   if links.resolvedType == nil {
+        //     if !c.pushTypeResolution(symbol, TypeSystemPropertyNameType) { return c.errorType }
+        //     getter := ast.GetDeclarationOfKind(symbol, ast.KindGetAccessor)
+        //     setter := ast.GetDeclarationOfKind(symbol, ast.KindSetAccessor)
+        //     ... getAnnotatedAccessorType, getReturnTypeFromBody ...
+        //   }
+        //   return links.resolvedType
+        // Simplified: check cache, then look for GetAccessor declaration type annotation.
+        if (c.valueSymbolLinks.getPtr(symbol_)) |links| {
+            if (links.resolvedType) |t| return t;
+        }
+        // Find GetAccessor declaration and get its Type annotation
+        const sym = c.binder.symbols.items[symbol_];
+        for (sym.Declarations.items) |decl| {
+            if (decl != 0 and c.binder.ast.getKind(decl) == .GetAccessor) {
+                const type_node = c.binder.ast.getNode(decl).GetAccessor.Type;
+                if (type_node) |tn| {
+                    if (tn != 0) return c.getTypeFromTypeNode(tn);
+                }
+            }
+        }
+        return c.anyTypeIndex orelse 0;
     }
 
     pub fn getWriteTypeOfAccessors(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
