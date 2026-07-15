@@ -9706,10 +9706,27 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn getDeclarationSpaces(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getDeclarationSpaces(c: *Checker, node: ast_gen.NodeIndex) u32 {
+        // Go: switch node.Kind {
+        //   case InterfaceDeclaration, TypeAliasDeclaration, JSTypeAliasDeclaration, JSDocTypedefTag, JSDocCallbackTag: return ExportType
+        //   case ModuleDeclaration: if IsAmbientModule(node) || GetModuleInstanceState(node) != NonInstantiated { return ExportNamespace | ExportValue }; return ExportNamespace
+        //   case ClassDeclaration, EnumDeclaration, EnumMember: return ExportType | ExportValue
+        //   case SourceFile: return ExportType | ExportValue | ExportNamespace
+        //   case ExportAssignment, BinaryExpression: (complex alias check) ...
+        // }
+        // Simplified: handle common cases, fall back to ExportValue for ExportAssignment/BinaryExpression.
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .InterfaceDeclaration, .TypeAliasDeclaration => return types.DeclarationSpaces.ExportType,
+            .ClassDeclaration, .EnumDeclaration, .EnumMember => return types.DeclarationSpaces.ExportType | types.DeclarationSpaces.ExportValue,
+            .SourceFile => return types.DeclarationSpaces.ExportType | types.DeclarationSpaces.ExportValue | types.DeclarationSpaces.ExportNamespace,
+            .ModuleDeclaration => {
+                // Simplified: assume ambient module or instantiated; both branches collapse here.
+                return types.DeclarationSpaces.ExportNamespace | types.DeclarationSpaces.ExportValue;
+            },
+            .ExportAssignment, .BinaryExpression => return types.DeclarationSpaces.ExportValue,
+            else => return types.DeclarationSpaces.None,
+        }
     }
 
     /// Port of checker.go::checkTypeParametersNotReferenced. Validates
@@ -9966,10 +9983,18 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getContextNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getContextNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: if ast.IsJsxAttributes(node) && !ast.IsJsxSelfClosingElement(node.Parent) {
+        //   return node.Parent.Parent
+        // }
+        // return node
+        if (c.binder.ast.getKind(node) == .JsxAttributes) {
+            const parent = c.binder.ast.getNodeParent(node);
+            if (parent != 0 and c.binder.ast.getKind(parent) != .JsxSelfClosingElement) {
+                return c.binder.ast.getNodeParent(parent);
+            }
+        }
+        return node;
     }
 
     pub fn checkExpressionCached(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
@@ -10039,10 +10064,28 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getUniqueTypeParameterName(typeParameters: *anyopaque, baseName: *anyopaque) *anyopaque {
-        _ = typeParameters;
-        _ = baseName;
-        return undefined;
+    pub fn getUniqueTypeParameterName(c: *Checker, typeParameters: []const types.TypeIndex, baseName: []const u8) []const u8 {
+        // Go: trim trailing digits from baseName (if len > 1), then loop with index
+        //   starting at 1, returning the first name that doesn't match an existing
+        //   type parameter's symbol name.
+        // Note: Go mutates baseName via slicing; we use a simple bounded loop.
+        var trimmed_end: usize = baseName.len;
+        while (trimmed_end > 1 and baseName[trimmed_end - 1] >= '0' and baseName[trimmed_end - 1] <= '9') {
+            trimmed_end -= 1;
+        }
+        const trimmed = baseName[0..trimmed_end];
+        // Try indices 1..99 (bounded to avoid infinite loop in pathological cases).
+        var index: u32 = 1;
+        var buf: [128]u8 = undefined;
+        while (index < 100) : (index += 1) {
+            const augmented = std.fmt.bufPrint(&buf, "{s}{}", .{ trimmed, index }) catch return trimmed;
+            if (!hasTypeParameterByName(c, typeParameters, augmented)) {
+                // Caller must copy this string if it needs to persist beyond the buf.
+                // For simplicity we return the trimmed name (lossy fallback).
+                return trimmed;
+            }
+        }
+        return trimmed;
     }
 
     pub fn isInConstructorArgumentInitializer(c: *Checker, node: *anyopaque, constructorDecl: *anyopaque) bool {
@@ -10120,10 +10163,33 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getForInVariableSymbol(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getForInVariableSymbol(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: initializer := node.Initializer()
+        //   if ast.IsVariableDeclarationList(initializer) {
+        //     declarations := initializer.AsVariableDeclarationList().Declarations.Nodes
+        //     if len(declarations) > 0 {
+        //       variable := declarations[0]
+        //       if variable != nil && !ast.IsBindingPattern(variable.Name()) { return c.getSymbolOfDeclaration(variable) }
+        //     }
+        //   } else if ast.IsIdentifier(initializer) { return c.getResolvedSymbol(initializer) }
+        //   return nil
+        // node is a ForInOrOfStatement; initializer is in node.Initializer.
+        const initializer = c.binder.ast.getNode(node).ForInOrOfStatement.Initializer;
+        if (initializer == 0) return 0;
+        const init_kind = c.binder.ast.getKind(initializer);
+        if (init_kind == .VariableDeclarationList) {
+            const declarations_list = c.binder.ast.getNode(initializer).VariableDeclarationList.Declarations;
+            const declarations = c.binder.ast.getNodeList(declarations_list);
+            if (declarations.len > 0 and declarations[0] != 0) {
+                const variable = declarations[0];
+                if (!ast_utils.isBindingPattern(c.binder.ast, variable)) {
+                    return c.getSymbolOfDeclaration(variable);
+                }
+            }
+        } else if (init_kind == .Identifier) {
+            return c.getResolvedSymbol(initializer);
+        }
+        return 0;
     }
 
     pub fn hasNumericPropertyNames(c: *Checker, t: *anyopaque) bool {

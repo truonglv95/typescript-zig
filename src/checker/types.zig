@@ -906,6 +906,15 @@ pub const CheckFlags = struct {
 
 pub const TypeMapperIndex = u32;
 
+/// Port of Go's DeclarationSpaces bitmask. Indicates which declaration
+/// spaces a node exports to (Value, Type, Namespace).
+pub const DeclarationSpaces = struct {
+    pub const None: u32 = 0;
+    pub const ExportValue: u32 = 1 << 0;
+    pub const ExportType: u32 = 1 << 1;
+    pub const ExportNamespace: u32 = 1 << 2;
+};
+
 pub const IndexKind = enum(u8) {
     String,
     Number,
