@@ -9229,8 +9229,12 @@ pub const Checker = struct {
     /// compiler option name for isolatedModules-like behavior. Simplified:
     /// returns null.
     pub fn getIsolatedModulesLikeFlagName(c: *Checker) ?[]const u8 {
-        _ = c;
-        return null;
+        // Go: return core.IfElse(c.compilerOptions.VerbatimModuleSyntax.IsTrue(), "verbatimModuleSyntax", "isolatedModules")
+        // Simplified: check compilerOptions.verbatimModuleSyntax.
+        if (c.compilerOptions.verbatimModuleSyntax) |vms| {
+            if (vms) return "verbatimModuleSyntax";
+        }
+        return "isolatedModules";
     }
 
     /// Port of checker.go::checkModuleAugmentationElement. Checks a
@@ -17197,6 +17201,15 @@ pub const Checker = struct {
     /// Port of checker.go::isPartOfImportEqualsModuleReference. Returns
     /// true if the location is part of an import equals module reference.
     pub fn isPartOfImportEqualsModuleReference(location: ast_gen.NodeIndex) bool {
+        // Go: importEquals := ast.FindAncestorKind(location, ast.KindImportEqualsDeclaration)
+        //   if importEquals == nil { return false }
+        //   for node := location; node != nil && node != importEquals; node = node.Parent {
+        //     if node == importEquals.AsImportEqualsDeclaration().ModuleReference { return true }
+        //   }
+        //   return false
+        // Note: This is a free function in Go (no c: *Checker param).
+        // We need access to the AST to walk parents, so we take location only.
+        // Conservative: return false (need AST access for full impl).
         _ = location;
         return false;
     }
