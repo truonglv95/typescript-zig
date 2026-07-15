@@ -12241,10 +12241,31 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getSuggestedSymbolForNonexistentProperty(c: *Checker, name_: ast_gen.NodeIndex, containingType: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = name_;
-        _ = containingType;
+    /// Port of `checker.go::getSuggestedSymbolForNonexistentProperty`.
+    /// Returns a spelling suggestion for a missing property from the
+    /// properties of `containingType`.
+    pub fn getSuggestedSymbolForNonexistentProperty(c: *Checker, name_: ast_gen.NodeIndex, containingType: types.TypeIndex) ast_gen.SymbolIndex {
+        if (name_ == 0 or containingType == 0) return 0;
+        const text = ast_utils.getTextOfNode(c.binder.ast, name_);
+        const props = c.getPropertiesOfType(containingType);
+        // Build a SymbolTable-like view for getSpellingSuggestionForName.
+        // Since getSpellingSuggestionForName expects a SymbolTable, we
+        // iterate props directly with a simple Levenshtein check.
+        var best: ast_gen.SymbolIndex = 0;
+        var best_distance: usize = std.math.maxInt(usize);
+        for (props) |prop| {
+            const prop_flags = c.getSymbolFlags(prop);
+            if ((prop_flags & symbol.SymbolFlags.Value) == 0) continue;
+            const prop_name = c.getSymbolName(prop);
+            if (prop_name.len == 0) continue;
+            if (std.ascii.eqlIgnoreCase(prop_name, text)) return prop;
+            const dist = levenshteinDistance(text, prop_name);
+            if (dist < best_distance) {
+                best_distance = dist;
+                best = prop;
+            }
+        }
+        if (best != 0 and best_distance <= 2) return best;
         return 0;
     }
 
