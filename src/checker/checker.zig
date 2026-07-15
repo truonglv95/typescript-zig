@@ -7620,10 +7620,31 @@ pub const Checker = struct {
     }
 
     pub fn hasBaseType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
-        _ = c;
-        _ = source;
-        _ = target;
-        return false; // Skipped
+        // Go: var check func(*Type) bool
+        //   check = func(t *Type) bool {
+        //     if t.objectFlags&(ObjectFlagsClassOrInterface|ObjectFlagsReference) != 0 {
+        //       tt := getTargetType(t)
+        //       return tt == checkBase || core.Some(c.getBaseTypes(tt), check)
+        //     }
+        //     if t.flags&TypeFlagsIntersection != 0 { return core.Some(t.Types(), check) }
+        //     return false
+        //   }
+        //   return check(t)
+        // Simplified: getBaseTypes returns 0 (stub), so we can't recurse.
+        // Check direct identity and Intersection constituents.
+        if (source == target) return true;
+        const src = c.typesList.items[source];
+        if ((src.objectFlags & (types.ObjectFlags.ClassOrInterface | types.ObjectFlags.Reference)) != 0) {
+            // getBaseTypes is still a stub returning 0; can't recurse.
+            return false;
+        }
+        if ((src.flags & types.TypeFlags.Intersection) != 0) {
+            const constituents = c.getTypesFromIntersection(source);
+            for (constituents) |con| {
+                if (hasBaseType(c, con, target)) return true;
+            }
+        }
+        return false;
     }
 
     pub fn isDistributionDependent(c: *Checker, root: *types.ConditionalRoot) bool {
@@ -8454,10 +8475,10 @@ pub const Checker = struct {
 
     /// Port of checker.go::shouldCheckErasableSyntax. Full Go logic.
     pub fn shouldCheckErasableSyntax(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = node;
-        // erasableSyntaxOnly is a compiler option — check if enabled
+        // Go: return c.compilerOptions.ErasableSyntaxOnly.IsTrue() && !ast.IsInJSFile(node)
+        const not_js = !ast_utils.isInJSFile(c.binder.ast, node);
         if (c.compilerOptions) |opts| {
-            return opts.erasableSyntaxOnly != null and opts.erasableSyntaxOnly.?;
+            return opts.erasableSyntaxOnly != null and opts.erasableSyntaxOnly.? and not_js;
         }
         return false;
     }
@@ -10453,11 +10474,15 @@ pub const Checker = struct {
         return t;
     }
 
-    pub fn getConstituentProperty(c: *Checker, objectType: types.TypeIndex, propertyName: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = objectType;
-        _ = propertyName;
-        return 0;
+    pub fn getConstituentProperty(c: *Checker, objectType: types.TypeIndex, propertyName: []const u8) ast_gen.SymbolIndex {
+        // Go: for _, t := range c.getApparentType(objectType).Distributed() {
+        //   prop := c.getPropertyOfType(t, propertyName)
+        //   if prop != nil { return prop }
+        // }
+        // return nil
+        // Simplified: Distributed() not yet wired; check apparent type directly.
+        const apparent = c.getApparentType(objectType);
+        return c.getPropertyOfType(apparent, propertyName) orelse 0;
     }
 
     /// Port of checker.go::checkImportCallExpression. Checks an
