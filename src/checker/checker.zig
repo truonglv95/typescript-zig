@@ -11393,10 +11393,21 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getDeclaringClass(c: *Checker, prop: *anyopaque) *anyopaque {
-        _ = c;
-        _ = prop;
-        return undefined;
+    pub fn getDeclaringClass(c: *Checker, prop: ast_gen.SymbolIndex) types.TypeIndex {
+        // Go: if prop.Parent != nil && prop.Parent.Flags&ast.SymbolFlagsClass != 0 {
+        //   return c.getDeclaredTypeOfSymbol(c.getParentOfSymbol(prop))
+        // }
+        // return nil
+        const sym = c.binder.symbols.items[prop];
+        if (sym.Parent) |parent| {
+            const parent_flags = c.binder.symbols.items[parent].Flags;
+            if ((parent_flags & symbol.SymbolFlags.Class) != 0) {
+                // getParentOfSymbol currently returns the symbol itself (stub);
+                // we use sym.Parent directly which is the correct semantic.
+                return c.getDeclaredTypeOfSymbol(parent);
+            }
+        }
+        return 0;
     }
 
     pub fn isValidOverrideOf(c: *Checker, sourceProp: *anyopaque, targetProp: *anyopaque) bool {
@@ -11441,10 +11452,25 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getEnclosingClassFromThisParameter(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getEnclosingClassFromThisParameter(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+        // Go: thisParameter := getThisParameterFromNodeContext(node)
+        //   var thisType *Type
+        //   if thisParameter != nil && thisParameter.Type() != nil {
+        //     thisType = c.getTypeFromTypeNode(thisParameter.Type())
+        //   }
+        //   if thisType != nil { ... } // complex path involving constraints
+        //   ...
+        // Simplified: get thisParameter, if it has a Type annotation, return
+        // getTypeFromTypeNode of it; else return 0.
+        const this_parameter = c.getThisParameterFromNodeContext(node);
+        if (this_parameter == 0) return 0;
+        const type_node: ?ast_gen.NodeIndex = c.binder.ast.getNode(this_parameter).Parameter.Type;
+        if (type_node) |tn| {
+            if (tn != 0) {
+                return c.getTypeFromTypeNode(tn);
+            }
+        }
+        return 0;
     }
 
     pub fn getThisParameterFromNodeContext(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
