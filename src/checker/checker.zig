@@ -18855,16 +18855,35 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::shouldDeferIndexedAccessType`. Returns true if
+    /// the indexed access type `objectType[indexType]` should be deferred
+    /// (i.e., represented as an indexed access type rather than resolved).
     pub fn shouldDeferIndexedAccessType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessNode: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = objectType;
-        _ = indexType;
-        _ = accessNode;
+        if (c.isGenericIndexType(indexType)) return true;
+        // For non-indexed-access-type nodes, check tuple fixed-length bound.
+        if (accessNode != 0 and c.binder.ast.getKind(accessNode) != .IndexedAccessType) {
+            if (c.isGenericTupleType(objectType)) {
+                // Conservative: defer if we can't compute the fixed element count.
+                return true;
+            }
+            return false;
+        }
+        // Defer if objectType is generic or generic-reducible.
+        if (c.isGenericObjectType(objectType) or c.isGenericReducibleType(objectType)) {
+            return true;
+        }
         return false;
     }
 
-    pub fn indexTypeLessThan(indexType: types.TypeIndex, limit: types.TypeIndex) bool {
-        _ = indexType;
+    /// Port of `checker.go::indexTypeLessThan`. Returns true if every
+    /// numeric literal in `indexType` is less than `limit` (an integer
+    /// index bound). Used to check if indexed access falls within the
+    /// fixed-length portion of a tuple type.
+    pub fn indexTypeLessThan(indexType: types.TypeIndex, limit: i32) bool {
+        if (indexType == 0) return false;
+        // Conservative: return false unless we can confirm all literals are < limit.
+        // Full implementation requires walking union constituents and parsing
+        // numeric literal values.
         _ = limit;
         return false;
     }
