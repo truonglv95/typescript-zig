@@ -1067,22 +1067,22 @@ pub const FourslashTest = struct {
         _ = markerNamesToExpected;
     }
 
-    pub fn VerifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: []?*lsproto.Diagnostic) void {
-        _ = self;
+    pub fn VerifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
         _ = t;
         _ = expected;
+        _ = self;
     }
 
     pub fn VerifyNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
-        _ = self;
         _ = t;
         _ = expected;
+        _ = self;
     }
 
     pub fn VerifySuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
-        _ = self;
         _ = t;
         _ = expected;
+        _ = self;
     }
 
     pub fn verifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: []?*lsproto.Diagnostic, filterDiagnostics: anytype) bool {
@@ -1090,14 +1090,14 @@ pub const FourslashTest = struct {
         _ = t;
         _ = expected;
         _ = filterDiagnostics;
-        return undefined;
+        return false;
     }
 
     pub fn getDiagnostics(self: *FourslashTest, t: *testing.T, fileName: []const u8) []?*lsproto.Diagnostic {
-        _ = self;
         _ = t;
+        _ = self;
         _ = fileName;
-        return undefined;
+        return &[_]?*lsproto.Diagnostic{};
     }
 
     pub fn VerifyBaselineNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T) void {
