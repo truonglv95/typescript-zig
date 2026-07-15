@@ -1709,10 +1709,8 @@ pub const TokenFlags = struct {
     pub const None: u32 = 0;
 };
 
-pub fn nodeIsPresent(a: anytype, b: anytype) bool {
-    _ = a;
-    _ = b;
-    return false;
+pub fn nodeIsPresent(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    return !nodeIsMissing(tree, node);
 }
 pub fn isAsyncFunction(a: anytype, b: anytype) bool {
     _ = a;
@@ -1758,6 +1756,45 @@ pub fn isFunctionLikeDeclaration(a: anytype, b: anytype) bool {
     _ = a;
     _ = b;
     return false;
+}
+
+/// Wrapper around isFunctionLike that takes (tree, node) and looks up
+/// the node kind internally.
+pub fn isFunctionLikeNode(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    return isFunctionLike(tree.getNodeKind(node));
+}
+
+/// Port of ast.IsClassDeclaration.
+pub fn isClassDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    return tree.getNodeKind(node) == .ClassDeclaration;
+}
+
+/// Port of ast.GetThisParameter. Returns the first parameter of a
+/// function-like declaration if it is a `this` parameter, else 0.
+pub fn getThisParameter(tree: *ast.Ast, signature: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    const params_list: ast_gen.NodeListIndex = switch (tree.getNode(signature)) {
+        .FunctionDeclaration => |n| n.Parameters,
+        .MethodDeclaration => |n| n.Parameters,
+        .GetAccessor => |n| n.Parameters,
+        .SetAccessor => |n| n.Parameters,
+        .Constructor => |n| n.Parameters,
+        .FunctionExpression => |n| n.Parameters,
+        .ArrowFunction => |n| n.Parameters,
+        .MethodSignature => |n| n.Parameters,
+        .CallSignature => |n| n.Parameters,
+        .ConstructSignature => |n| n.Parameters,
+        .FunctionType => |n| n.Parameters,
+        .ConstructorType => |n| n.Parameters,
+        else => return 0,
+    };
+    const params = tree.getNodeList(params_list);
+    if (params.len == 0) return 0;
+    const first = params[0];
+    if (first == 0) return 0;
+    if (isThisParameter(tree, first)) return first;
+    return 0;
 }
 
 pub fn getTrueTypeOfConditionalType(a: anytype, b: anytype) ast.NodeIndex {

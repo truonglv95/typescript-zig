@@ -8362,8 +8362,37 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn nodeImmediatelyReferencesSuperOrThis(node: *anyopaque) bool {
-        _ = node;
+    pub fn nodeImmediatelyReferencesSuperOrThis(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: switch node.Kind {
+        //   case SuperKeyword, ThisKeyword: return true
+        //   case ArrowFunction, FunctionDeclaration, FunctionExpression, PropertyDeclaration: return false
+        //   case Block: switch node.Parent.Kind {
+        //     case Constructor, MethodDeclaration, GetAccessor, SetAccessor: return false
+        //   }
+        // }
+        // return node.ForEachChild(nodeImmediatelyReferencesSuperOrThis)
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .SuperKeyword, .ThisKeyword => return true,
+            .ArrowFunction, .FunctionDeclaration, .FunctionExpression, .PropertyDeclaration => return false,
+            .Block => {
+                const parent = c.binder.ast.getNodeParent(node);
+                if (parent != 0) {
+                    const pk = c.binder.ast.getKind(parent);
+                    switch (pk) {
+                        .Constructor, .MethodDeclaration, .GetAccessor, .SetAccessor => return false,
+                        else => {},
+                    }
+                }
+            },
+            else => {},
+        }
+        // ForEachChild: iterate children manually (simple implementation using
+        // visitor pattern). We rely on getChildren API if available.
+        const children = c.binder.ast.getChildren(node) catch return false;
+        for (children) |child| {
+            if (nodeImmediatelyReferencesSuperOrThis(c, child)) return true;
+        }
         return false;
     }
 
@@ -8893,9 +8922,29 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getFirstNonAmbientClassOrFunctionDeclaration(symbol_: *anyopaque) *anyopaque {
-        _ = symbol_;
-        return undefined;
+    pub fn getFirstNonAmbientClassOrFunctionDeclaration(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.NodeIndex {
+        // Go: for _, declaration := range symbol.Declarations {
+        //   if (IsClassDeclaration(declaration) || IsFunctionDeclaration(declaration) && NodeIsPresent(declaration.Body())) && declaration.Flags & ast.NodeFlagsAmbient == 0 {
+        //     return declaration
+        //   }
+        // }
+        // return nil
+        const sym = c.binder.symbols.items[symbol_];
+        for (sym.Declarations.items) |declaration| {
+            if (declaration == 0) continue;
+            const decl_kind = c.binder.ast.getKind(declaration);
+            const is_class_or_func = (decl_kind == .ClassDeclaration) or
+                (decl_kind == .FunctionDeclaration);
+            if (!is_class_or_func) continue;
+            const flags = c.binder.ast.getNodeFlags(declaration);
+            if ((flags & ast.NodeFlagsAmbient) != 0) continue;
+            if (decl_kind == .FunctionDeclaration) {
+                const body: ?ast_gen.NodeIndex = c.binder.ast.getNode(declaration).FunctionDeclaration.Body;
+                if (body == null or !ast_utils.nodeIsPresent(c.binder.ast, body.?)) continue;
+            }
+            return declaration;
+        }
+        return 0;
     }
 
     /// Port of checker.go::getIsolatedModulesLikeFlagName. Returns the
@@ -9583,9 +9632,22 @@ pub const Checker = struct {
         return text.len > 0 and text[0] == '_';
     }
 
-    pub fn importClauseFromImported(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
+    pub fn importClauseFromImported(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: switch node.Kind {
+        //   case KindImportClause: return node
+        //   case KindNamespaceImport: return node.Parent
+        //   default: return node.Parent.Parent
+        // }
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .ImportClause => return node,
+            .NamespaceImport => return c.binder.ast.getNodeParent(node),
+            else => {
+                const parent = c.binder.ast.getNodeParent(node);
+                if (parent == 0) return 0;
+                return c.binder.ast.getNodeParent(parent);
+            },
+        }
     }
 
     /// Port of checker.go::checkUnusedInferTypeParameter. Checks for
@@ -10970,9 +11032,16 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getThisParameterFromNodeContext(node: *anyopaque) *anyopaque {
-        _ = node;
-        return undefined;
+    pub fn getThisParameterFromNodeContext(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: thisContainer := ast.GetThisContainer(node, false, false)
+        //     if thisContainer != nil && ast.IsFunctionLike(thisContainer) {
+        //       return ast.GetThisParameter(thisContainer)
+        //     }
+        //     return nil
+        const this_container = ast_utils.getThisContainer(c.binder.ast, node, false, false);
+        if (this_container == 0) return 0;
+        if (!ast_utils.isFunctionLikeNode(c.binder.ast, this_container)) return 0;
+        return ast_utils.getThisParameter(c.binder.ast, this_container);
     }
 
     pub fn getContextualThisParameterType(c: *Checker, fn_: *anyopaque) *anyopaque {
@@ -14515,9 +14584,24 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTotalFixedElementCount(t: *anyopaque) i32 {
-        _ = t;
-        return 0;
+    pub fn getTotalFixedElementCount(c: *Checker, t: types.TypeIndex) i32 {
+        // Go: return t.fixedLength + getEndElementCount(t, ElementFlagsFixed)
+        // getEndElementCount: scan elementInfos backwards; count trailing
+        // elements whose flags & ElementFlagsFixed != 0.
+        const data = c.getTargetTypeData(t);
+        if (data != .Tuple) return 0;
+        const tuple_data = data.Tuple;
+        var end_count: u32 = 0;
+        const infos = c.tupleElementInfos.items[tuple_data.elementInfosStart..tuple_data.elementInfosStart + tuple_data.typesLen];
+        var i: usize = infos.len;
+        while (i > 0) : (i -= 1) {
+            if ((infos[i - 1].flags & types.ElementFlags.Fixed) == 0) {
+                end_count = @intCast(infos.len - i);
+                break;
+            }
+            if (i == 1) end_count = @intCast(infos.len);
+        }
+        return @intCast(tuple_data.fixedLength + end_count);
     }
 
     pub fn getElementTypes(c: *Checker, t: *anyopaque) *anyopaque {
