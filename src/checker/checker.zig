@@ -13364,9 +13364,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isTypeReferenceWithGenericArguments(t: *anyopaque) bool {
-        _ = t;
-        return false;
+    pub fn isTypeReferenceWithGenericArguments(c: *Checker, t: types.TypeIndex) bool {
+        // Go: return isNonDeferredTypeReference(t) && core.Some(t.checker.getTypeArguments(t), func(t *Type) bool {
+        //   return t.flags&TypeFlagsTypeParameter != 0 || isTypeReferenceWithGenericArguments(t)
+        // })
+        // Simplified: check Reference flag and rely on typeArguments if present.
+        // getTypeArguments not yet wired; conservative: return isNonDeferredTypeReference result.
+        return c.isNonDeferredTypeReference(t);
     }
 
     pub fn isNonDeferredTypeReference(c: *Checker, t: types.TypeIndex) bool {
@@ -13376,9 +13380,34 @@ pub const Checker = struct {
         return (c.typesList.items[t].objectFlags & types.ObjectFlags.Reference) != 0;
     }
 
-    pub fn isUnconstrainedTypeParameter(tp: *anyopaque) bool {
-        _ = tp;
-        return false;
+    pub fn isUnconstrainedTypeParameter(c: *Checker, tp: types.TypeIndex) bool {
+        // Go: target := tp.Target()
+        //   if target == nil { target = tp }
+        //   if target.symbol == nil { return false }
+        //   for _, d := range target.symbol.Declarations {
+        //     if ast.IsTypeParameterDeclaration(d) && (d.AsTypeParameterDeclaration().Constraint != nil ||
+        //       ast.IsMappedTypeNode(d.Parent) || ast.IsInferTypeNode(d.Parent)) { return false }
+        //   }
+        //   return true
+        // Simplified: check TypeParameter flag; full path requires Target() and
+        // walking Declarations which is complex without TypeParameter data variants.
+        const ty = c.typesList.items[tp];
+        if ((ty.flags & types.TypeFlags.TypeParameter) == 0) return false;
+        // Conservative: assume constrained if symbol exists with declarations.
+        // Full check would need to inspect each declaration's Constraint/parent.
+        if (ty.symbol) |sym_idx| {
+            const sym = c.binder.symbols.items[sym_idx];
+            for (sym.Declarations.items) |decl| {
+                if (decl == 0) continue;
+                const decl_kind = c.binder.ast.getKind(decl);
+                if (decl_kind == .TypeParameter) {
+                    const constraint = c.binder.ast.getNode(decl).TypeParameter.Constraint;
+                    if (constraint != null) return false;
+                    // Parent check (IsMappedTypeNode/IsInferTypeNode) not done conservatively.
+                }
+            }
+        }
+        return true;
     }
 
     pub fn isNullOrUndefined(c: *Checker, node: *anyopaque) bool {
