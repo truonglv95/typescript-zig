@@ -9920,17 +9920,29 @@ pub const Checker = struct {
         return c.checkExpressionCached(node);
     }
 
-    pub fn getReturnTypeOfSingleNonGenericSignature(c: *Checker, funcType: *anyopaque, kind_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = funcType;
-        _ = kind_;
-        return undefined;
+    pub fn getReturnTypeOfSingleNonGenericSignature(c: *Checker, funcType: types.TypeIndex, kind_: types.SignatureKind) types.TypeIndex {
+        // Go: signature := c.getSingleSignature(funcType, kind, true /*allowMembers*/)
+        //   if signature != nil && len(signature.typeParameters) == 0 {
+        //     return c.getReturnTypeOfSignature(signature)
+        //   }
+        //   return nil
+        // getSingleSignature not yet wired; conservative return 0.
+        _ = &c;
+        _ = &funcType;
+        _ = &kind_;
+        return 0;
     }
 
-    pub fn getReturnTypeOfSingleNonGenericSignatureOfCallChain(c: *Checker, expr: *anyopaque) *anyopaque {
-        _ = c;
-        _ = expr;
-        return undefined;
+    pub fn getReturnTypeOfSingleNonGenericSignatureOfCallChain(c: *Checker, expr: ast_gen.NodeIndex) types.TypeIndex {
+        // Go: funcType := c.checkExpression(expr.Expression())
+        //   nonOptionalType := c.getOptionalExpressionType(funcType, expr.Expression())
+        //   returnType := c.getReturnTypeOfSingleNonGenericSignature(funcType, SignatureKindCall)
+        //   if returnType != nil { return c.propagateOptionalTypeMarker(returnType, expr, nonOptionalType != funcType) }
+        //   return nil
+        // getReturnTypeOfSingleNonGenericSignature returns 0 (stub), so this is conservative 0.
+        _ = &c;
+        _ = &expr;
+        return 0;
     }
 
     pub fn checkNonNullType(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {
@@ -10473,10 +10485,19 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getThisArgumentType(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getThisArgumentType(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+        // Go: if node == nil { return c.voidType }
+        //   thisArgumentType := c.checkExpression(node)
+        //   switch {
+        //     case ast.IsOptionalChainRoot(node.Parent): return c.GetNonNullableType(thisArgumentType)
+        //     case ast.IsOptionalChain(node.Parent): return c.removeOptionalTypeMarker(thisArgumentType)
+        //   }
+        //   return thisArgumentType
+        if (node == 0) return c.voidTypeIndex orelse 0;
+        const this_argument_type = c.checkExpression(node) catch (c.voidTypeIndex orelse 0);
+        // Optional chain parent checks: skip for now (removeOptionalTypeMarker
+        // and GetNonNullableType not yet wired through this path).
+        return this_argument_type;
     }
 
     pub fn getEffectiveCheckNode(c: *Checker, argument: ast_gen.NodeIndex) ast_gen.NodeIndex {
