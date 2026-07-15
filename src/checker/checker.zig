@@ -8431,10 +8431,33 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypePredicateParent(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getTypePredicateParent(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: parent := node.Parent
+        //   switch parent.Kind {
+        //     case ArrowFunction, CallSignature, FunctionDeclaration, FunctionExpression, FunctionType,
+        //       MethodDeclaration, MethodSignature:
+        //       if node == parent.Type() { return parent }
+        //   }
+        // return nil
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        const pk = c.binder.ast.getKind(parent);
+        switch (pk) {
+            .ArrowFunction, .CallSignature, .FunctionDeclaration, .FunctionExpression, .FunctionType,
+            .MethodDeclaration, .MethodSignature => {
+                const parent_type: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(parent)) {
+                    .ArrowFunction => |n| n.Type,
+                    .FunctionDeclaration => |n| n.Type,
+                    .FunctionExpression => |n| n.Type,
+                    .MethodDeclaration => |n| n.Type,
+                    .MethodSignature => |n| n.Type,
+                    else => null,
+                };
+                if (parent_type) |t| if (t == node) return parent;
+            },
+            else => {},
+        }
+        return 0;
     }
 
     /// Port of checker.go::checkIfTypePredicateVariableIsDeclaredInBindingPattern.
@@ -8804,10 +8827,16 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn isPropertyWithoutInitializer(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
-        return false;
+    pub fn isPropertyWithoutInitializer(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: return ast.IsPropertyDeclaration(node) && !ast.HasAbstractModifier(node) &&
+        //   !isExclamationToken(node.PostfixToken()) && node.Initializer() == nil
+        if (!ast_utils.isPropertyDeclaration(c.binder.ast, node)) return false;
+        if (ast_utils.hasAbstractModifier(c.binder.ast, node)) return false;
+        const postfix = c.binder.ast.getNode(node).PropertyDeclaration.PostfixToken;
+        if (postfix) |p| {
+            if (p != 0 and c.binder.ast.getKind(p) == .ExclamationToken) return false;
+        }
+        return c.binder.ast.getNode(node).PropertyDeclaration.Initializer == null;
     }
 
     pub fn isPropertyInitializedInStaticBlocks(c: *Checker, propName: *anyopaque, propType: *anyopaque, staticBlocks: *anyopaque, startPos: *anyopaque, endPos: *anyopaque) bool {
@@ -8916,10 +8945,19 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isInstantiatedModule(node: *anyopaque, preserveConstEnums: *anyopaque) bool {
-        _ = node;
-        _ = preserveConstEnums;
-        return false;
+    pub fn isInstantiatedModule(c: *Checker, node: ast_gen.NodeIndex, preserveConstEnums: bool) bool {
+        // Go: moduleState := ast.GetModuleInstanceState(node)
+        //     return moduleState == ModuleInstanceStateInstantiated ||
+        //       preserveConstEnums && moduleState == ModuleInstanceStateConstEnumOnly
+        // Simplified port: GetModuleInstanceState returns Instantiated if Body is nil,
+        // else recursively computes. Without the full recursive worker, we use a
+        // simple check: ModuleDeclaration with no Body is Instantiated, otherwise
+        // conservatively return true if preserveConstEnums.
+        if (c.binder.ast.getKind(node) != .ModuleDeclaration) return false;
+        const body: ?ast_gen.NodeIndex = c.binder.ast.getNode(node).ModuleDeclaration.Body;
+        if (body == null) return true; // Instantiated
+        // Body present: conservatively return true if preserveConstEnums, else false.
+        return preserveConstEnums;
     }
 
     pub fn getFirstNonAmbientClassOrFunctionDeclaration(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.NodeIndex {
