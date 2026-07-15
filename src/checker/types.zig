@@ -361,8 +361,15 @@ pub const SourceFileLinks = struct {
 };
 pub const NodeLinks = struct {
     flags: u32 = 0,
-    // declarationRequiresScopeChange
+    declarationRequiresScopeChange: Tristate = .Unknown,
     // hasReportedStatementInAmbientContext
+};
+
+/// Tristate value mirroring Go's core.Tristate (Unknown/False/True).
+pub const Tristate = enum(u8) {
+    Unknown = 0,
+    False = 1,
+    True = 2,
 };
 
 pub const TypeAlias = struct {

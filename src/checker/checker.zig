@@ -7950,22 +7950,24 @@ pub const Checker = struct {
         return null;
     }
 
-    pub fn symbolReferenced(c: *Checker, symbol_: *anyopaque, meaning: *anyopaque) void {
-        _ = c;
-        _ = symbol_;
-        _ = meaning;
+    pub fn symbolReferenced(c: *Checker, symbol_: ast_gen.SymbolIndex, meaning: u32) void {
+        // Go: c.symbolReferenceLinks.Get(symbol).referenceKinds |= meaning
+        var entry = c.symbolReferenceLinks.getOrPut(c.allocator, symbol_) catch @panic("OOM");
+        if (!entry.found_existing) entry.value_ptr.* = .{};
+        entry.value_ptr.referenceKinds |= meaning;
     }
 
-    pub fn getRequiresScopeChangeCache(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getRequiresScopeChangeCache(c: *Checker, node: ast_gen.NodeIndex) types.Tristate {
+        // Go: return c.nodeLinks.Get(node).declarationRequiresScopeChange
+        if (c.nodeLinks.get(node)) |links| return links.declarationRequiresScopeChange;
+        return .Unknown;
     }
 
-    pub fn setRequiresScopeChangeCache(c: *Checker, node: *anyopaque, value: *anyopaque) void {
-        _ = c;
-        _ = node;
-        _ = value;
+    pub fn setRequiresScopeChangeCache(c: *Checker, node: ast_gen.NodeIndex, value: types.Tristate) void {
+        // Go: c.nodeLinks.Get(node).declarationRequiresScopeChange = value
+        var entry = c.nodeLinks.getOrPut(c.allocator, node) catch @panic("OOM");
+        if (!entry.found_existing) entry.value_ptr.* = .{};
+        entry.value_ptr.declarationRequiresScopeChange = value;
     }
 
     /// Port of checker.go::checkAndReportErrorForInvalidInitializer.
