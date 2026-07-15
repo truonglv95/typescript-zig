@@ -12554,10 +12554,57 @@ pub const Checker = struct {
         _ = left;
     }
 
-    pub fn getSyntacticNullishnessSemantics(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = node;
-        return 0;
+    pub fn getSyntacticNullishnessSemantics(c: *Checker, node_in: ast_gen.NodeIndex) PredicateSemantics {
+        // Go: node = ast.SkipOuterExpressions(node, ast.OEKAll)
+        //   switch node.Kind {
+        //   case AwaitExpression, CallExpression, TaggedTemplateExpression, ElementAccessExpression,
+        //     MetaProperty, NewExpression, PropertyAccessExpression, YieldExpression, ThisKeyword:
+        //     return PredicateSemanticsSometimes
+        //   case BinaryExpression:
+        //     switch OperatorToken.Kind {
+        //     case BarBarToken, BarBarEqualsToken, AmpersandAmpersandToken, AmpersandAmpersandEqualsToken:
+        //       return PredicateSemanticsSometimes
+        //     case CommaToken, EqualsToken, QuestionQuestionToken, QuestionQuestionEqualsToken:
+        //       return c.getSyntacticNullishnessSemantics(node.AsBinaryExpression().Right)
+        //     }
+        //     return PredicateSemanticsNever
+        //   case ConditionalExpression:
+        //     return c.getSyntacticNullishnessSemantics(WhenTrue) | c.getSyntacticNullishnessSemantics(WhenFalse)
+        //   case NullKeyword: return PredicateSemanticsAlways
+        //   case Identifier:
+        //     if c.getResolvedSymbol(node) == c.undefinedSymbol { return PredicateSemanticsAlways }
+        //     return PredicateSemanticsSometimes
+        //   }
+        //   return PredicateSemanticsNever
+        const node = ast_utils.skipOuterExpressions(c.binder.ast, node_in, ast_utils.OEKAll);
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .AwaitExpression, .CallExpression, .TaggedTemplateExpression, .ElementAccessExpression,
+            .MetaProperty, .NewExpression, .PropertyAccessExpression, .YieldExpression, .ThisKeyword => return .Sometimes,
+            .BinaryExpression => {
+                const be = c.binder.ast.getNode(node).BinaryExpression;
+                const op_kind = c.binder.ast.getKind(be.OperatorToken);
+                switch (op_kind) {
+                    .BarBarToken, .BarBarEqualsToken, .AmpersandAmpersandToken, .AmpersandAmpersandEqualsToken => return .Sometimes,
+                    .CommaToken, .EqualsToken, .QuestionQuestionToken, .QuestionQuestionEqualsToken => return c.getSyntacticNullishnessSemantics(be.Right),
+                    else => return .Never,
+                }
+            },
+            .ConditionalExpression => {
+                const ce = c.binder.ast.getNode(node).ConditionalExpression;
+                const true_sem = c.getSyntacticNullishnessSemantics(ce.WhenTrue);
+                const false_sem = c.getSyntacticNullishnessSemantics(ce.WhenFalse);
+                // | operator: Always=1, Never=2, Sometimes=3. max gives correct semantics.
+                const max_val: u32 = @max(@intFromEnum(true_sem), @intFromEnum(false_sem));
+                return @enumFromInt(max_val);
+            },
+            .NullKeyword => return .Always,
+            .Identifier => {
+                // undefinedSymbol not yet wired; conservative Sometimes
+                return .Sometimes;
+            },
+            else => return .Never,
+        }
     }
 
     pub fn isSideEffectFree(c: *Checker, node_in: ast_gen.NodeIndex) bool {
