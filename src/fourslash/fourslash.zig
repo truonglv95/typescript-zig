@@ -936,13 +936,13 @@ pub const FourslashTest = struct {
         _ = expected;
     }
 
-    pub fn VerifyNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: []?*lsproto.Diagnostic) void {
+    pub fn VerifyNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
         _ = self;
         _ = t;
         _ = expected;
     }
 
-    pub fn VerifySuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: []?*lsproto.Diagnostic) void {
+    pub fn VerifySuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
         _ = self;
         _ = t;
         _ = expected;
@@ -1021,7 +1021,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    fn getDiagnosticPos(self: *FourslashTest, diag: diagnostics.Diagnostic) u32 {
+    fn getDiagnosticPos(self: *FourslashTest, diag: anytype) u32 {
         if (diag.nodeIndex == 0) {
             return diag.pos;
         }

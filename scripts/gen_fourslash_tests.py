@@ -4,6 +4,7 @@ import glob
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GO_TESTS_DIR = "submodule/typescript-go/internal/fourslash/tests"
+GO_GEN_TESTS_DIR = "submodule/typescript-go/internal/fourslash/tests/gen"
 OUTPUT_FILE = os.path.join(ROOT_DIR, "src", "fourslash_tests_generated.zig")
 
 def escape_zig_multiline_string(s):
@@ -166,13 +167,19 @@ def parse_go_test(filepath):
     }
 
 def main():
+    # Scan both manual tests and generated tests
     test_files = glob.glob(os.path.join(GO_TESTS_DIR, "*.go"))
+    test_files += glob.glob(os.path.join(GO_GEN_TESTS_DIR, "*.go"))
     
     parsed_tests = []
+    seen_names = set()
     for f in test_files:
         res = parse_go_test(f)
         if res:
-            parsed_tests.append(res)
+            # Deduplicate by test name — gen/ tests may duplicate manual tests
+            if res["name"] not in seen_names:
+                seen_names.add(res["name"])
+                parsed_tests.append(res)
 
     with open(OUTPUT_FILE, "w", encoding='utf-8') as out:
         out.write('const std = @import("std");\n')
@@ -222,7 +229,21 @@ def main():
                     '.UseAliasesForRename' in call_zig or
                     '.IncludeInlayVariableTypeHints' in call_zig or
                     'lsproto.' in call_zig or
-                    'new(' in call_zig):
+                    'lsutil.' in call_zig or
+                    'new(' in call_zig or
+                    'varName' in call_zig or
+                    'marker' in call_zig or
+                    'VerifyJSDocCompletion' in call_zig or
+                    'VerifyNoJSDocCompletion' in call_zig or
+                    'VerifyCodeFixNotAvailable' in call_zig or
+                    'VerifyBaselineGoToImplementation' in call_zig or
+                    'ImportModuleSpecifierPreference' in call_zig or
+                    'PreferTypeOnlyAutoImports' in call_zig or
+                    'VerifyErrorCodesList' in call_zig or
+                    'VerifyDiagnosticMessages' in call_zig or
+                    'VerifyLinkedEditing' in call_zig or
+                    '.@"' in call_zig or
+                    'VerifyWorkspaceSymbol' in call_zig):
                     lines = call_zig.split('\n')
                     call_zig = '\n'.join('// ' + line for line in lines)
                 else:
