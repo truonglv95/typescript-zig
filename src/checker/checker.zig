@@ -13600,44 +13600,43 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn hash(b: *anyopaque) *anyopaque {
-        _ = b;
-        return undefined;
+    pub fn hash(b: *types.KeyBuilder) u64 {
+        return b.hash();
     }
 
-    pub fn writeByte(b: *anyopaque, c: *anyopaque) void {
-        _ = b;
-        _ = c;
+    pub fn writeByte(b: *types.KeyBuilder, c: u8) void {
+        b.writeByte(c);
     }
 
-    pub fn writeString(b: *anyopaque, s: *anyopaque) void {
-        _ = b;
-        _ = s;
+    pub fn writeString(b: *types.KeyBuilder, s: []const u8) void {
+        b.writeString(s);
     }
 
-    pub fn writeInt(b: *anyopaque, value: *anyopaque) void {
-        _ = b;
-        _ = value;
+    pub fn writeInt(b: *types.KeyBuilder, value: i64) void {
+        b.writeInt(value);
     }
 
-    pub fn writeSymbol(b: *anyopaque, s: *anyopaque) void {
-        _ = b;
-        _ = s;
+    pub fn writeSymbol(b: *types.KeyBuilder, s: ast_gen.SymbolIndex) void {
+        b.writeSymbol(s);
     }
 
-    pub fn writeType(b: *anyopaque, t: *anyopaque) void {
-        _ = b;
-        _ = t;
+    pub fn writeType(b: *types.KeyBuilder, t: types.TypeIndex) void {
+        b.writeType(t);
     }
 
-    pub fn writeTypes(b: *anyopaque, types_: *anyopaque) void {
-        _ = b;
-        _ = types_;
+    pub fn writeTypes(b: *types.KeyBuilder, types_: []const types.TypeIndex) void {
+        b.writeInt(@intCast(types_.len));
+        for (types_) |t| b.writeType(t);
     }
 
-    pub fn writeAlias(b: *anyopaque, alias: *anyopaque) void {
-        _ = b;
-        _ = alias;
+    pub fn writeAlias(b: *types.KeyBuilder, alias: ?*const types.TypeAlias) void {
+        if (alias) |a| {
+            b.writeByte(1);
+            b.writeSymbol(a.symbol);
+            // typeArguments not directly accessible here; simplified.
+        } else {
+            b.writeByte(0);
+        }
     }
 
     pub fn writeGenericTypeReferences(b: *anyopaque, source: *anyopaque, target: *anyopaque, ignoreConstraints: *anyopaque) bool {
@@ -13648,14 +13647,12 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn writeNodeId(b: *anyopaque, id: *anyopaque) void {
-        _ = b;
-        _ = id;
+    pub fn writeNodeId(b: *types.KeyBuilder, id: u32) void {
+        b.writeSymbol(id);
     }
 
-    pub fn writeNode(b: *anyopaque, node: *anyopaque) void {
-        _ = b;
-        _ = node;
+    pub fn writeNode(b: *types.KeyBuilder, node: ast_gen.NodeIndex) void {
+        b.writeSymbol(node);
     }
 
     pub fn getAliasKey(alias: *anyopaque) *anyopaque {

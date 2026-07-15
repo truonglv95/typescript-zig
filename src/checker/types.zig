@@ -1617,3 +1617,44 @@ pub fn keyType(info: *const IndexInfo) TypeIndex {
 pub fn valueType(info: *const IndexInfo) TypeIndex {
     return info.valueType;
 }
+
+/// Port of Go's keyBuilder. Uses Wyhash instead of xxh3 for hashing.
+/// The builder accumulates bytes via write* methods, then hash() returns
+/// a CacheHashKey (u64) representing the accumulated state.
+pub const KeyBuilder = struct {
+    hasher: std.hash.Wyhash,
+
+    pub fn init() KeyBuilder {
+        return .{ .hasher = std.hash.Wyhash.init(0) };
+    }
+
+    pub fn hash(self: *KeyBuilder) u64 {
+        return self.hasher.final();
+    }
+
+    pub fn writeByte(self: *KeyBuilder, c: u8) void {
+        self.hasher.update(&[_]u8{c});
+    }
+
+    pub fn writeString(self: *KeyBuilder, s: []const u8) void {
+        self.hasher.update(s);
+    }
+
+    pub fn writeInt(self: *KeyBuilder, val: i64) void {
+        var buf: [8]u8 = undefined;
+        std.mem.writeInt(i64, &buf, val, .little);
+        self.hasher.update(&buf);
+    }
+
+    pub fn writeSymbol(self: *KeyBuilder, symbol_id: u32) void {
+        var buf: [4]u8 = undefined;
+        std.mem.writeInt(u32, &buf, symbol_id, .little);
+        self.hasher.update(&buf);
+    }
+
+    pub fn writeType(self: *KeyBuilder, type_id: u32) void {
+        var buf: [4]u8 = undefined;
+        std.mem.writeInt(u32, &buf, type_id, .little);
+        self.hasher.update(&buf);
+    }
+};
