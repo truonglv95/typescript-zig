@@ -15517,7 +15517,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTypeReferenceArity(c: *Checker, t: *anyopaque) i32 {
+    pub fn getTypeReferenceArity(c: *Checker, t: types.TypeIndex) i32 {
         _ = c;
         _ = t;
         return 0;
@@ -17521,7 +17521,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSpreadIndices(c: *Checker, node: *anyopaque) i32 {
+    pub fn getSpreadIndices(c: *Checker, node: ast_gen.NodeIndex) i32 {
         _ = c;
         _ = node;
         return 0;
