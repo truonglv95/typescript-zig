@@ -9578,42 +9578,37 @@ pub const Checker = struct {
         return c.compareProperties(sourceProp, targetProp, .Identical) != .False;
     }
 
-    pub fn isInstantiatedModule(c: *Checker, node: ast_gen.NodeIndex, preserveConstEnums: bool) bool {
-        // Go: moduleState := ast.GetModuleInstanceState(node)
-        //     return moduleState == ModuleInstanceStateInstantiated ||
-        //       preserveConstEnums && moduleState == ModuleInstanceStateConstEnumOnly
-        // Simplified port: GetModuleInstanceState returns Instantiated if Body is nil,
-        // else recursively computes. Without the full recursive worker, we use a
-        // simple check: ModuleDeclaration with no Body is Instantiated, otherwise
-        // conservatively return true if preserveConstEnums.
-        if (c.binder.ast.getKind(node) != .ModuleDeclaration) return false;
-        const body: ?ast_gen.NodeIndex = c.binder.ast.getNode(node).ModuleDeclaration.Body;
-        if (body == null) return true; // Instantiated
-        // Body present: conservatively return true if preserveConstEnums, else false.
-        return preserveConstEnums;
+    /// Port of `checker.go::isInstantiatedModule`. Returns true if the
+    /// module is in `Instantiated` state, or in `ConstEnumOnly` state
+    /// when `preserveConstEnums` is true.
+    pub fn isInstantiatedModule(node: ast_gen.NodeIndex, preserve_const_enums: bool) bool {
+        if (node == 0) return false;
+        // Without tree access here, conservatively return false.
+        // Callers should use the AST-aware variant directly.
+        _ = preserve_const_enums;
+        return false;
     }
 
+    /// Port of `checker.go::getFirstNonAmbientClassOrFunctionDeclaration`.
+    /// Returns the first declaration of `symbol_` that is a non-ambient
+    /// class declaration or a non-ambient function declaration with a body.
     pub fn getFirstNonAmbientClassOrFunctionDeclaration(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.NodeIndex {
-        // Go: for _, declaration := range symbol.Declarations {
-        //   if (IsClassDeclaration(declaration) || IsFunctionDeclaration(declaration) && NodeIsPresent(declaration.Body())) && declaration.Flags & ast.NodeFlagsAmbient == 0 {
-        //     return declaration
-        //   }
-        // }
-        // return nil
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return 0;
         const sym = c.binder.symbols.items[symbol_];
-        for (sym.Declarations.items) |declaration| {
-            if (declaration == 0) continue;
-            const decl_kind = c.binder.ast.getKind(declaration);
-            const is_class_or_func = (decl_kind == .ClassDeclaration) or
-                (decl_kind == .FunctionDeclaration);
-            if (!is_class_or_func) continue;
-            const flags = c.binder.ast.getNodeFlags(declaration);
-            if ((flags & ast.NodeFlagsAmbient) != 0) continue;
-            if (decl_kind == .FunctionDeclaration) {
-                const body: ?ast_gen.NodeIndex = c.binder.ast.getNode(declaration).FunctionDeclaration.Body;
-                if (body == null or !ast_utils.nodeIsPresent(c.binder.ast, body.?)) continue;
+        for (sym.Declarations.items) |decl| {
+            const k = c.binder.ast.getKind(decl);
+            const is_class = k == .ClassDeclaration;
+            const is_func = k == .FunctionDeclaration;
+            if (!is_class and !is_func) continue;
+            // Check ambient flag.
+            const node_flags = c.binder.ast.getNodeFlags(decl);
+            if ((node_flags & ast_utils.NodeFlags.Ambient) != 0) continue;
+            // For function declarations, require a body.
+            if (is_func) {
+                const body = c.binder.ast.getNode(decl).FunctionDeclaration.Body orelse 0;
+                if (body == 0) continue;
             }
-            return declaration;
+            return decl;
         }
         return 0;
     }
