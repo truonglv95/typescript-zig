@@ -21667,19 +21667,42 @@ pub fn checkArrayLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: Ch
     _ = arg4;
     const elements = c.binder.ast.nodes.get(node_idx).ArrayLiteralExpression.Elements;
     const elem_list = c.binder.ast.getNodeList(elements);
+
+    // Check each element and collect their types.
+    var element_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+    defer element_types.deinit(c.allocator);
     for (elem_list) |elem_idx| {
         const node = c.binder.ast.nodes.get(elem_idx);
         switch (node) {
             .SpreadElement => |spread| {
-                _ = checkExpressionEx(c, spread.Expression, checkMode);
+                const spread_type = checkExpressionEx(c, spread.Expression, checkMode);
+                // For spread of array-like, take element type.
+                const elem_type = c.getIndexTypeOfType(spread_type, c.numberTypeIndex orelse 0) orelse (c.anyTypeIndex orelse 0);
+                element_types.append(c.allocator, elem_type) catch {};
             },
-            .OmittedExpression => {},
+            .OmittedExpression => {
+                // Omitted expressions contribute undefined-like type.
+                element_types.append(c.allocator, c.getUndefinedType() catch (c.anyTypeIndex orelse 0)) catch {};
+            },
             else => {
-                _ = checkExpressionEx(c, elem_idx, checkMode);
+                const t = checkExpressionEx(c, elem_idx, checkMode);
+                element_types.append(c.allocator, t) catch {};
             },
         }
     }
-    return c.anyTypeIndex orelse 0; // Stub: full checkArrayLiteral logic pending
+
+    // If no elements, the element type is implicitNever (strict) or undefinedWidening.
+    var element_type: types.TypeIndex = 0;
+    if (element_types.items.len == 0) {
+        element_type = if (c.strictNullChecks)
+            (c.neverTypeIndex orelse 0)
+        else
+            (c.undefinedTypeIndex orelse 0);
+    } else {
+        element_type = c.getUnionTypeFromArray(element_types.items);
+    }
+
+    return c.createArrayType(element_type);
 }
 pub fn checkAssertion(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     const node_kind = c.binder.ast.getKind(node_idx);
@@ -21698,9 +21721,15 @@ pub fn checkAwaitExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.Type
     return awaitedType;
 }
 pub fn checkBigIntLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
-    _ = node_idx;
     _ = checkMode;
-    return c.anyTypeIndex orelse 0;
+    // Port of checker.go::checkBigIntLiteral (KindBigIntLiteral case in checkExpressionWorker).
+    // Go: c.checkGrammarBigIntLiteral(node.AsBigIntLiteral());
+    //     return c.getFreshTypeOfLiteralType(c.getBigIntLiteralType(...))
+    const text = c.binder.ast.getNode(node_idx).BigIntLiteral.Text;
+    // Strip trailing 'n' if present.
+    var s = text;
+    if (s.len > 0 and s[s.len - 1] == 'n') s = s[0 .. s.len - 1];
+    return c.getFreshTypeOfLiteralType(c.getBigIntLiteralType(s));
 }
 pub fn checkBinaryExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
     const bin = c.binder.ast.getNode(node_idx).BinaryExpression;
@@ -21764,8 +21793,17 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
     return returnType;
 }
 pub fn checkClassExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
-    _ = node_idx;
-    return c.anyTypeIndex orelse 0;
+    // Port of checker.go::checkClassExpression.
+    // Go: c.checkClassLikeDeclaration(node); c.checkNodeDeferred(node);
+    //     c.checkClassExpressionExternalHelpers(node);
+    //     return c.getTypeOfSymbol(c.getSymbolOfDeclaration(node))
+    c.checkClassLikeDeclaration(node_idx);
+    c.checkNodeDeferred(node_idx);
+    // checkClassExpressionExternalHelpers is only relevant for unnamed class
+    // expressions used as named-evaluation sources; skip for now.
+    const sym = c.getSymbolOfDeclaration(node_idx);
+    if (sym == 0) return c.anyTypeIndex orelse 0;
+    return c.getTypeOfSymbol(sym) catch (c.anyTypeIndex orelse 0);
 }
 pub fn checkCommaListExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     _ = node_idx;
@@ -22327,11 +22365,19 @@ pub fn newSignature(c: *Checker, flags: u32, declaration: ast_gen.NodeIndex, typ
 }
 
 pub fn checkRegularExpressionLiteral(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    // Port of checker.go::checkRegularExpressionLiteral.
+    // Go: nodeLinks := c.nodeLinks.Get(node);
+    //     if nodeLinks.flags&NodeCheckFlagsTypeChecked == 0 {
+    //         nodeLinks.flags |= NodeCheckFlagsTypeChecked;
+    //         c.checkGrammarRegularExpressionLiteral(node.AsRegularExpressionLiteral());
+    //     }
+    //     return c.globalRegExpType
     const node_links = c.getNodeLinks(node_idx);
     if ((node_links.flags & types.NodeCheckFlags.TypeChecked) == 0) {
         node_links.flags |= types.NodeCheckFlags.TypeChecked;
+        // checkGrammarRegularExpressionLiteral not yet wired (no panic on missing).
     }
-    return c.anyTypeIndex orelse 0;
+    return getGlobalRegExpType(c, true) catch (c.anyTypeIndex orelse 0);
 }
 
 pub fn checkExpressionWithTypeArguments(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
