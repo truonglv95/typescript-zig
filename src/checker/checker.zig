@@ -9520,12 +9520,46 @@ pub const Checker = struct {
 
     /// Port of checker.go::checkMembersForOverrideModifier. Validates
     /// that override modifiers are correct for class members. Simplified: no-op.
+    /// Port of `checker.go::checkMembersForOverrideModifier`. Iterates
+    /// class members, calling `checkMemberForOverrideModifier` for each
+    /// non-ambient member (including constructor parameter properties).
     pub fn checkMembersForOverrideModifier(c: *Checker, node: ast_gen.NodeIndex, t: types.TypeIndex, type_with_this: types.TypeIndex, static_type: types.TypeIndex) void {
-        _ = c;
-        _ = node;
-        _ = t;
-        _ = type_with_this;
-        _ = static_type;
+        // Get base type with `this` argument.
+        var base_with_this: types.TypeIndex = 0;
+        const extends_elem = ast_utils.getExtendsHeritageClauseElement(c.binder.ast, node);
+        if (extends_elem != 0) {
+            // getBaseTypes is still partially stubbed; conservatively skip.
+            _ = &base_with_this;
+        }
+        const base_static_type = c.getBaseConstructorTypeOfClass(t);
+        // Iterate class members.
+        const members_list: ?ast_gen.NodeListIndex = switch (c.binder.ast.getNode(node)) {
+            .ClassDeclaration => |n| n.Members,
+            .ClassExpression => |n| n.Members,
+            else => null,
+        };
+        if (members_list) |ml| {
+            const members = c.binder.ast.getNodeList(ml);
+            for (members) |member| {
+                if (member == 0) continue;
+                if (ast_utils.hasAmbientModifier(c.binder.ast, member)) continue;
+                const mk = c.binder.ast.getKind(member);
+                if (mk == .Constructor) {
+                    // Check parameter properties.
+                    const params_list = c.binder.ast.getNode(member).Constructor.Parameters;
+                    if (params_list != 0) {
+                        const params = c.binder.ast.getNodeList(params_list);
+                        for (params) |param| {
+                            if (param != 0 and ast_utils.isParameterPropertyDeclaration(c.binder.ast, param, member)) {
+                                c.checkMemberForOverrideModifier(node, static_type, base_static_type, base_with_this, t, type_with_this, param);
+                            }
+                        }
+                    }
+                } else {
+                    c.checkMemberForOverrideModifier(node, static_type, base_static_type, base_with_this, t, type_with_this, member);
+                }
+            }
+        }
     }
 
     /// Port of checker.go::checkMemberForOverrideModifier. Validates
@@ -10702,12 +10736,51 @@ pub const Checker = struct {
     /// Port of checker.go::checkNonNullTypeWithReporter. Validates that
     /// a type is non-null and reports errors via the reporter. Simplified:
     /// returns `t` unchanged.
+    /// Port of `checker.go::checkNonNullTypeWithReporter`. Returns `t`
+    /// with null/undefined stripped. Reports errors for unknown types and
+    /// nullable types. Since the Go version takes a function callback for
+    /// error reporting, this Zig version reports standard diagnostics
+    /// directly (the `report_error` and `facts` params are used for
+    /// custom error messages — here we use generic ones).
     pub fn checkNonNullTypeWithReporter(c: *Checker, t: types.TypeIndex, node1: ast_gen.NodeIndex, report_error: bool, node2: ast_gen.NodeIndex, facts: u32) types.TypeIndex {
-        _ = c;
-        _ = node1;
-        _ = report_error;
         _ = node2;
         _ = facts;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        // Unknown type in strict null checks mode.
+        if (c.strictNullChecks and (flags & types.TypeFlags.Unknown) != 0) {
+            if (report_error and node1 != 0) {
+                const text = ast_utils.getTextOfNode(c.binder.ast, node1);
+                if (text.len > 0 and text.len < 100) {
+                    c.reportErrorWithArgs(node1, &diagnostics_gen.X_0_is_of_type_unknown, &.{text});
+                } else {
+                    c.reportError(node1, &diagnostics_gen.Object_is_of_type_unknown);
+                }
+            }
+            return c.errorTypeIndex orelse t;
+        }
+        // Check for null/undefined facts.
+        const type_facts = c.getTypeFacts(t, types.TypeFacts.IsUndefinedOrNull);
+        if ((type_facts & types.TypeFacts.IsUndefinedOrNull) != 0) {
+            if (report_error and node1 != 0) {
+                // Report the appropriate error based on which facts are present.
+                if ((type_facts & types.TypeFacts.IsUndefined) != 0 and (type_facts & types.TypeFacts.IsNull) != 0) {
+                    c.reportError(node1, &diagnostics_gen.Object_is_possibly_null_or_undefined);
+                } else if ((type_facts & types.TypeFacts.IsNull) != 0) {
+                    c.reportError(node1, &diagnostics_gen.Object_is_possibly_null);
+                } else {
+                    c.reportError(node1, &diagnostics_gen.Object_is_possibly_undefined);
+                }
+            }
+            const non_nullable = c.getNonNullableType(t);
+            if (non_nullable < c.typesList.items.len) {
+                const nn_flags = c.typesList.items[non_nullable].flags;
+                if ((nn_flags & (types.TypeFlags.Nullable | types.TypeFlags.Never)) != 0) {
+                    return c.errorTypeIndex orelse t;
+                }
+            }
+            return non_nullable;
+        }
         return t;
     }
 
@@ -11264,13 +11337,33 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::hasCorrectArity`. Returns true if `args`
+    /// has the correct arity for `signature`. Simplified: checks arg
+    /// count against parameter count and min argument count.
     pub fn hasCorrectArity(c: *Checker, node: ast_gen.NodeIndex, args: []const ast_gen.NodeIndex, signature: types.SignatureIndex, signatureHelpTrailingComma: bool) bool {
-        _ = c;
-        _ = node;
-        _ = args;
-        _ = signature;
-        _ = signatureHelpTrailingComma;
-        return false;
+        if (signature >= c.signatures.items.len) return false;
+        const sig = &c.signatures.items[signature];
+        // Get effective parameter count and minimum argument count.
+        const param_count: i32 = @intCast(sig.parametersLen);
+        const min_args: i32 = sig.minArgumentCount;
+        const has_rest = (sig.flags & types.SignatureFlags.HasRestParameter) != 0;
+        // Determine arg count based on node kind.
+        var arg_count: i32 = @intCast(args.len);
+        if (signatureHelpTrailingComma) arg_count += 1;
+        const node_kind = c.binder.ast.getKind(node);
+        // For decorators and binary expressions, arg count is 1.
+        if (node_kind == .Decorator or node_kind == .BinaryExpression) {
+            arg_count = 1;
+        }
+        // Too many arguments (without rest) → incorrect arity.
+        if (!has_rest and arg_count > param_count) return false;
+        // Too few arguments → check if remaining params accept void.
+        if (arg_count < min_args) {
+            // Conservative: return false (incorrect arity).
+            // Full implementation would check if remaining params accept void.
+            return false;
+        }
+        return true;
     }
 
     pub fn acceptsVoid(c: *Checker, t: types.TypeIndex) bool {
@@ -11631,29 +11724,37 @@ pub const Checker = struct {
         return c.unknownSignatureIndex;
     }
 
-    pub fn isUntypedFunctionCall(c: *Checker, funcType: ast_gen.NodeIndex, apparentFuncType: ast_gen.NodeIndex, numCallSignatures: ast_gen.NodeIndex, numConstructSignatures: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = funcType;
-        _ = apparentFuncType;
-        _ = numCallSignatures;
-        _ = numConstructSignatures;
+    /// Port of `checker.go::isUntypedFunctionCall`. Returns true if the
+    /// call is "untyped" — i.e., the function type is `any`, or it's a
+    /// type parameter with an `any` apparent type, or it has no call/
+    /// construct signatures and is assignable to `Function`.
+    pub fn isUntypedFunctionCall(c: *Checker, funcType: types.TypeIndex, apparentFuncType: types.TypeIndex, numCallSignatures: u32, numConstructSignatures: u32) bool {
+        if (c.isTypeAny(funcType)) return true;
+        if (c.isTypeAny(apparentFuncType) and (c.typesList.items[funcType].flags & types.TypeFlags.TypeParameter) != 0) return true;
+        if (numCallSignatures == 0 and numConstructSignatures == 0) {
+            const apparent_flags = c.typesList.items[apparentFuncType].flags;
+            if ((apparent_flags & types.TypeFlags.Union) == 0) {
+                const reduced = c.getReducedType(apparentFuncType);
+                if ((c.typesList.items[reduced].flags & types.TypeFlags.Never) == 0) {
+                    return c.isTypeAssignableTo(funcType, c.globalFunctionType);
+                }
+            }
+        }
         return false;
     }
 
-    pub fn invocationErrorDetails(c: *Checker, errorTarget: types.TypeIndex, apparentType: types.TypeIndex, kind_: types.SignatureKind) types.TypeIndex {
-        _ = c;
-        _ = errorTarget;
-        _ = apparentType;
-        _ = kind_;
-        return 0;
-    }
-
-    pub fn invocationError(c: *Checker, errorTarget: types.TypeIndex, apparentType: types.TypeIndex, kind_: types.SignatureKind, relatedInformation: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = errorTarget;
-        _ = apparentType;
-        _ = kind_;
+    /// Port of `checker.go::invocationError`. Reports an invocation
+    /// error for a call/construct expression with no matching signature.
+    /// Simplified: reports a generic "cannot invoke" error.
+    pub fn invocationError(c: *Checker, errorTarget: ast_gen.NodeIndex, apparentType: types.TypeIndex, kind_: types.SignatureKind, relatedInformation: ast_gen.NodeIndex) void {
         _ = relatedInformation;
+        // Report the error on errorTarget.
+        const type_str = c.typeToString(apparentType, 0, 0, null);
+        if (kind_ == .Call) {
+            c.reportErrorWithArgs(errorTarget, &diagnostics_gen.Cannot_invoke_an_expression_whose_type_lacks_a_call_signature_Type_0_has_no_compatible_call_signatures, &.{type_str});
+        } else {
+            c.reportErrorWithArgs(errorTarget, &diagnostics_gen.Cannot_use_new_with_an_expression_whose_type_lacks_a_construct_signature_Type_0_has_no_construct_signatures, &.{type_str});
+        }
     }
 
     pub fn invocationErrorRecovery(c: *Checker, apparentType: types.TypeIndex, kind_: types.SignatureKind, diagnostic: ?*const diagnostics_gen.Message) void {
