@@ -8132,10 +8132,33 @@ pub const Checker = struct {
     }
 
     pub fn maybeMappedType(c: *Checker, node: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = node;
-        _ = symbol_;
-        return false;
+        // Go: for { node = node.Parent; if !(IsComputedPropertyName(node) || IsPropertySignatureDeclaration(node)) { break } }
+        //   if IsTypeLiteralNode(node) && len(node.Members()) == 1 {
+        //     t := c.getDeclaredTypeOfSymbol(symbol)
+        //     return t.flags&TypeFlagsUnion != 0 && c.allTypesAssignableToKindEx(t, TypeFlagsStringOrNumberLiteral, true)
+        //   }
+        //   return false
+        var current = node;
+        while (true) {
+            current = c.binder.ast.getNodeParent(current);
+            if (current == 0) break;
+            const k = c.binder.ast.getKind(current);
+            if (k != .ComputedPropertyName and k != .PropertySignature) break;
+        }
+        if (current == 0) return false;
+        if (c.binder.ast.getKind(current) != .TypeLiteral) return false;
+        // Check Members count
+        const members = c.binder.ast.getNode(current).TypeLiteral.Members;
+        if (members == 0) return false;
+        const member_list = c.binder.ast.getNodeList(members);
+        if (member_list.len != 1) return false;
+        const t = c.getDeclaredTypeOfSymbol(symbol_);
+        if (t == 0) return false;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Union) == 0) return false;
+        // StringOrNumberLiteral = StringLiteral | NumberLiteral
+        const string_or_number_literal: u32 = types.TypeFlags.StringLiteral | types.TypeFlags.NumberLiteral;
+        return c.allTypesAssignableToKindEx(t, string_or_number_literal, true);
     }
 
     /// Port of checker.go::checkAndReportErrorForUsingValueAsType.
