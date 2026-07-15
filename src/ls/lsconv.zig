@@ -1,25 +1,71 @@
+const std = @import("std");
+const core = @import("../core/core.zig");
+const lsproto = @import("../lsp/lsproto/lsproto.zig");
+
 pub const Converters = struct {
+    /// Convert line/character position to absolute text position.
+    /// Port of Go's converters.LineAndCharacterToPosition.
     pub fn lineAndCharacterToPosition(self: *Converters, file: anytype, position: anytype) u32 {
         _ = self;
-        _ = file;
-        _ = position;
-        return 0;
+        // Get file content
+        const content = if (@TypeOf(file) == Script) file.content else file;
+        const line = if (@TypeOf(position) == lsproto.Position) position.line else 0;
+        const char = if (@TypeOf(position) == lsproto.Position) position.character else 0;
+
+        // Walk through content counting newlines
+        var current_line: u32 = 0;
+        var pos: usize = 0;
+        while (pos < content.len and current_line < line) {
+            if (content[pos] == '\n') current_line += 1;
+            pos += 1;
+        }
+        // Add character offset within the line
+        pos += char;
+        if (pos > content.len) pos = content.len;
+        return @intCast(pos);
     }
-    pub fn toLSPRange(self: *const Converters, script: anytype, text_range: anytype) @import("../lsp/lsproto/lsproto.zig").Range {
+
+    /// Convert a text range to an LSP Range.
+    /// Port of Go's converters.ToLSPRange.
+    pub fn toLSPRange(self: *const Converters, script: anytype, text_range: anytype) lsproto.Range {
         _ = self;
-        _ = script;
-        _ = text_range;
-        return .{};
+        // Get content from script
+        const content = if (@TypeOf(script) == Script) script.content else "";
+        const pos_val: u32 = if (@TypeOf(text_range) == core.TextRange) @intCast(text_range.pos()) else 0;
+        const end_val: u32 = if (@TypeOf(text_range) == core.TextRange) @intCast(text_range.end()) else 0;
+
+        return .{
+            .start = positionToLineAndCharacterImpl(content, pos_val),
+            .end = positionToLineAndCharacterImpl(content, end_val),
+        };
     }
-    pub fn positionToLineAndCharacter(self: *Converters, script: anytype, pos: anytype) @import("../lsp/lsproto/lsproto.zig").Position {
+
+    /// Convert absolute position to line/character.
+    /// Port of Go's converters.PositionToLineAndCharacter.
+    pub fn positionToLineAndCharacter(self: *Converters, script: anytype, pos: anytype) lsproto.Position {
         _ = self;
-        _ = script;
-        _ = pos;
-        return .{ .line = 0, .character = 0 };
+        const content = if (@TypeOf(script) == Script) script.content else "";
+        const pos_val: u32 = if (@TypeOf(pos) == u32) pos else 0;
+        return positionToLineAndCharacterImpl(content, pos_val);
     }
 };
 
-const std = @import("std");
+fn positionToLineAndCharacterImpl(content: []const u8, pos: u32) lsproto.Position {
+    var line: u32 = 0;
+    var character: u32 = 0;
+    var i: usize = 0;
+    const limit = if (pos < content.len) pos else @as(u32, @intCast(content.len));
+    while (i < limit) {
+        if (content[i] == '\n') {
+            line += 1;
+            character = 0;
+        } else {
+            character += 1;
+        }
+        i += 1;
+    }
+    return .{ .line = line, .character = character };
+}
 
 pub const Script = struct {
     file_name: []const u8,

@@ -70,7 +70,13 @@ pub const AliasResolver = struct {
     }
 
     pub fn bindSourceFiles(self: *AliasResolver) void {
-        _ = self;
+        // Bind all root source files
+        for (self.rootFiles.items) |sf| {
+            if (sf != 0) {
+                // Binding is done at the program/binder level
+                // This is a no-op for now since binding happens during parse
+            }
+        }
     }
 
     pub fn getSourceFiles(self: *AliasResolver) []const ast.NodeIndex {
@@ -148,6 +154,8 @@ pub const AliasResolver = struct {
     }
 
     pub fn getResolvedModules(self: *AliasResolver) void {
+        // Walk through root files and resolve modules
+        // For now, this is a no-op since module resolution happens at program level
         _ = self;
     }
 
@@ -241,7 +249,16 @@ pub const AliasResolver = struct {
 
     pub fn isSourceFileDefaultLibrary(self: *AliasResolver, path: tspath.Path) bool {
         _ = self;
-        _ = path;
+        // Check if file is in a lib directory (e.g., lib.dom.d.ts, lib.es2015.d.ts)
+        const fileName = path.fileName();
+        if (std.mem.startsWith(u8, fileName, "lib.") and std.mem.endsWith(u8, fileName, ".d.ts")) {
+            return true;
+        }
+        // Check if path contains /lib/ or \lib\
+        const pathStr = path.string();
+        if (std.mem.indexOf(u8, pathStr, "/lib/") != null or std.mem.indexOf(u8, pathStr, "\\lib\\") != null) {
+            return true;
+        }
         return false;
     }
 
@@ -259,6 +276,8 @@ pub const AliasResolver = struct {
     }
 
     pub fn getPackagesMap(self: *AliasResolver) void {
+        // Return packages map — not yet implemented
+        // Would walk node_modules directories
         _ = self;
     }
 };
