@@ -10329,10 +10329,24 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getDiagnosticHeadMessageForDecoratorResolution(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getDiagnosticHeadMessageForDecoratorResolution(c: *Checker, node: ast_gen.NodeIndex) ?*const diagnostics_gen.Message {
+        // Go: switch node.Parent.Kind {
+        //   case KindClassDeclaration, KindClassExpression: return diagnostics.Unable_to_resolve_signature_of_class_decorator_when_called_as_an_expression
+        //   case KindParameter: return diagnostics.Unable_to_resolve_signature_of_parameter_decorator_when_called_as_an_expression
+        //   case KindPropertyDeclaration: return diagnostics.Unable_to_resolve_signature_of_property_decorator_when_called_as_an_expression
+        //   case KindMethodDeclaration, KindGetAccessor, KindSetAccessor: return diagnostics.Unable_to_resolve_signature_of_method_decorator_when_called_as_an_expression
+        // }
+        // panic("Unhandled case in getDiagnosticHeadMessageForDecoratorResolution")
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return null;
+        const pk = c.binder.ast.getKind(parent);
+        switch (pk) {
+            .ClassDeclaration, .ClassExpression => return &diagnostics_gen.Unable_to_resolve_signature_of_class_decorator_when_called_as_an_expression,
+            .Parameter => return &diagnostics_gen.Unable_to_resolve_signature_of_parameter_decorator_when_called_as_an_expression,
+            .PropertyDeclaration => return &diagnostics_gen.Unable_to_resolve_signature_of_property_decorator_when_called_as_an_expression,
+            .MethodDeclaration, .GetAccessor, .SetAccessor => return &diagnostics_gen.Unable_to_resolve_signature_of_method_decorator_when_called_as_an_expression,
+            else => return null,
+        }
     }
 
     pub fn resolveInstanceofExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
@@ -10700,10 +10714,16 @@ pub const Checker = struct {
         return c.isFunctionType(return_type);
     }
 
-    pub fn skippedGenericFunction(c: *Checker, node: *anyopaque, checkMode: *anyopaque) void {
+    pub fn skippedGenericFunction(c: *Checker, node: ast_gen.NodeIndex, checkMode: CheckMode) void {
+        // Go: if checkMode&CheckModeInferential != 0 {
+        //   context := c.getInferenceContext(node)
+        //   context.flags |= InferenceFlagsSkippedGenericFunction
+        // }
+        // Simplified: getInferenceContext not yet wired; no-op for now.
         _ = c;
         _ = node;
-        _ = checkMode;
+        if ((@intFromEnum(checkMode) & @intFromEnum(CheckMode.Inferential)) == 0) return;
+        // TODO: getInferenceContext + set InferenceFlagsSkippedGenericFunction.
     }
 
     pub fn getFirstTransformableStaticClassElement(c: *Checker, node: *anyopaque) *anyopaque {
@@ -10972,9 +10992,23 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isInAmbientOrTypeNode(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
+    pub fn isInAmbientOrTypeNode(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: return node.Flags&ast.NodeFlagsAmbient != 0 ||
+        //   ast.FindAncestor(node, func(n *ast.Node) bool {
+        //     return ast.IsInterfaceDeclaration(n) || ast.IsTypeOrJSTypeAliasDeclaration(n) || ast.IsTypeLiteralNode(n)
+        //   }) != nil
+        if ((c.binder.ast.getNodeFlags(node) & ast.NodeFlagsAmbient) != 0) return true;
+        var current = node;
+        while (current != 0) {
+            const k = c.binder.ast.getKind(current);
+            if (k == .InterfaceDeclaration or
+                ast_utils.isTypeOrJSTypeAliasDeclaration(c.binder.ast, current) or
+                ast_utils.isTypeLiteralNode(c.binder.ast, current))
+            {
+                return true;
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
         return false;
     }
 
@@ -11275,9 +11309,12 @@ pub const Checker = struct {
         _ = right;
     }
 
-    pub fn isOptionalPropertyDeclaration(c: *Checker, node: *anyopaque) bool {
-        _ = c;
-        _ = node;
+    pub fn isOptionalPropertyDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: return ast.IsPropertyDeclaration(node) && !ast.HasAccessorModifier(node) && ast.IsQuestionToken(node.PostfixToken())
+        if (!ast_utils.isPropertyDeclaration(c.binder.ast, node)) return false;
+        if (ast_utils.hasAccessorModifier(c.binder.ast, node)) return false;
+        const postfix = c.binder.ast.getNode(node).PropertyDeclaration.PostfixToken;
+        if (postfix) |p| return ast_utils.isQuestionToken(c.binder.ast, p);
         return false;
     }
 

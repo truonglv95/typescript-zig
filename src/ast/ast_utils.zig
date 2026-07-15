@@ -2479,6 +2479,25 @@ pub fn getClassLikeDeclarationOfSymbol(tree: *ast.Ast, symbols: *const std.Array
 pub fn isPrivateIdentifier(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
     return tree.getNodeKind(node) == .PrivateIdentifier;
 }
+
+/// Port of ast.IsQuestionToken.
+pub fn isQuestionToken(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    return tree.getNodeKind(node) == .QuestionToken;
+}
+
+/// Port of ast.IsTypeOrJSTypeAliasDeclaration.
+pub fn isTypeOrJSTypeAliasDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    const k = tree.getNodeKind(node);
+    return k == .TypeAliasDeclaration or k == .JSTypeAliasDeclaration;
+}
+
+/// Port of ast.IsTypeLiteralNode.
+pub fn isTypeLiteralNode(tree: *ast.Ast, node: ast_gen.NodeIndex) bool {
+    if (node == 0) return false;
+    return tree.getNodeKind(node) == .TypeLiteral;
+}
 pub fn canHaveDecorators(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const nodeKind = getKind(tree, nodeIndex);
     switch (nodeKind) {
