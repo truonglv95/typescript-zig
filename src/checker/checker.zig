@@ -8803,26 +8803,34 @@ pub const Checker = struct {
         _ = return_type_node;
     }
 
+    /// Port of `checker.go::findFirstSuperCall`. Walks the children of
+    /// `node` looking for the first `super(...)` call. Stops at function-like
+    /// boundaries.
     pub fn findFirstSuperCall(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        // Go: visit(node) — switch { case isSuperCall(node): superCall = node; return true
-        //   case IsFunctionLike(node): return false }
-        //   return node.ForEachChild(visit)
         if (node == 0) return 0;
-        // isSuperCall: IsCallExpression(node) && node.Expression().Kind == KindSuperKeyword
-        const node_kind = c.binder.ast.getKind(node);
-        if (node_kind == .CallExpression) {
-            const expr = c.binder.ast.getNode(node).CallExpression.Expression;
-            if (expr != 0 and c.binder.ast.getKind(expr) == .SuperKeyword) return node;
-        }
-        // Skip recursion into nested function-like nodes
-        if (ast_utils.isFunctionLike(node_kind)) return 0;
-        // ForEachChild: recurse
-        const children = c.binder.ast.getChildren(node) catch return 0;
-        for (children) |child| {
-            const found = findFirstSuperCall(c, child);
-            if (found != 0) return found;
-        }
-        return 0;
+        var result: ast_gen.NodeIndex = 0;
+        const Context = struct {
+            chk: *Checker,
+            found: *ast_gen.NodeIndex,
+        };
+        var ctx = Context{ .chk = c, .found = &result };
+        const visit = struct {
+            fn visit(ctx_in: Context, n: ast_gen.NodeIndex) bool {
+                if (utils.isSuperCall(ctx_in.chk.binder.ast, n)) {
+                    ctx_in.found.* = n;
+                    return true;
+                }
+                if (ast_utils.isFunctionLikeDeclaration(ctx_in.chk.binder.ast, n) and n != node) {
+                    return false;
+                }
+                // Recurse into children
+                _ = ast_utils.forEachChildBool(ctx_in.chk.binder.ast, n, ctx_in, visit);
+                return ctx_in.found.* != 0;
+            }
+        }.visit;
+        _ = visit(&ctx, node);
+        _ = &ctx;
+        return result;
     }
 
     pub fn isInstancePropertyWithInitializerOrPrivateIdentifierProperty(c: *Checker, n: ast_gen.NodeIndex) bool {
@@ -8909,59 +8917,62 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getDeprecatedSuggestionNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        // Go: node = ast.SkipParentheses(node)
-        //   switch node.Kind {
-        //     case CallExpression, Decorator, NewExpression: return c.getDeprecatedSuggestionNode(node.Expression())
-        //     case TaggedTemplateExpression: return c.getDeprecatedSuggestionNode(node.AsTaggedTemplateExpression().Tag)
-        //     case JsxOpeningElement, JsxSelfClosingElement: return c.getDeprecatedSuggestionNode(node.TagName())
-        //     case ElementAccessExpression: return node.AsElementAccessExpression().ArgumentExpression
-        //     case PropertyAccessExpression: return node.Name()
-        //     case TypeReference: typeName := node.AsTypeReferenceNode().TypeName
-        //       if ast.IsQualifiedName(typeName) { return typeName.AsQualifiedName().Right }
-        //   }
-        //   return node
-        const current = ast_utils.skipParentheses(c.binder.ast, node);
-        const node_kind = c.binder.ast.getKind(current);
-        switch (node_kind) {
-            .CallExpression => return getDeprecatedSuggestionNode(c, c.binder.ast.getNode(current).CallExpression.Expression),
-            .NewExpression => return getDeprecatedSuggestionNode(c, c.binder.ast.getNode(current).NewExpression.Expression),
-            .ElementAccessExpression => return c.binder.ast.getNode(current).ElementAccessExpression.ArgumentExpression,
-            .PropertyAccessExpression => return c.binder.ast.getNode(current).PropertyAccessExpression.name,
+    /// Port of `checker.go::getDeprecatedSuggestionNode`. Walks down
+    /// expression nodes to find the leaf identifier that should be the
+    /// suggestion target for deprecation diagnostics.
+    pub fn getDeprecatedSuggestionNode(c: *Checker, node_in: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        const node = ast_utils.skipParentheses(c.binder.ast, node_in);
+        const k = c.binder.ast.getKind(node);
+        switch (k) {
+            .CallExpression, .NewExpression => {
+                const expr = c.binder.ast.getNode(node).CallExpression.Expression;
+                return c.getDeprecatedSuggestionNode(expr);
+            },
+            .TaggedTemplateExpression => {
+                const tag = c.binder.ast.getNode(node).TaggedTemplateExpression.Tag;
+                return c.getDeprecatedSuggestionNode(tag);
+            },
+            .ElementAccessExpression => {
+                return c.binder.ast.getNode(node).ElementAccessExpression.ArgumentExpression;
+            },
+            .PropertyAccessExpression => {
+                return c.binder.ast.getNode(node).PropertyAccessExpression.name;
+            },
             .TypeReference => {
-                const type_name = c.binder.ast.getNode(current).TypeReference.TypeName;
-                if (type_name != 0 and c.binder.ast.getKind(type_name) == .QualifiedName) {
+                const type_name = c.binder.ast.getNode(node).TypeReference.TypeName;
+                if (c.binder.ast.getKind(type_name) == .QualifiedName) {
                     return c.binder.ast.getNode(type_name).QualifiedName.Right;
                 }
-                return current;
             },
-            else => return current,
+            else => {},
         }
+        return node;
     }
 
+    /// Port of `checker.go::getTypePredicateParent`. Returns the parent
+    /// signature declaration of `node` if `node` is the type annotation
+    /// of an arrow function, call signature, function declaration, etc.
     pub fn getTypePredicateParent(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        // Go: parent := node.Parent
-        //   switch parent.Kind {
-        //     case ArrowFunction, CallSignature, FunctionDeclaration, FunctionExpression, FunctionType,
-        //       MethodDeclaration, MethodSignature:
-        //       if node == parent.Type() { return parent }
-        //   }
-        // return nil
+        if (node == 0) return 0;
         const parent = c.binder.ast.getNodeParent(node);
         if (parent == 0) return 0;
-        const pk = c.binder.ast.getKind(parent);
-        switch (pk) {
-            .ArrowFunction, .CallSignature, .FunctionDeclaration, .FunctionExpression, .FunctionType,
-            .MethodDeclaration, .MethodSignature => {
-                const parent_type: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(parent)) {
+        const k = c.binder.ast.getKind(parent);
+        switch (k) {
+            .ArrowFunction, .CallSignature, .FunctionDeclaration, .FunctionExpression, .FunctionType, .MethodDeclaration, .MethodSignature => {
+                // node must be the Type of parent.
+                const type_field: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(parent)) {
                     .ArrowFunction => |n| n.Type,
+                    .CallSignature => |n| n.Type,
                     .FunctionDeclaration => |n| n.Type,
                     .FunctionExpression => |n| n.Type,
+                    .FunctionType => |n| n.Type,
                     .MethodDeclaration => |n| n.Type,
                     .MethodSignature => |n| n.Type,
                     else => null,
                 };
-                if (parent_type) |t| if (t == node) return parent;
+                if (type_field) |t| {
+                    if (t == node) return parent;
+                }
             },
             else => {},
         }
