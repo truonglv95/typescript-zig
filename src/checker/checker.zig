@@ -18538,10 +18538,28 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getLiteralTypeFromPropertyName(c: *Checker, name_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = name_;
-        return 0;
+    /// Port of `checker.go::getLiteralTypeFromPropertyName`. Returns the
+    /// literal type for a property name node: never for private identifiers,
+    /// number literal for numeric literals, string literal for string names,
+    /// computed property name type for computed names.
+    pub fn getLiteralTypeFromPropertyName(c: *Checker, name: ast_gen.NodeIndex) types.TypeIndex {
+        if (name == 0) return c.neverTypeIndex orelse 0;
+        const k = c.binder.ast.getKind(name);
+        if (k == .PrivateIdentifier) return c.neverTypeIndex orelse 0;
+        if (k == .NumericLiteral) {
+            const text = c.binder.ast.getNode(name).NumericLiteral.Text;
+            const value = std.fmt.parseFloat(f64, text) catch 0.0;
+            return c.getRegularTypeOfLiteralType(c.getFreshTypeOfLiteralType(c.getNumberLiteralType(value)));
+        }
+        if (k == .ComputedPropertyName) {
+            return c.getRegularTypeOfLiteralType(c.checkComputedPropertyName(name));
+        }
+        // String literal or identifier name.
+        const text = ast_utils.getTextOfNode(c.binder.ast, name);
+        if (text.len > 0) {
+            return c.getStringLiteralType(text);
+        }
+        return c.neverTypeIndex orelse 0;
     }
 
     /// Port of `checker.go::isKeyTypeIncluded`. Returns true if `keyType`
