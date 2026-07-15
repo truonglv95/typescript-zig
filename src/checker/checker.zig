@@ -11178,16 +11178,44 @@ pub const Checker = struct {
         c.reportError(node, &diagnostics_gen.X_0_is_possibly_undefined);
     }
 
-    pub fn resolveUntypedCall(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = node;
-        return 0;
+    pub fn resolveUntypedCall(c: *Checker, node: ast_gen.NodeIndex) types.SignatureIndex {
+        // Go: if c.callLikeExpressionMayHaveTypeArguments(node) { c.checkSourceElements(node.TypeArguments()) }
+        //   switch node.Kind {
+        //   case KindTaggedTemplateExpression: c.checkExpression(node.AsTaggedTemplateExpression().Template)
+        //   case KindJsxOpeningElement, KindJsxSelfClosingElement: c.checkExpression(node.Attributes())
+        //   case KindBinaryExpression: c.checkExpression(node.AsBinaryExpression().Left)
+        //   case KindCallExpression, KindNewExpression: for _, argument := range node.Arguments() { c.checkExpression(argument) }
+        //   }
+        //   return c.anySignature
+        // Simplified: check expressions based on node kind, return anySignature.
+        const node_kind = c.binder.ast.getKind(node);
+        switch (node_kind) {
+            .TaggedTemplateExpression => {
+                const template = c.binder.ast.getNode(node).TaggedTemplateExpression.Template;
+                if (template != 0) _ = c.checkExpression(template) catch {};
+            },
+            .BinaryExpression => {
+                const left = c.binder.ast.getNode(node).BinaryExpression.Left;
+                if (left != 0) _ = c.checkExpression(left) catch {};
+            },
+            .CallExpression => {
+                const args = c.binder.ast.getNodeList(c.binder.ast.getNode(node).CallExpression.Arguments);
+                for (args) |arg| { if (arg != 0) _ = c.checkExpression(arg) catch {}; }
+            },
+            .NewExpression => {
+                const args = c.binder.ast.getNodeList(c.binder.ast.getNode(node).NewExpression.Arguments);
+                for (args) |arg| { if (arg != 0) _ = c.checkExpression(arg) catch {}; }
+            },
+            else => {},
+        }
+        // anySignature not yet stored as index; return unknownSignatureIndex as fallback.
+        return c.unknownSignatureIndex;
     }
 
-    pub fn resolveErrorCall(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = node;
-        return 0;
+    pub fn resolveErrorCall(c: *Checker, node: ast_gen.NodeIndex) types.SignatureIndex {
+        // Go: c.resolveUntypedCall(node); return c.unknownSignature
+        _ = c.resolveUntypedCall(node);
+        return c.unknownSignatureIndex;
     }
 
     pub fn isUntypedFunctionCall(c: *Checker, funcType: ast_gen.NodeIndex, apparentFuncType: ast_gen.NodeIndex, numCallSignatures: ast_gen.NodeIndex, numConstructSignatures: ast_gen.NodeIndex) bool {
