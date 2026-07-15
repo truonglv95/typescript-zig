@@ -8510,10 +8510,34 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getDeprecatedSuggestionNode(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getDeprecatedSuggestionNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: node = ast.SkipParentheses(node)
+        //   switch node.Kind {
+        //     case CallExpression, Decorator, NewExpression: return c.getDeprecatedSuggestionNode(node.Expression())
+        //     case TaggedTemplateExpression: return c.getDeprecatedSuggestionNode(node.AsTaggedTemplateExpression().Tag)
+        //     case JsxOpeningElement, JsxSelfClosingElement: return c.getDeprecatedSuggestionNode(node.TagName())
+        //     case ElementAccessExpression: return node.AsElementAccessExpression().ArgumentExpression
+        //     case PropertyAccessExpression: return node.Name()
+        //     case TypeReference: typeName := node.AsTypeReferenceNode().TypeName
+        //       if ast.IsQualifiedName(typeName) { return typeName.AsQualifiedName().Right }
+        //   }
+        //   return node
+        const current = ast_utils.skipParentheses(c.binder.ast, node);
+        const node_kind = c.binder.ast.getKind(current);
+        switch (node_kind) {
+            .CallExpression => return getDeprecatedSuggestionNode(c, c.binder.ast.getNode(current).CallExpression.Expression),
+            .NewExpression => return getDeprecatedSuggestionNode(c, c.binder.ast.getNode(current).NewExpression.Expression),
+            .ElementAccessExpression => return c.binder.ast.getNode(current).ElementAccessExpression.ArgumentExpression,
+            .PropertyAccessExpression => return c.binder.ast.getNode(current).PropertyAccessExpression.name,
+            .TypeReference => {
+                const type_name = c.binder.ast.getNode(current).TypeReference.TypeName;
+                if (type_name != 0 and c.binder.ast.getKind(type_name) == .QualifiedName) {
+                    return c.binder.ast.getNode(type_name).QualifiedName.Right;
+                }
+                return current;
+            },
+            else => return current,
+        }
     }
 
     pub fn getTypePredicateParent(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -9160,9 +9184,25 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn hasShadowedNamespace(c: *Checker, symbol_: *anyopaque) bool {
-        _ = c;
-        _ = symbol_;
+    pub fn hasShadowedNamespace(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        // Go: if symbol.Flags&ast.SymbolFlagsNamespaceModule != 0 && symbol.Flags&ast.SymbolFlagsAlias != 0 {
+        //   if target := c.resolveAlias(symbol); target.Flags&ast.SymbolFlagsNamespace != 0 &&
+        //     c.hasExportedMembersOfKind(target, ast.SymbolFlagsType|ast.SymbolFlagsNamespace) { return true }
+        // }
+        // return false
+        const sym = c.binder.symbols.items[symbol_];
+        if ((sym.Flags & symbol.SymbolFlags.NamespaceModule) != 0 and
+            (sym.Flags & symbol.SymbolFlags.Alias) != 0)
+        {
+            const target = c.resolveAlias(symbol_);
+            if (target != 0) {
+                const target_flags = c.binder.symbols.items[target].Flags;
+                if ((target_flags & symbol.SymbolFlags.Namespace) != 0) {
+                    // hasExportedMembersOfKind not yet ported, conservative false.
+                    return false;
+                }
+            }
+        }
         return false;
     }
 
@@ -16224,14 +16264,68 @@ pub const Checker = struct {
         _ = parentType;
     }
 
-    pub fn isExportOrExportExpression(location: *anyopaque) bool {
-        _ = location;
+    pub fn isExportOrExportExpression(c: *Checker, location: ast_gen.NodeIndex) bool {
+        // Go: return ast.FindAncestor(location, func(n *ast.Node) bool {
+        //   parent := n.Parent
+        //   if parent != nil {
+        //     if ast.IsAnyExportAssignment(parent) {
+        //       return parent.Expression() == n && ast.IsEntityNameExpression(n)
+        //     }
+        //     if ast.IsExportSpecifier(parent) {
+        //       return parent.AsExportSpecifier().Name() == n || parent.PropertyName() == n
+        //     }
+        //   }
+        //   return false
+        // }) != nil
+        var current = location;
+        while (current != 0) {
+            const parent = c.binder.ast.getNodeParent(current);
+            if (parent != 0) {
+                const pk = c.binder.ast.getKind(parent);
+                if (pk == .ExportAssignment) {
+                    const expr = c.binder.ast.getNode(parent).ExportAssignment.Expression;
+                    if (expr == current and ast_utils.isEntityNameExpression(c.binder.ast, current)) return true;
+                }
+                if (pk == .ExportSpecifier) {
+                    const spec = c.binder.ast.getNode(parent).ExportSpecifier;
+                    if (spec.name == current or spec.PropertyName == current) return true;
+                }
+            }
+            current = parent;
+        }
         return false;
     }
 
-    pub fn shouldMarkIdentifierAliasReferenced(node: *anyopaque) bool {
-        _ = node;
-        return false;
+    pub fn shouldMarkIdentifierAliasReferenced(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Go: parent := node.Parent
+        //   if parent != nil {
+        //     if ast.IsPropertyAccessExpression(parent) && parent.Expression() == node { return false }
+        //     if ast.IsExportSpecifier(parent) && parent.IsTypeOnly() { return false }
+        //     if parent.Parent != nil {
+        //       greatGrandparent := parent.Parent.Parent
+        //       if greatGrandparent != nil && ast.IsExportDeclaration(greatGrandparent) && greatGrandparent.IsTypeOnly() { return false }
+        //     }
+        //   }
+        //   return true
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent != 0) {
+            const pk = c.binder.ast.getKind(parent);
+            if (pk == .PropertyAccessExpression) {
+                const expr = c.binder.ast.getNode(parent).PropertyAccessExpression.Expression;
+                if (expr == node) return false;
+            }
+            if (pk == .ExportSpecifier) {
+                // IsTypeOnly check not yet wired; conservative true.
+            }
+            const grandparent = c.binder.ast.getNodeParent(parent);
+            if (grandparent != 0) {
+                const great_grandparent = c.binder.ast.getNodeParent(grandparent);
+                if (great_grandparent != 0 and c.binder.ast.getKind(great_grandparent) == .ExportDeclaration) {
+                    // IsTypeOnly check not yet wired; conservative true.
+                }
+            }
+        }
+        return true;
     }
 
     pub fn isInternalModuleImportEqualsDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
