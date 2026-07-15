@@ -14856,10 +14856,14 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTypeOfPrototypeProperty(c: *Checker, prototype: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = prototype;
-        return 0;
+    pub fn getTypeOfPrototypeProperty(c: *Checker, prototype: ast_gen.SymbolIndex) types.TypeIndex {
+        // Go: classType := c.getDeclaredTypeOfSymbol(c.getParentOfSymbol(prototype))
+        //   typeParameters := classType.AsInterfaceType().TypeParameters()
+        //   if len(typeParameters) != 0 { return c.createTypeReference(classType, core.Map(typeParameters, func(*Type) *Type { return c.anyType })) }
+        //   return classType
+        const parent = c.getParentOfSymbol(prototype);
+        if (parent == 0) return 0;
+        return c.getDeclaredTypeOfSymbol(parent);
     }
 
     pub fn getWidenedTypeForAssignmentDeclaration(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
@@ -15038,10 +15042,23 @@ pub const Checker = struct {
         return c.anyTypeIndex orelse 0;
     }
 
-    pub fn getWriteTypeOfAccessors(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+    pub fn getWriteTypeOfAccessors(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        // Go: complex — checks SetAccessor declaration, getWriteTypeOfSymbol.
+        // Simplified: find SetAccessor declaration with Type annotation.
+        const sym = c.binder.symbols.items[symbol_];
+        for (sym.Declarations.items) |decl| {
+            if (decl != 0 and c.binder.ast.getKind(decl) == .SetAccessor) {
+                const params_list = c.binder.ast.getNode(decl).SetAccessor.Parameters;
+                const params = c.binder.ast.getNodeList(params_list);
+                if (params.len > 0 and params[0] != 0) {
+                    const type_node = c.binder.ast.getNode(params[0]).Parameter.Type;
+                    if (type_node) |tn| {
+                        if (tn != 0) return c.getTypeFromTypeNode(tn);
+                    }
+                }
+            }
+        }
+        return c.getTypeOfAccessors(symbol_);
     }
 
     pub fn getTypeOfAlias(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
