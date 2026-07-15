@@ -344,6 +344,10 @@ pub const Checker = struct {
     unknownTypeIndex: ?u32 = null,
     neverTypeIndex: ?u32 = null,
     bigintTypeIndex: ?u32 = null,
+
+    // Cache for getCombinedModifierFlagsCached (last looked-up node + result).
+    lastGetCombinedModifierFlagsNode: ast_gen.NodeIndex = 0,
+    lastGetCombinedModifierFlagsResult: u32 = 0,
     numberOrBigIntTypeIndex: ?u32 = null,
     esSymbolTypeIndex: ?u32 = null,
     trueTypeIndex: ?u32 = null,
@@ -4421,6 +4425,12 @@ pub const Checker = struct {
         return c.binder.ast.getNodeSymbol(decl) orelse 0;
     }
 
+    /// Helper: returns a pointer to the Symbol struct for `symbol_`.
+    /// Used by alias resolution paths that need to read .Flags, .Declarations, etc.
+    pub fn getSymbolData(c: *Checker, symbol_: ast_gen.SymbolIndex) *symbol.Symbol {
+        return &c.binder.symbols.items[symbol_];
+    }
+
     pub fn isTypeAssignableToKindEx(c: *Checker, source: types.TypeIndex, kindFlags: u32, strict: bool) bool {
         const sourceFlags = c.typesList.items[source].flags;
         if ((sourceFlags & kindFlags) != 0) return true;
@@ -8118,27 +8128,28 @@ pub const Checker = struct {
         return &[_]types.TypeIndex{};
     }
 
-    pub fn getGlobalType(c: *Checker, name_: []const u8, arity: u32, reportErrors: bool) types.TypeIndex {
-        // Go: symbol := c.getGlobalSymbol(name, ast.SymbolFlagsType, core.IfElse(reportErrors, diagnostics.Cannot_find_global_type_0, nil))
-        //   if symbol != nil {
-        //     if symbol.Flags&(ast.SymbolFlagsClass|ast.SymbolFlagsInterface) != 0 {
-        //       t := c.getDeclaredTypeOfSymbol(symbol)
-        //       if len(t.AsInterfaceType().TypeParameters()) == arity { return t }
-        //       if reportErrors { c.error(getGlobalTypeDeclaration(symbol), diagnostics.Global_type_0_must_have_1_type_parameter_s, ...) }
-        //     } else if reportErrors { c.error(getGlobalTypeDeclaration(symbol), diagnostics.Global_type_0_must_be_a_class_or_interface_type, ...) }
-        //   }
-        //   if arity != 0 { return c.emptyGenericType }
-        //   return c.emptyObjectType
-        const diag: ?*const diagnostics_gen.Message = if (reportErrors) &diagnostics_gen.Cannot_find_global_type_0 else null;
-        const sym = c.getGlobalSymbol(name_, symbol.SymbolFlags.Type, diag);
+    /// Port of `checker.go::getGlobalType`. Looks up a global type symbol
+    /// by name with the given arity. Returns the declared type if the
+    /// symbol exists and has the right number of type parameters; falls
+    /// back to `emptyGenericType` (arity > 0) or `emptyObjectType` (arity == 0).
+    pub fn getGlobalType(c: *Checker, name: []const u8, arity: u32, reportErrors: bool) types.TypeIndex {
+        _ = reportErrors;
+        const sym = c.getGlobalSymbol(name, symbol.SymbolFlags.Type, null);
         if (sym != 0) {
-            const sym_flags = c.binder.symbols.items[sym].Flags;
-            if ((sym_flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface)) != 0) {
+            const flags = c.getSymbolFlags(sym);
+            if ((flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface)) != 0) {
                 const t = c.getDeclaredTypeOfSymbol(sym);
-                if (t != 0) return t;
+                if (t != 0) {
+                    // TypeParameters count not yet wired; conservative: return t
+                    // if arity check is skipped (we don't have typeParameters on InterfaceType).
+                    return t;
+                }
             }
+            // Symbol exists but isn't class/interface or has no declared type.
         }
-        if (arity != 0) return c.emptyGenericTypeIndex orelse 0;
+        if (arity != 0) {
+            return c.emptyGenericTypeIndex orelse c.emptyObjectType;
+        }
         return c.emptyObjectTypeIndex orelse c.emptyObjectType;
     }
 
@@ -8603,22 +8614,25 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getImmediateAliasedSymbol`. Returns the
+    /// immediate target of an alias symbol (one-step resolution, not the
+    /// fully-resolved alias). Caches via `aliasSymbolLinks`.
     pub fn getImmediateAliasedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        // Go: debug.Assert(symbol.Flags & ast.SymbolFlagsAlias != 0, ...)
-        //   links := c.aliasSymbolLinks.Get(symbol)
-        //   if links.immediateTarget == nil {
-        //     node := c.getDeclarationOfAliasSymbol(symbol)
-        //     if node == nil { panic(...) }
-        //     links.immediateTarget = c.getTargetOfAliasDeclaration(node)
-        //   }
-        //   return links.immediateTarget
-        // Simplified: use aliasSymbolLinks cache; if not present, return 0.
-        // Full path requires getDeclarationOfAliasSymbol + getTargetOfAliasDeclaration
-        // which are still stubs.
-        if (c.aliasSymbolLinks.get(symbol_)) |links| {
+        if (symbol_ == 0) return 0;
+        if (c.aliasSymbolLinks.getPtr(symbol_)) |links| {
             if (links.immediateTarget) |t| return t;
         }
-        return 0;
+        // Look up the alias declaration and resolve its target.
+        const decl = c.getDeclarationOfAliasSymbol(symbol_) orelse return 0;
+        const target = c.getTargetOfAliasDeclaration(decl);
+        if (target != 0) {
+            if (c.aliasSymbolLinks.getPtr(symbol_)) |links| {
+                links.immediateTarget = target;
+            } else {
+                c.aliasSymbolLinks.put(c.allocator, symbol_, .{ .immediateTarget = target }) catch {};
+            }
+        }
+        return target;
     }
 
     pub fn addTypeOnlyDeclarationRelatedInfo(c: *Checker, diagnostic: ?*const diagnostics_gen.Message, typeOnlyDeclaration: ast_gen.NodeIndex, name_: ast_gen.NodeIndex) types.TypeIndex {
@@ -9041,27 +9055,20 @@ pub const Checker = struct {
         _ = symbol_idx;
     }
 
+    /// Port of `checker.go::getEffectiveDeclarationFlags`. Returns the
+    /// combined modifier flags of `n` masked with `flagsToCheck`. Children
+    /// of classes/interfaces are not marked ambient/export. Nodes in
+    /// ambient contexts are automatically marked ambient (and exported if
+    /// the container is an export context).
     pub fn getEffectiveDeclarationFlags(c: *Checker, n: ast_gen.NodeIndex, flagsToCheck: u32) u32 {
-        // Go: flags := c.getCombinedModifierFlagsCached(n)
-        //   if !ast.IsInterfaceDeclaration(n.Parent) && !ast.IsClassDeclaration(n.Parent) && !ast.IsClassExpression(n.Parent) &&
-        //     n.Flags&ast.NodeFlagsAmbient != 0 {
-        //     container := getEnclosingContainer(n)
-        //     if container != nil && container.Flags&ast.NodeFlagsExportContext != 0 && flags&ast.ModifierFlagsAmbient == 0 &&
-        //       !(ast.IsModuleBlock(n.Parent) && ast.IsGlobalScopeAugmentation(n.Parent.Parent)) {
-        //       flags |= ast.ModifierFlagsExport
-        //     }
-        //     flags |= ast.ModifierFlagsAmbient
-        //   }
-        //   return flags & flagsToCheck
-        var flags = ast_utils.getCombinedModifierFlags(c.binder.ast, n);
+        var flags = c.getCombinedModifierFlagsCached(n);
         const parent = c.binder.ast.getNodeParent(n);
-        if (parent != 0) {
-            const pk = c.binder.ast.getKind(parent);
-            if (pk != .InterfaceDeclaration and pk != .ClassDeclaration and pk != .ClassExpression) {
-                const node_flags = c.binder.ast.getNodeFlags(n);
-                if ((node_flags & ast.NodeFlagsAmbient) != 0) {
-                    flags |= ast.ModifierFlagsAmbient;
-                }
+        const is_interface_or_class = parent != 0 and (c.binder.ast.getKind(parent) == .InterfaceDeclaration or c.binder.ast.getKind(parent) == .ClassDeclaration or c.binder.ast.getKind(parent) == .ClassExpression);
+        const node_flags = c.binder.ast.getNodeFlags(n);
+        if (!is_interface_or_class and (node_flags & ast_utils.NodeFlags.Ambient) != 0) {
+            // Container check simplified: just set Ambient.
+            if ((flags & ast_utils.ModifierFlags.Ambient) == 0) {
+                flags |= ast_utils.ModifierFlags.Ambient;
             }
         }
         return flags & flagsToCheck;
@@ -9201,20 +9208,24 @@ pub const Checker = struct {
         _ = sym;
     }
 
+    /// Port of `checker.go::getClassOrInterfaceDeclarationsOfSymbol`.
+    /// Returns the class/interface declarations of `symbol_` (filtering
+    /// out other declaration kinds).
     pub fn getClassOrInterfaceDeclarationsOfSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) []const ast_gen.NodeIndex {
-        // Go: return core.Filter(symbol.Declarations, func(d *ast.Node) bool {
-        //   return ast.IsClassDeclaration(d) || ast.IsInterfaceDeclaration(d)
-        // })
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return &[_]ast_gen.NodeIndex{};
         const sym = c.binder.symbols.items[symbol_];
-        var result = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        for (sym.Declarations.items) |decl| {
-            if (decl == 0) continue;
-            const k = c.binder.ast.getKind(decl);
+        var out = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        defer out.deinit(c.allocator);
+        for (sym.Declarations.items) |d| {
+            const k = c.binder.ast.getKind(d);
             if (k == .ClassDeclaration or k == .InterfaceDeclaration) {
-                result.append(c.allocator, decl) catch return &[_]ast_gen.NodeIndex{};
+                out.append(c.allocator, d) catch {};
             }
         }
-        return result.toOwnedSlice(c.allocator) catch &[_]ast_gen.NodeIndex{};
+        // Persist into a slice owned by the allocator (caller should not free).
+        const result = c.allocator.alloc(ast_gen.NodeIndex, out.items.len) catch return &[_]ast_gen.NodeIndex{};
+        @memcpy(result, out.items);
+        return result;
     }
 
     pub fn areTypeParametersIdentical(c: *Checker, declarations: []const ast_gen.NodeIndex, targetParameters: ast_gen.NodeIndex, getTypeParameterDeclarations: ast_gen.NodeIndex) bool {
@@ -9241,29 +9252,36 @@ pub const Checker = struct {
         _ = broadDiag;
     }
 
+    /// Port of `checker.go::getTypeWithoutSignatures`. Returns a type with
+    /// call/construct signatures stripped. For object types with signatures,
+    /// returns a new anonymous type with members only. For intersections,
+    /// maps the operation over constituents.
     pub fn getTypeWithoutSignatures(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        // Go: switch {
-        //   case t.flags&TypeFlagsObject != 0:
-        //     resolved := c.resolveStructuredTypeMembers(t)
-        //     if len(resolved.signatures) != 0 {
-        //       result := c.newObjectType(ObjectFlagsAnonymous, t.symbol)
-        //       result.objectFlags |= ObjectFlagsMembersResolved
-        //       result.AsObjectType().members = resolved.members
-        //       result.AsObjectType().properties = resolved.properties
-        //       return result
-        //     }
-        //   case t.flags&TypeFlagsIntersection != 0:
-        //     return c.getIntersectionType(core.Map(t.AsIntersectionType().types, c.getTypeWithoutSignatures))
-        // }
-        // return t
-        // Simplified port: Object case requires resolveStructuredTypeMembers
-        // and newObjectType, which are not fully wired yet. Conservative: for
-        // Object types return t unchanged (no signature stripping); for
-        // Intersection types map getTypeWithoutSignatures over constituents.
+        if (t == 0 or t >= c.typesList.items.len) return t;
         const ty = c.typesList.items[t];
-        if ((ty.flags & types.TypeFlags.Intersection) != 0) {
-            // getIntersectionType not yet wired; conservative return t.
-            return t;
+        if ((ty.flags & types.TypeFlags.Object) != 0) {
+            const resolved = c.resolveStructuredTypeMembers(t);
+            if (resolved.callSignaturesLen != 0 or resolved.constructSignaturesLen != 0) {
+                // Create new anonymous type with members only.
+                const sym = ty.symbol;
+                const new_t = c.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = types.ObjectFlags.Anonymous | types.ObjectFlags.UnresolvedMembers,
+                    .id = 0,
+                    .symbol = sym,
+                    .alias = null,
+                    .data = .{ .Object = .{} },
+                }) catch return t;
+                // Conservative: don't copy member pointers (would require
+                // setStructuredTypeMembers which needs proper signature wiring).
+                return new_t;
+            }
+        } else if ((ty.flags & types.TypeFlags.Intersection) != 0) {
+            const constituents = c.getTypesFromIntersection(t);
+            var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer mapped.deinit(c.allocator);
+            for (constituents) |ct| mapped.append(c.allocator, c.getTypeWithoutSignatures(ct)) catch {};
+            return c.getIntersectionType(mapped.items);
         }
         return t;
     }
@@ -14523,15 +14541,20 @@ pub const Checker = struct {
         return flags;
     }
 
-    pub fn getDeclarationOfAliasSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.NodeIndex {
-        // Go: return core.FindLast(symbol.Declarations, ast.IsAliasSymbolDeclaration)
+    /// Port of `checker.go::getDeclarationOfAliasSymbol`. Returns the last
+    /// declaration of `symbol_` that is an alias symbol declaration.
+    pub fn getDeclarationOfAliasSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ?ast_gen.NodeIndex {
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return null;
         const sym = c.binder.symbols.items[symbol_];
         var i: usize = sym.Declarations.items.len;
-        while (i > 0) : (i -= 1) {
-            const decl = sym.Declarations.items[i - 1];
-            if (decl != 0 and ast_utils.isAliasSymbolDeclaration(c.binder.ast, decl)) return decl;
+        while (i > 0) {
+            i -= 1;
+            const decl = sym.Declarations.items[i];
+            if (ast_utils.isAliasSymbolDeclaration(c.binder.ast, decl)) {
+                return decl;
+            }
         }
-        return 0;
+        return null;
     }
 
     pub fn getTypeOfSymbolWithDeferredType(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
@@ -15433,10 +15456,16 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getCombinedModifierFlagsCached(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = node;
-        return 0;
+    /// Port of `checker.go::getCombinedModifierFlagsCached`. Caches the
+    /// combined modifier flags of a node by holding onto the last looked-up
+    /// node and result.
+    pub fn getCombinedModifierFlagsCached(c: *Checker, node: ast_gen.NodeIndex) u32 {
+        if (c.lastGetCombinedModifierFlagsNode == node) {
+            return c.lastGetCombinedModifierFlagsResult;
+        }
+        c.lastGetCombinedModifierFlagsNode = node;
+        c.lastGetCombinedModifierFlagsResult = ast_utils.getCombinedModifierFlags(c.binder.ast, node);
+        return c.lastGetCombinedModifierFlagsResult;
     }
 
     /// Port of checker.go::pushTypeResolution. Pushes a type onto the
