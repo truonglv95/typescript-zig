@@ -17988,33 +17988,65 @@ pub const Checker = struct {
         return (c.typesList.items[t].flags & types.TypeFlags.Null) == 0;
     }
 
+    /// Port of `checker.go::addTypesToIntersection`. Adds `types_` to a
+    /// new intersection built on top of `typeSet`. Returns the new
+    /// intersection type. `includes` is currently ignored (full flag
+    /// tracking pending).
     pub fn addTypesToIntersection(c: *Checker, typeSet: types.TypeIndex, includes: u32, types_: []const types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = typeSet;
+        var all = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer all.deinit(c.allocator);
+        if (typeSet != 0 and (c.typesList.items[typeSet].flags & types.TypeFlags.Intersection) != 0) {
+            const existing = c.getTypesFromIntersection(typeSet);
+            all.appendSlice(c.allocator, existing) catch {};
+        } else if (typeSet != 0) {
+            all.append(c.allocator, typeSet) catch {};
+        }
+        for (types_) |t| {
+            const rt = c.getRegularTypeOfLiteralType(t);
+            if ((c.typesList.items[rt].flags & types.TypeFlags.Intersection) != 0) {
+                const members = c.getTypesFromIntersection(rt);
+                for (members) |m| all.append(c.allocator, m) catch {};
+            } else {
+                all.append(c.allocator, rt) catch {};
+            }
+        }
         _ = includes;
-        _ = types_;
-        return 0;
+        return c.getIntersectionType(all.items);
     }
 
+    /// Port of `checker.go::addTypeToIntersection`. Adds a single type to
+    /// an intersection (flattening nested intersections).
     pub fn addTypeToIntersection(c: *Checker, typeSet: types.TypeIndex, includes: u32, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = typeSet;
-        _ = includes;
-        _ = t;
-        return 0;
+        return c.addTypesToIntersection(typeSet, includes, &[_]types.TypeIndex{t});
     }
 
+    /// Port of `checker.go::removeRedundantSupertypes`. Removes supertypes
+    /// when subtypes are present (e.g. removes `string` if `stringLiteral`
+    /// is in the set).
     pub fn removeRedundantSupertypes(c: *Checker, types_: []const types.TypeIndex, includes: u32) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        _ = includes;
-        return 0;
+        var out = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer out.deinit(c.allocator);
+        for (types_) |t| {
+            if (t == 0 or t >= c.typesList.items.len) continue;
+            const flags = c.typesList.items[t].flags;
+            const remove =
+                ((flags & types.TypeFlags.String) != 0 and (includes & (types.TypeFlags.StringLiteral | types.TypeFlags.TemplateLiteral | types.TypeFlags.StringMapping)) != 0) or
+                ((flags & types.TypeFlags.Number) != 0 and (includes & types.TypeFlags.NumberLiteral) != 0) or
+                ((flags & types.TypeFlags.BigInt) != 0 and (includes & types.TypeFlags.BigIntLiteral) != 0) or
+                ((flags & types.TypeFlags.ESSymbol) != 0 and (includes & types.TypeFlags.UniqueESSymbol) != 0) or
+                ((flags & types.TypeFlags.Void) != 0 and (includes & types.TypeFlags.Undefined) != 0);
+            if (!remove) out.append(c.allocator, t) catch {};
+        }
+        if (out.items.len == 0) return c.unknownTypeIndex orelse 0;
+        return c.getIntersectionType(out.items);
     }
 
-    pub fn extractRedundantTemplateLiterals(c: *Checker, types_: []const types.TypeIndex) bool {
+    /// Port of `checker.go::extractRedundantTemplateLiterals`. Stub:
+    /// returns the input set unchanged with isEmptySet=false. Full
+    /// implementation requires `isTypeSubtypeOf` for template literals.
+    pub fn extractRedundantTemplateLiterals(c: *Checker, types_: []const types.TypeIndex) struct { types: []const types.TypeIndex, isEmptySet: bool } {
         _ = c;
-        _ = types_;
-        return false;
+        return .{ .types = types_, .isEmptySet = false };
     }
 
     pub fn intersectUnionsOfPrimitiveTypes(c: *Checker, types_: []const types.TypeIndex) bool {
@@ -18072,10 +18104,31 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::isEmptyResolvedType`. Returns true if the
+    /// structured type has no properties, signatures, or index infos.
     pub fn isEmptyResolvedType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const members = c.resolveStructuredTypeMembers(t);
+        return members.propertiesLen == 0 and members.callSignaturesLen == 0 and members.constructSignaturesLen == 0 and members.indexInfosLen == 0;
+    }
+
+    /// Port of `checker.go::compareTypeIds`. Returns the difference of
+    /// two type IDs (`t1.id - t2.id`).
+    pub fn compareTypeIds(t1: types.TypeIndex, t2: types.TypeIndex) i32 {
+        // Without ID tracking on Type, use the index itself as the ID.
+        return @as(i32, @intCast(t1)) - @as(i32, @intCast(t2));
+    }
+
+    /// Port of `checker.go::insertType`. Inserts `t` into `types_` if not
+    /// present. Returns the (possibly new) slice and whether insertion happened.
+    pub fn insertType(c: *Checker, types_: []const types.TypeIndex, t: types.TypeIndex) struct { types: []const types.TypeIndex, inserted: bool } {
+        for (types_) |x| {
+            if (x == t) return .{ .types = types_, .inserted = false };
+        }
+        var out = c.allocator.alloc(types.TypeIndex, types_.len + 1) catch return .{ .types = types_, .inserted = false };
+        @memcpy(out[0..types_.len], types_);
+        out[types_.len] = t;
+        return .{ .types = out, .inserted = true };
     }
 
     pub fn forEachType(t: types.TypeIndex, f: *anyopaque) *anyopaque {
@@ -18090,13 +18143,17 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn insertType(types_: []const types.TypeIndex, t: types.TypeIndex) bool {
+    /// Port of `checker.go::insertType`. (Duplicate at the file-level —
+    /// kept for compatibility with existing call sites that take a slice
+    /// and a type.)
+    pub fn insertTypeSlice(types_: []const types.TypeIndex, t: types.TypeIndex) bool {
         _ = types_;
         _ = t;
         return false;
     }
 
-    pub fn compareTypeIds(arg0: ast_gen.NodeIndex, t2: types.TypeIndex) i32 {
+    /// Port of `checker.go::compareTypeIds`. Stub: returns 0.
+    pub fn compareTypeIdsStub(arg0: ast_gen.NodeIndex, t2: types.TypeIndex) i32 {
         _ = arg0;
         _ = t2;
         return 0;
@@ -18147,16 +18204,48 @@ pub const Checker = struct {
         return undefined;
     }
 
+    /// Port of `checker.go::isNoInferType`. Returns true if `t` is a
+    /// substitution type with an `Unknown` constraint (i.e. `NoInfer<T>`).
     pub fn isNoInferType(c: *Checker, t: types.TypeIndex) bool {
-        _ = c;
-        _ = t;
-        return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const ty = c.typesList.items[t];
+        if (ty.data != .Substitution) return false;
+        const constraint_flags = c.typesList.items[ty.data.Substitution.constraint].flags;
+        return (constraint_flags & types.TypeFlags.Unknown) != 0;
     }
 
+    /// Port of `checker.go::getSubstitutionIntersection`. For NoInfer types,
+    /// returns the base type; otherwise returns the intersection of the
+    /// constraint and base type.
     pub fn getSubstitutionIntersection(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const ty = c.typesList.items[t];
+        if (ty.data != .Substitution) return 0;
+        if (c.isNoInferType(t)) return ty.data.Substitution.baseType;
+        return c.getIntersectionType(&[_]types.TypeIndex{ ty.data.Substitution.constraint, ty.data.Substitution.baseType });
+    }
+
+    /// Port of `checker.go::getOrCreateSubstitutionType`. Caches by
+    /// {baseType, constraint} pair if a cache is available; otherwise
+    /// just creates a new substitution type.
+    pub fn getOrCreateSubstitutionType(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) types.TypeIndex {
+        // Cache is not yet wired (no substitutionTypes field on Checker);
+        // for now just create a fresh substitution type each call.
+        return c.newSubstitutionType(baseType, constraint);
+    }
+
+    /// Port of `checker.go::typeHasStaticProperty`. Returns true if the
+    /// containing type's symbol has a property with the given name whose
+    /// value declaration is static.
+    pub fn typeHasStaticProperty(c: *Checker, propName: []const u8, containingType: types.TypeIndex) bool {
+        if (containingType == 0 or containingType >= c.typesList.items.len) return false;
+        const sym = c.typesList.items[containingType].symbol orelse return false;
+        const type_of_sym = c.getTypeOfSymbol(sym) catch return false;
+        const prop = c.getPropertyOfType(type_of_sym, propName) orelse return false;
+        // Look up the value declaration of the property symbol.
+        const prop_sym = c.binder.symbols.items[prop];
+        const value_decl = prop_sym.valueDeclaration orelse return false;
+        return ast_utils.isStatic(c.binder.ast, value_decl);
     }
 
     pub fn getMappedTypeNameTypeKind(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -18200,10 +18289,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn typeHasStaticProperty(c: *Checker, propName: ast_gen.NodeIndex, containingType: types.TypeIndex) bool {
-        _ = c;
-        _ = propName;
-        _ = containingType;
+    pub fn typeHasStaticProperty_stub() bool {
         return false;
     }
 
@@ -18309,32 +18395,81 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getOrCreateSubstitutionType(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = baseType;
-        _ = constraint;
+    pub fn getOrCreateSubstitutionType_stub(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) types.TypeIndex {
+        // Old stub kept for backward compatibility — delegates to the new impl.
+        return c.getOrCreateSubstitutionType(baseType, constraint);
+    }
+
+    /// Port of `checker.go::getNextBaseConstraint`. Returns the resolved
+    /// base constraint of `t` if it is not the noConstraint or circularConstraint
+    /// sentinel; otherwise returns 0 (nil).
+    pub fn getNextBaseConstraint(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (t == 0) return 0;
+        const constraint = c.getResolvedBaseConstraint(t);
+        if (constraint == (c.noConstraintTypeIndex orelse 0)) return 0;
+        if (constraint == (c.circularConstraintTypeIndex orelse 0)) return 0;
+        return constraint;
+    }
+
+    /// Port of `checker.go::getResolvedBaseConstraint`. Simplified: returns
+    /// `t` for non-constrained types and 0 (noConstraint) for constrained types.
+    /// Full implementation requires `pushTypeResolution`/`popTypeResolution`.
+    pub fn getResolvedBaseConstraint(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        // For type parameters with a constraint, return the constraint.
+        if (c.typesList.items[t].data == .TypeParameter) {
+            const tp = c.typesList.items[t].data.TypeParameter;
+            if (tp.isTypeParameterConstraintResolved) {
+                return tp.resolvedBaseConstraint orelse (c.noConstraintTypeIndex orelse 0);
+            }
+            // Conservative: return noConstraintTypeIndex to avoid recursion.
+            return c.noConstraintTypeIndex orelse 0;
+        }
+        // For other constrained types (instantiable non-primitive), return 0.
+        // Full implementation would call computeBaseConstraint here.
+        return t;
+    }
+
+    /// Port of `checker.go::computeBaseConstraint`. Simplified: returns
+    /// `t` for primitives/objects, and 0 (no constraint) for instantiable
+    /// non-primitive types. Full implementation requires complex recursion
+    /// handling for type parameters, unions, intersections, etc.
+    pub fn computeBaseConstraint(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const flags = c.typesList.items[t].flags;
+        // Primitives, objects, and literals are their own constraint.
+        if ((flags & (types.TypeFlags.Primitive | types.TypeFlags.Object | types.TypeFlags.Literal)) != 0) {
+            return t;
+        }
+        // For union/intersection, map computeBaseConstraint over constituents.
+        if ((flags & (types.TypeFlags.Union | types.TypeFlags.Intersection)) != 0) {
+            const constituents = if ((flags & types.TypeFlags.Union) != 0)
+                c.getTypesFromUnion(t)
+            else
+                c.getTypesFromIntersection(t);
+            var constraints = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer constraints.deinit(c.allocator);
+            var different = false;
+            for (constituents) |s| {
+                const con = c.getNextBaseConstraint(s);
+                if (con != 0) {
+                    if (con != s) different = true;
+                    constraints.append(c.allocator, con) catch {};
+                } else {
+                    different = true;
+                }
+            }
+            if (!different) return t;
+            if ((flags & types.TypeFlags.Union) != 0 and constraints.items.len == constituents.len) {
+                return c.getUnionType(constraints.items);
+            }
+            if ((flags & types.TypeFlags.Intersection) != 0 and constraints.items.len != 0) {
+                return c.getIntersectionType(constraints.items);
+            }
+            return 0;
+        }
+        // For instantiable types, conservatively return 0 (no constraint).
         return 0;
-    }
-
-    pub fn getResolvedBaseConstraint(c: *Checker, t: types.TypeIndex, stack: ?*anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = stack;
-        return undefined;
-    }
-
-    pub fn computeBaseConstraint(c: *Checker, t: types.TypeIndex, stack: ?*anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = stack;
-        return undefined;
-    }
-
-    pub fn getNextBaseConstraint(c: *Checker, t: types.TypeIndex, stack: ?*anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = stack;
-        return undefined;
     }
 
     /// Port of checker.go::maybeTypeOfKindConsideringBaseConstraint. Full Go logic.
