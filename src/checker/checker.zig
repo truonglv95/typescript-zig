@@ -12456,10 +12456,56 @@ pub const Checker = struct {
         return resolveName(c, reference, text, symbol.SymbolFlags.Value | symbol.SymbolFlags.ExportValue | symbol.SymbolFlags.Alias, null, true, false);
     }
 
-    pub fn getCannotFindNameDiagnosticForName(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getCannotFindNameDiagnosticForName(c: *Checker, node: ast_gen.NodeIndex) ?*const diagnostics_gen.Message {
+        // Go: switch node.Text() { ... } — returns different diagnostic
+        // messages based on the name text. Simplified: UsesWildcardTypes
+        // not yet wired, so we always use the non-wildcard variant.
+        const text = ast_utils.getTextOfNode(c.binder.ast, node);
+        if (std.mem.eql(u8, text, "document") or std.mem.eql(u8, text, "console")) {
+            return &diagnostics_gen.Cannot_find_name_0_Do_you_need_to_change_your_target_library_Try_changing_the_lib_compiler_option_to_include_dom;
+        }
+        if (std.mem.eql(u8, text, "$")) {
+            return &diagnostics_gen.Cannot_find_name_0_Do_you_need_to_install_type_definitions_for_jQuery_Try_npm_i_save_dev_types_Slashjquery;
+        }
+        if (std.mem.eql(u8, text, "beforeEach") or std.mem.eql(u8, text, "describe") or
+            std.mem.eql(u8, text, "suite") or std.mem.eql(u8, text, "it") or
+            std.mem.eql(u8, text, "test"))
+        {
+            return &diagnostics_gen.Cannot_find_name_0_Do_you_need_to_install_type_definitions_for_a_test_runner_Try_npm_i_save_dev_types_Slashjest_or_npm_i_save_dev_types_Slashmocha;
+        }
+        if (std.mem.eql(u8, text, "process") or std.mem.eql(u8, text, "require") or
+            std.mem.eql(u8, text, "Buffer") or std.mem.eql(u8, text, "module") or
+            std.mem.eql(u8, text, "NodeJS"))
+        {
+            return &diagnostics_gen.Cannot_find_name_0_Do_you_need_to_install_type_definitions_for_node_Try_npm_i_save_dev_types_Slashnode;
+        }
+        if (std.mem.eql(u8, text, "Bun")) {
+            return &diagnostics_gen.Cannot_find_name_0_Do_you_need_to_install_type_definitions_for_Bun_Try_npm_i_save_dev_types_Slashbun;
+        }
+        if (std.mem.eql(u8, text, "Map") or std.mem.eql(u8, text, "Set") or
+            std.mem.eql(u8, text, "Promise") or std.mem.eql(u8, text, "WeakMap") or
+            std.mem.eql(u8, text, "WeakSet") or std.mem.eql(u8, text, "Iterator") or
+            std.mem.eql(u8, text, "AsyncIterator") or std.mem.eql(u8, text, "SharedArrayBuffer") or
+            std.mem.eql(u8, text, "Atomics") or std.mem.eql(u8, text, "AsyncIterable") or
+            std.mem.eql(u8, text, "AsyncIterableIterator") or std.mem.eql(u8, text, "AsyncGenerator") or
+            std.mem.eql(u8, text, "AsyncGeneratorFunction") or std.mem.eql(u8, text, "BigInt") or
+            std.mem.eql(u8, text, "Reflect") or std.mem.eql(u8, text, "BigInt64Array") or
+            std.mem.eql(u8, text, "BigUint64Array"))
+        {
+            return &diagnostics_gen.Cannot_find_name_0_Do_you_need_to_change_your_target_library_Try_changing_the_lib_compiler_option_to_1_or_later;
+        }
+        if (std.mem.eql(u8, text, "await")) {
+            const parent = c.binder.ast.getNodeParent(node);
+            if (parent != 0 and c.binder.ast.getKind(parent) == .CallExpression) {
+                return &diagnostics_gen.Cannot_find_name_0_Did_you_mean_to_write_this_in_an_async_function;
+            }
+        }
+        // default: check ShorthandPropertyAssignment parent
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent != 0 and c.binder.ast.getKind(parent) == .ShorthandPropertyAssignment) {
+            return &diagnostics_gen.No_value_exists_in_scope_for_the_shorthand_property_0_Either_declare_one_or_provide_an_initializer;
+        }
+        return &diagnostics_gen.Cannot_find_name_0;
     }
 
     pub fn getDiagnostics(c: *Checker, ctx: *anyopaque, sourceFile: *anyopaque) *anyopaque {
