@@ -12870,10 +12870,12 @@ pub const Checker = struct {
         return symbol_;
     }
 
-    pub fn getTargetOfImportEqualsDeclaration(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getTargetOfImportEqualsDeclaration(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: complex — resolveExternalModuleReference + entity name resolution.
+        // Conservative: return 0 (resolveExternalModuleName not yet wired).
         _ = node;
-        return undefined;
+        _ = c;
+        return 0;
     }
 
     /// Port of checker.go::resolveExternalModuleTypeByLiteral.
@@ -12885,10 +12887,12 @@ pub const Checker = struct {
         return c.anyTypeIndex orelse 0;
     }
 
-    pub fn getSymbolOfPartOfRightHandSideOfImportEquals(c: *Checker, entityName: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getSymbolOfPartOfRightHandSideOfImportEquals(c: *Checker, entityName: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: complex — entity name resolution with multiple cases.
+        // Conservative: return 0.
         _ = entityName;
-        return undefined;
+        _ = c;
+        return 0;
     }
 
     /// Port of checker.go::checkAndReportErrorForResolvingImportAliasToTypeOnlySymbol.
@@ -12899,16 +12903,22 @@ pub const Checker = struct {
         _ = resolved;
     }
 
-    pub fn getTypeOnlyDeclarationOfEntityName(c: *Checker, name_: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getTypeOnlyDeclarationOfEntityName(c: *Checker, name_: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: complex — walks entity name checking for type-only declarations.
+        // Conservative: return 0.
         _ = name_;
-        return undefined;
+        _ = c;
+        return 0;
     }
 
-    pub fn getTargetOfImportClause(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getTargetOfImportClause(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: moduleSymbol := c.resolveExternalModuleName(node, getModuleSpecifierFromNode(node.Parent), false)
+        //   if moduleSymbol != nil { return c.getTargetOfModuleDefault(moduleSymbol, node, true) }
+        //   return nil
+        // Conservative: resolveExternalModuleName not yet wired; return 0.
         _ = node;
-        return undefined;
+        _ = c;
+        return 0;
     }
 
     pub fn getTargetOfModuleDefault(c: *Checker, moduleSymbol: *anyopaque, node: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
@@ -12936,22 +12946,32 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTargetOfNamespaceImport(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getTargetOfNamespaceImport(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: moduleSymbol := c.resolveExternalModuleName(node, getModuleSpecifierFromNode(node.Parent.Parent), false)
+        //   if moduleSymbol != nil { return c.resolveExternalModuleSymbol(moduleSymbol, true) }
+        //   return nil
+        // Conservative: resolveExternalModuleName not yet wired; return 0.
         _ = node;
-        return undefined;
+        _ = c;
+        return 0;
     }
 
-    pub fn getTargetOfNamespaceExport(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getTargetOfNamespaceExport(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: moduleSymbol := c.resolveExternalModuleName(node, getModuleSpecifierFromNode(node.Parent), false)
+        //   if moduleSymbol != nil { return c.resolveExternalModuleSymbol(moduleSymbol, true) }
+        //   return nil
+        // Conservative: resolveExternalModuleName not yet wired; return 0.
         _ = node;
-        return undefined;
+        _ = c;
+        return 0;
     }
 
-    pub fn getTargetOfImportSpecifier(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getTargetOfImportSpecifier(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
+        // Go: complex — resolveExportByName with PropertyName or name.
+        // Conservative: return 0.
         _ = node;
-        return undefined;
+        _ = c;
+        return 0;
     }
 
     pub fn getExternalModuleMember(c: *Checker, node: *anyopaque, specifier: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
@@ -13001,10 +13021,12 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getEmitSyntaxForModuleSpecifierExpression(c: *Checker, usage: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getEmitSyntaxForModuleSpecifierExpression(c: *Checker, usage: ast_gen.NodeIndex) core.ModuleKind {
+        // Go: complex — checks moduleKind, verbatimModuleSyntax, etc.
+        // Conservative: return .ESNext.
         _ = usage;
-        return undefined;
+        _ = c;
+        return .ESNext;
     }
 
     pub fn errorNoModuleMemberSymbol(c: *Checker, moduleSymbol: *anyopaque, targetSymbol: *anyopaque, node: *anyopaque, name_: *anyopaque) void {
