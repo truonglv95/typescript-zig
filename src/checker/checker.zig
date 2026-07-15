@@ -10436,10 +10436,41 @@ pub const Checker = struct {
         _ = diagnosticOutput;
     }
 
-    pub fn getThisArgumentOfCall(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getThisArgumentOfCall(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: if ast.IsBinaryExpression(node) { return node.AsBinaryExpression().Right }
+        //   var expression *ast.Node
+        //   switch {
+        //     case ast.IsCallExpression(node): expression = node.Expression()
+        //     case ast.IsTaggedTemplateExpression(node): expression = node.AsTaggedTemplateExpression().Tag
+        //     case ast.IsDecorator(node) && !c.legacyDecorators: expression = node.Expression()
+        //   }
+        //   if expression != nil {
+        //     callee := ast.SkipOuterExpressions(expression, ast.OEKAll)
+        //     if ast.IsAccessExpression(callee) { return callee.Expression() }
+        //   }
+        //   return nil
+        const node_kind = c.binder.ast.getKind(node);
+        if (node_kind == .BinaryExpression) {
+            return c.binder.ast.getNode(node).BinaryExpression.Right;
+        }
+        var expression: ast_gen.NodeIndex = 0;
+        switch (node_kind) {
+            .CallExpression => expression = c.binder.ast.getNode(node).CallExpression.Expression,
+            .TaggedTemplateExpression => expression = c.binder.ast.getNode(node).TaggedTemplateExpression.Tag,
+            .Decorator => expression = c.binder.ast.getNode(node).Decorator.Expression,
+            else => {},
+        }
+        if (expression != 0) {
+            const callee = ast_utils.skipOuterExpressions(c.binder.ast, expression, ast_utils.OEKAll);
+            if (ast_utils.isAccessExpression(c.binder.ast, callee)) {
+                return switch (c.binder.ast.getNode(callee)) {
+                    .PropertyAccessExpression => |n| n.Expression,
+                    .ElementAccessExpression => |n| n.Expression,
+                    else => 0,
+                };
+            }
+        }
+        return 0;
     }
 
     pub fn getThisArgumentType(c: *Checker, node: *anyopaque) *anyopaque {
@@ -10448,10 +10479,16 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getEffectiveCheckNode(c: *Checker, argument: *anyopaque) *anyopaque {
-        _ = c;
-        _ = argument;
-        return undefined;
+    pub fn getEffectiveCheckNode(c: *Checker, argument: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: flags := core.IfElse(ast.IsInJSFile(argument),
+        //   ast.OEKParentheses|ast.OEKSatisfies|ast.OEKExcludeJSDocTypeAssertion,
+        //   ast.OEKParentheses|ast.OEKSatisfies)
+        //   return ast.SkipOuterExpressions(argument, flags)
+        const flags: u32 = if (ast_utils.isInJSFile(c.binder.ast, argument))
+            ast_utils.OEKParentheses | ast_utils.OEKSatisfies | ast_utils.OEKExcludeJSDocTypeAssertion
+        else
+            ast_utils.OEKParentheses | ast_utils.OEKSatisfies;
+        return ast_utils.skipOuterExpressions(c.binder.ast, argument, flags);
     }
 
     pub fn inferTypeArguments(c: *Checker, node: *anyopaque, signature: *anyopaque, args: *anyopaque, checkMode: *anyopaque, context: *anyopaque) *anyopaque {
@@ -10634,10 +10671,12 @@ pub const Checker = struct {
         _ = diagnostic;
     }
 
-    pub fn isGenericFunctionReturningFunction(c: *Checker, signature: *anyopaque) bool {
-        _ = c;
-        _ = signature;
-        return false;
+    pub fn isGenericFunctionReturningFunction(c: *Checker, signature: types.SignatureIndex) bool {
+        // Go: return len(signature.typeParameters) != 0 && c.isFunctionType(c.getReturnTypeOfSignature(signature))
+        const sig = c.signatures.items[signature];
+        if (sig.typeParametersLen == 0) return false;
+        const return_type = c.getReturnTypeOfSignature(&sig);
+        return c.isFunctionType(return_type);
     }
 
     pub fn skippedGenericFunction(c: *Checker, node: *anyopaque, checkMode: *anyopaque) void {

@@ -37,6 +37,7 @@ pub const OEKPartiallyEmittedExpressions: u32 = 1 << 3;
 pub const OEKAssertions: u32 = OEKTypeAssertions | OEKNonNullAssertions;
 pub const OEKAll: u32 = OEKParentheses | OEKAssertions | OEKPartiallyEmittedExpressions;
 pub const OEKExcludeJSDocTypeAssertion: u32 = 1 << 4;
+pub const OEKSatisfies: u32 = 1 << 5;
 pub const OEKAllExceptAssertionsOrExpressionsWithTypeArguments: u32 = OEKParentheses | OEKPartiallyEmittedExpressions;
 
 pub fn isJSDocTypeAssertion(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
