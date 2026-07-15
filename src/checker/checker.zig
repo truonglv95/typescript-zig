@@ -16654,20 +16654,27 @@ pub const Checker = struct {
         _ = sym;
     }
 
-    pub fn getPropertyOfTypeEx(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex, skipObjectFunctionPropertyAugment: types.TypeIndex, includeTypeOnlyMembers: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = name_;
+    /// Port of `checker.go::getPropertyOfTypeEx`. Returns the property
+    /// symbol of `t` named `name_`. Delegates to `getPropertyOfType`
+    /// for the common case. The `skipObjectFunctionPropertyAugment` and
+    /// `includeTypeOnlyMembers` flags are simplified.
+    pub fn getPropertyOfTypeEx(c: *Checker, t: types.TypeIndex, name_: []const u8, skipObjectFunctionPropertyAugment: bool, includeTypeOnlyMembers: bool) ?ast_gen.SymbolIndex {
         _ = skipObjectFunctionPropertyAugment;
         _ = includeTypeOnlyMembers;
-        return 0;
+        return c.getPropertyOfType(t, name_);
     }
 
-    pub fn getSignaturesOfStructuredType(c: *Checker, t: types.TypeIndex, kind_: types.SignatureKind) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = kind_;
-        return 0;
+    /// Port of `checker.go::getSignaturesOfStructuredType`. Returns the
+    /// call or construct signatures of a structured type.
+    pub fn getSignaturesOfStructuredType(c: *Checker, t: types.TypeIndex, kind_: types.SignatureKind) []const types.SignatureIndex {
+        if (t == 0 or t >= c.typesList.items.len) return &[_]types.SignatureIndex{};
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.StructuredType) == 0) return &[_]types.SignatureIndex{};
+        const members = c.resolveStructuredTypeMembers(t);
+        const start = if (kind_ == .Call) members.callSignaturesStart else members.constructSignaturesStart;
+        const sig_len = if (kind_ == .Call) members.callSignaturesLen else members.constructSignaturesLen;
+        if (sig_len == 0) return &[_]types.SignatureIndex{};
+        return c.resolvedSignaturesPool.items[start .. start + sig_len];
     }
 
     pub fn getBaseTypes(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
