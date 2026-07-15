@@ -10326,8 +10326,43 @@ pub const Checker = struct {
     }
 
     pub fn isForInVariableForNumericPropertyNames(c: *Checker, expr: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = expr;
+        // Go: e := ast.SkipParentheses(expr)
+        //   if ast.IsIdentifier(e) {
+        //     symbol := c.getResolvedSymbol(e)
+        //     if symbol.Flags&ast.SymbolFlagsVariable != 0 {
+        //       child := expr
+        //       node := expr.Parent
+        //       for node != nil {
+        //         if ast.IsForInStatement(node) && child == node.AsForInOrOfStatement().Statement &&
+        //           c.getForInVariableSymbol(node) == symbol && c.hasNumericPropertyNames(c.getTypeOfExpression(node.Expression())) {
+        //           return true
+        //         }
+        //         child = node
+        //         node = node.Parent
+        //       }
+        //     }
+        //   }
+        //   return false
+        const e = ast_utils.skipParentheses(c.binder.ast, expr);
+        if (c.binder.ast.getKind(e) != .Identifier) return false;
+        const sym = c.getResolvedSymbol(e);
+        if (sym == 0) return false;
+        if ((c.binder.symbols.items[sym].Flags & symbol.SymbolFlags.Variable) == 0) return false;
+        var child = expr;
+        var node = c.binder.ast.getNodeParent(expr);
+        while (node != 0) {
+            if (c.binder.ast.getKind(node) == .ForInStatement) {
+                const stmt = c.binder.ast.getNode(node).ForInOrOfStatement;
+                if (child == stmt.Statement and
+                    c.getForInVariableSymbol(node) == sym and
+                    c.hasNumericPropertyNames(c.getTypeOfExpression(stmt.Expression)))
+                {
+                    return true;
+                }
+            }
+            child = node;
+            node = c.binder.ast.getNodeParent(node);
+        }
         return false;
     }
 
