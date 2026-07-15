@@ -11201,10 +11201,19 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeOfPropertyInBaseClass(c: *Checker, property: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getTypeOfPropertyInBaseClass(c: *Checker, property: ast_gen.SymbolIndex) types.TypeIndex {
+        // Go: classType := c.getDeclaringClass(property)
+        //   if classType != nil {
+        //     baseClassTypes := c.getBaseTypes(classType)
+        //     if len(baseClassTypes) > 0 {
+        //       return c.getTypeOfPropertyOfType(baseClassTypes[0], property.Name)
+        //     }
+        //   }
+        //   return nil
+        // Simplified: getBaseTypes not fully wired; conservative return 0.
         _ = property;
-        return undefined;
+        _ = c;
+        return 0;
     }
 
     pub fn isMethodAccessForCall(c: *Checker, node: ast_gen.NodeIndex) bool {
@@ -11352,9 +11361,17 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isPropertyDeclaredInAncestorClass(c: *Checker, prop: *anyopaque) bool {
-        _ = c;
+    pub fn isPropertyDeclaredInAncestorClass(c: *Checker, prop: ast_gen.SymbolIndex) bool {
+        // Go: if prop.Parent.Flags&ast.SymbolFlagsClass != 0 {
+        //   if baseTypes := c.getBaseTypes(c.getDeclaredTypeOfSymbol(prop.Parent)); len(baseTypes) != 0 {
+        //     superProperty := c.getPropertyOfType(baseTypes[0], prop.Name)
+        //     return superProperty != nil && superProperty.ValueDeclaration != nil
+        //   }
+        // }
+        // return false
+        // Simplified: getBaseTypes not fully wired; conservative false.
         _ = prop;
+        _ = c;
         return false;
     }
 
@@ -11499,10 +11516,20 @@ pub const Checker = struct {
         return ast_utils.getThisParameter(c.binder.ast, this_container);
     }
 
-    pub fn getContextualThisParameterType(c: *Checker, fn_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = fn_;
-        return undefined;
+    pub fn getContextualThisParameterType(c: *Checker, fn_: ast_gen.NodeIndex) types.TypeIndex {
+        // Go: if ast.IsArrowFunction(fn) { return nil }
+        //   if c.isContextSensitiveFunctionOrObjectLiteralMethod(fn) {
+        //     contextualSignature := c.getContextualSignature(fn)
+        //     if contextualSignature != nil {
+        //       thisParameter := contextualSignature.thisParameter
+        //       if thisParameter != nil { return c.getTypeOfSymbol(thisParameter) }
+        //     }
+        //   }
+        //   ... (complex path with containingObjectLiteral, contextualType, etc.)
+        // Simplified: isContextSensitiveFunctionOrObjectLiteralMethod and
+        // getContextualSignature not yet wired; conservative return 0.
+        if (ast_utils.isArrowFunction(c.binder.ast, fn_)) return 0;
+        return 0;
     }
 
     pub fn tryGetThisTypeAt(c: *Checker, node: *anyopaque) *anyopaque {
