@@ -10589,15 +10589,16 @@ pub const Checker = struct {
         return undefined;
     }
 
+    /// Port of `checker.go::getContextNode`. Returns the context node
+    /// for `node`: if `node` is a JsxAttributes of a non-self-closing
+    /// element, returns the root JsxElement; otherwise returns `node`.
     pub fn getContextNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        // Go: if ast.IsJsxAttributes(node) && !ast.IsJsxSelfClosingElement(node.Parent) {
-        //   return node.Parent.Parent
-        // }
-        // return node
-        if (c.binder.ast.getKind(node) == .JsxAttributes) {
-            const parent = c.binder.ast.getNodeParent(node);
-            if (parent != 0 and c.binder.ast.getKind(parent) != .JsxSelfClosingElement) {
-                return c.binder.ast.getNodeParent(parent);
+        if (node == 0) return 0;
+        const tree = c.binder.ast;
+        if (tree.getKind(node) == .JsxAttributes) {
+            const parent = tree.getNodeParent(node);
+            if (parent != 0 and tree.getKind(parent) != .JsxSelfClosingElement) {
+                return tree.getNodeParent(parent);
             }
         }
         return node;
@@ -10829,31 +10830,34 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::getForInVariableSymbol`. Returns the symbol
+    /// of the variable in a for-in statement's initializer.
     pub fn getForInVariableSymbol(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
-        // Go: initializer := node.Initializer()
-        //   if ast.IsVariableDeclarationList(initializer) {
-        //     declarations := initializer.AsVariableDeclarationList().Declarations.Nodes
-        //     if len(declarations) > 0 {
-        //       variable := declarations[0]
-        //       if variable != nil && !ast.IsBindingPattern(variable.Name()) { return c.getSymbolOfDeclaration(variable) }
-        //     }
-        //   } else if ast.IsIdentifier(initializer) { return c.getResolvedSymbol(initializer) }
-        //   return nil
-        // node is a ForInOrOfStatement; initializer is in node.Initializer.
-        const initializer = if (c.binder.ast.getKind(node) == .ForInStatement)
-            c.binder.ast.getNode(node).ForInStatement.Initializer
-        else if (c.binder.ast.getKind(node) == .ForOfStatement)
-            c.binder.ast.getNode(node).ForOfStatement.Initializer
-        else 0;
+        if (node == 0) return 0;
+        const tree = c.binder.ast;
+        // ForInStatement.Initializer
+        const initializer: ast_gen.NodeIndex = switch (tree.getNode(node)) {
+            .ForInStatement => |n| n.Initializer,
+            else => return 0,
+        };
         if (initializer == 0) return 0;
-        const init_kind = c.binder.ast.getKind(initializer);
+        const init_kind = tree.getKind(initializer);
         if (init_kind == .VariableDeclarationList) {
-            const declarations_list = c.binder.ast.getNode(initializer).VariableDeclarationList.Declarations;
-            const declarations = c.binder.ast.getNodeList(declarations_list);
-            if (declarations.len > 0 and declarations[0] != 0) {
-                const variable = declarations[0];
-                if (!ast_utils.isBindingPattern(c.binder.ast, variable)) {
-                    return c.getSymbolOfDeclaration(variable);
+            const decls_list = tree.getNode(initializer).VariableDeclarationList.Declarations;
+            if (decls_list != 0) {
+                const decls = tree.getNodeList(decls_list);
+                if (decls.len > 0) {
+                    const variable = decls[0];
+                    if (variable != 0) {
+                        // Check if name is a binding pattern; if so, return 0.
+                        const name_node: ast_gen.NodeIndex = switch (tree.getNode(variable)) {
+                            .VariableDeclaration => |n| n.name,
+                            else => 0,
+                        };
+                        if (name_node != 0 and !ast_utils.isBindingPattern(tree, name_node)) {
+                            return c.getSymbolOfDeclaration(variable);
+                        }
+                    }
                 }
             }
         } else if (init_kind == .Identifier) {
@@ -10862,10 +10866,12 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::hasNumericPropertyNames`. Returns true if `t`
+    /// has exactly one index info and that index info is keyed by `number`.
     pub fn hasNumericPropertyNames(c: *Checker, t: types.TypeIndex) bool {
-        // Go: return len(c.getIndexInfosOfType(t)) == 1 && c.getIndexInfoOfType(t, c.numberType) != nil
-        const infos = c.getIndexInfosOfType(t);
-        if (infos.len != 1) return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const index_infos = c.getIndexInfosOfType(t);
+        if (index_infos.len != 1) return false;
         return c.getIndexInfoOfType(t, c.numberTypeIndex orelse 0) != null;
     }
 
