@@ -8244,10 +8244,22 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getImmediateAliasedSymbol(c: *Checker, symbol_: *anyopaque) *anyopaque {
-        _ = c;
-        _ = symbol_;
-        return undefined;
+    pub fn getImmediateAliasedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Go: debug.Assert(symbol.Flags & ast.SymbolFlagsAlias != 0, ...)
+        //   links := c.aliasSymbolLinks.Get(symbol)
+        //   if links.immediateTarget == nil {
+        //     node := c.getDeclarationOfAliasSymbol(symbol)
+        //     if node == nil { panic(...) }
+        //     links.immediateTarget = c.getTargetOfAliasDeclaration(node)
+        //   }
+        //   return links.immediateTarget
+        // Simplified: use aliasSymbolLinks cache; if not present, return 0.
+        // Full path requires getDeclarationOfAliasSymbol + getTargetOfAliasDeclaration
+        // which are still stubs.
+        if (c.aliasSymbolLinks.get(symbol_)) |links| {
+            if (links.immediateTarget) |t| return t;
+        }
+        return 0;
     }
 
     pub fn addTypeOnlyDeclarationRelatedInfo(c: *Checker, diagnostic: *anyopaque, typeOnlyDeclaration: *anyopaque, name_: *anyopaque) *anyopaque {
@@ -8713,10 +8725,14 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getIndexTypeOrString(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        return undefined;
+    pub fn getIndexTypeOrString(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Go: indexType := c.getExtractStringType(c.getIndexType(t))
+        //   return core.IfElse(indexType.flags&TypeFlagsNever != 0, c.stringType, indexType)
+        const index_type = c.getExtractStringType(c.getIndexType(t));
+        if ((c.typesList.items[index_type].flags & types.TypeFlags.Never) != 0) {
+            return c.stringTypeIndex orelse 0;
+        }
+        return index_type;
     }
 
     /// Port of checker.go::checkReturnExpression. Validates that a
@@ -8816,10 +8832,31 @@ pub const Checker = struct {
         _ = broadDiag;
     }
 
-    pub fn getTypeWithoutSignatures(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        return undefined;
+    pub fn getTypeWithoutSignatures(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Go: switch {
+        //   case t.flags&TypeFlagsObject != 0:
+        //     resolved := c.resolveStructuredTypeMembers(t)
+        //     if len(resolved.signatures) != 0 {
+        //       result := c.newObjectType(ObjectFlagsAnonymous, t.symbol)
+        //       result.objectFlags |= ObjectFlagsMembersResolved
+        //       result.AsObjectType().members = resolved.members
+        //       result.AsObjectType().properties = resolved.properties
+        //       return result
+        //     }
+        //   case t.flags&TypeFlagsIntersection != 0:
+        //     return c.getIntersectionType(core.Map(t.AsIntersectionType().types, c.getTypeWithoutSignatures))
+        // }
+        // return t
+        // Simplified port: Object case requires resolveStructuredTypeMembers
+        // and newObjectType, which are not fully wired yet. Conservative: for
+        // Object types return t unchanged (no signature stripping); for
+        // Intersection types map getTypeWithoutSignatures over constituents.
+        const ty = c.typesList.items[t];
+        if ((ty.flags & types.TypeFlags.Intersection) != 0) {
+            // getIntersectionType not yet wired; conservative return t.
+            return t;
+        }
+        return t;
     }
 
     /// Port of `checker.go::checkKindsOfPropertyMemberOverrides`.
@@ -15769,10 +15806,13 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getExtractStringType(c: *Checker, t: *anyopaque) *anyopaque {
-        _ = c;
+    pub fn getExtractStringType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Go: extractTypeAlias := c.getGlobalExtractSymbol()
+        //   if extractTypeAlias != nil { return c.getTypeAliasInstantiation(extractTypeAlias, []*Type{t, c.stringType}, nil) }
+        //   return c.stringType
+        // Simplified: getGlobalExtractSymbol not yet wired; return stringType.
         _ = t;
-        return undefined;
+        return c.stringTypeIndex orelse 0;
     }
 
     pub fn getLiteralTypeFromProperties(c: *Checker, t: *anyopaque, include: *anyopaque, includeOrigin: *anyopaque) *anyopaque {
