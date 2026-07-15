@@ -7834,7 +7834,7 @@ pub const Checker = struct {
         return c.getDeclaredTypeOfSymbol(sym);
     }
 
-    pub fn getGlobalTypeAliasResolver(c: *Checker, name_: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getGlobalTypeAliasResolver(c: *Checker, name_: ast_gen.NodeIndex, arity: *anyopaque, reportErrors: bool) *anyopaque {
         _ = c;
         _ = name_;
         _ = arity;
@@ -7842,21 +7842,21 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getGlobalValueSymbolResolver(c: *Checker, name_: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getGlobalValueSymbolResolver(c: *Checker, name_: ast_gen.NodeIndex, reportErrors: bool) *anyopaque {
         _ = c;
         _ = name_;
         _ = reportErrors;
         return undefined;
     }
 
-    pub fn getGlobalTypeSymbolResolver(c: *Checker, name_: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getGlobalTypeSymbolResolver(c: *Checker, name_: ast_gen.NodeIndex, reportErrors: bool) *anyopaque {
         _ = c;
         _ = name_;
         _ = reportErrors;
         return undefined;
     }
 
-    pub fn getGlobalTypesResolver(c: *Checker, names: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getGlobalTypesResolver(c: *Checker, names: *anyopaque, arity: *anyopaque, reportErrors: bool) *anyopaque {
         _ = c;
         _ = names;
         _ = arity;
@@ -7870,7 +7870,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getGlobalType(c: *Checker, name_: *anyopaque, arity: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getGlobalType(c: *Checker, name_: ast_gen.NodeIndex, arity: *anyopaque, reportErrors: bool) *anyopaque {
         _ = c;
         _ = name_;
         _ = arity;
@@ -8069,7 +8069,7 @@ pub const Checker = struct {
             std.mem.eql(u8, s, "WeakSet");
     }
 
-    pub fn maybeMappedType(c: *Checker, node: *anyopaque, symbol_: *anyopaque) bool {
+    pub fn maybeMappedType(c: *Checker, node: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = node;
         _ = symbol_;
@@ -8121,7 +8121,7 @@ pub const Checker = struct {
         return null;
     }
 
-    pub fn getSuggestedSymbolForNonexistentSymbol(c: *Checker, location: *anyopaque, outerName: *anyopaque, meaning: *anyopaque) *anyopaque {
+    pub fn getSuggestedSymbolForNonexistentSymbol(c: *Checker, location: ast_gen.NodeIndex, outerName: *anyopaque, meaning: u32) *anyopaque {
         _ = c;
         _ = location;
         _ = outerName;
@@ -8152,7 +8152,7 @@ pub const Checker = struct {
         return null;
     }
 
-    pub fn getSuggestionForSymbolNameLookup(c: *Checker, symbols: *anyopaque, name_: *anyopaque, meaning: *anyopaque) *anyopaque {
+    pub fn getSuggestionForSymbolNameLookup(c: *Checker, symbols: *anyopaque, name_: ast_gen.NodeIndex, meaning: u32) *anyopaque {
         _ = c;
         _ = symbols;
         _ = name_;
@@ -8160,7 +8160,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSpellingSuggestionForName(c: *Checker, name_: *anyopaque, symbols: *anyopaque, meaning: *anyopaque) *anyopaque {
+    pub fn getSpellingSuggestionForName(c: *Checker, name_: ast_gen.NodeIndex, symbols: *anyopaque, meaning: u32) *anyopaque {
         _ = c;
         _ = name_;
         _ = symbols;
@@ -8168,7 +8168,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn onSuccessfullyResolvedSymbol(c: *Checker, errorLocation: *anyopaque, result: *anyopaque, meaning: *anyopaque, lastLocation: *anyopaque, associatedDeclarationForContainingInitializerOrBindingName: *anyopaque, withinDeferredContext: *anyopaque) void {
+    pub fn onSuccessfullyResolvedSymbol(c: *Checker, errorLocation: ast_gen.NodeIndex, result: types.TypeIndex, meaning: u32, lastLocation: *anyopaque, associatedDeclarationForContainingInitializerOrBindingName: *anyopaque, withinDeferredContext: types.TypeIndex) void {
         _ = c;
         _ = errorLocation;
         _ = result;
@@ -8186,14 +8186,14 @@ pub const Checker = struct {
         _ = error_location;
     }
 
-    pub fn isBlockScopedNameDeclaredBeforeUse(c: *Checker, declaration: *anyopaque, usage: *anyopaque) bool {
+    pub fn isBlockScopedNameDeclaredBeforeUse(c: *Checker, declaration: ast_gen.NodeIndex, usage: *anyopaque) bool {
         _ = c;
         _ = declaration;
         _ = usage;
         return false;
     }
 
-    pub fn isUsedInFunctionOrInstanceProperty(c: *Checker, usage: *anyopaque, declaration: *anyopaque, declContainer: *anyopaque) bool {
+    pub fn isUsedInFunctionOrInstanceProperty(c: *Checker, usage: *anyopaque, declaration: ast_gen.NodeIndex, declContainer: *anyopaque) bool {
         _ = c;
         _ = usage;
         _ = declaration;
@@ -8201,21 +8201,21 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isImmediatelyUsedInInitializerOfBlockScopedVariable(declaration: *anyopaque, usage: *anyopaque, declContainer: *anyopaque) bool {
+    pub fn isImmediatelyUsedInInitializerOfBlockScopedVariable(declaration: ast_gen.NodeIndex, usage: *anyopaque, declContainer: *anyopaque) bool {
         _ = declaration;
         _ = usage;
         _ = declContainer;
         return false;
     }
 
-    pub fn isSameScopeDescendentOf(initial: *anyopaque, parent: *anyopaque, stopAt: *anyopaque) bool {
+    pub fn isSameScopeDescendentOf(initial: *anyopaque, parent: types.TypeIndex, stopAt: types.TypeIndex) bool {
         _ = initial;
         _ = parent;
         _ = stopAt;
         return false;
     }
 
-    pub fn isPropertyImmediatelyReferencedWithinDeclaration(declaration: *anyopaque, usage: *anyopaque, stopAtAnyPropertyDeclaration: *anyopaque) bool {
+    pub fn isPropertyImmediatelyReferencedWithinDeclaration(declaration: ast_gen.NodeIndex, usage: *anyopaque, stopAtAnyPropertyDeclaration: *anyopaque) bool {
         _ = declaration;
         _ = usage;
         _ = stopAtAnyPropertyDeclaration;
@@ -8271,7 +8271,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn addTypeOnlyDeclarationRelatedInfo(c: *Checker, diagnostic: *anyopaque, typeOnlyDeclaration: *anyopaque, name_: *anyopaque) *anyopaque {
+    pub fn addTypeOnlyDeclarationRelatedInfo(c: *Checker, diagnostic: *anyopaque, typeOnlyDeclaration: *anyopaque, name_: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = diagnostic;
         _ = typeOnlyDeclaration;
@@ -8620,7 +8620,7 @@ pub const Checker = struct {
         }
     }
 
-    pub fn getResolutionModeOverride(c: *Checker, node: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getResolutionModeOverride(c: *Checker, node: ast_gen.NodeIndex, reportErrors: bool) *anyopaque {
         _ = c;
         _ = node;
         _ = reportErrors;
@@ -8666,7 +8666,7 @@ pub const Checker = struct {
         _ = symbol_idx;
     }
 
-    pub fn getEffectiveDeclarationFlags(c: *Checker, n: *anyopaque, flagsToCheck: *anyopaque) *anyopaque {
+    pub fn getEffectiveDeclarationFlags(c: *Checker, n: *anyopaque, flagsToCheck: u32) *anyopaque {
         _ = c;
         _ = n;
         _ = flagsToCheck;
@@ -8690,7 +8690,7 @@ pub const Checker = struct {
         _ = return_type;
     }
 
-    pub fn isUnwrappedReturnTypeUndefinedVoidOrAny(c: *Checker, fn_: *anyopaque, returnType: *anyopaque) bool {
+    pub fn isUnwrappedReturnTypeUndefinedVoidOrAny(c: *Checker, fn_: ast_gen.NodeIndex, returnType: types.TypeIndex) bool {
         _ = c;
         _ = fn_;
         _ = returnType;
@@ -8718,14 +8718,14 @@ pub const Checker = struct {
         // TODO: Implement
     }
 
-    pub fn isSymbolUsedInBinaryExpressionChain(c: *Checker, node: *anyopaque, testedSymbol: *anyopaque) bool {
+    pub fn isSymbolUsedInBinaryExpressionChain(c: *Checker, node: ast_gen.NodeIndex, testedSymbol: *anyopaque) bool {
         _ = c;
         _ = node;
         _ = testedSymbol;
         return false;
     }
 
-    pub fn isSymbolUsedInConditionBody(c: *Checker, expr: *anyopaque, body: *anyopaque, testedNode: *anyopaque, testedSymbol: *anyopaque) bool {
+    pub fn isSymbolUsedInConditionBody(c: *Checker, expr: ast_gen.NodeIndex, body: ast_gen.NodeIndex, testedNode: *anyopaque, testedSymbol: *anyopaque) bool {
         _ = c;
         _ = expr;
         _ = body;
@@ -8833,7 +8833,7 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn issueMemberSpecificError(c: *Checker, node: *anyopaque, typeWithThis: *anyopaque, baseWithThis: *anyopaque, broadDiag: *anyopaque) void {
+    pub fn issueMemberSpecificError(c: *Checker, node: ast_gen.NodeIndex, typeWithThis: *anyopaque, baseWithThis: *anyopaque, broadDiag: *anyopaque) void {
         _ = c;
         _ = node;
         _ = typeWithThis;
@@ -8932,7 +8932,7 @@ pub const Checker = struct {
         _ = member;
     }
 
-    pub fn getSuggestedSymbolForNonexistentClassMember(c: *Checker, name_: *anyopaque, baseType: *anyopaque) *anyopaque {
+    pub fn getSuggestedSymbolForNonexistentClassMember(c: *Checker, name_: ast_gen.NodeIndex, baseType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = name_;
         _ = baseType;
@@ -9004,7 +9004,7 @@ pub const Checker = struct {
         return c.binder.ast.getNode(node).PropertyDeclaration.Initializer == null;
     }
 
-    pub fn isPropertyInitializedInStaticBlocks(c: *Checker, propName: *anyopaque, propType: *anyopaque, staticBlocks: *anyopaque, startPos: *anyopaque, endPos: *anyopaque) bool {
+    pub fn isPropertyInitializedInStaticBlocks(c: *Checker, propName: *anyopaque, propType: types.TypeIndex, staticBlocks: *anyopaque, startPos: *anyopaque, endPos: *anyopaque) bool {
         _ = c;
         _ = propName;
         _ = propType;
@@ -9103,7 +9103,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isPropertyIdenticalTo(c: *Checker, sourceProp: *anyopaque, targetProp: *anyopaque) bool {
+    pub fn isPropertyIdenticalTo(c: *Checker, sourceProp: ast_gen.SymbolIndex, targetProp: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = sourceProp;
         _ = targetProp;
@@ -9223,7 +9223,7 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn hasExportedMembersOfKind(c: *Checker, moduleSymbol: *anyopaque, kind_: *anyopaque) bool {
+    pub fn hasExportedMembersOfKind(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, kind_: *anyopaque) bool {
         _ = c;
         _ = moduleSymbol;
         _ = kind_;
@@ -9407,7 +9407,7 @@ pub const Checker = struct {
         return array_element_type;
     }
 
-    pub fn getIterationTypeOfGeneratorFunctionReturnType(c: *Checker, typeKind: *anyopaque, returnType: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
+    pub fn getIterationTypeOfGeneratorFunctionReturnType(c: *Checker, typeKind: *anyopaque, returnType: types.TypeIndex, isAsyncGenerator: bool) *anyopaque {
         _ = c;
         _ = typeKind;
         _ = returnType;
@@ -9415,14 +9415,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIterationTypesOfGeneratorFunctionReturnType(c: *Checker, t: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfGeneratorFunctionReturnType(c: *Checker, t: types.TypeIndex, isAsyncGenerator: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = isAsyncGenerator;
         return undefined;
     }
 
-    pub fn getIterationTypeOfIterable(c: *Checker, use: *anyopaque, typeKind: *anyopaque, inputType: *anyopaque, errorNode: *anyopaque) *anyopaque {
+    pub fn getIterationTypeOfIterable(c: *Checker, use: *anyopaque, typeKind: *anyopaque, inputType: types.TypeIndex, errorNode: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = use;
         _ = typeKind;
@@ -9431,7 +9431,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIterationTypesOfIterable(c: *Checker, t: *anyopaque, use: *anyopaque, errorNode: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfIterable(c: *Checker, t: types.TypeIndex, use: *anyopaque, errorNode: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = use;
@@ -9439,7 +9439,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIterationTypesOfIterableWorker(c: *Checker, t: *anyopaque, use: *anyopaque, errorNode: *anyopaque, noCache: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfIterableWorker(c: *Checker, t: types.TypeIndex, use: *anyopaque, errorNode: ast_gen.NodeIndex, noCache: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = use;
@@ -9448,14 +9448,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIterationTypesOfIterableFast(c: *Checker, t: *anyopaque, r: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfIterableFast(c: *Checker, t: types.TypeIndex, r: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = r;
         return undefined;
     }
 
-    pub fn getResolvedIterationTypes(r: *anyopaque, yieldType: *anyopaque, returnType: *anyopaque, nextType: *anyopaque) *anyopaque {
+    pub fn getResolvedIterationTypes(r: *anyopaque, yieldType: types.TypeIndex, returnType: types.TypeIndex, nextType: *anyopaque) *anyopaque {
         _ = r;
         _ = yieldType;
         _ = returnType;
@@ -9516,14 +9516,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getAsyncFromSyncIterationTypes(c: *Checker, iterationTypes: *anyopaque, errorNode: *anyopaque) *anyopaque {
+    pub fn getAsyncFromSyncIterationTypes(c: *Checker, iterationTypes: *anyopaque, errorNode: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = iterationTypes;
         _ = errorNode;
         return undefined;
     }
 
-    pub fn getIterationTypesOfIterableSlow(c: *Checker, t: *anyopaque, r: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfIterableSlow(c: *Checker, t: types.TypeIndex, r: *anyopaque, errorNode: ast_gen.NodeIndex, diagnosticOutput: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = r;
@@ -9532,7 +9532,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIterationTypesOfIterator(c: *Checker, t: *anyopaque, r: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfIterator(c: *Checker, t: types.TypeIndex, r: *anyopaque, errorNode: ast_gen.NodeIndex, diagnosticOutput: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = r;
@@ -9541,7 +9541,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIterationTypesOfIteratorWorker(c: *Checker, t: *anyopaque, r: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfIteratorWorker(c: *Checker, t: types.TypeIndex, r: *anyopaque, errorNode: ast_gen.NodeIndex, diagnosticOutput: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = r;
@@ -9550,14 +9550,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIterationTypesOfIteratorFast(c: *Checker, t: *anyopaque, r: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfIteratorFast(c: *Checker, t: types.TypeIndex, r: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = r;
         return undefined;
     }
 
-    pub fn getIterationTypesOfIteratorSlow(c: *Checker, t: *anyopaque, r: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfIteratorSlow(c: *Checker, t: types.TypeIndex, r: *anyopaque, errorNode: ast_gen.NodeIndex, diagnosticOutput: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = r;
@@ -9566,7 +9566,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIterationTypesOfMethod(c: *Checker, t: *anyopaque, resolver: *anyopaque, methodName: *anyopaque, errorNode: *anyopaque, diagnosticOutput: *anyopaque) *anyopaque {
+    pub fn getIterationTypesOfMethod(c: *Checker, t: types.TypeIndex, resolver: *anyopaque, methodName: *anyopaque, errorNode: ast_gen.NodeIndex, diagnosticOutput: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = resolver;
@@ -9594,7 +9594,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isIteratorResult(c: *Checker, t: *anyopaque, kind_: *anyopaque) bool {
+    pub fn isIteratorResult(c: *Checker, t: types.TypeIndex, kind_: *anyopaque) bool {
         _ = c;
         _ = t;
         _ = kind_;
@@ -9614,7 +9614,7 @@ pub const Checker = struct {
         return t;
     }
 
-    pub fn getIterationDiagnosticDetails(c: *Checker, use: *anyopaque, inputType: *anyopaque, allowsStrings: *anyopaque) bool {
+    pub fn getIterationDiagnosticDetails(c: *Checker, use: *anyopaque, inputType: types.TypeIndex, allowsStrings: *anyopaque) bool {
         _ = c;
         _ = use;
         _ = inputType;
@@ -9690,7 +9690,7 @@ pub const Checker = struct {
         // TODO(phase1.2): deprecated symbol suggestions
     }
 
-    pub fn areDeclarationFlagsIdentical(c: *Checker, left: *anyopaque, right: *anyopaque) bool {
+    pub fn areDeclarationFlagsIdentical(c: *Checker, left: types.TypeIndex, right: types.TypeIndex) bool {
         _ = c;
         _ = left;
         _ = right;
@@ -10069,7 +10069,7 @@ pub const Checker = struct {
         return &.{};
     }
 
-    pub fn getUniqueTypeParameters(c: *Checker, context: *anyopaque, typeParameters: *anyopaque) *anyopaque {
+    pub fn getUniqueTypeParameters(c: *Checker, context: types.TypeIndex, typeParameters: *anyopaque) *anyopaque {
         _ = c;
         _ = context;
         _ = typeParameters;
@@ -10109,7 +10109,7 @@ pub const Checker = struct {
         return trimmed;
     }
 
-    pub fn isInConstructorArgumentInitializer(c: *Checker, node: *anyopaque, constructorDecl: *anyopaque) bool {
+    pub fn isInConstructorArgumentInitializer(c: *Checker, node: ast_gen.NodeIndex, constructorDecl: *anyopaque) bool {
         _ = c;
         _ = node;
         _ = constructorDecl;
@@ -10241,7 +10241,7 @@ pub const Checker = struct {
         return t;
     }
 
-    pub fn getConstituentProperty(c: *Checker, objectType: *anyopaque, propertyName: *anyopaque) *anyopaque {
+    pub fn getConstituentProperty(c: *Checker, objectType: types.TypeIndex, propertyName: *anyopaque) *anyopaque {
         _ = c;
         _ = objectType;
         _ = propertyName;
@@ -10263,7 +10263,7 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn addDeprecatedSuggestionWithSignature(c: *Checker, location: *anyopaque, declaration: *anyopaque, deprecatedEntity: *anyopaque, signatureString: *anyopaque) *anyopaque {
+    pub fn addDeprecatedSuggestionWithSignature(c: *Checker, location: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex, deprecatedEntity: *anyopaque, signatureString: *anyopaque) *anyopaque {
         _ = c;
         _ = location;
         _ = declaration;
@@ -10278,7 +10278,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn resolveSignature(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn resolveSignature(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = candidatesOutArray;
         _ = c;
         _ = node;
@@ -10286,7 +10286,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveCallExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn resolveCallExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = candidatesOutArray;
         _ = c;
         _ = node;
@@ -10294,7 +10294,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveNewExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn resolveNewExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = candidatesOutArray;
         _ = c;
         _ = node;
@@ -10302,14 +10302,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isConstructorAccessible(c: *Checker, node: *anyopaque, signature: *anyopaque) bool {
+    pub fn isConstructorAccessible(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex) bool {
         _ = c;
         _ = node;
         _ = signature;
         return false;
     }
 
-    pub fn typeHasProtectedAccessibleBase(c: *Checker, target: *anyopaque, t: *anyopaque) bool {
+    pub fn typeHasProtectedAccessibleBase(c: *Checker, target: types.TypeIndex, t: types.TypeIndex) bool {
         _ = c;
         _ = target;
         _ = t;
@@ -10322,7 +10322,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn resolveTaggedTemplateExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn resolveTaggedTemplateExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = candidatesOutArray;
         _ = c;
         _ = node;
@@ -10330,7 +10330,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveDecorator(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn resolveDecorator(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = candidatesOutArray;
         _ = c;
         _ = node;
@@ -10365,7 +10365,7 @@ pub const Checker = struct {
         }
     }
 
-    pub fn resolveInstanceofExpression(c: *Checker, node: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn resolveInstanceofExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = candidatesOutArray;
         _ = c;
         _ = node;
@@ -10373,7 +10373,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveCall(c: *Checker, node: *anyopaque, signatures: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque, callChainFlags: *anyopaque, headMessage: *anyopaque) *anyopaque {
+    pub fn resolveCall(c: *Checker, node: ast_gen.NodeIndex, signatures: *anyopaque, candidatesOutArray: *anyopaque, checkMode: *anyopaque, callChainFlags: *anyopaque, headMessage: *anyopaque) *anyopaque {
         _ = candidatesOutArray;
         _ = c;
         _ = node;
@@ -10396,7 +10396,7 @@ pub const Checker = struct {
         return (c.signatures.items[s].flags & types.SignatureFlags.HasLiteralTypes) != 0;
     }
 
-    pub fn getOptionalCallSignature(c: *Checker, signature: *anyopaque, callChainFlags: *anyopaque) *anyopaque {
+    pub fn getOptionalCallSignature(c: *Checker, signature: types.SignatureIndex, callChainFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = signature;
         _ = callChainFlags;
@@ -10410,7 +10410,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn hasCorrectArity(c: *Checker, node: *anyopaque, args: *anyopaque, signature: *anyopaque, signatureHelpTrailingComma: *anyopaque) bool {
+    pub fn hasCorrectArity(c: *Checker, node: ast_gen.NodeIndex, args: *anyopaque, signature: types.SignatureIndex, signatureHelpTrailingComma: *anyopaque) bool {
         _ = c;
         _ = node;
         _ = args;
@@ -10424,21 +10424,21 @@ pub const Checker = struct {
         return (c.typesList.items[t].flags & types.TypeFlags.Void) != 0;
     }
 
-    pub fn getDecoratorArgumentCount(c: *Checker, node: *anyopaque, signature: *anyopaque) i32 {
+    pub fn getDecoratorArgumentCount(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex) i32 {
         _ = c;
         _ = node;
         _ = signature;
         return 0;
     }
 
-    pub fn getLegacyDecoratorArgumentCount(c: *Checker, node: *anyopaque, signature: *anyopaque) i32 {
+    pub fn getLegacyDecoratorArgumentCount(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex) i32 {
         _ = c;
         _ = node;
         _ = signature;
         return 0;
     }
 
-    pub fn hasCorrectTypeArgumentArity(c: *Checker, signature: *anyopaque, typeArguments: *anyopaque) bool {
+    pub fn hasCorrectTypeArgumentArity(c: *Checker, signature: types.SignatureIndex, typeArguments: *anyopaque) bool {
         _ = c;
         _ = signature;
         _ = typeArguments;
@@ -10456,7 +10456,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isSignatureApplicable(c: *Checker, node: *anyopaque, args: *anyopaque, signature: *anyopaque, relation: *anyopaque, checkMode: *anyopaque, reportErrors: *anyopaque, diagnosticOutput: *anyopaque) bool {
+    pub fn isSignatureApplicable(c: *Checker, node: ast_gen.NodeIndex, args: *anyopaque, signature: types.SignatureIndex, relation: *anyopaque, checkMode: *anyopaque, reportErrors: bool, diagnosticOutput: types.TypeIndex) bool {
         _ = c;
         _ = node;
         _ = args;
@@ -10468,7 +10468,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn maybeAddMissingAwaitInfo(c: *Checker, errorNode: *anyopaque, source: *anyopaque, target: *anyopaque, relation: *anyopaque, reportErrors: *anyopaque, diagnosticOutput: *anyopaque) void {
+    pub fn maybeAddMissingAwaitInfo(c: *Checker, errorNode: ast_gen.NodeIndex, source: types.TypeIndex, target: types.TypeIndex, relation: *anyopaque, reportErrors: bool, diagnosticOutput: types.TypeIndex) void {
         _ = c;
         _ = errorNode;
         _ = source;
@@ -10542,7 +10542,7 @@ pub const Checker = struct {
         return ast_utils.skipOuterExpressions(c.binder.ast, argument, flags);
     }
 
-    pub fn inferTypeArguments(c: *Checker, node: *anyopaque, signature: *anyopaque, args: *anyopaque, checkMode: *anyopaque, context: *anyopaque) *anyopaque {
+    pub fn inferTypeArguments(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex, args: *anyopaque, checkMode: *anyopaque, context: types.TypeIndex) *anyopaque {
         _ = c;
         _ = node;
         _ = signature;
@@ -10552,7 +10552,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getCandidateForOverloadFailure(c: *Checker, node: *anyopaque, candidates: *anyopaque, args: *anyopaque, hasCandidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn getCandidateForOverloadFailure(c: *Checker, node: ast_gen.NodeIndex, candidates: *anyopaque, args: *anyopaque, hasCandidatesOutArray: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = candidates;
@@ -10562,7 +10562,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn pickLongestCandidateSignature(c: *Checker, node: *anyopaque, candidates: *anyopaque, args: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn pickLongestCandidateSignature(c: *Checker, node: ast_gen.NodeIndex, candidates: *anyopaque, args: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = candidates;
@@ -10571,7 +10571,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getLongestCandidateIndex(c: *Checker, candidates: *anyopaque, argsCount: *anyopaque) i32 {
+    pub fn getLongestCandidateIndex(c: *Checker, candidates: *anyopaque, argsCount: types.TypeIndex) i32 {
         _ = c;
         _ = candidates;
         _ = argsCount;
@@ -10585,7 +10585,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn inferSignatureInstantiationForOverloadFailure(c: *Checker, node: *anyopaque, typeParameters: *anyopaque, candidate: *anyopaque, args: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn inferSignatureInstantiationForOverloadFailure(c: *Checker, node: ast_gen.NodeIndex, typeParameters: *anyopaque, candidate: *anyopaque, args: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = typeParameters;
@@ -10608,20 +10608,20 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn createCombinedSymbolForOverloadFailure(c: *Checker, sources: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn createCombinedSymbolForOverloadFailure(c: *Checker, sources: *anyopaque, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = sources;
         _ = t;
         return undefined;
     }
 
-    pub fn getRestTypeOfSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+    pub fn getRestTypeOfSignature(c: *Checker, signature: types.SignatureIndex) *anyopaque {
         _ = c;
         _ = signature;
         return undefined;
     }
 
-    pub fn tryGetRestTypeOfSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+    pub fn tryGetRestTypeOfSignature(c: *Checker, signature: types.SignatureIndex) *anyopaque {
         _ = c;
         _ = signature;
         return undefined;
@@ -10662,7 +10662,7 @@ pub const Checker = struct {
         return argument_arity.getErrorNodeForCallNode(c, node);
     }
 
-    pub fn getTypeArgumentArityError(c: *Checker, node: *anyopaque, signatures: *anyopaque, typeArguments: *anyopaque, headMessage: *anyopaque) *anyopaque {
+    pub fn getTypeArgumentArityError(c: *Checker, node: ast_gen.NodeIndex, signatures: *anyopaque, typeArguments: *anyopaque, headMessage: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = signatures;
@@ -10699,7 +10699,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn invocationErrorDetails(c: *Checker, errorTarget: *anyopaque, apparentType: *anyopaque, kind_: *anyopaque) *anyopaque {
+    pub fn invocationErrorDetails(c: *Checker, errorTarget: types.TypeIndex, apparentType: types.TypeIndex, kind_: *anyopaque) *anyopaque {
         _ = c;
         _ = errorTarget;
         _ = apparentType;
@@ -10707,7 +10707,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn invocationError(c: *Checker, errorTarget: *anyopaque, apparentType: *anyopaque, kind_: *anyopaque, relatedInformation: *anyopaque) void {
+    pub fn invocationError(c: *Checker, errorTarget: types.TypeIndex, apparentType: types.TypeIndex, kind_: *anyopaque, relatedInformation: *anyopaque) void {
         _ = c;
         _ = errorTarget;
         _ = apparentType;
@@ -10715,7 +10715,7 @@ pub const Checker = struct {
         _ = relatedInformation;
     }
 
-    pub fn invocationErrorRecovery(c: *Checker, apparentType: *anyopaque, kind_: *anyopaque, diagnostic: *anyopaque) void {
+    pub fn invocationErrorRecovery(c: *Checker, apparentType: types.TypeIndex, kind_: *anyopaque, diagnostic: *anyopaque) void {
         _ = c;
         _ = apparentType;
         _ = kind_;
@@ -10776,7 +10776,7 @@ pub const Checker = struct {
         checkSourceElement(c, node);
     }
 
-    pub fn inferFromAnnotatedParametersAndReturn(c: *Checker, sig: *anyopaque, context: *anyopaque, inferenceContext: *anyopaque) void {
+    pub fn inferFromAnnotatedParametersAndReturn(c: *Checker, sig: *anyopaque, context: types.TypeIndex, inferenceContext: types.TypeIndex) void {
         _ = c;
         _ = sig;
         _ = context;
@@ -10796,7 +10796,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getContextualCallSignature(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
+    pub fn getContextualCallSignature(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = node;
@@ -10809,25 +10809,25 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isAritySmaller(c: *Checker, signature: *anyopaque, target: *anyopaque) bool {
+    pub fn isAritySmaller(c: *Checker, signature: types.SignatureIndex, target: types.TypeIndex) bool {
         _ = c;
         _ = signature;
         _ = target;
         return false;
     }
 
-    pub fn assignContextualParameterTypes(c: *Checker, sig: *anyopaque, context: *anyopaque) void {
+    pub fn assignContextualParameterTypes(c: *Checker, sig: *anyopaque, context: types.TypeIndex) void {
         _ = c;
         _ = sig;
         _ = context;
     }
 
-    pub fn assignNonContextualParameterTypes(c: *Checker, signature: *anyopaque) void {
+    pub fn assignNonContextualParameterTypes(c: *Checker, signature: types.SignatureIndex) void {
         _ = c;
         _ = signature;
     }
 
-    pub fn assignParameterType(c: *Checker, parameter: *anyopaque, contextualType: *anyopaque) void {
+    pub fn assignParameterType(c: *Checker, parameter: *anyopaque, contextualType: types.TypeIndex) void {
         _ = c;
         _ = parameter;
         _ = contextualType;
@@ -10943,7 +10943,7 @@ pub const Checker = struct {
         return c.getNonNullableType(t);
     }
 
-    pub fn getInstantiationExpressionType(c: *Checker, exprType: *anyopaque, node: *anyopaque) *anyopaque {
+    pub fn getInstantiationExpressionType(c: *Checker, exprType: types.TypeIndex, node: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = exprType;
         _ = node;
@@ -10979,7 +10979,7 @@ pub const Checker = struct {
         return checkTruthinessOfType(c, t, node);
     }
 
-    pub fn getYieldedTypeOfYieldExpression(c: *Checker, node: *anyopaque, expressionType: *anyopaque, sentType: *anyopaque, isAsync: *anyopaque) *anyopaque {
+    pub fn getYieldedTypeOfYieldExpression(c: *Checker, node: ast_gen.NodeIndex, expressionType: *anyopaque, sentType: *anyopaque, isAsync: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = expressionType;
@@ -10988,14 +10988,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isSameScopedBindingElement(c: *Checker, node: *anyopaque, declaration: *anyopaque) bool {
+    pub fn isSameScopedBindingElement(c: *Checker, node: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex) bool {
         _ = c;
         _ = node;
         _ = declaration;
         return false;
     }
 
-    pub fn removeOptionalityFromDeclaredType(c: *Checker, declaredType: *anyopaque, declaration: *anyopaque) *anyopaque {
+    pub fn removeOptionalityFromDeclaredType(c: *Checker, declaredType: *anyopaque, declaration: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = declaredType;
         _ = declaration;
@@ -11208,7 +11208,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getFlowTypeOfProperty(c: *Checker, reference: *anyopaque, prop: *anyopaque) *anyopaque {
+    pub fn getFlowTypeOfProperty(c: *Checker, reference: ast_gen.NodeIndex, prop: ast_gen.SymbolIndex) *anyopaque {
         _ = c;
         _ = reference;
         _ = prop;
@@ -11267,21 +11267,21 @@ pub const Checker = struct {
         _ = isUncheckedJS;
     }
 
-    pub fn getSuggestedLibForNonExistentProperty(c: *Checker, missingProperty: *anyopaque, containingType: *anyopaque) *anyopaque {
+    pub fn getSuggestedLibForNonExistentProperty(c: *Checker, missingProperty: *anyopaque, containingType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = missingProperty;
         _ = containingType;
         return undefined;
     }
 
-    pub fn getSuggestedSymbolForNonexistentProperty(c: *Checker, name_: *anyopaque, containingType: *anyopaque) *anyopaque {
+    pub fn getSuggestedSymbolForNonexistentProperty(c: *Checker, name_: ast_gen.NodeIndex, containingType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = name_;
         _ = containingType;
         return undefined;
     }
 
-    pub fn isValidPropertyAccessForCompletions(c: *Checker, node: *anyopaque, t: *anyopaque, property: *anyopaque) bool {
+    pub fn isValidPropertyAccessForCompletions(c: *Checker, node: ast_gen.NodeIndex, t: types.TypeIndex, property: *anyopaque) bool {
         _ = c;
         _ = node;
         _ = t;
@@ -11289,7 +11289,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isPropertyAccessible(c: *Checker, node: *anyopaque, isSuper: *anyopaque, isWrite: *anyopaque, containingType: *anyopaque, property: *anyopaque) bool {
+    pub fn isPropertyAccessible(c: *Checker, node: ast_gen.NodeIndex, isSuper: bool, isWrite: bool, containingType: types.TypeIndex, property: *anyopaque) bool {
         _ = c;
         _ = node;
         _ = isSuper;
@@ -11352,7 +11352,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isUncalledFunctionReference(c: *Checker, node: *anyopaque, symbol_: *anyopaque) bool {
+    pub fn isUncalledFunctionReference(c: *Checker, node: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = node;
         _ = symbol_;
@@ -11432,7 +11432,7 @@ pub const Checker = struct {
         return (sym.Flags & symbol.SymbolFlags.Method) == 0;
     }
 
-    pub fn forEachProperty(c: *Checker, prop: *anyopaque, callback: *anyopaque) bool {
+    pub fn forEachProperty(c: *Checker, prop: ast_gen.SymbolIndex, callback: *anyopaque) bool {
         _ = c;
         _ = prop;
         _ = callback;
@@ -11456,14 +11456,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isValidOverrideOf(c: *Checker, sourceProp: *anyopaque, targetProp: *anyopaque) bool {
+    pub fn isValidOverrideOf(c: *Checker, sourceProp: ast_gen.SymbolIndex, targetProp: ast_gen.SymbolIndex) bool {
         _ = c;
         _ = sourceProp;
         _ = targetProp;
         return false;
     }
 
-    pub fn isPropertyInClassDerivedFrom(c: *Checker, prop: *anyopaque, baseClass: *anyopaque) bool {
+    pub fn isPropertyInClassDerivedFrom(c: *Checker, prop: ast_gen.SymbolIndex, baseClass: types.TypeIndex) bool {
         _ = c;
         _ = prop;
         _ = baseClass;
@@ -11476,21 +11476,21 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isNodeWithinClass(c: *Checker, node: *anyopaque, classDeclaration: *anyopaque) bool {
+    pub fn isNodeWithinClass(c: *Checker, node: ast_gen.NodeIndex, classDeclaration: *anyopaque) bool {
         _ = c;
         _ = node;
         _ = classDeclaration;
         return false;
     }
 
-    pub fn forEachEnclosingClass(c: *Checker, node: *anyopaque, callback: *anyopaque) bool {
+    pub fn forEachEnclosingClass(c: *Checker, node: ast_gen.NodeIndex, callback: *anyopaque) bool {
         _ = c;
         _ = node;
         _ = callback;
         return false;
     }
 
-    pub fn isClassDerivedFromDeclaringClasses(c: *Checker, checkClass: *anyopaque, prop: *anyopaque, writing: *anyopaque) bool {
+    pub fn isClassDerivedFromDeclaringClasses(c: *Checker, checkClass: types.TypeIndex, prop: ast_gen.SymbolIndex, writing: bool) bool {
         _ = c;
         _ = checkClass;
         _ = prop;
@@ -11553,7 +11553,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn tryGetThisTypeAtEx(c: *Checker, node: *anyopaque, includeGlobalThis: *anyopaque, container: *anyopaque) *anyopaque {
+    pub fn tryGetThisTypeAtEx(c: *Checker, node: ast_gen.NodeIndex, includeGlobalThis: *anyopaque, container: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = node;
         _ = includeGlobalThis;
@@ -11561,7 +11561,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getThisContainer(c: *Checker, node: *anyopaque, includeArrowFunctions: *anyopaque, includeClassComputedPropertyName: *anyopaque) *anyopaque {
+    pub fn getThisContainer(c: *Checker, node: ast_gen.NodeIndex, includeArrowFunctions: *anyopaque, includeClassComputedPropertyName: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = includeArrowFunctions;
@@ -11913,7 +11913,7 @@ pub const Checker = struct {
         _ = typesAreCompatible;
     }
 
-    pub fn getBaseTypesIfUnrelated(c: *Checker, leftType: *anyopaque, rightType: *anyopaque, isRelated: *anyopaque, right: *anyopaque) bool {
+    pub fn getBaseTypesIfUnrelated(c: *Checker, leftType: *anyopaque, rightType: *anyopaque, isRelated: *anyopaque, right: types.TypeIndex) bool {
         _ = c;
         _ = leftType;
         _ = rightType;
@@ -12156,14 +12156,14 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getExactOptionalUnassignableProperties(c: *Checker, source: *anyopaque, target: *anyopaque) *anyopaque {
+    pub fn getExactOptionalUnassignableProperties(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) *anyopaque {
         _ = c;
         _ = source;
         _ = target;
         return undefined;
     }
 
-    pub fn isExactOptionalPropertyMismatch(c: *Checker, source: *anyopaque, target: *anyopaque) bool {
+    pub fn isExactOptionalPropertyMismatch(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
         _ = c;
         _ = source;
         _ = target;
@@ -12274,7 +12274,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn tryMergeUnionOfObjectTypeAndEmptyObject(c: *Checker, t: *anyopaque, readonly: *anyopaque) *anyopaque {
+    pub fn tryMergeUnionOfObjectTypeAndEmptyObject(c: *Checker, t: types.TypeIndex, readonly: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = readonly;
@@ -12444,14 +12444,14 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isInPropertyInitializerOrClassStaticBlock(c: *Checker, node: *anyopaque, ignoreArrowFunctions: *anyopaque) bool {
+    pub fn isInPropertyInitializerOrClassStaticBlock(c: *Checker, node: ast_gen.NodeIndex, ignoreArrowFunctions: *anyopaque) bool {
         _ = c;
         _ = node;
         _ = ignoreArrowFunctions;
         return false;
     }
 
-    pub fn getNarrowedTypeOfSymbol(c: *Checker, symbol_: *anyopaque, location: *anyopaque) *anyopaque {
+    pub fn getNarrowedTypeOfSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex, location: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = location;
@@ -12611,21 +12611,21 @@ pub const Checker = struct {
         }
     }
 
-    pub fn @"error"(c: *Checker, location: *anyopaque, message: *anyopaque) *anyopaque {
+    pub fn @"error"(c: *Checker, location: ast_gen.NodeIndex, message: *anyopaque) *anyopaque {
         _ = c;
         _ = location;
         _ = message;
         return undefined;
     }
 
-    pub fn errorSkippedOnNoEmit(c: *Checker, location: *anyopaque, message: *anyopaque) *anyopaque {
+    pub fn errorSkippedOnNoEmit(c: *Checker, location: ast_gen.NodeIndex, message: *anyopaque) *anyopaque {
         _ = c;
         _ = location;
         _ = message;
         return undefined;
     }
 
-    pub fn errorOrSuggestion(c: *Checker, isError: *anyopaque, location: *anyopaque, message: *anyopaque) void {
+    pub fn errorOrSuggestion(c: *Checker, isError: *anyopaque, location: ast_gen.NodeIndex, message: *anyopaque) void {
         _ = c;
         _ = isError;
         _ = location;
@@ -12651,7 +12651,7 @@ pub const Checker = struct {
         return (flags & @import("../ast/ast_generated.zig").NodeFlagsDeprecated) != 0;
     }
 
-    pub fn addDeprecatedSuggestion(c: *Checker, location: *anyopaque, declarations: *anyopaque, deprecatedEntity: *anyopaque) *anyopaque {
+    pub fn addDeprecatedSuggestion(c: *Checker, location: ast_gen.NodeIndex, declarations: *anyopaque, deprecatedEntity: *anyopaque) *anyopaque {
         _ = c;
         _ = location;
         _ = declarations;
@@ -12685,14 +12685,14 @@ pub const Checker = struct {
         return sym.Declarations.items.len > 0;
     }
 
-    pub fn newSymbol(c: *Checker, flags: *anyopaque, name_: *anyopaque) *anyopaque {
+    pub fn newSymbol(c: *Checker, flags: *anyopaque, name_: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = flags;
         _ = name_;
         return undefined;
     }
 
-    pub fn newSymbolEx(c: *Checker, flags: *anyopaque, name_: *anyopaque, checkFlags: *anyopaque) *anyopaque {
+    pub fn newSymbolEx(c: *Checker, flags: *anyopaque, name_: ast_gen.NodeIndex, checkFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = flags;
         _ = name_;
@@ -12700,28 +12700,28 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newParameter(c: *Checker, name_: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn newParameter(c: *Checker, name_: ast_gen.NodeIndex, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = name_;
         _ = t;
         return undefined;
     }
 
-    pub fn newProperty(c: *Checker, name_: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn newProperty(c: *Checker, name_: ast_gen.NodeIndex, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = name_;
         _ = t;
         return undefined;
     }
 
-    pub fn combineSymbolTables(c: *Checker, first: *anyopaque, second: *anyopaque) *anyopaque {
+    pub fn combineSymbolTables(c: *Checker, first: types.TypeIndex, second: *anyopaque) *anyopaque {
         _ = c;
         _ = first;
         _ = second;
         return undefined;
     }
 
-    pub fn mergeSymbolTable(c: *Checker, target: *anyopaque, source: *anyopaque, unidirectional: *anyopaque, mergedParent: *anyopaque) void {
+    pub fn mergeSymbolTable(c: *Checker, target: types.TypeIndex, source: types.TypeIndex, unidirectional: *anyopaque, mergedParent: types.TypeIndex) void {
         _ = c;
         _ = target;
         _ = source;
@@ -12729,7 +12729,7 @@ pub const Checker = struct {
         _ = mergedParent;
     }
 
-    pub fn mergeSymbol(c: *Checker, target: *anyopaque, source: *anyopaque, unidirectional: *anyopaque) *anyopaque {
+    pub fn mergeSymbol(c: *Checker, target: types.TypeIndex, source: types.TypeIndex, unidirectional: *anyopaque) *anyopaque {
         _ = c;
         _ = target;
         _ = source;
@@ -12745,7 +12745,7 @@ pub const Checker = struct {
         _ = source;
     }
 
-    pub fn addDuplicateDeclarationErrorsForSymbols(c: *Checker, target: *anyopaque, message: *anyopaque, symbolName: *anyopaque, source: *anyopaque) void {
+    pub fn addDuplicateDeclarationErrorsForSymbols(c: *Checker, target: types.TypeIndex, message: *anyopaque, symbolName: *anyopaque, source: types.TypeIndex) void {
         _ = c;
         _ = target;
         _ = message;
@@ -12753,7 +12753,7 @@ pub const Checker = struct {
         _ = source;
     }
 
-    pub fn addDuplicateDeclarationError(c: *Checker, node: *anyopaque, message: *anyopaque, symbolName: *anyopaque, relatedNodes: *anyopaque) void {
+    pub fn addDuplicateDeclarationError(c: *Checker, node: ast_gen.NodeIndex, message: *anyopaque, symbolName: *anyopaque, relatedNodes: *anyopaque) void {
         _ = c;
         _ = node;
         _ = message;
@@ -12761,7 +12761,7 @@ pub const Checker = struct {
         _ = relatedNodes;
     }
 
-    pub fn createDiagnosticForNode(node: *anyopaque, message: *anyopaque) *anyopaque {
+    pub fn createDiagnosticForNode(node: ast_gen.NodeIndex, message: *anyopaque) *anyopaque {
         _ = node;
         _ = message;
         return undefined;
@@ -12776,7 +12776,7 @@ pub const Checker = struct {
         return node;
     }
 
-    pub fn lookupOrIssueError(c: *Checker, location: *anyopaque, message: *anyopaque) *anyopaque {
+    pub fn lookupOrIssueError(c: *Checker, location: ast_gen.NodeIndex, message: *anyopaque) *anyopaque {
         _ = c;
         _ = location;
         _ = message;
@@ -12921,7 +12921,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTargetOfModuleDefault(c: *Checker, moduleSymbol: *anyopaque, node: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+    pub fn getTargetOfModuleDefault(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, node: ast_gen.NodeIndex, dontResolveAlias: bool) *anyopaque {
         _ = c;
         _ = moduleSymbol;
         _ = node;
@@ -12937,7 +12937,7 @@ pub const Checker = struct {
         _ = node;
     }
 
-    pub fn resolveExportByName(c: *Checker, moduleSymbol: *anyopaque, name_: *anyopaque, sourceNode: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+    pub fn resolveExportByName(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, name_: ast_gen.NodeIndex, sourceNode: *anyopaque, dontResolveAlias: bool) *anyopaque {
         _ = c;
         _ = moduleSymbol;
         _ = name_;
@@ -12974,7 +12974,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getExternalModuleMember(c: *Checker, node: *anyopaque, specifier: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+    pub fn getExternalModuleMember(c: *Checker, node: ast_gen.NodeIndex, specifier: ast_gen.NodeIndex, dontResolveAlias: bool) *anyopaque {
         _ = c;
         _ = node;
         _ = specifier;
@@ -12982,7 +12982,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getPropertyOfVariable(c: *Checker, symbol_: *anyopaque, name_: *anyopaque) *anyopaque {
+    pub fn getPropertyOfVariable(c: *Checker, symbol_: ast_gen.SymbolIndex, name_: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = name_;
@@ -12996,7 +12996,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getExportOfModule(c: *Checker, symbol_: *anyopaque, nameText: *anyopaque, specifier: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+    pub fn getExportOfModule(c: *Checker, symbol_: ast_gen.SymbolIndex, nameText: types.TypeIndex, specifier: ast_gen.NodeIndex, dontResolveAlias: bool) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = nameText;
@@ -13012,7 +13012,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn canHaveSyntheticDefault(c: *Checker, file: *anyopaque, moduleSymbol: *anyopaque, dontResolveAlias: *anyopaque, usage: *anyopaque) bool {
+    pub fn canHaveSyntheticDefault(c: *Checker, file: ast_gen.NodeIndex, moduleSymbol: ast_gen.SymbolIndex, dontResolveAlias: bool, usage: *anyopaque) bool {
         _ = c;
         _ = file;
         _ = moduleSymbol;
@@ -13029,7 +13029,7 @@ pub const Checker = struct {
         return .ESNext;
     }
 
-    pub fn errorNoModuleMemberSymbol(c: *Checker, moduleSymbol: *anyopaque, targetSymbol: *anyopaque, node: *anyopaque, name_: *anyopaque) void {
+    pub fn errorNoModuleMemberSymbol(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, targetSymbol: ast_gen.SymbolIndex, node: ast_gen.NodeIndex, name_: ast_gen.NodeIndex) void {
         _ = c;
         _ = moduleSymbol;
         _ = targetSymbol;
@@ -13057,7 +13057,7 @@ pub const Checker = struct {
         _ = module_name;
     }
 
-    pub fn getTargetOfExportSpecifier(c: *Checker, node: *anyopaque, meaning: *anyopaque, dontResolveAlias: *anyopaque) *anyopaque {
+    pub fn getTargetOfExportSpecifier(c: *Checker, node: ast_gen.NodeIndex, meaning: u32, dontResolveAlias: bool) *anyopaque {
         _ = c;
         _ = node;
         _ = meaning;
@@ -13207,7 +13207,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn resolveExternalModuleName(c: *Checker, location: *anyopaque, moduleReferenceExpression: *anyopaque, ignoreErrors: *anyopaque) *anyopaque {
+    pub fn resolveExternalModuleName(c: *Checker, location: ast_gen.NodeIndex, moduleReferenceExpression: *anyopaque, ignoreErrors: bool) *anyopaque {
         _ = c;
         _ = location;
         _ = moduleReferenceExpression;
@@ -13221,7 +13221,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveExternalModuleNameWorker(c: *Checker, location: *anyopaque, moduleReferenceExpression: *anyopaque, moduleNotFoundError: *anyopaque, ignoreErrors: *anyopaque, isForAugmentation: *anyopaque) *anyopaque {
+    pub fn resolveExternalModuleNameWorker(c: *Checker, location: ast_gen.NodeIndex, moduleReferenceExpression: *anyopaque, moduleNotFoundError: *anyopaque, ignoreErrors: bool, isForAugmentation: *anyopaque) *anyopaque {
         _ = c;
         _ = location;
         _ = moduleReferenceExpression;
@@ -13243,7 +13243,7 @@ pub const Checker = struct {
         return 0; // Stub
     }
 
-    pub fn resolveExternalModule(c: *Checker, location: *anyopaque, moduleReference: *anyopaque, moduleNotFoundError: *anyopaque, errorNode: *anyopaque, isForAugmentation: *anyopaque) *anyopaque {
+    pub fn resolveExternalModule(c: *Checker, location: ast_gen.NodeIndex, moduleReference: *anyopaque, moduleNotFoundError: *anyopaque, errorNode: ast_gen.NodeIndex, isForAugmentation: *anyopaque) *anyopaque {
         _ = c;
         _ = location;
         _ = moduleReference;
@@ -13282,7 +13282,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn errorOnImplicitAnyModule(c: *Checker, isError: *anyopaque, errorNode: *anyopaque, mode: *anyopaque, resolvedModule: *anyopaque, moduleReference: *anyopaque) void {
+    pub fn errorOnImplicitAnyModule(c: *Checker, isError: *anyopaque, errorNode: ast_gen.NodeIndex, mode: *anyopaque, resolvedModule: *anyopaque, moduleReference: *anyopaque) void {
         _ = c;
         _ = isError;
         _ = errorNode;
@@ -13291,7 +13291,7 @@ pub const Checker = struct {
         _ = moduleReference;
     }
 
-    pub fn createModuleNotFoundChain(c: *Checker, resolvedModule: *anyopaque, errorNode: *anyopaque, moduleReference: *anyopaque, mode: *anyopaque, packageName: *anyopaque) *anyopaque {
+    pub fn createModuleNotFoundChain(c: *Checker, resolvedModule: *anyopaque, errorNode: ast_gen.NodeIndex, moduleReference: *anyopaque, mode: *anyopaque, packageName: *anyopaque) *anyopaque {
         _ = c;
         _ = resolvedModule;
         _ = errorNode;
@@ -13301,7 +13301,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn createModeMismatchDetails(c: *Checker, sourceFile: *anyopaque, errorNode: *anyopaque) *anyopaque {
+    pub fn createModeMismatchDetails(c: *Checker, sourceFile: *anyopaque, errorNode: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = sourceFile;
         _ = errorNode;
@@ -13322,7 +13322,7 @@ pub const Checker = struct {
         return &.{};
     }
 
-    pub fn resolveESModuleSymbol(c: *Checker, moduleSymbol: *anyopaque, node: *anyopaque, moduleSpecifier: *anyopaque) *anyopaque {
+    pub fn resolveESModuleSymbol(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, node: ast_gen.NodeIndex, moduleSpecifier: *anyopaque) *anyopaque {
         _ = c;
         _ = moduleSymbol;
         _ = node;
@@ -13344,7 +13344,7 @@ pub const Checker = struct {
         return usageMode == .ESNext and targetMode == .CommonJS;
     }
 
-    pub fn getTypeWithSyntheticDefaultOnly(c: *Checker, t: *anyopaque, symbol_: *anyopaque, originalSymbol: *anyopaque, moduleSpecifier: *anyopaque) *anyopaque {
+    pub fn getTypeWithSyntheticDefaultOnly(c: *Checker, t: types.TypeIndex, symbol_: ast_gen.SymbolIndex, originalSymbol: ast_gen.SymbolIndex, moduleSpecifier: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = symbol_;
@@ -13353,7 +13353,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeWithSyntheticDefaultImportType(c: *Checker, t: *anyopaque, symbol_: *anyopaque, originalSymbol: *anyopaque, moduleSpecifier: *anyopaque) *anyopaque {
+    pub fn getTypeWithSyntheticDefaultImportType(c: *Checker, t: types.TypeIndex, symbol_: ast_gen.SymbolIndex, originalSymbol: ast_gen.SymbolIndex, moduleSpecifier: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = symbol_;
@@ -13376,7 +13376,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn createDefaultPropertyWrapperForModule(c: *Checker, symbol_: *anyopaque, originalSymbol: *anyopaque, anonymousSymbol: *anyopaque) *anyopaque {
+    pub fn createDefaultPropertyWrapperForModule(c: *Checker, symbol_: ast_gen.SymbolIndex, originalSymbol: ast_gen.SymbolIndex, anonymousSymbol: *anyopaque) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = originalSymbol;
@@ -13384,7 +13384,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn cloneTypeAsModuleType(c: *Checker, symbol_: *anyopaque, moduleType: *anyopaque, referenceParent: *anyopaque) *anyopaque {
+    pub fn cloneTypeAsModuleType(c: *Checker, symbol_: ast_gen.SymbolIndex, moduleType: *anyopaque, referenceParent: types.TypeIndex) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = moduleType;
@@ -13411,7 +13411,7 @@ pub const Checker = struct {
         }
     }
 
-    pub fn resolveQualifiedName(c: *Checker, name_: *anyopaque, left: *anyopaque, right: *anyopaque, meaning: *anyopaque, ignoreErrors: *anyopaque, location: *anyopaque) *anyopaque {
+    pub fn resolveQualifiedName(c: *Checker, name_: ast_gen.NodeIndex, left: types.TypeIndex, right: types.TypeIndex, meaning: u32, ignoreErrors: bool, location: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = name_;
         _ = left;
@@ -13428,14 +13428,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getSuggestedSymbolForNonexistentModule(c: *Checker, name_: *anyopaque, targetModule: *anyopaque) *anyopaque {
+    pub fn getSuggestedSymbolForNonexistentModule(c: *Checker, name_: ast_gen.NodeIndex, targetModule: *anyopaque) *anyopaque {
         _ = c;
         _ = name_;
         _ = targetModule;
         return undefined;
     }
 
-    pub fn getFullyQualifiedName(c: *Checker, symbol_: *anyopaque, containingLocation: *anyopaque) *anyopaque {
+    pub fn getFullyQualifiedName(c: *Checker, symbol_: ast_gen.SymbolIndex, containingLocation: *anyopaque) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = containingLocation;
@@ -13456,14 +13456,14 @@ pub const Checker = struct {
         return &sym.Exports;
     }
 
-    pub fn getResolvedMembersOrExportsOfSymbol(c: *Checker, symbol_: *anyopaque, resolutionKind: *anyopaque) *anyopaque {
+    pub fn getResolvedMembersOrExportsOfSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex, resolutionKind: *anyopaque) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = resolutionKind;
         return undefined;
     }
 
-    pub fn lateBindMember(c: *Checker, parent: *anyopaque, earlySymbols: *anyopaque, lateSymbols: *anyopaque, decl: *anyopaque) *anyopaque {
+    pub fn lateBindMember(c: *Checker, parent: types.TypeIndex, earlySymbols: *anyopaque, lateSymbols: *anyopaque, decl: *anyopaque) *anyopaque {
         _ = c;
         _ = parent;
         _ = earlySymbols;
@@ -13472,7 +13472,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn lateBindIndexSignature(c: *Checker, parent: *anyopaque, earlySymbols: *anyopaque, lateSymbols: *anyopaque, decl: *anyopaque) void {
+    pub fn lateBindIndexSignature(c: *Checker, parent: types.TypeIndex, earlySymbols: *anyopaque, lateSymbols: *anyopaque, decl: *anyopaque) void {
         _ = c;
         _ = parent;
         _ = earlySymbols;
@@ -13486,7 +13486,7 @@ pub const Checker = struct {
         return (c.binder.symbols.items[sym].Flags & symbol.SymbolFlags.ReplaceableByMethod) == 0;
     }
 
-    pub fn addDeclarationToLateBoundSymbol(c: *Checker, symbol_: *anyopaque, member: *anyopaque, symbolFlags: *anyopaque) void {
+    pub fn addDeclarationToLateBoundSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex, member: ast_gen.NodeIndex, symbolFlags: *anyopaque) void {
         _ = c;
         _ = symbol_;
         _ = member;
@@ -13513,7 +13513,7 @@ pub const Checker = struct {
         return 0; // Stub
     }
 
-    pub fn extendExportSymbols(c: *Checker, target: *anyopaque, source: *anyopaque, lookupTable: *anyopaque, exportNode: *anyopaque) void {
+    pub fn extendExportSymbols(c: *Checker, target: types.TypeIndex, source: types.TypeIndex, lookupTable: *anyopaque, exportNode: *anyopaque) void {
         _ = c;
         _ = target;
         _ = source;
@@ -13521,7 +13521,7 @@ pub const Checker = struct {
         _ = exportNode;
     }
 
-    pub fn resolveIndirectionAlias(c: *Checker, source: *anyopaque, target: *anyopaque) *anyopaque {
+    pub fn resolveIndirectionAlias(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) *anyopaque {
         _ = c;
         _ = source;
         _ = target;
@@ -13611,7 +13611,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTypeOfSymbolAtLocation(c: *Checker, symbol_: *anyopaque, location: *anyopaque) *anyopaque {
+    pub fn getTypeOfSymbolAtLocation(c: *Checker, symbol_: ast_gen.SymbolIndex, location: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = location;
@@ -13648,14 +13648,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getWidenedTypeForVariableLikeDeclaration(c: *Checker, declaration: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getWidenedTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, reportErrors: bool) *anyopaque {
         _ = c;
         _ = declaration;
         _ = reportErrors;
         return undefined;
     }
 
-    pub fn getTypeForVariableLikeDeclaration(c: *Checker, declaration: *anyopaque, includeOptionality: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn getTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, includeOptionality: *anyopaque, checkMode: *anyopaque) *anyopaque {
         _ = c;
         _ = declaration;
         _ = includeOptionality;
@@ -13682,7 +13682,7 @@ pub const Checker = struct {
         return c.anyTypeIndex orelse 0;
     }
 
-    pub fn padObjectLiteralType(c: *Checker, t: *anyopaque, pattern: *anyopaque) *anyopaque {
+    pub fn padObjectLiteralType(c: *Checker, t: types.TypeIndex, pattern: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = pattern;
@@ -13700,21 +13700,21 @@ pub const Checker = struct {
         return symbol.InternalSymbolNameMissing;
     }
 
-    pub fn padTupleType(c: *Checker, t: *anyopaque, pattern: *anyopaque) *anyopaque {
+    pub fn padTupleType(c: *Checker, t: types.TypeIndex, pattern: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = pattern;
         return undefined;
     }
 
-    pub fn widenTypeInferredFromInitializer(c: *Checker, declaration: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn widenTypeInferredFromInitializer(c: *Checker, declaration: ast_gen.NodeIndex, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = declaration;
         _ = t;
         return undefined;
     }
 
-    pub fn getWidenedLiteralTypeForInitializer(c: *Checker, declaration: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn getWidenedLiteralTypeForInitializer(c: *Checker, declaration: ast_gen.NodeIndex, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = declaration;
         _ = t;
@@ -13757,7 +13757,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getInferredTypeParameterConstraint(c: *Checker, t: *anyopaque, omitTypeReferences: *anyopaque) *anyopaque {
+    pub fn getInferredTypeParameterConstraint(c: *Checker, t: types.TypeIndex, omitTypeReferences: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = omitTypeReferences;
@@ -13770,14 +13770,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTypeParametersForTypeAndSymbol(c: *Checker, t: *anyopaque, symbol_: *anyopaque) *anyopaque {
+    pub fn getTypeParametersForTypeAndSymbol(c: *Checker, t: types.TypeIndex, symbol_: ast_gen.SymbolIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = symbol_;
         return undefined;
     }
 
-    pub fn getEffectiveTypeArgumentAtIndex(c: *Checker, node: *anyopaque, typeParameters: *anyopaque, index: *anyopaque) *anyopaque {
+    pub fn getEffectiveTypeArgumentAtIndex(c: *Checker, node: ast_gen.NodeIndex, typeParameters: *anyopaque, index: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = typeParameters;
@@ -13852,7 +13852,7 @@ pub const Checker = struct {
         }
     }
 
-    pub fn writeGenericTypeReferences(b: *anyopaque, source: *anyopaque, target: *anyopaque, ignoreConstraints: *anyopaque) bool {
+    pub fn writeGenericTypeReferences(b: *anyopaque, source: types.TypeIndex, target: types.TypeIndex, ignoreConstraints: bool) bool {
         _ = b;
         _ = source;
         _ = target;
@@ -13868,26 +13868,26 @@ pub const Checker = struct {
         b.writeSymbol(node);
     }
 
-    pub fn getAliasKey(alias: *anyopaque) *anyopaque {
+    pub fn getAliasKey(alias: ?*const types.TypeAlias) *anyopaque {
         _ = alias;
         return undefined;
     }
 
-    pub fn getUnionKey(types_: *anyopaque, origin: *anyopaque, alias: *anyopaque) *anyopaque {
+    pub fn getUnionKey(types_: *anyopaque, origin: ?types.TypeIndex, alias: ?*const types.TypeAlias) *anyopaque {
         _ = types_;
         _ = origin;
         _ = alias;
         return undefined;
     }
 
-    pub fn getIntersectionKey(types_: *anyopaque, flags: *anyopaque, alias: *anyopaque) *anyopaque {
+    pub fn getIntersectionKey(types_: *anyopaque, flags: *anyopaque, alias: ?*const types.TypeAlias) *anyopaque {
         _ = types_;
         _ = flags;
         _ = alias;
         return undefined;
     }
 
-    pub fn getIndexedAccessKey(objectType: *anyopaque, indexType: *anyopaque, accessFlags: *anyopaque, alias: *anyopaque) *anyopaque {
+    pub fn getIndexedAccessKey(objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: *anyopaque, alias: ?*const types.TypeAlias) *anyopaque {
         _ = objectType;
         _ = indexType;
         _ = accessFlags;
@@ -13895,7 +13895,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getRelationKey(source: *anyopaque, target: *anyopaque, intersectionState: *anyopaque, isIdentity: *anyopaque, ignoreConstraints: *anyopaque) bool {
+    pub fn getRelationKey(source: types.TypeIndex, target: types.TypeIndex, intersectionState: *anyopaque, isIdentity: *anyopaque, ignoreConstraints: bool) bool {
         _ = source;
         _ = target;
         _ = intersectionState;
@@ -13987,14 +13987,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTypeForBindingElementParent(c: *Checker, node: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn getTypeForBindingElementParent(c: *Checker, node: ast_gen.NodeIndex, checkMode: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = checkMode;
         return undefined;
     }
 
-    pub fn getBindingElementTypeFromParentType(c: *Checker, declaration: *anyopaque, parentType: *anyopaque, noTupleBoundsCheck: *anyopaque) *anyopaque {
+    pub fn getBindingElementTypeFromParentType(c: *Checker, declaration: ast_gen.NodeIndex, parentType: *anyopaque, noTupleBoundsCheck: *anyopaque) *anyopaque {
         _ = c;
         _ = declaration;
         _ = parentType;
@@ -14002,7 +14002,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getRestType(c: *Checker, source: *anyopaque, properties: *anyopaque, symbol_: *anyopaque) *anyopaque {
+    pub fn getRestType(c: *Checker, source: types.TypeIndex, properties: *anyopaque, symbol_: ast_gen.SymbolIndex) *anyopaque {
         _ = c;
         _ = source;
         _ = properties;
@@ -14010,7 +14010,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getFlowTypeOfDestructuring(c: *Checker, node: *anyopaque, declaredType: *anyopaque) *anyopaque {
+    pub fn getFlowTypeOfDestructuring(c: *Checker, node: ast_gen.NodeIndex, declaredType: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = declaredType;
@@ -14029,7 +14029,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTypeFromBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getTypeFromBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: bool) *anyopaque {
         _ = c;
         _ = pattern;
         _ = includePatternInType;
@@ -14037,7 +14037,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromObjectBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getTypeFromObjectBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: bool) *anyopaque {
         _ = c;
         _ = pattern;
         _ = includePatternInType;
@@ -14045,7 +14045,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromArrayBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getTypeFromArrayBindingPattern(c: *Checker, pattern: *anyopaque, includePatternInType: *anyopaque, reportErrors: bool) *anyopaque {
         _ = c;
         _ = pattern;
         _ = includePatternInType;
@@ -14053,7 +14053,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getTypeFromBindingElement(c: *Checker, element: *anyopaque, includePatternInType: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn getTypeFromBindingElement(c: *Checker, element: types.TypeIndex, includePatternInType: *anyopaque, reportErrors: bool) *anyopaque {
         _ = c;
         _ = element;
         _ = includePatternInType;
@@ -14067,7 +14067,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTypeOfPrototypeProperty(c: *Checker, prototype: *anyopaque) *anyopaque {
+    pub fn getTypeOfPrototypeProperty(c: *Checker, prototype: types.TypeIndex) *anyopaque {
         _ = c;
         _ = prototype;
         return undefined;
@@ -14091,7 +14091,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn containsSameNamedThisProperty(c: *Checker, thisProperty: *anyopaque, expression: *anyopaque) bool {
+    pub fn containsSameNamedThisProperty(c: *Checker, thisProperty: *anyopaque, expression: ast_gen.NodeIndex) bool {
         _ = c;
         _ = thisProperty;
         _ = expression;
@@ -14116,7 +14116,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn widenTypeForVariableLikeDeclaration(c: *Checker, t: *anyopaque, declaration: *anyopaque, reportErrors: *anyopaque) *anyopaque {
+    pub fn widenTypeForVariableLikeDeclaration(c: *Checker, t: types.TypeIndex, declaration: ast_gen.NodeIndex, reportErrors: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = declaration;
@@ -14130,21 +14130,21 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getWidenedTypeWithContext(c: *Checker, t: *anyopaque, context: *anyopaque) *anyopaque {
+    pub fn getWidenedTypeWithContext(c: *Checker, t: types.TypeIndex, context: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = context;
         return undefined;
     }
 
-    pub fn getWidenedTypeOfObjectLiteral(c: *Checker, t: *anyopaque, context: *anyopaque) *anyopaque {
+    pub fn getWidenedTypeOfObjectLiteral(c: *Checker, t: types.TypeIndex, context: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = context;
         return undefined;
     }
 
-    pub fn getWidenedProperty(c: *Checker, prop: *anyopaque, context: *anyopaque) *anyopaque {
+    pub fn getWidenedProperty(c: *Checker, prop: ast_gen.SymbolIndex, context: types.TypeIndex) *anyopaque {
         _ = c;
         _ = prop;
         _ = context;
@@ -14157,13 +14157,13 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getPropertiesOfContext(c: *Checker, context: *anyopaque) *anyopaque {
+    pub fn getPropertiesOfContext(c: *Checker, context: types.TypeIndex) *anyopaque {
         _ = c;
         _ = context;
         return undefined;
     }
 
-    pub fn getSiblingsOfContext(c: *Checker, context: *anyopaque) *anyopaque {
+    pub fn getSiblingsOfContext(c: *Checker, context: types.TypeIndex) *anyopaque {
         _ = c;
         _ = context;
         return undefined;
@@ -14290,7 +14290,7 @@ pub const Checker = struct {
         _ = sym;
     }
 
-    pub fn getPropertyOfTypeEx(c: *Checker, t: types.TypeIndex, name_: *anyopaque, skipObjectFunctionPropertyAugment: *anyopaque, includeTypeOnlyMembers: *anyopaque) *anyopaque {
+    pub fn getPropertyOfTypeEx(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex, skipObjectFunctionPropertyAugment: types.TypeIndex, includeTypeOnlyMembers: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = name_;
@@ -14299,7 +14299,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSignaturesOfStructuredType(c: *Checker, t: *anyopaque, kind_: *anyopaque) *anyopaque {
+    pub fn getSignaturesOfStructuredType(c: *Checker, t: types.TypeIndex, kind_: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = kind_;
@@ -14352,7 +14352,7 @@ pub const Checker = struct {
         return ast_utils.getExtendsHeritageClauseElement(c.binder.ast, class_decl);
     }
 
-    pub fn getInstantiatedConstructorsForTypeArguments(c: *Checker, t: *anyopaque, typeArgumentNodes: *anyopaque, location: *anyopaque) *anyopaque {
+    pub fn getInstantiatedConstructorsForTypeArguments(c: *Checker, t: types.TypeIndex, typeArgumentNodes: *anyopaque, location: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = typeArgumentNodes;
@@ -14360,7 +14360,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getConstructorsForTypeArguments(c: *Checker, t: *anyopaque, typeArgumentNodes: *anyopaque, location: *anyopaque) *anyopaque {
+    pub fn getConstructorsForTypeArguments(c: *Checker, t: types.TypeIndex, typeArgumentNodes: *anyopaque, location: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = typeArgumentNodes;
@@ -14368,7 +14368,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSignatureInstantiation(c: *Checker, sig: *anyopaque, typeArguments: *anyopaque, isJavaScript: *anyopaque, inferredTypeParameters: *anyopaque) *anyopaque {
+    pub fn getSignatureInstantiation(c: *Checker, sig: *anyopaque, typeArguments: *anyopaque, isJavaScript: types.TypeIndex, inferredTypeParameters: *anyopaque) *anyopaque {
         _ = c;
         _ = sig;
         _ = typeArguments;
@@ -14422,7 +14422,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getSingleSignature(c: *Checker, t: *anyopaque, kind_: *anyopaque, allowMembers: *anyopaque) *anyopaque {
+    pub fn getSingleSignature(c: *Checker, t: types.TypeIndex, kind_: *anyopaque, allowMembers: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = kind_;
@@ -14436,25 +14436,25 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getCanonicalSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+    pub fn getCanonicalSignature(c: *Checker, signature: types.SignatureIndex) *anyopaque {
         _ = c;
         _ = signature;
         return undefined;
     }
 
-    pub fn createCanonicalSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+    pub fn createCanonicalSignature(c: *Checker, signature: types.SignatureIndex) *anyopaque {
         _ = c;
         _ = signature;
         return undefined;
     }
 
-    pub fn getBaseSignature(c: *Checker, signature: *anyopaque) *anyopaque {
+    pub fn getBaseSignature(c: *Checker, signature: types.SignatureIndex) *anyopaque {
         _ = c;
         _ = signature;
         return undefined;
     }
 
-    pub fn instantiateSignatureInContextOf(c: *Checker, signature: *anyopaque, contextualSignature: *anyopaque, inferenceContext: *anyopaque, compareTypes: *anyopaque) *anyopaque {
+    pub fn instantiateSignatureInContextOf(c: *Checker, signature: types.SignatureIndex, contextualSignature: *anyopaque, inferenceContext: types.TypeIndex, compareTypes: *anyopaque) *anyopaque {
         _ = c;
         _ = signature;
         _ = contextualSignature;
@@ -14529,7 +14529,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getObjectLiteralIndexInfo(c: *Checker, isReadonly: *anyopaque, properties: *anyopaque, keyType: *anyopaque) *anyopaque {
+    pub fn getObjectLiteralIndexInfo(c: *Checker, isReadonly: *anyopaque, properties: *anyopaque, keyType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = isReadonly;
         _ = properties;
@@ -14555,13 +14555,13 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isNumericName(c: *Checker, name_: *anyopaque) bool {
+    pub fn isNumericName(c: *Checker, name_: ast_gen.NodeIndex) bool {
         _ = c;
         _ = name_;
         return false;
     }
 
-    pub fn isNumericComputedName(c: *Checker, name_: *anyopaque) bool {
+    pub fn isNumericComputedName(c: *Checker, name_: ast_gen.NodeIndex) bool {
         _ = c;
         _ = name_;
         return false;
@@ -14667,7 +14667,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getParameterTypeOfFullSignature(c: *Checker, node: *anyopaque, parameter: *anyopaque) *anyopaque {
+    pub fn getParameterTypeOfFullSignature(c: *Checker, node: ast_gen.NodeIndex, parameter: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = parameter;
@@ -14823,21 +14823,21 @@ pub const Checker = struct {
         return c.createTypeReferenceEx(target, &[_]types.TypeIndex{promisedType}, 0) catch (c.anyTypeIndex orelse 0);
     }
 
-    pub fn createPromiseReturnType(c: *Checker, fn_: *anyopaque, promisedType: *anyopaque) *anyopaque {
+    pub fn createPromiseReturnType(c: *Checker, fn_: ast_gen.NodeIndex, promisedType: *anyopaque) *anyopaque {
         _ = c;
         _ = fn_;
         _ = promisedType;
         return undefined;
     }
 
-    pub fn unwrapReturnType(c: *Checker, returnType: *anyopaque, functionFlags: *anyopaque) *anyopaque {
+    pub fn unwrapReturnType(c: *Checker, returnType: types.TypeIndex, functionFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = returnType;
         _ = functionFlags;
         return undefined;
     }
 
-    pub fn getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded(c: *Checker, t: *anyopaque, contextualSignatureReturnType: *anyopaque, isAsync: *anyopaque) *anyopaque {
+    pub fn getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded(c: *Checker, t: types.TypeIndex, contextualSignatureReturnType: *anyopaque, isAsync: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = contextualSignatureReturnType;
@@ -14845,7 +14845,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getWidenedLiteralLikeTypeForContextualIterationTypeIfNeeded(c: *Checker, t: *anyopaque, contextualSignatureReturnType: *anyopaque, kind_: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
+    pub fn getWidenedLiteralLikeTypeForContextualIterationTypeIfNeeded(c: *Checker, t: types.TypeIndex, contextualSignatureReturnType: *anyopaque, kind_: *anyopaque, isAsyncGenerator: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = contextualSignatureReturnType;
@@ -14854,7 +14854,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn createGeneratorType(c: *Checker, yieldType: *anyopaque, returnType: *anyopaque, nextType: *anyopaque, isAsyncGenerator: *anyopaque) *anyopaque {
+    pub fn createGeneratorType(c: *Checker, yieldType: types.TypeIndex, returnType: types.TypeIndex, nextType: *anyopaque, isAsyncGenerator: bool) *anyopaque {
         _ = c;
         _ = yieldType;
         _ = returnType;
@@ -14872,7 +14872,7 @@ pub const Checker = struct {
         _ = widening_kind;
     }
 
-    pub fn shouldReportErrorsFromWideningWithContextualSignature(c: *Checker, declaration: *anyopaque, wideningKind: *anyopaque) bool {
+    pub fn shouldReportErrorsFromWideningWithContextualSignature(c: *Checker, declaration: ast_gen.NodeIndex, wideningKind: *anyopaque) bool {
         _ = c;
         _ = declaration;
         _ = wideningKind;
@@ -14934,7 +14934,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn instantiateSymbol(c: *Checker, symbol_: *anyopaque, m: *anyopaque) *anyopaque {
+    pub fn instantiateSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex, m: *anyopaque) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = m;
@@ -15104,7 +15104,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn combineUnionOrIntersectionMemberSignatures(c: *Checker, left: *anyopaque, right: *anyopaque, isUnion: *anyopaque) *anyopaque {
+    pub fn combineUnionOrIntersectionMemberSignatures(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, isUnion: *anyopaque) *anyopaque {
         _ = c;
         _ = left;
         _ = right;
@@ -15112,7 +15112,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn combineUnionOrIntersectionParameters(c: *Checker, left: *anyopaque, right: *anyopaque, mapper: *anyopaque, isUnion: *anyopaque) *anyopaque {
+    pub fn combineUnionOrIntersectionParameters(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, mapper: *anyopaque, isUnion: *anyopaque) *anyopaque {
         _ = c;
         _ = left;
         _ = right;
@@ -15121,7 +15121,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn combineUnionOrIntersectionThisParam(c: *Checker, left: *anyopaque, right: *anyopaque, mapper: *anyopaque, isUnion: *anyopaque) *anyopaque {
+    pub fn combineUnionOrIntersectionThisParam(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, mapper: *anyopaque, isUnion: *anyopaque) *anyopaque {
         _ = c;
         _ = left;
         _ = right;
@@ -15136,7 +15136,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn includeMixinType(c: *Checker, t: *anyopaque, types_: *anyopaque, mixinFlags: *anyopaque, index: *anyopaque) *anyopaque {
+    pub fn includeMixinType(c: *Checker, t: types.TypeIndex, types_: *anyopaque, mixinFlags: *anyopaque, index: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = types_;
@@ -15175,7 +15175,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn createSymbolWithType(c: *Checker, source: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn createSymbolWithType(c: *Checker, source: types.TypeIndex, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = source;
         _ = t;
@@ -15194,7 +15194,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getApparentTypeOfIntersectionType(c: *Checker, t: *anyopaque, thisArgument: *anyopaque) *anyopaque {
+    pub fn getApparentTypeOfIntersectionType(c: *Checker, t: types.TypeIndex, thisArgument: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = thisArgument;
@@ -15207,7 +15207,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn elaborateNeverIntersection(c: *Checker, chain: *anyopaque, node: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn elaborateNeverIntersection(c: *Checker, chain: *anyopaque, node: ast_gen.NodeIndex, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = chain;
         _ = node;
@@ -15227,7 +15227,7 @@ pub const Checker = struct {
         return sym.ValueDeclaration == null and (sym.CheckFlags & types.CheckFlags.ContainsPrivate) != 0;
     }
 
-    pub fn getEffectiveTypeArguments(c: *Checker, node: *anyopaque, typeParameters: *anyopaque) *anyopaque {
+    pub fn getEffectiveTypeArguments(c: *Checker, node: ast_gen.NodeIndex, typeParameters: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = typeParameters;
@@ -15246,21 +15246,21 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getNamedMembers(c: *Checker, members: *anyopaque, container: *anyopaque) *anyopaque {
+    pub fn getNamedMembers(c: *Checker, members: *anyopaque, container: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = members;
         _ = container;
         return undefined;
     }
 
-    pub fn isDeclarationContainedBy(c: *Checker, symbol_: *anyopaque, container: *anyopaque) bool {
+    pub fn isDeclarationContainedBy(c: *Checker, symbol_: ast_gen.SymbolIndex, container: ast_gen.NodeIndex) bool {
         _ = c;
         _ = symbol_;
         _ = container;
         return false;
     }
 
-    pub fn symbolIsValueEx(c: *Checker, symbol_: *anyopaque, includeTypeOnlyMembers: *anyopaque) bool {
+    pub fn symbolIsValueEx(c: *Checker, symbol_: ast_gen.SymbolIndex, includeTypeOnlyMembers: *anyopaque) bool {
         _ = c;
         _ = symbol_;
         _ = includeTypeOnlyMembers;
@@ -15305,7 +15305,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn forEachMappedTypePropertyKeyTypeAndIndexSignatureKeyType(c: *Checker, t: *anyopaque, include: *anyopaque, stringsOnly: *anyopaque, cb: *anyopaque) *anyopaque {
+    pub fn forEachMappedTypePropertyKeyTypeAndIndexSignatureKeyType(c: *Checker, t: types.TypeIndex, include: *anyopaque, stringsOnly: *anyopaque, cb: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = include;
@@ -15384,7 +15384,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn resolveTypeReferenceName(c: *Checker, typeReference: *anyopaque, meaning: *anyopaque, ignoreErrors: *anyopaque) *anyopaque {
+    pub fn resolveTypeReferenceName(c: *Checker, typeReference: *anyopaque, meaning: u32, ignoreErrors: bool) *anyopaque {
         _ = c;
         _ = typeReference;
         _ = meaning;
@@ -15414,7 +15414,7 @@ pub const Checker = struct {
         return sym.Name;
     }
 
-    pub fn getTypeReferenceType(c: *Checker, node: *anyopaque, symbol_: *anyopaque) *anyopaque {
+    pub fn getTypeReferenceType(c: *Checker, node: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex) *anyopaque {
         _ = c;
         _ = node;
         _ = symbol_;
@@ -15541,7 +15541,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getTupleElementType(c: *Checker, t: *anyopaque, index: *anyopaque) *anyopaque {
+    pub fn getTupleElementType(c: *Checker, t: types.TypeIndex, index: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = index;
@@ -15602,7 +15602,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias(c: *Checker, types_: *anyopaque, symbol_: *anyopaque) *anyopaque {
+    pub fn appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias(c: *Checker, types_: *anyopaque, symbol_: ast_gen.SymbolIndex) *anyopaque {
         _ = c;
         _ = types_;
         _ = symbol_;
@@ -15634,7 +15634,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn computeEnumMemberValue(c: *Checker, member: *anyopaque, autoValue: *anyopaque, previous: *anyopaque) *anyopaque {
+    pub fn computeEnumMemberValue(c: *Checker, member: ast_gen.NodeIndex, autoValue: *anyopaque, previous: *anyopaque) *anyopaque {
         _ = c;
         _ = member;
         _ = autoValue;
@@ -15648,14 +15648,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn evaluateEntity(c: *Checker, expr: *anyopaque, location: *anyopaque) *anyopaque {
+    pub fn evaluateEntity(c: *Checker, expr: ast_gen.NodeIndex, location: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = expr;
         _ = location;
         return undefined;
     }
 
-    pub fn evaluateEnumMember(c: *Checker, expr: *anyopaque, symbol_: *anyopaque, location: *anyopaque) *anyopaque {
+    pub fn evaluateEnumMember(c: *Checker, expr: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex, location: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = expr;
         _ = symbol_;
@@ -15759,7 +15759,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn resolveImportSymbolType(c: *Checker, node: *anyopaque, symbol_: *anyopaque, meaning: *anyopaque) *anyopaque {
+    pub fn resolveImportSymbolType(c: *Checker, node: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex, meaning: u32) *anyopaque {
         _ = c;
         _ = node;
         _ = symbol_;
@@ -15824,7 +15824,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTupleElementTypeOutOfStartCount(c: *Checker, t: *anyopaque, index: *anyopaque, undefinedLikeType: *anyopaque) *anyopaque {
+    pub fn getTupleElementTypeOutOfStartCount(c: *Checker, t: types.TypeIndex, index: *anyopaque, undefinedLikeType: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = index;
@@ -15856,14 +15856,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getConditionalFlowTypeOfType(c: *Checker, t: *anyopaque, node: *anyopaque) *anyopaque {
+    pub fn getConditionalFlowTypeOfType(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = node;
         return undefined;
     }
 
-    pub fn getImpliedConstraint(c: *Checker, t: *anyopaque, checkNode: *anyopaque, extendsNode: *anyopaque) *anyopaque {
+    pub fn getImpliedConstraint(c: *Checker, t: types.TypeIndex, checkNode: *anyopaque, extendsNode: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = checkNode;
@@ -15921,21 +15921,21 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newUniqueESSymbolType(c: *Checker, symbol_: *anyopaque, name_: *anyopaque) *anyopaque {
+    pub fn newUniqueESSymbolType(c: *Checker, symbol_: ast_gen.SymbolIndex, name_: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = name_;
         return undefined;
     }
 
-    pub fn newObjectType(c: *Checker, objectFlags: *anyopaque, symbol_: *anyopaque) *anyopaque {
+    pub fn newObjectType(c: *Checker, objectFlags: *anyopaque, symbol_: ast_gen.SymbolIndex) *anyopaque {
         _ = c;
         _ = objectFlags;
         _ = symbol_;
         return undefined;
     }
 
-    pub fn newAnonymousType(c: *Checker, symbol_: *anyopaque, members: *anyopaque, callSignatures: *anyopaque, constructSignatures: *anyopaque, indexInfos: *anyopaque) *anyopaque {
+    pub fn newAnonymousType(c: *Checker, symbol_: ast_gen.SymbolIndex, members: *anyopaque, callSignatures: *anyopaque, constructSignatures: *anyopaque, indexInfos: *anyopaque) *anyopaque {
         _ = c;
         _ = symbol_;
         _ = members;
@@ -15945,7 +15945,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn tryCreateTypeReference(c: *Checker, target: *anyopaque, typeArguments: *anyopaque) *anyopaque {
+    pub fn tryCreateTypeReference(c: *Checker, target: types.TypeIndex, typeArguments: *anyopaque) *anyopaque {
         _ = c;
         _ = target;
         _ = typeArguments;
@@ -15958,7 +15958,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn setStructuredTypeMembers(c: *Checker, t: *anyopaque, members: *anyopaque, callSignatures: *anyopaque, constructSignatures: *anyopaque, indexInfos: *anyopaque) void {
+    pub fn setStructuredTypeMembers(c: *Checker, t: types.TypeIndex, members: *anyopaque, callSignatures: *anyopaque, constructSignatures: *anyopaque, indexInfos: *anyopaque) void {
         _ = c;
         _ = t;
         _ = members;
@@ -15987,7 +15987,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newIndexedAccessType(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, accessFlags: *anyopaque) *anyopaque {
+    pub fn newIndexedAccessType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = objectType;
         _ = indexType;
@@ -15995,14 +15995,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newIndexType(c: *Checker, target: *anyopaque, indexFlags: *anyopaque) *anyopaque {
+    pub fn newIndexType(c: *Checker, target: types.TypeIndex, indexFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = target;
         _ = indexFlags;
         return undefined;
     }
 
-    pub fn newSubstitutionType(c: *Checker, baseType: *anyopaque, constraint: *anyopaque) *anyopaque {
+    pub fn newSubstitutionType(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) *anyopaque {
         _ = c;
         _ = baseType;
         _ = constraint;
@@ -16046,7 +16046,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn parseBigIntLiteralType(c: *Checker, text: *anyopaque) *anyopaque {
+    pub fn parseBigIntLiteralType(c: *Checker, text: types.TypeIndex) *anyopaque {
         _ = c;
         _ = text;
         return undefined;
@@ -16072,7 +16072,7 @@ pub const Checker = struct {
         return c.typesList.items[t].data.BooleanLiteral.value;
     }
 
-    pub fn getEnumLiteralType(c: *Checker, value: *anyopaque, enumSymbol: *anyopaque, symbol_: *anyopaque) *anyopaque {
+    pub fn getEnumLiteralType(c: *Checker, value: *anyopaque, enumSymbol: *anyopaque, symbol_: ast_gen.SymbolIndex) *anyopaque {
         _ = c;
         _ = value;
         _ = enumSymbol;
@@ -16141,14 +16141,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getWidenedLiteralLikeTypeForContextualType(c: *Checker, t: *anyopaque, contextualType: *anyopaque) *anyopaque {
+    pub fn getWidenedLiteralLikeTypeForContextualType(c: *Checker, t: types.TypeIndex, contextualType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = contextualType;
         return undefined;
     }
 
-    pub fn isLiteralOfContextualType(c: *Checker, candidateType: *anyopaque, contextualType: *anyopaque) bool {
+    pub fn isLiteralOfContextualType(c: *Checker, candidateType: *anyopaque, contextualType: types.TypeIndex) bool {
         _ = c;
         _ = candidateType;
         _ = contextualType;
@@ -16217,7 +16217,7 @@ pub const Checker = struct {
         return c.getUnionTypeEx(types_arr, .Literal, null, null);
     }
 
-    pub fn getUnionTypeWorker(c: *Checker, types_: *anyopaque, unionReduction: *anyopaque, alias: *anyopaque, origin: *anyopaque) *anyopaque {
+    pub fn getUnionTypeWorker(c: *Checker, types_: *anyopaque, unionReduction: *anyopaque, alias: ?*const types.TypeAlias, origin: ?types.TypeIndex) *anyopaque {
         _ = c;
         _ = types_;
         _ = unionReduction;
@@ -16226,7 +16226,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getUnionTypeFromSortedList(c: *Checker, types_: *anyopaque, precomputedObjectFlags: *anyopaque, alias: *anyopaque, origin: *anyopaque) *anyopaque {
+    pub fn getUnionTypeFromSortedList(c: *Checker, types_: *anyopaque, precomputedObjectFlags: *anyopaque, alias: ?*const types.TypeAlias, origin: ?types.TypeIndex) *anyopaque {
         _ = c;
         _ = types_;
         _ = precomputedObjectFlags;
@@ -16241,7 +16241,7 @@ pub const Checker = struct {
         return c.createUnionType(&[_]types.TypeIndex{ t1, t2 });
     }
 
-    pub fn addTypesToUnion(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, types_: *anyopaque) *anyopaque {
+    pub fn addTypesToUnion(c: *Checker, typeSet: types.TypeIndex, includes: *anyopaque, types_: *anyopaque) *anyopaque {
         _ = c;
         _ = typeSet;
         _ = includes;
@@ -16249,7 +16249,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn addTypeToUnion(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn addTypeToUnion(c: *Checker, typeSet: types.TypeIndex, includes: *anyopaque, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = typeSet;
         _ = includes;
@@ -16278,7 +16278,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isTypeMatchedByTemplateLiteralOrStringMapping(c: *Checker, t: *anyopaque, template: *anyopaque) bool {
+    pub fn isTypeMatchedByTemplateLiteralOrStringMapping(c: *Checker, t: types.TypeIndex, template: *anyopaque) bool {
         _ = c;
         _ = t;
         _ = template;
@@ -16298,7 +16298,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getIntersectionTypeEx(c: *Checker, types_: *anyopaque, flags: *anyopaque, alias: *anyopaque) *anyopaque {
+    pub fn getIntersectionTypeEx(c: *Checker, types_: *anyopaque, flags: *anyopaque, alias: ?*const types.TypeAlias) *anyopaque {
         _ = c;
         _ = types_;
         _ = flags;
@@ -16346,7 +16346,7 @@ pub const Checker = struct {
         return (c.typesList.items[t].flags & types.TypeFlags.Null) == 0;
     }
 
-    pub fn addTypesToIntersection(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, types_: *anyopaque) *anyopaque {
+    pub fn addTypesToIntersection(c: *Checker, typeSet: types.TypeIndex, includes: *anyopaque, types_: *anyopaque) *anyopaque {
         _ = c;
         _ = typeSet;
         _ = includes;
@@ -16354,7 +16354,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn addTypeToIntersection(c: *Checker, typeSet: *anyopaque, includes: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn addTypeToIntersection(c: *Checker, typeSet: types.TypeIndex, includes: *anyopaque, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = typeSet;
         _ = includes;
@@ -16381,7 +16381,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn eachUnionContains(c: *Checker, unionTypes_: *anyopaque, t: *anyopaque) bool {
+    pub fn eachUnionContains(c: *Checker, unionTypes_: *anyopaque, t: types.TypeIndex) bool {
         _ = c;
         _ = unionTypes_;
         _ = t;
@@ -16436,19 +16436,19 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn forEachType(t: *anyopaque, f: *anyopaque) *anyopaque {
+    pub fn forEachType(t: types.TypeIndex, f: *anyopaque) *anyopaque {
         _ = t;
         _ = f;
         return undefined;
     }
 
-    pub fn everyContainedType(t: *anyopaque, f: *anyopaque) bool {
+    pub fn everyContainedType(t: types.TypeIndex, f: *anyopaque) bool {
         _ = t;
         _ = f;
         return false;
     }
 
-    pub fn insertType(types_: *anyopaque, t: *anyopaque) bool {
+    pub fn insertType(types_: *anyopaque, t: types.TypeIndex) bool {
         _ = types_;
         _ = t;
         return false;
@@ -16469,7 +16469,7 @@ pub const Checker = struct {
         return c.stringTypeIndex orelse 0;
     }
 
-    pub fn getLiteralTypeFromProperties(c: *Checker, t: *anyopaque, include: *anyopaque, includeOrigin: *anyopaque) *anyopaque {
+    pub fn getLiteralTypeFromProperties(c: *Checker, t: types.TypeIndex, include: *anyopaque, includeOrigin: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = include;
@@ -16523,21 +16523,21 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getIndexTypeForGenericType(c: *Checker, t: *anyopaque, indexFlags: *anyopaque) *anyopaque {
+    pub fn getIndexTypeForGenericType(c: *Checker, t: types.TypeIndex, indexFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = indexFlags;
         return undefined;
     }
 
-    pub fn getIndexTypeForMappedType(c: *Checker, t: *anyopaque, indexFlags: *anyopaque) *anyopaque {
+    pub fn getIndexTypeForMappedType(c: *Checker, t: types.TypeIndex, indexFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = indexFlags;
         return undefined;
     }
 
-    pub fn getIndexedAccessTypeEx(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, accessFlags: *anyopaque, accessNode: *anyopaque, alias: *anyopaque) *anyopaque {
+    pub fn getIndexedAccessTypeEx(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessFlags: *anyopaque, accessNode: ast_gen.NodeIndex, alias: ?*const types.TypeAlias) *anyopaque {
         _ = c;
         _ = objectType;
         _ = indexType;
@@ -16547,7 +16547,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getPropertyTypeForIndexType(c: *Checker, originalObjectType: *anyopaque, objectType: *anyopaque, indexType: *anyopaque, fullIndexType: *anyopaque, accessNode: *anyopaque, accessFlags: *anyopaque) *anyopaque {
+    pub fn getPropertyTypeForIndexType(c: *Checker, originalObjectType: *anyopaque, objectType: types.TypeIndex, indexType: types.TypeIndex, fullIndexType: *anyopaque, accessNode: ast_gen.NodeIndex, accessFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = originalObjectType;
         _ = objectType;
@@ -16558,21 +16558,21 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn typeHasStaticProperty(c: *Checker, propName: *anyopaque, containingType: *anyopaque) bool {
+    pub fn typeHasStaticProperty(c: *Checker, propName: *anyopaque, containingType: types.TypeIndex) bool {
         _ = c;
         _ = propName;
         _ = containingType;
         return false;
     }
 
-    pub fn getSuggestionForNonexistentProperty(c: *Checker, name_: *anyopaque, containingType: *anyopaque) *anyopaque {
+    pub fn getSuggestionForNonexistentProperty(c: *Checker, name_: ast_gen.NodeIndex, containingType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = name_;
         _ = containingType;
         return undefined;
     }
 
-    pub fn getSuggestionForNonexistentIndexSignature(c: *Checker, objectType: *anyopaque, expr: *anyopaque, keyedType: *anyopaque) *anyopaque {
+    pub fn getSuggestionForNonexistentIndexSignature(c: *Checker, objectType: types.TypeIndex, expr: ast_gen.NodeIndex, keyedType: *anyopaque) *anyopaque {
         _ = c;
         _ = objectType;
         _ = expr;
@@ -16580,7 +16580,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSuggestedTypeForNonexistentStringLiteralType(c: *Checker, source: *anyopaque, target: *anyopaque) *anyopaque {
+    pub fn getSuggestedTypeForNonexistentStringLiteralType(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) *anyopaque {
         _ = c;
         _ = source;
         _ = target;
@@ -16603,7 +16603,7 @@ pub const Checker = struct {
         }
     }
 
-    pub fn errorIfWritingToReadonlyIndex(c: *Checker, indexInfo: *anyopaque, objectType: *anyopaque, accessExpression: *anyopaque) void {
+    pub fn errorIfWritingToReadonlyIndex(c: *Checker, indexInfo: *anyopaque, objectType: types.TypeIndex, accessExpression: ast_gen.NodeIndex) void {
         _ = c;
         _ = indexInfo;
         _ = objectType;
@@ -16646,14 +16646,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getPropertyNameFromIndex(c: *Checker, indexType: *anyopaque, accessNode: *anyopaque) *anyopaque {
+    pub fn getPropertyNameFromIndex(c: *Checker, indexType: types.TypeIndex, accessNode: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = indexType;
         _ = accessNode;
         return undefined;
     }
 
-    pub fn shouldDeferIndexedAccessType(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, accessNode: *anyopaque) bool {
+    pub fn shouldDeferIndexedAccessType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, accessNode: ast_gen.NodeIndex) bool {
         _ = c;
         _ = objectType;
         _ = indexType;
@@ -16661,34 +16661,34 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn indexTypeLessThan(indexType: *anyopaque, limit: *anyopaque) bool {
+    pub fn indexTypeLessThan(indexType: types.TypeIndex, limit: types.TypeIndex) bool {
         _ = indexType;
         _ = limit;
         return false;
     }
 
-    pub fn getOrCreateSubstitutionType(c: *Checker, baseType: *anyopaque, constraint: *anyopaque) *anyopaque {
+    pub fn getOrCreateSubstitutionType(c: *Checker, baseType: types.TypeIndex, constraint: types.TypeIndex) *anyopaque {
         _ = c;
         _ = baseType;
         _ = constraint;
         return undefined;
     }
 
-    pub fn getResolvedBaseConstraint(c: *Checker, t: *anyopaque, stack: *anyopaque) *anyopaque {
+    pub fn getResolvedBaseConstraint(c: *Checker, t: types.TypeIndex, stack: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = stack;
         return undefined;
     }
 
-    pub fn computeBaseConstraint(c: *Checker, t: *anyopaque, stack: *anyopaque) *anyopaque {
+    pub fn computeBaseConstraint(c: *Checker, t: types.TypeIndex, stack: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = stack;
         return undefined;
     }
 
-    pub fn getNextBaseConstraint(c: *Checker, t: *anyopaque, stack: *anyopaque) *anyopaque {
+    pub fn getNextBaseConstraint(c: *Checker, t: types.TypeIndex, stack: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = stack;
@@ -16751,7 +16751,7 @@ pub const Checker = struct {
         return (c.binder.symbols.items[symbol_].Flags & symbol.SymbolFlags.ConstEnum) != 0;
     }
 
-    pub fn compareProperties(c: *Checker, sourceProp: *anyopaque, targetProp: *anyopaque, compareTypes: *anyopaque, target: *anyopaque) *anyopaque {
+    pub fn compareProperties(c: *Checker, sourceProp: ast_gen.SymbolIndex, targetProp: ast_gen.SymbolIndex, compareTypes: *anyopaque, target: types.TypeIndex) *anyopaque {
         _ = c;
         _ = sourceProp;
         _ = targetProp;
@@ -16760,7 +16760,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn compareTypesEqual(s: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn compareTypesEqual(s: *anyopaque, t: types.TypeIndex) *anyopaque {
         _ = s;
         _ = t;
         return undefined;
@@ -16773,7 +16773,7 @@ pub const Checker = struct {
         _ = isSelfTypeAccess_;
     }
 
-    pub fn expandSignatureParametersWithTupleMembers(c: *Checker, signature: *anyopaque, restType: *anyopaque, restIndex: *anyopaque, restSymbol: *anyopaque) *anyopaque {
+    pub fn expandSignatureParametersWithTupleMembers(c: *Checker, signature: types.SignatureIndex, restType: types.TypeIndex, restIndex: *anyopaque, restSymbol: *anyopaque) *anyopaque {
         _ = c;
         _ = signature;
         _ = restType;
@@ -16782,7 +16782,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getUniqAssociatedNamesFromTupleType(c: *Checker, t: *anyopaque, restSymbol: *anyopaque) *anyopaque {
+    pub fn getUniqAssociatedNamesFromTupleType(c: *Checker, t: types.TypeIndex, restSymbol: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = restSymbol;
@@ -16873,21 +16873,21 @@ pub const Checker = struct {
         return members.callSignaturesLen > 0 or members.constructSignaturesLen > 0;
     }
 
-    pub fn getSimplifiedIndexedAccessType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+    pub fn getSimplifiedIndexedAccessType(c: *Checker, t: types.TypeIndex, writing: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = writing;
         return undefined;
     }
 
-    pub fn getSimplifiedIndexedAccessTypeWorker(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+    pub fn getSimplifiedIndexedAccessTypeWorker(c: *Checker, t: types.TypeIndex, writing: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = writing;
         return undefined;
     }
 
-    pub fn distributeObjectOverIndexType(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, writing: *anyopaque) *anyopaque {
+    pub fn distributeObjectOverIndexType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, writing: bool) *anyopaque {
         _ = c;
         _ = objectType;
         _ = indexType;
@@ -16895,7 +16895,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn distributeIndexOverObjectType(c: *Checker, objectType: *anyopaque, indexType: *anyopaque, writing: *anyopaque) *anyopaque {
+    pub fn distributeIndexOverObjectType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, writing: bool) *anyopaque {
         _ = c;
         _ = objectType;
         _ = indexType;
@@ -16903,7 +16903,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getSimplifiedConditionalType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+    pub fn getSimplifiedConditionalType(c: *Checker, t: types.TypeIndex, writing: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = writing;
@@ -16917,7 +16917,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getNormalizedUnionOrIntersectionType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+    pub fn getNormalizedUnionOrIntersectionType(c: *Checker, t: types.TypeIndex, writing: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = writing;
@@ -16930,7 +16930,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getNormalizedTupleType(c: *Checker, t: *anyopaque, writing: *anyopaque) *anyopaque {
+    pub fn getNormalizedTupleType(c: *Checker, t: types.TypeIndex, writing: bool) *anyopaque {
         _ = c;
         _ = t;
         _ = writing;
@@ -16943,7 +16943,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn transformTypeOfMembers(c: *Checker, t: *anyopaque, f: *anyopaque) *anyopaque {
+    pub fn transformTypeOfMembers(c: *Checker, t: types.TypeIndex, f: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = f;
@@ -17090,7 +17090,7 @@ pub const Checker = struct {
         _ = helpers;
     }
 
-    pub fn hasSignatureWithArityGreaterThan(c: *Checker, symbol_: *anyopaque, arity: *anyopaque) bool {
+    pub fn hasSignatureWithArityGreaterThan(c: *Checker, symbol_: ast_gen.SymbolIndex, arity: *anyopaque) bool {
         _ = c;
         _ = symbol_;
         _ = arity;
@@ -17103,7 +17103,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn resolveHelpersModule(c: *Checker, file: *anyopaque, errorNode: *anyopaque) *anyopaque {
+    pub fn resolveHelpersModule(c: *Checker, file: ast_gen.NodeIndex, errorNode: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = file;
         _ = errorNode;
@@ -17312,28 +17312,28 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn substituteIndexedMappedType(c: *Checker, objectType: *anyopaque, index: *anyopaque) *anyopaque {
+    pub fn substituteIndexedMappedType(c: *Checker, objectType: types.TypeIndex, index: *anyopaque) *anyopaque {
         _ = c;
         _ = objectType;
         _ = index;
         return undefined;
     }
 
-    pub fn couldAccessOptionalProperty(c: *Checker, objectType: *anyopaque, indexType: *anyopaque) bool {
+    pub fn couldAccessOptionalProperty(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex) bool {
         _ = c;
         _ = objectType;
         _ = indexType;
         return false;
     }
 
-    pub fn getContextualTypeForInitializerExpression(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForInitializerExpression(c: *Checker, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = contextFlags;
         return undefined;
     }
 
-    pub fn getContextualTypeForVariableLikeDeclaration(c: *Checker, declaration: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = declaration;
         _ = contextFlags;
@@ -17352,7 +17352,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getSpreadArgumentType(c: *Checker, args: *anyopaque, index: *anyopaque, argCount: *anyopaque, restType: *anyopaque, context: *anyopaque, checkMode: *anyopaque) *anyopaque {
+    pub fn getSpreadArgumentType(c: *Checker, args: *anyopaque, index: *anyopaque, argCount: types.TypeIndex, restType: types.TypeIndex, context: types.TypeIndex, checkMode: *anyopaque) *anyopaque {
         _ = c;
         _ = args;
         _ = index;
@@ -17369,21 +17369,21 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getContextualTypeForBindingElement(c: *Checker, declaration: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForBindingElement(c: *Checker, declaration: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = declaration;
         _ = contextFlags;
         return undefined;
     }
 
-    pub fn getContextualTypeForStaticPropertyDeclaration(c: *Checker, declaration: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForStaticPropertyDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = declaration;
         _ = contextFlags;
         return undefined;
     }
 
-    pub fn getContextualTypeForReturnExpression(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForReturnExpression(c: *Checker, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = contextFlags;
@@ -17421,21 +17421,21 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getContextualTypeForYieldOperand(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForYieldOperand(c: *Checker, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = contextFlags;
         return undefined;
     }
 
-    pub fn getContextualTypeForAwaitOperand(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForAwaitOperand(c: *Checker, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = contextFlags;
         return undefined;
     }
 
-    pub fn getContextualTypeForArgument(c: *Checker, callTarget: *anyopaque, arg: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForArgument(c: *Checker, callTarget: types.TypeIndex, arg: *anyopaque) *anyopaque {
         _ = c;
         _ = callTarget;
         _ = arg;
@@ -17448,7 +17448,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getContextualTypeForBinaryOperand(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForBinaryOperand(c: *Checker, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = contextFlags;
@@ -17461,14 +17461,14 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getContextualTypeForObjectLiteralMethod(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForObjectLiteralMethod(c: *Checker, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = contextFlags;
         return undefined;
     }
 
-    pub fn getContextualTypeForElementExpression(c: *Checker, t: *anyopaque, index: *anyopaque, length: *anyopaque, firstSpreadIndex: *anyopaque, lastSpreadIndex: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForElementExpression(c: *Checker, t: types.TypeIndex, index: *anyopaque, length: *anyopaque, firstSpreadIndex: *anyopaque, lastSpreadIndex: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = index;
@@ -17478,7 +17478,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn getContextualTypeForConditionalOperand(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getContextualTypeForConditionalOperand(c: *Checker, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = contextFlags;
@@ -17512,7 +17512,7 @@ pub const Checker = struct {
         return argument_arity.isSpreadArgument(c, arg);
     }
 
-    pub fn createSyntheticExpression(c: *Checker, parent: *anyopaque, t: *anyopaque, isSpread: *anyopaque, tupleNameSource: *anyopaque) *anyopaque {
+    pub fn createSyntheticExpression(c: *Checker, parent: types.TypeIndex, t: types.TypeIndex, isSpread: *anyopaque, tupleNameSource: *anyopaque) *anyopaque {
         _ = c;
         _ = parent;
         _ = t;
@@ -17557,35 +17557,35 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn newClassMethodDecoratorContextType(c: *Checker, classType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassMethodDecoratorContextType(c: *Checker, classType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = classType;
         _ = valueType;
         return undefined;
     }
 
-    pub fn newClassGetterDecoratorContextType(c: *Checker, classType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassGetterDecoratorContextType(c: *Checker, classType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = classType;
         _ = valueType;
         return undefined;
     }
 
-    pub fn newClassSetterDecoratorContextType(c: *Checker, classType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassSetterDecoratorContextType(c: *Checker, classType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = classType;
         _ = valueType;
         return undefined;
     }
 
-    pub fn newClassAccessorDecoratorContextType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassAccessorDecoratorContextType(c: *Checker, thisType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = thisType;
         _ = valueType;
         return undefined;
     }
 
-    pub fn newClassFieldDecoratorContextType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassFieldDecoratorContextType(c: *Checker, thisType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = thisType;
         _ = valueType;
@@ -17600,7 +17600,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newClassMemberDecoratorContextTypeForNode(c: *Checker, node: *anyopaque, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassMemberDecoratorContextTypeForNode(c: *Checker, node: ast_gen.NodeIndex, thisType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = node;
         _ = thisType;
@@ -17608,28 +17608,28 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newClassAccessorDecoratorTargetType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassAccessorDecoratorTargetType(c: *Checker, thisType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = thisType;
         _ = valueType;
         return undefined;
     }
 
-    pub fn newClassAccessorDecoratorResultType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassAccessorDecoratorResultType(c: *Checker, thisType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = thisType;
         _ = valueType;
         return undefined;
     }
 
-    pub fn newClassFieldDecoratorInitializerMutatorType(c: *Checker, thisType: *anyopaque, valueType: *anyopaque) *anyopaque {
+    pub fn newClassFieldDecoratorInitializerMutatorType(c: *Checker, thisType: types.TypeIndex, valueType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = thisType;
         _ = valueType;
         return undefined;
     }
 
-    pub fn newESDecoratorCallSignature(c: *Checker, targetType: *anyopaque, contextType: *anyopaque, nonOptionalReturnType: *anyopaque) *anyopaque {
+    pub fn newESDecoratorCallSignature(c: *Checker, targetType: types.TypeIndex, contextType: *anyopaque, nonOptionalReturnType: *anyopaque) *anyopaque {
         _ = c;
         _ = targetType;
         _ = contextType;
@@ -17637,7 +17637,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn newFunctionType(c: *Checker, typeParameters: *anyopaque, thisParameter: *anyopaque, parameters: *anyopaque, returnType: *anyopaque) *anyopaque {
+    pub fn newFunctionType(c: *Checker, typeParameters: *anyopaque, thisParameter: *anyopaque, parameters: *anyopaque, returnType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = typeParameters;
         _ = thisParameter;
@@ -17658,7 +17658,7 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn newCallSignature(c: *Checker, typeParameters: *anyopaque, thisParameter: *anyopaque, parameters: *anyopaque, returnType: *anyopaque) *anyopaque {
+    pub fn newCallSignature(c: *Checker, typeParameters: *anyopaque, thisParameter: *anyopaque, parameters: *anyopaque, returnType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = typeParameters;
         _ = thisParameter;
@@ -17679,28 +17679,20 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getClassElementPropertyKeyType(c: *Checker, element: *anyopaque) *anyopaque {
+    pub fn getClassElementPropertyKeyType(c: *Checker, element: types.TypeIndex) *anyopaque {
         _ = c;
         _ = element;
         return undefined;
     }
 
-    pub fn getTypeOfPropertyOfContextualType(c: *Checker, t: *anyopaque, name_: *anyopaque) *anyopaque {
+    pub fn getTypeOfPropertyOfContextualType(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = name_;
         return undefined;
     }
 
-    pub fn getTypeOfPropertyOfContextualTypeEx(c: *Checker, t: *anyopaque, name_: *anyopaque, nameType: *anyopaque) *anyopaque {
-        _ = c;
-        _ = t;
-        _ = name_;
-        _ = nameType;
-        return undefined;
-    }
-
-    pub fn getIndexedMappedTypeSubstitutedTypeOfContextualType(c: *Checker, t: *anyopaque, name_: *anyopaque, nameType: *anyopaque) *anyopaque {
+    pub fn getTypeOfPropertyOfContextualTypeEx(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex, nameType: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = name_;
@@ -17708,21 +17700,29 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn isExcludedMappedPropertyName(c: *Checker, t: *anyopaque, propertyNameType: *anyopaque) bool {
+    pub fn getIndexedMappedTypeSubstitutedTypeOfContextualType(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex, nameType: *anyopaque) *anyopaque {
+        _ = c;
+        _ = t;
+        _ = name_;
+        _ = nameType;
+        return undefined;
+    }
+
+    pub fn isExcludedMappedPropertyName(c: *Checker, t: types.TypeIndex, propertyNameType: *anyopaque) bool {
         _ = c;
         _ = t;
         _ = propertyNameType;
         return false;
     }
 
-    pub fn getTypeOfConcretePropertyOfContextualType(c: *Checker, t: *anyopaque, name_: *anyopaque) *anyopaque {
+    pub fn getTypeOfConcretePropertyOfContextualType(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = name_;
         return undefined;
     }
 
-    pub fn getTypeFromIndexInfosOfContextualType(c: *Checker, t: *anyopaque, name_: *anyopaque, nameType: *anyopaque) *anyopaque {
+    pub fn getTypeFromIndexInfosOfContextualType(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex, nameType: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = name_;
@@ -17736,14 +17736,14 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn appendContextualPropertyTypeConstituent(c: *Checker, types_: *anyopaque, t: *anyopaque) *anyopaque {
+    pub fn appendContextualPropertyTypeConstituent(c: *Checker, types_: *anyopaque, t: types.TypeIndex) *anyopaque {
         _ = c;
         _ = types_;
         _ = t;
         return undefined;
     }
 
-    pub fn getApparentTypeOfContextualType(c: *Checker, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn getApparentTypeOfContextualType(c: *Checker, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = node;
         _ = contextFlags;
@@ -17761,21 +17761,21 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn matches(d: *anyopaque, index: *anyopaque, t: *anyopaque) bool {
+    pub fn matches(d: *anyopaque, index: *anyopaque, t: types.TypeIndex) bool {
         _ = d;
         _ = index;
         _ = t;
         return false;
     }
 
-    pub fn discriminateContextualTypeByObjectMembers(c: *Checker, node: *anyopaque, contextualType: *anyopaque) *anyopaque {
+    pub fn discriminateContextualTypeByObjectMembers(c: *Checker, node: ast_gen.NodeIndex, contextualType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = node;
         _ = contextualType;
         return undefined;
     }
 
-    pub fn getMatchingUnionConstituentForObjectLiteral(c: *Checker, unionType: *anyopaque, node: *anyopaque) *anyopaque {
+    pub fn getMatchingUnionConstituentForObjectLiteral(c: *Checker, unionType: types.TypeIndex, node: ast_gen.NodeIndex) *anyopaque {
         _ = c;
         _ = unionType;
         _ = node;
@@ -17788,7 +17788,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn instantiateContextualType(c: *Checker, contextualType: *anyopaque, node: *anyopaque, contextFlags: *anyopaque) *anyopaque {
+    pub fn instantiateContextualType(c: *Checker, contextualType: types.TypeIndex, node: ast_gen.NodeIndex, contextFlags: *anyopaque) *anyopaque {
         _ = c;
         _ = contextualType;
         _ = node;
@@ -17796,7 +17796,7 @@ pub const Checker = struct {
         return undefined;
     }
 
-    pub fn instantiateInstantiableTypes(c: *Checker, t: *anyopaque, mapper: *anyopaque) *anyopaque {
+    pub fn instantiateInstantiableTypes(c: *Checker, t: types.TypeIndex, mapper: *anyopaque) *anyopaque {
         _ = c;
         _ = t;
         _ = mapper;
@@ -18219,7 +18219,7 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn getThisTypeOfObjectLiteralFromContextualType(c: *Checker, containingLiteral: *anyopaque, contextualType: *anyopaque) *anyopaque {
+    pub fn getThisTypeOfObjectLiteralFromContextualType(c: *Checker, containingLiteral: *anyopaque, contextualType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = containingLiteral;
         _ = contextualType;
@@ -18238,14 +18238,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getApplicableIndexInfos(c: *Checker, t: *anyopaque, keyType: *anyopaque) *anyopaque {
+    pub fn getApplicableIndexInfos(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = keyType;
         return undefined;
     }
 
-    pub fn getApplicableIndexSymbol(c: *Checker, t: *anyopaque, keyType: *anyopaque) *anyopaque {
+    pub fn getApplicableIndexSymbol(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) *anyopaque {
         _ = c;
         _ = t;
         _ = keyType;
