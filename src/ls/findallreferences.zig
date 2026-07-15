@@ -538,7 +538,7 @@ pub fn getReferencedSymbolsForNode(
 
     // We assume ast_utils functions will be properly implemented.
     if (options.use == .references or options.use == .rename) {
-        node = getAdjustedLocation(ls, node, options.use == .rename, getSourceFileOfNode(ls, node));
+        node = getAdjustedLocation(ls, node, options.use == .rename, ast.getSourceFileOfNode(ls.program, node));
     }
 
     const chk = program.getTypeChecker();
@@ -563,7 +563,7 @@ pub fn getReferencedSymbolsForNode(
     const symbol = chk.getSymbolAtLocation(symbol_node);
 
     if (symbol == 0) {
-        if (!options.implementations and isStringLiteralLike(ls, node)) {
+        if (!options.implementations and ast_utils.isStringLiteralLike(&ls.program.ast, node)) {
             if (isModuleSpecifierLike(ls, node)) {
                 // not implemented
             }
@@ -589,16 +589,7 @@ pub fn getReferencedSymbolsForNode(
 // ---- Stubs for dependencies of getReferencedSymbolsForNode ----
 
 pub fn getAdjustedLocation(ls: *languageservice.LanguageService, node: ast.NodeIndex, isForRename: bool, sourceFile: ast.NodeIndex) ast.NodeIndex {
-    _ = ls;
-    _ = isForRename;
-    _ = sourceFile;
-    return node;
-}
-
-pub fn getSourceFileOfNode(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
-    _ = ls;
-    _ = node;
-    return ast.null_node;
+    return ls_utils.getAdjustedLocation(&ls.program.ast, node, isForRename, sourceFile);
 }
 
 pub const ResolvedRef = struct {
@@ -607,13 +598,118 @@ pub const ResolvedRef = struct {
 
 pub fn getReferenceAtPosition(ls: *languageservice.LanguageService, node: ast.NodeIndex, position: u32, program: *compiler.Program) ResolvedRef {
     _ = ls;
-    _ = node;
-    _ = position;
-    _ = program;
-    return ResolvedRef{ .file = ast.null_node };
+    const tree = &program.ast;
+    for (tree.referencedFiles.items) |ref| {
+        if (position >= ref.pos and position < ref.end) {
+            const fileName = tree.getText(ref.fileName);
+            const sourceFile = program.getSourceFile(fileName);
+            if (sourceFile != 0) {
+                return .{ .file = sourceFile };
+            }
+        }
+    }
+    for (tree.typeReferenceDirectives.items) |ref| {
+        if (position >= ref.pos and position < ref.end) {
+            // Note: simple fallback, real implementation would resolve directive
+            const fileName = tree.getText(ref.fileName);
+            const sourceFile = program.getSourceFile(fileName);
+            if (sourceFile != 0) {
+                return .{ .file = sourceFile };
+            }
+        }
+    }
+    for (tree.libReferenceDirectives.items) |ref| {
+        if (position >= ref.pos and position < ref.end) {
+            // Note: simple fallback, real implementation would resolve directive
+            const fileName = tree.getText(ref.fileName);
+            const sourceFile = program.getSourceFile(fileName);
+            if (sourceFile != 0) {
+                return .{ .file = sourceFile };
+            }
+        }
+    }
+
+    const token = ast_utils.getTouchingToken(tree, node, position);
+    if (ls_utils.isModuleSpecifierLike(tree, token)) {
+        const text = ast_utils.getText(tree, token);
+        // Note: simple resolution fallback
+        const sourceFile = program.getSourceFile(text);
+        if (sourceFile != 0) {
+            return .{ .file = sourceFile };
+        }
+    }
+
+    return .{ .file = ast.null_node };
 }
 
-pub fn getReferencedSymbolsSpecial(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, sourceFiles: []const ast.NodeIndex) ?[]*SymbolAndEntries {
+pub fn isTypeKeyword(kind: ast.Kind) bool {
+    switch (kind) {
+        .AnyKeyword, .UnknownKeyword, .NumberKeyword, .BigIntKeyword, .ObjectKeyword, .BooleanKeyword, .StringKeyword, .SymbolKeyword, .ThisKeyword, .VoidKeyword, .UndefinedKeyword, .NullKeyword, .NeverKeyword => return true,
+        else => return false,
+    }
+}
+
+pub fn isReadonlyTypeOperator(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    const parent = tree.getNodeParent(node);
+    return parent != 0 and tree.getNodeKind(parent) == .TypeOperator and tree.getNode(parent).TypeOperator.operator == .ReadonlyKeyword;
+}
+
+pub fn getAllReferencesForKeyword(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, sourceFiles: []const ast.NodeIndex, keywordKind: ast.Kind, filterReadOnlyTypeOperator: bool) !?[]*SymbolAndEntries {
+    _ = ls;
+    _ = sourceFiles;
+    _ = keywordKind;
+    _ = filterReadOnlyTypeOperator;
+    var references = std.ArrayList(*ReferenceEntry).init(allocator);
+    defer references.deinit();
+
+    // Just an empty fallback, not fully implemented for text search
+    if (references.items.len == 0) return null;
+    return null;
+}
+
+pub fn getAllReferencesForImportMeta(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, sourceFiles: []const ast.NodeIndex) !?[]*SymbolAndEntries {
+    _ = ls;
+    _ = allocator;
+    _ = sourceFiles;
+    return null;
+}
+
+pub fn isJumpStatementTarget(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    const parent = tree.getNodeParent(node);
+    if (parent == 0) return false;
+    const p_kind = tree.getNodeKind(parent);
+    if (p_kind == .BreakStatement or p_kind == .ContinueStatement) {
+        const stmt = if (p_kind == .BreakStatement) tree.getNode(parent).BreakStatement else tree.getNode(parent).ContinueStatement;
+        return stmt.label == node;
+    }
+    return false;
+}
+
+pub fn getTargetLabel(tree: *ast.Ast, referenceNode: ast.NodeIndex, labelName: []const u8) ast.NodeIndex {
+    _ = tree;
+    _ = referenceNode;
+    _ = labelName;
+    return 0; // simple fallback
+}
+
+pub fn getLabelReferencesInNode(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, container: ast.NodeIndex, targetLabel: ast.NodeIndex) !?[]*SymbolAndEntries {
+    _ = ls;
+    _ = allocator;
+    _ = container;
+    _ = targetLabel;
+    return null;
+}
+
+pub fn isLabelOfLabeledStatement(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    const parent = tree.getNodeParent(node);
+    return parent != 0 and tree.getNodeKind(parent) == .LabeledStatement and tree.getNode(parent).LabeledStatement.label == node;
+}
+
+pub fn isThis(tree: *ast.Ast, node: ast.NodeIndex) bool {
+    return tree.getNodeKind(node) == .ThisKeyword;
+}
+
+pub fn getReferencesForThisKeyword(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, sourceFiles: []const ast.NodeIndex) !?[]*SymbolAndEntries {
     _ = ls;
     _ = allocator;
     _ = node;
@@ -621,22 +717,71 @@ pub fn getReferencedSymbolsSpecial(ls: *languageservice.LanguageService, allocat
     return null;
 }
 
-pub fn getName(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
+pub fn getReferencesForSuperKeyword(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex) !?[]*SymbolAndEntries {
     _ = ls;
+    _ = allocator;
     _ = node;
-    return ast.null_node;
+    return null;
 }
 
-pub fn isStringLiteralLike(ls: *languageservice.LanguageService, node: ast.NodeIndex) bool {
-    _ = ls;
-    _ = node;
-    return false;
+pub fn getReferencedSymbolsSpecial(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, sourceFiles: []const ast.NodeIndex) ?[]*SymbolAndEntries {
+    const tree = &ls.program.ast;
+    const kind = tree.getNodeKind(node);
+    const parent = tree.getNodeParent(node);
+
+    if (isTypeKeyword(kind)) {
+        if (kind == .VoidKeyword and parent != 0 and tree.getNodeKind(parent) == .VoidExpression) {
+            return null;
+        }
+        if (kind == .ReadonlyKeyword and !isReadonlyTypeOperator(tree, node)) {
+            return null;
+        }
+        return (getAllReferencesForKeyword(ls, allocator, sourceFiles, kind, kind == .ReadonlyKeyword) catch null);
+    }
+
+    if (parent != 0 and tree.getNodeKind(parent) == .MetaProperty) {
+        const meta = tree.getNode(parent).MetaProperty;
+        if (meta.keyword == .ImportKeyword and meta.name == node) {
+            return (getAllReferencesForImportMeta(ls, allocator, sourceFiles) catch null);
+        }
+    }
+
+    if (kind == .StaticKeyword and parent != 0 and tree.getNodeKind(parent) == .ClassStaticBlockDeclaration) {
+        // Return a mock
+        return null;
+    }
+
+    if (isJumpStatementTarget(tree, node)) {
+        const text = ast_utils.getText(tree, node);
+        const labelDef = getTargetLabel(tree, parent, text);
+        if (labelDef != 0) {
+            return (getLabelReferencesInNode(ls, allocator, tree.getNodeParent(labelDef), labelDef) catch null);
+        }
+        return null;
+    }
+
+    if (isLabelOfLabeledStatement(tree, node)) {
+        return (getLabelReferencesInNode(ls, allocator, parent, node) catch null);
+    }
+
+    if (isThis(tree, node)) {
+        return (getReferencesForThisKeyword(ls, allocator, node, sourceFiles) catch null);
+    }
+
+    if (kind == .SuperKeyword) {
+        return (getReferencesForSuperKeyword(ls, allocator, node) catch null);
+    }
+
+    return null;
+}
+
+
+pub fn getName(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
+    return ast_utils.getName(&ls.program.ast, node);
 }
 
 pub fn isModuleSpecifierLike(ls: *languageservice.LanguageService, node: ast.NodeIndex) bool {
-    _ = ls;
-    _ = node;
-    return false;
+    return ls_utils.isModuleSpecifierLike(&ls.program.ast, node);
 }
 
 pub fn getReferencesForStringLiteral(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, sourceFiles: []const ast.NodeIndex, chk: *checker.Checker) ![]*SymbolAndEntries {
@@ -1385,32 +1530,131 @@ pub const State = struct {
             return;
         }
 
-        var relatedSymbol: ?*ast.Symbol = null;
-        
-        // Minimal getRelatedSymbol logic
-        var includes = false;
-        for (search.allSearchSymbols) |sym| {
-            if (sym.id == referenceSymbol.?.id) {
-                includes = true;
-                break;
-            }
-        }
-        if (includes) {
-            relatedSymbol = referenceSymbol.?;
-        } else {
-            // If it doesn't match, we assume it's related for now or check further when forEachRelatedSymbol is fully ported
-            relatedSymbol = referenceSymbol.?;
+        const relatedRes = self.getRelatedSymbol(search, referenceSymbol.?, referenceLocation) catch .{ null, .node };
+        const relatedSymbol = relatedRes[0];
+        const relatedSymbolKind = relatedRes[1];
+
+        if (relatedSymbol == null) {
+            self.getReferenceForShorthandProperty(referenceSymbol.?, search);
+            return;
         }
 
         if (addReferencesHere) {
-            self.addReference(referenceLocation, relatedSymbol, EntryKind.node);
+            self.addReference(referenceLocation, relatedSymbol.?, relatedSymbolKind);
         }
     }
+
+
 
     pub fn searchForName(self: *State, sourceFile: ast.NodeIndex, search: *RefSearch) void {
         // In a full DoD implementation, we would check the sourceFile's name table here.
         // For now, we assume it's in the file.
         self.getReferencesInContainer(sourceFile, sourceFile, search, true);
+    }
+
+    pub fn explicitlyInheritsFrom(self: *State, symbol: *ast.Symbol, parent: *ast.Symbol) bool {
+        if (symbol.id == parent.id) return true;
+        
+        const key = InheritKey{ .symbol = symbol, .parent = parent };
+        if (self.inheritsFromCache.get(key)) |cached| {
+            return cached;
+        }
+
+        self.inheritsFromCache.put(self.allocator, key, false) catch {}; // Prevent infinite recursion
+        
+        if (symbol.Declarations.items.len == 0) return false;
+        
+        var inherits = false;
+        for (symbol.Declarations.items) |decl| {
+            const superTypeNodes = ls_utils.getAllSuperTypeNodes(self.allocator, &self.program.ast, decl) catch &[_]ast.NodeIndex{};
+            for (superTypeNodes) |typeReference| {
+                if (self.chk.getTypeAtLocation(&self.program.ast, typeReference)) |typ| {
+                    if (typ.symbol) |sym| {
+                        if (self.explicitlyInheritsFrom(sym, parent)) {
+                            inherits = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (inherits) break;
+        }
+
+        self.inheritsFromCache.put(self.allocator, key, inherits) catch {};
+        return inherits;
+    }
+
+    pub fn getRelatedSymbol(self: *State, search: *RefSearch, referenceSymbol: *ast.Symbol, referenceLocation: ast.NodeIndex) !struct { ?*ast.Symbol, EntryKind } {
+        const Ctx = struct {
+            search: *RefSearch,
+            referenceSymbol: *ast.Symbol,
+            program_ast: *const ast.Tree,
+            state: *State,
+
+            fn cb(ctx: *@This(), sym: *ast.Symbol, rootSymbol: ?*ast.Symbol, baseSymbol: ?*ast.Symbol) !?*ast.Symbol {
+                var finalBase = baseSymbol;
+                if (finalBase) |b| {
+                    if (ls_utils.isStaticSymbol(ctx.program_ast, ctx.referenceSymbol) != ls_utils.isStaticSymbol(ctx.program_ast, b)) {
+                        finalBase = null;
+                    }
+                }
+                const searchSym = finalBase orelse rootSymbol orelse sym;
+                if (ctx.search.includes(searchSym)) {
+                    if (rootSymbol != null and (sym.CheckFlags & checker.CheckFlags.Synthetic) == 0) {
+                        return rootSymbol;
+                    }
+                    return sym;
+                }
+                return null;
+            }
+
+            fn allowBaseTypes(ctx: *@This(), rootSymbol: *ast.Symbol) bool {
+                if (ctx.search.parents.len != 0) {
+                    var found = false;
+                    for (ctx.search.parents) |parent| {
+                        if (rootSymbol.Parent) |rp| {
+                            if (ctx.state.program.ast.getNode(rp).symbol) |parent_sym| {
+                                if (ctx.state.explicitlyInheritsFrom(parent_sym, parent)) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    return !found;
+                }
+                return true;
+            }
+        };
+
+        var ctx = Ctx{
+            .search = search,
+            .referenceSymbol = referenceSymbol,
+            .program_ast = &self.program.ast,
+            .state = self,
+        };
+
+        return try self.forEachRelatedSymbol(
+            &ctx,
+            referenceSymbol,
+            referenceLocation,
+            false,
+            self.options.use != .Rename or self.options.useAliasesForRename,
+            Ctx.cb,
+            Ctx.allowBaseTypes,
+        );
+    }
+
+    pub fn getReferenceForShorthandProperty(self: *State, referenceSymbol: *ast.Symbol, search: *RefSearch) void {
+        if ((referenceSymbol.flags & ast_utils.SymbolFlags.Transient) != 0 or referenceSymbol.valueDeclaration == ast.null_node) {
+            return;
+        }
+        const shorthandValueSymbol = self.chk.getShorthandAssignmentValueSymbol(referenceSymbol.valueDeclaration);
+        const name = ast_utils.getNameOfDeclaration(&self.program.ast, referenceSymbol.valueDeclaration);
+
+        if (name != ast.null_node and search.includes(shorthandValueSymbol orelse return)) {
+            self.addReference(name, shorthandValueSymbol.?, EntryKind.node);
+        }
     }
 };
 

@@ -176,3 +176,4 @@ test "refAllDecls flow" {
 }
 
 
+test "findallreferences" { _ = @import("ls/findallreferences.zig"); }

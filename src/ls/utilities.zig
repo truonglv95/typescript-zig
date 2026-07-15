@@ -286,3 +286,207 @@ pub fn isStaticSymbol(tree: *const ast.Tree, sym: *ast.Symbol) bool {
     }
     return false;
 }
+
+pub fn getAdjustedLocation(tree: *ast.Ast, node: ast_gen.NodeIndex, forRename: bool, sourceFile: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    const parent = tree.getNodeParent(node);
+    if (parent == 0) return node;
+
+    const kind = tree.getNodeKind(node);
+    const parent_kind = tree.getNodeKind(parent);
+
+    var is_modifier = false;
+    if (ast_utils.isModifier(tree, node) and (forRename or kind != .DefaultKeyword)) {
+        is_modifier = ast_utils.canHaveModifiers(tree, parent) and ast_utils.hasModifier(tree, parent, kind);
+    } else {
+        switch (kind) {
+            .ClassKeyword => is_modifier = parent_kind == .ClassDeclaration or parent_kind == .ClassExpression,
+            .FunctionKeyword => is_modifier = parent_kind == .FunctionDeclaration or parent_kind == .FunctionExpression,
+            .InterfaceKeyword => is_modifier = parent_kind == .InterfaceDeclaration,
+            .EnumKeyword => is_modifier = parent_kind == .EnumDeclaration,
+            .TypeKeyword => is_modifier = parent_kind == .TypeAliasDeclaration,
+            .NamespaceKeyword, .ModuleKeyword => is_modifier = parent_kind == .ModuleDeclaration,
+            .ImportKeyword => is_modifier = parent_kind == .ImportEqualsDeclaration,
+            .GetKeyword => is_modifier = parent_kind == .GetAccessor,
+            .SetKeyword => is_modifier = parent_kind == .SetAccessor,
+            else => {},
+        }
+    }
+
+    if (is_modifier) {
+        var src_file = sourceFile;
+        if (src_file == 0) src_file = ast_utils.getSourceFileOfNode(tree, node);
+        const location = getAdjustedLocationForDeclaration(tree, parent, forRename, src_file);
+        if (location != 0) return location;
+    }
+
+    if (kind == .VarKeyword or kind == .ConstKeyword or kind == .LetKeyword) {
+        if (parent_kind == .VariableDeclarationList) {
+            const list = tree.getNodeList(tree.getNode(parent).VariableDeclarationList.declarations);
+            if (list.len == 1) {
+                const decl = tree.getNode(list[0]).VariableDeclaration;
+                if (tree.getNodeKind(decl.name) == .Identifier) {
+                    return decl.name;
+                }
+            }
+        }
+    }
+
+    if (kind == .TypeKeyword) {
+        if (parent_kind == .ImportClause and tree.getNode(parent).ImportClause.isTypeOnly) {
+            const import_decl = tree.getNodeParent(parent);
+            if (tree.getNodeKind(import_decl) == .ImportDeclaration) {
+                const location = getAdjustedLocationForImportDeclaration(tree, import_decl, forRename);
+                if (location != 0) return location;
+            }
+        }
+        if (parent_kind == .ExportDeclaration and tree.getNode(parent).ExportDeclaration.isTypeOnly) {
+            const location = getAdjustedLocationForExportDeclaration(tree, parent, forRename);
+            if (location != 0) return location;
+        }
+    }
+
+    if (kind == .AsKeyword) {
+        if (parent_kind == .ImportSpecifier) {
+            const spec = tree.getNode(parent).ImportSpecifier;
+            if (spec.propertyName != 0) return spec.name;
+        } else if (parent_kind == .ExportSpecifier) {
+            const spec = tree.getNode(parent).ExportSpecifier;
+            if (spec.propertyName != 0) return spec.name;
+        } else if (parent_kind == .NamespaceImport or parent_kind == .NamespaceExport) {
+            return ast_utils.getName(tree, parent); // name
+        } else if (parent_kind == .ExportDeclaration) {
+            const decl = tree.getNode(parent).ExportDeclaration;
+            if (decl.exportClause != 0 and tree.getNodeKind(decl.exportClause) == .NamespaceExport) {
+                return ast_utils.getName(tree, decl.exportClause);
+            }
+        }
+    }
+
+    if (kind == .ImportKeyword and parent_kind == .ImportDeclaration) {
+        const location = getAdjustedLocationForImportDeclaration(tree, parent, forRename);
+        if (location != 0) return location;
+    }
+
+    if (kind == .ExportKeyword) {
+        if (parent_kind == .ExportDeclaration) {
+            const location = getAdjustedLocationForExportDeclaration(tree, parent, forRename);
+            if (location != 0) return location;
+        }
+        if (parent_kind == .ExportAssignment) {
+            return ast_utils.skipOuterExpressions(tree, tree.getNode(parent).ExportAssignment.expression, ast_utils.OEKAll);
+        }
+    }
+
+    if (kind == .RequireKeyword and parent_kind == .ExternalModuleReference) {
+        return tree.getNode(parent).ExternalModuleReference.expression;
+    }
+
+    if (kind == .FromKeyword) {
+        if (parent_kind == .ImportDeclaration) {
+            const decl = tree.getNode(parent).ImportDeclaration;
+            if (decl.moduleSpecifier != 0) return decl.moduleSpecifier;
+        } else if (parent_kind == .ExportDeclaration) {
+            const decl = tree.getNode(parent).ExportDeclaration;
+            if (decl.moduleSpecifier != 0) return decl.moduleSpecifier;
+        }
+    }
+
+    if (kind == .ExtendsKeyword or kind == .ImplementsKeyword) {
+        if (parent_kind == .HeritageClause) {
+            const hc = tree.getNode(parent).HeritageClause;
+            if (hc.token == kind) {
+                const hc_types = tree.getNodeList(hc.types);
+                if (hc_types.len == 1) {
+                    const expr = tree.getNode(hc_types[0]).ExpressionWithTypeArguments.expression;
+                    return expr;
+                }
+            }
+        }
+    }
+
+    if (kind == .DefaultKeyword) {
+        if (parent_kind == .ExportAssignment) {
+            return ast_utils.skipOuterExpressions(tree, tree.getNode(parent).ExportAssignment.expression, ast_utils.OEKAll);
+        }
+    }
+
+    if (kind == .InKeyword and parent_kind == .ForInStatement) {
+        return ast_utils.skipOuterExpressions(tree, tree.getNode(parent).ForInStatement.expression, ast_utils.OEKAll);
+    }
+    if (kind == .OfKeyword and parent_kind == .ForOfStatement) {
+        return ast_utils.skipOuterExpressions(tree, tree.getNode(parent).ForOfStatement.expression, ast_utils.OEKAll);
+    }
+
+    return node;
+}
+
+pub fn getAdjustedLocationForDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex, forRename: bool, sourceFile: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    const name = ast_utils.getName(tree, node);
+    if (name != 0) return name;
+    if (forRename) return 0;
+    
+    const kind = tree.getNodeKind(node);
+    if (kind == .ClassDeclaration or kind == .FunctionDeclaration) {
+        // find default modifier
+        const modifiers = ast_utils.getModifiers(tree, node);
+        if (modifiers != 0) {
+            const list = tree.getNodeList(modifiers);
+            for (list) |mod| {
+                if (tree.getNodeKind(mod) == .DefaultKeyword) return mod;
+            }
+        }
+        return 0;
+    }
+    if (kind == .ClassExpression) {
+        return ast_utils.findChildOfKind(tree, node, .ClassKeyword, sourceFile);
+    }
+    if (kind == .FunctionExpression) {
+        return ast_utils.findChildOfKind(tree, node, .FunctionKeyword, sourceFile);
+    }
+    if (kind == .Constructor) return node;
+
+    return 0;
+}
+
+pub fn getAdjustedLocationForImportDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex, forRename: bool) ast_gen.NodeIndex {
+    const decl = tree.getNode(node).ImportDeclaration;
+    if (decl.importClause != 0) {
+        const ic = tree.getNode(decl.importClause).ImportClause;
+        if (ic.name != 0) {
+            if (ic.namedBindings != 0) return 0;
+            return ic.name;
+        }
+        if (ic.namedBindings != 0) {
+            const nb_kind = tree.getNodeKind(ic.namedBindings);
+            if (nb_kind == .NamedImports) {
+                const elements = tree.getNodeList(tree.getNode(ic.namedBindings).NamedImports.elements);
+                if (elements.len != 1) return 0;
+                return ast_utils.getName(tree, elements[0]);
+            } else if (nb_kind == .NamespaceImport) {
+                return ast_utils.getName(tree, ic.namedBindings);
+            }
+        }
+    }
+    if (!forRename) {
+        return decl.moduleSpecifier;
+    }
+    return 0;
+}
+
+pub fn getAdjustedLocationForExportDeclaration(tree: *ast.Ast, node: ast_gen.NodeIndex, forRename: bool) ast_gen.NodeIndex {
+    const decl = tree.getNode(node).ExportDeclaration;
+    if (decl.exportClause != 0) {
+        const ec_kind = tree.getNodeKind(decl.exportClause);
+        if (ec_kind == .NamedExports) {
+            const elements = tree.getNodeList(tree.getNode(decl.exportClause).NamedExports.elements);
+            if (elements.len != 1) return 0;
+            return ast_utils.getName(tree, elements[0]);
+        } else if (ec_kind == .NamespaceExport) {
+            return ast_utils.getName(tree, decl.exportClause);
+        }
+    }
+    if (!forRename) {
+        return decl.moduleSpecifier;
+    }
+    return 0;
+}
