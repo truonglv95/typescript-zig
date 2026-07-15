@@ -11176,10 +11176,22 @@ pub const Checker = struct {
         return propType;
     }
 
-    pub fn getControlFlowContainer(c: *Checker, node: *anyopaque) *anyopaque {
-        _ = c;
-        _ = node;
-        return undefined;
+    pub fn getControlFlowContainer(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Go: return ast.FindAncestor(node.Parent, func(node *ast.Node) bool {
+        //   return ast.IsFunctionLike(node) && ast.GetImmediatelyInvokedFunctionExpression(node) == nil ||
+        //     ast.IsModuleBlock(node) || ast.IsSourceFile(node) || ast.IsPropertyDeclaration(node)
+        // })
+        var current = c.binder.ast.getNodeParent(node);
+        while (current != 0) {
+            const k = c.binder.ast.getKind(current);
+            if (ast_utils.isFunctionLike(k)) {
+                // GetImmediatelyInvokedFunctionExpression not fully wired; conservative: treat as nil.
+                return current;
+            }
+            if (k == .ModuleBlock or k == .SourceFile or k == .PropertyDeclaration) return current;
+            current = c.binder.ast.getNodeParent(current);
+        }
+        return 0;
     }
 
     pub fn getFlowTypeOfProperty(c: *Checker, reference: *anyopaque, prop: *anyopaque) *anyopaque {
