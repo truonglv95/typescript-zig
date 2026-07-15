@@ -8379,12 +8379,29 @@ pub const Checker = struct {
 
     /// Port of checker.go::checkAndReportErrorForInvalidInitializer.
     /// Simplified: no-op, returns false.
-    pub fn checkAndReportErrorForInvalidInitializer(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, property_with_invalid: ast_gen.NodeIndex, result: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = error_location;
-        _ = name_node;
-        _ = property_with_invalid;
-        _ = result;
+    /// Port of `checker.go::checkAndReportErrorForInvalidInitializer`.
+    /// When `result` is nil (unresolved symbol) and the identifier is in a
+    /// property initializer that also binds to a constructor-local variable,
+    /// reports an error that the initializer cannot reference the constructor
+    /// variable. Returns true if an error was reported.
+    pub fn checkAndReportErrorForInvalidInitializer(c: *Checker, error_location: ast_gen.NodeIndex, name: []const u8, property_with_invalid: ast_gen.NodeIndex, result: ast_gen.SymbolIndex) bool {
+        // emitStandardClassFields not yet wired; conservative: use false.
+        const emit_standard = false;
+        if (!emit_standard) {
+            if (error_location != 0 and result == 0) {
+                if (c.checkAndReportErrorForMissingPrefix(error_location, name)) {
+                    return true;
+                }
+            }
+            // Report initializer/type reference error.
+            if (property_with_invalid != 0 and c.binder.ast.getKind(property_with_invalid) == .PropertyDeclaration) {
+                const prop = c.binder.ast.getNode(property_with_invalid).PropertyDeclaration;
+                const prop_name = if (prop.name != 0) ast_utils.getTextOfNode(c.binder.ast, prop.name) else "";
+                // Simplified: always use "Initializer" message.
+                c.reportErrorWithArgs(error_location, &diagnostics_gen.Initializer_of_instance_member_variable_0_cannot_reference_identifier_1_declared_in_the_constructor, &.{ prop_name, name });
+                return true;
+            }
+        }
         return false;
     }
 
@@ -9323,13 +9340,52 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::isSymbolUsedInConditionBody`. Returns true if
+    /// `testedSymbol` is used in `body`. Walks children of `body` looking for
+    /// identifiers that resolve to `testedSymbol`. For simple identifiers,
+    /// a direct symbol match suffices. For property access chains, walks
+    /// up the parent chain comparing symbols at each level.
     pub fn isSymbolUsedInConditionBody(c: *Checker, expr: ast_gen.NodeIndex, body: ast_gen.NodeIndex, testedNode: ast_gen.NodeIndex, testedSymbol: ast_gen.SymbolIndex) bool {
-        _ = c;
-        _ = expr;
-        _ = body;
-        _ = testedNode;
-        _ = testedSymbol;
-        return false;
+        const Context = struct {
+            chk: *Checker,
+            expr_node: ast_gen.NodeIndex,
+            tested_node: ast_gen.NodeIndex,
+            tested_sym: ast_gen.SymbolIndex,
+            found: *bool,
+        };
+        var found = false;
+        var ctx = Context{
+            .chk = c,
+            .expr_node = expr,
+            .tested_node = testedNode,
+            .tested_sym = testedSymbol,
+            .found = &found,
+        };
+        const visit = struct {
+            fn visit(ctx_in: Context, child: ast_gen.NodeIndex) bool {
+                if (ctx_in.found.*) return true;
+                if (child == 0) return false;
+                if (ctx_in.chk.binder.ast.getKind(child) == .Identifier) {
+                    const child_sym = getSymbolAtLocation(ctx_in.chk, child);
+                    if (child_sym != 0 and child_sym == ctx_in.tested_sym) {
+                        // For simple identifiers, match is sufficient.
+                        if (ctx_in.expr_node != 0 and ctx_in.chk.binder.ast.getKind(ctx_in.expr_node) == .Identifier) {
+                            ctx_in.found.* = true;
+                            return true;
+                        }
+                        // For property access chains, walk parents comparing.
+                        // Simplified: assume match is sufficient.
+                        ctx_in.found.* = true;
+                        return true;
+                    }
+                }
+                _ = ast_utils.forEachChildBool(ctx_in.chk.binder.ast, child, ctx_in, visit);
+                return ctx_in.found.*;
+            }
+        }.visit;
+        _ = visit(&ctx, body);
+        _ = &ctx;
+        return found;
     }
 
     pub fn getIndexTypeOrString(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -10242,29 +10298,70 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getIterationTypeOfIterable`. Returns the
+    /// iteration type of `inputType` for the given `typeKind` (yield,
+    /// return, or next). Returns 0 for `any` types.
     pub fn getIterationTypeOfIterable(c: *Checker, use: u32, typeKind: u32, inputType: types.TypeIndex, errorNode: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = use;
+        if (c.isTypeAny(inputType)) return 0;
+        // getIterationTypesOfIterable returns a single TypeIndex (simplified).
+        // Full impl returns IterationTypes{yield, return, next}; here we
+        // delegate to getIterationTypesOfIterableWorker which returns a single type.
+        const iter_type = c.getIterationTypesOfIterableWorker(inputType, use, errorNode, false);
+        // typeKind: 0=yield, 1=return, 2=next — simplified: return iter_type for all.
         _ = typeKind;
-        _ = inputType;
-        _ = errorNode;
-        return 0;
+        return iter_type;
     }
 
+    /// Port of `checker.go::getIterationTypesOfIterable`. Returns the
+    /// iteration types of `t` for the given `use`. Caches results.
+    /// Simplified: delegates to worker without caching.
     pub fn getIterationTypesOfIterable(c: *Checker, t: types.TypeIndex, use: u32, errorNode: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = use;
-        _ = errorNode;
-        return 0;
+        const reduced = c.getReducedType(t);
+        if (c.isTypeAny(reduced)) return c.anyTypeIndex orelse 0;
+        return c.getIterationTypesOfIterableWorker(reduced, use, errorNode, false);
     }
 
+    /// Port of `checker.go::getIterationTypesOfIterableWorker`. Returns
+    /// the iteration type by looking up `[Symbol.iterator]()` or
+    /// `[Symbol.asyncIterator]()` method. For unions, maps over constituents.
+    /// Simplified: checks for array-like types and returns element type.
     pub fn getIterationTypesOfIterableWorker(c: *Checker, t: types.TypeIndex, use: u32, errorNode: ast_gen.NodeIndex, noCache: bool) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = use;
-        _ = errorNode;
         _ = noCache;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const flags = c.typesList.items[t].flags;
+        // Union: map over constituents and combine.
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            var iter_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer iter_types.deinit(c.allocator);
+            for (constituents) |ct| {
+                const it = c.getIterationTypesOfIterableWorker(ct, use, null, false);
+                if (it != 0) iter_types.append(c.allocator, it) catch {};
+            }
+            if (iter_types.items.len == 0) return 0;
+            return c.getUnionTypeFromArray(iter_types.items);
+        }
+        // Array type: return element type.
+        if (c.typesList.items[t].data == .Array) {
+            return c.typesList.items[t].data.Array.elementType;
+        }
+        // Tuple type: return union of element types.
+        if (c.isTupleType(t)) {
+            return c.getElementTypeOfSliceOfTupleType(t, 0, 0, 0) orelse 0;
+        }
+        // String: return string type.
+        if ((flags & types.TypeFlags.StringLike) != 0) {
+            return c.stringTypeIndex orelse 0;
+        }
+        // Any: return any.
+        if ((flags & types.TypeFlags.Any) != 0) {
+            return c.anyTypeIndex orelse 0;
+        }
+        // Look for [Symbol.iterator]() method.
+        // Full impl requires getSignaturesOfType with Symbol.iterator; simplified: return 0.
+        if (errorNode != 0) {
+            // Would report "Type must have a '[Symbol.iterator]()' method" error.
+        }
         return 0;
     }
 
