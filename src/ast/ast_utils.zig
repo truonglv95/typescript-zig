@@ -688,6 +688,7 @@ pub fn getNameOfNode(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeInde
         .NamespaceImport => |n| return n.name,
         .NamespaceExport => |n| return n.name,
         .ImportClause => |n| return if (n.name) |n_name| n_name else 0,
+        .TypeParameter => |n| return n.name,
         else => return 0,
     }
 }
