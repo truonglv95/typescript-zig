@@ -3728,6 +3728,27 @@ pub const Checker = struct {
                             return try self.getTypeOfSymbol(propSym);
                         }
                     }
+                    // Numeric index access on array types -> return element type.
+                    if ((argType.flags & types.TypeFlags.NumberLiteral) != 0 or
+                        (argType.flags & types.TypeFlags.Number) != 0 or
+                        (argType.flags & types.TypeFlags.UniqueESSymbol) != 0)
+                    {
+                        // Array<T>  -> T
+                        if (self.isArrayType(objTypeIdx)) {
+                            return self.getElementTypeOfArrayType(objTypeIdx);
+                        }
+                        // Tuple types: return union of element types.
+                        if (objTypeIdx < self.typesList.items.len) {
+                            const objType = self.typesList.items[objTypeIdx];
+                            if (objType.data == .Tuple) {
+                                const tuple_types = self.unionTypesPool.items[objType.data.Tuple.typesStart .. objType.data.Tuple.typesStart + objType.data.Tuple.typesLen];
+                                if (tuple_types.len == 1) return tuple_types[0];
+                                if (tuple_types.len > 1) {
+                                    return self.createUnionType(tuple_types) catch try self.getAnyType();
+                                }
+                            }
+                        }
+                    }
                 }
 
                 return try self.getAnyType();
@@ -8531,6 +8552,17 @@ pub const Checker = struct {
         // Initialize closures and iteration resolvers.
         c.initializeClosures();
         c.initializeIterationResolvers();
+        // Eagerly initialize common intrinsic type indices so that callers
+        // can use `c.voidTypeIndex orelse 0` without worrying about lazy init.
+        _ = c.getVoidType() catch {};
+        _ = c.getAnyType() catch {};
+        _ = c.getStringType() catch {};
+        _ = c.getNumberType() catch {};
+        _ = c.getBooleanType() catch {};
+        _ = c.getUndefinedType() catch {};
+        _ = c.getNullType() catch {};
+        _ = c.getUnknownType() catch {};
+        _ = c.getNeverType() catch {};
         // Global symbol merging is handled by the binder in bindSourceFile.
         // Nothing additional to do here for now.
     }

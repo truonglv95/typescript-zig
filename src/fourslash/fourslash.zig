@@ -1211,13 +1211,38 @@ pub const FourslashTest = struct {
                 if (sigs.len > 0) {
                     var out = std.ArrayListUnmanaged(u8).empty;
                     const aa = self.arena.allocator();
-                    out.appendSlice(aa, "function ") catch {};
-                    out.appendSlice(aa, symObj.Name) catch {};
+                    // Determine if local: walk parent chain from declaration.
+                    var is_local_function = false;
+                    if (symObj.Declarations.items.len > 0) {
+                        const decl_node = symObj.Declarations.items[0];
+                        var cur = p.ast.getNodeParent(decl_node);
+                        while (cur != 0) {
+                            const k = p.ast.getNodeKind(cur);
+                            if (k == .SourceFile) break;
+                            switch (k) {
+                                .FunctionDeclaration, .FunctionExpression, .MethodDeclaration,
+                                .Constructor, .GetAccessor, .SetAccessor, .ArrowFunction,
+                                => {
+                                    is_local_function = true;
+                                    break;
+                                },
+                                else => {},
+                            }
+                            cur = p.ast.getNodeParent(cur);
+                        }
+                    }
+                    if (is_local_function) {
+                        out.appendSlice(aa, "(local function) ") catch {};
+                        // For local functions, TS omits the name.
+                    } else {
+                        out.appendSlice(aa, "function ") catch {};
+                        out.appendSlice(aa, symObj.Name) catch {};
+                    }
                     out.appendSlice(aa, "(") catch {};
-                    
+
                     const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
                     const sig = &c.signatures.items[sigIdx];
-                    
+
                     const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
                     for (params, 0..) |paramSym, i| {
                         if (i > 0) out.appendSlice(aa, ", ") catch {};
@@ -1227,17 +1252,17 @@ pub const FourslashTest = struct {
                             break :blk 0;
                         };
                         const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
-                        
+
                         const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
                         out.appendSlice(aa, pStr) catch {};
                     }
-                    
+
                     out.appendSlice(aa, "): ") catch {};
-                    
+
                     const retType = c.getReturnTypeOfSignature(sig);
                     const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
                     out.appendSlice(aa, retTypeStr) catch {};
-                    
+
                     return out.toOwnedSlice(aa) catch "";
                 }
             }
@@ -1263,6 +1288,8 @@ pub const FourslashTest = struct {
         }
 
         // Variable declarations: format as "var name: type", "let name: type", "const name: type"
+        // If the variable is local to a function/method (not at module top-level),
+        // prepend "(local var) ".
         if ((symObj.Flags & (symbol.SymbolFlags.FunctionScopedVariable | symbol.SymbolFlags.BlockScopedVariable)) != 0) {
             var prefix: []const u8 = "var";
             if ((symObj.Flags & symbol.SymbolFlags.BlockScopedVariable) != 0) {
@@ -1281,10 +1308,45 @@ pub const FourslashTest = struct {
                     }
                 }
             }
+            // Determine if local: walk parent chain from the declaration; if we hit
+            // a function-like node before SourceFile, it's a local variable.
+            var is_local = false;
+            if (symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                var cur = p.ast.getNodeParent(decl_node);
+                while (cur != 0) {
+                    const k = p.ast.getNodeKind(cur);
+                    if (k == .SourceFile) break;
+                    switch (k) {
+                        .FunctionDeclaration, .FunctionExpression, .MethodDeclaration,
+                        .Constructor, .GetAccessor, .SetAccessor, .ArrowFunction,
+                        .Block, .ForStatement, .ForInStatement, .ForOfStatement,
+                        .IfStatement, .WhileStatement, .DoStatement, .TryStatement,
+                        .CatchClause, .SwitchStatement, .CaseClause, .DefaultClause,
+                        => {
+                            // For Block and other statement containers, keep walking —
+                            // a Block could be a function body.
+                            if (k == .FunctionDeclaration or k == .FunctionExpression or
+                                k == .MethodDeclaration or k == .Constructor or
+                                k == .GetAccessor or k == .SetAccessor or k == .ArrowFunction)
+                            {
+                                is_local = true;
+                                break;
+                            }
+                        },
+                        else => {},
+                    }
+                    cur = p.ast.getNodeParent(cur);
+                }
+            }
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
-            out.appendSlice(aa, prefix) catch {};
-            out.appendSlice(aa, " ") catch {};
+            if (is_local) {
+                out.appendSlice(aa, "(local var) ") catch {};
+            } else {
+                out.appendSlice(aa, prefix) catch {};
+                out.appendSlice(aa, " ") catch {};
+            }
             out.appendSlice(aa, symObj.Name) catch {};
             out.appendSlice(aa, ": ") catch {};
             out.appendSlice(aa, typeStr) catch {};
