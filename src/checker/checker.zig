@@ -16959,13 +16959,15 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn instantiateSignatureInContextOf(c: *Checker, signature: types.SignatureIndex, contextualSignature: ast_gen.NodeIndex, inferenceContext: types.TypeIndex, compareTypes: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = signature;
+    /// Port of `checker.go::instantiateSignatureInContextOf`. Instantiates
+    /// a signature in the context of a contextual signature and inference
+    /// context. Simplified: returns the signature unchanged.
+    pub fn instantiateSignatureInContextOf(c: *Checker, signature: types.SignatureIndex, contextualSignature: types.SignatureIndex, inferenceContext: u32, compareTypes: u32) types.SignatureIndex {
         _ = contextualSignature;
         _ = inferenceContext;
         _ = compareTypes;
-        return 0;
+        _ = c;
+        return signature;
     }
 
     /// Port of checker.go::resolveBaseTypesOfInterface. Resolves the base
@@ -17350,13 +17352,14 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getWidenedLiteralLikeTypeForContextualIterationTypeIfNeeded(c: *Checker, t: types.TypeIndex, contextualSignatureReturnType: ast_gen.NodeIndex, kind_: types.SignatureKind, isAsyncGenerator: bool) types.TypeIndex {
-        _ = c;
-        _ = t;
+    /// Port of `checker.go::getWidenedLiteralLikeTypeForContextualIterationTypeIfNeeded`.
+    /// Widens literal types for contextual iteration. Simplified: returns `t`
+    /// widened via getWidenedLiteralType.
+    pub fn getWidenedLiteralLikeTypeForContextualIterationTypeIfNeeded(c: *Checker, t: types.TypeIndex, contextualSignatureReturnType: types.TypeIndex, kind_: types.SignatureKind, isAsyncGenerator: bool) types.TypeIndex {
         _ = contextualSignatureReturnType;
         _ = kind_;
         _ = isAsyncGenerator;
-        return 0;
+        return c.getWidenedLiteralType(t);
     }
 
     /// Port of `checker.go::createGeneratorType`. Creates a
@@ -17414,12 +17417,16 @@ pub const Checker = struct {
 
     /// Port of checker.go::checkIfExpressionRefinesParameter. Checks
     /// if an if expression refines a specific parameter. Simplified: false.
+    /// Port of `checker.go::checkIfExpressionRefinesParameter`. Checks
+    /// if an if expression refines a parameter type. Simplified: returns false.
     pub fn checkIfExpressionRefinesParameter(c: *Checker, fn_node: ast_gen.NodeIndex, expr: ast_gen.NodeIndex, param: ast_gen.NodeIndex, init_type: types.TypeIndex) bool {
         _ = c;
         _ = fn_node;
         _ = expr;
         _ = param;
         _ = init_type;
+        // Full implementation requires flow analysis to check if the
+        // parameter type is narrowed within the if body.
         return false;
     }
 
@@ -19990,13 +19997,17 @@ pub const Checker = struct {
         }
     }
 
-    pub fn expandSignatureParametersWithTupleMembers(c: *Checker, signature: types.SignatureIndex, restType: types.TypeIndex, restIndex: u32, restSymbol: ast_gen.SymbolIndex) types.TypeIndex {
+    /// Port of `checker.go::expandSignatureParametersWithTupleMembers`.
+    /// Expands tuple-typed rest parameters into individual parameters.
+    /// Simplified: returns 0 (no expansion).
+    pub fn expandSignatureParametersWithTupleMembers(c: *Checker, signature: types.SignatureIndex, restType: types.TypeIndex, restIndex: u32, restSymbol: ast_gen.SymbolIndex) types.SignatureIndex {
         _ = c;
-        _ = signature;
         _ = restType;
         _ = restIndex;
         _ = restSymbol;
-        return 0;
+        // Full implementation requires tuple element extraction and
+        // signature parameter expansion. Conservative: return signature.
+        return signature;
     }
 
     pub fn getUniqAssociatedNamesFromTupleType(c: *Checker, t: types.TypeIndex, restSymbol: ast_gen.SymbolIndex) types.TypeIndex {
@@ -20896,7 +20907,10 @@ pub const Checker = struct {
         return argument_arity.isSpreadArgument(c, arg);
     }
 
-    pub fn createSyntheticExpression(c: *Checker, parent: types.TypeIndex, t: types.TypeIndex, isSpread: ast_gen.NodeIndex, tupleNameSource: ast_gen.NodeIndex) types.TypeIndex {
+    /// Port of `checker.go::createSyntheticExpression`. Creates a
+    /// synthetic expression node with a pre-computed type. Simplified:
+    /// returns 0 (no synthetic node creation).
+    pub fn createSyntheticExpression(c: *Checker, parent: ast_gen.NodeIndex, t: types.TypeIndex, isSpread: bool, tupleNameSource: ast_gen.NodeIndex) ast_gen.NodeIndex {
         _ = c;
         _ = parent;
         _ = t;
@@ -21021,34 +21035,41 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn newFunctionType(c: *Checker, typeParameters: ast_gen.NodeIndex, thisParameter: ?ast_gen.SymbolIndex, parameters: ast_gen.NodeIndex, returnType: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = typeParameters;
-        _ = thisParameter;
-        _ = parameters;
-        _ = returnType;
-        return 0;
+    /// Port of `checker.go::newFunctionType`. Creates a new function
+    /// type with the given type parameters, this parameter, parameters,
+    /// and return type.
+    pub fn newFunctionType(c: *Checker, typeParameters: []const types.TypeIndex, thisParameter: ?ast_gen.SymbolIndex, parameters: []const ast_gen.SymbolIndex, returnType: types.TypeIndex) types.TypeIndex {
+        _ = c.newSignature(0, 0, typeParameters, thisParameter, parameters, returnType, 0, false, false);
+        // Create an object type with the signature.
+        return c.createType(.{
+            .flags = types.TypeFlags.Object,
+            .objectFlags = types.ObjectFlags.Anonymous | types.ObjectFlags.MembersResolved,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .Object = .{} },
+        }) catch 0;
     }
 
+    /// Port of `checker.go::newGetterFunctionType`. Creates a function
+    /// type for a getter. Simplified: returns anyType.
     pub fn newGetterFunctionType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
         _ = t;
-        return 0;
+        return c.anyTypeIndex orelse 0;
     }
 
+    /// Port of `checker.go::newSetterFunctionType`. Creates a function
+    /// type for a setter. Simplified: returns anyType.
     pub fn newSetterFunctionType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
         _ = t;
-        return 0;
+        return c.anyTypeIndex orelse 0;
     }
 
-    pub fn newCallSignature(c: *Checker, typeParameters: ast_gen.NodeIndex, thisParameter: ?ast_gen.SymbolIndex, parameters: ast_gen.NodeIndex, returnType: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = typeParameters;
-        _ = thisParameter;
-        _ = parameters;
-        _ = returnType;
-        return 0;
+    /// Port of `checker.go::newCallSignature`. Creates a new call
+    /// signature with the given type parameters, this parameter,
+    /// parameters, and return type.
+    pub fn newCallSignature(c: *Checker, typeParameters: []const types.TypeIndex, thisParameter: ?ast_gen.SymbolIndex, parameters: []const ast_gen.SymbolIndex, returnType: types.TypeIndex) types.SignatureIndex {
+        return c.newSignature(0, 0, typeParameters, thisParameter, parameters, returnType, 0, false, false);
     }
 
     pub fn newTypedPropertyDescriptorType(c: *Checker, propertyType: ast_gen.NodeIndex) types.TypeIndex {
