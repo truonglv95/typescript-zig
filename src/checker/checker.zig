@@ -1973,6 +1973,7 @@ pub const Checker = struct {
     }
 
     pub fn isErrorType(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
         const ty = c.typesList.items[t];
         return (ty.flags & types.TypeFlags.Any) != 0 and ty.data == .Intrinsic and std.mem.eql(u8, ty.data.Intrinsic.intrinsicName, "error");
     }
@@ -2337,6 +2338,8 @@ pub const Checker = struct {
     }
 
     pub fn getBaseConstraintOfType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Bounds-check: invalid type index has no constraint.
+        if (t == 0 or t >= c.typesList.items.len) return 0;
         // Go: if t.flags&(InstantiableNonPrimitive|UnionOrIntersection|TemplateLiteral|StringMapping|Index) != 0 || isGenericTupleType(t) {
         //   constraint := c.getResolvedBaseConstraint(t, nil)
         //   if constraint != noConstraintType && constraint != circularConstraintType { return constraint }
@@ -2462,6 +2465,8 @@ pub const Checker = struct {
         }
         // Reduce objectType.
         const reduced_obj = c.getReducedType(objectType);
+        // Bounds-check index type.
+        if (indexType == 0 or indexType >= c.typesList.items.len) return null;
         // Check if index type is a union (but not boolean).
         const index_flags = c.typesList.items[indexType].flags;
         if ((index_flags & types.TypeFlags.Union) != 0 and (index_flags & types.TypeFlags.Boolean) == 0) {
@@ -2753,6 +2758,7 @@ pub const Checker = struct {
 
         for (typesArr) |t| {
             if (t == (c.neverTypeIndex orelse 0)) return t;
+            if (t == 0 or t >= c.typesList.items.len) continue;
             // Flatten nested intersections
             if ((c.typesList.items[t].flags & types.TypeFlags.Intersection) != 0) {
                 const subTypes = c.getTypesFromIntersection(t);
@@ -4705,6 +4711,7 @@ pub const Checker = struct {
     }
 
     pub fn isTypeAssignableToKindEx(c: *Checker, source: types.TypeIndex, kindFlags: u32, strict: bool) bool {
+        if (source == 0 or source >= c.typesList.items.len) return false;
         const sourceFlags = c.typesList.items[source].flags;
         if ((sourceFlags & kindFlags) != 0) return true;
 
@@ -5064,8 +5071,39 @@ pub const Checker = struct {
     }
 
     pub fn getReturnTypeOfSignature(c: *Checker, signature: *types.Signature) types.TypeIndex {
-        _ = signature;
-        return c.unknownTypeIndex orelse 0; // Skipped
+        // If the signature has a resolved return type, use it.
+        if (signature.resolvedReturnType) |rt| {
+            if (rt != 0) return rt;
+        }
+        // Try to read the explicit return type annotation from the declaration.
+        if (signature.declaration != 0) {
+            const decl = signature.declaration;
+            const node = c.binder.ast.getNode(decl);
+            const type_node: ast_gen.NodeIndex = switch (node) {
+                .FunctionDeclaration => |n| n.Type orelse 0,
+                .FunctionExpression => |n| n.Type orelse 0,
+                .MethodDeclaration => |n| n.Type orelse 0,
+                .ArrowFunction => |n| n.Type orelse 0,
+                .GetAccessor => |n| n.Type orelse 0,
+                .SetAccessor => |n| n.Type orelse 0,
+                .CallSignature => |n| n.Type orelse 0,
+                .ConstructSignature => |n| n.Type orelse 0,
+                .IndexSignature => |n| n.Type orelse 0,
+                else => 0,
+            };
+            if (type_node != 0) {
+                const t = c.getTypeOfNode(type_node) catch 0;
+                if (t != 0) {
+                    signature.resolvedReturnType = t;
+                    return t;
+                }
+            }
+        }
+        // No explicit return type — fall back to void for statements-with-body,
+        // and unknown for arrow-function expressions (which TS infers from body).
+        // We don't yet infer from the body — that requires running the full
+        // checker on the function body, which has not been ported.
+        return c.voidTypeIndex orelse 0;
     }
 
     pub fn getErasedSignature(c: *Checker, signature: *types.Signature) *types.Signature {
@@ -13871,6 +13909,7 @@ pub const Checker = struct {
     };
 
     pub fn checkTruthinessOfType(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return t;
         if ((c.typesList.items[t].flags & types.TypeFlags.Void) != 0) {
             c.reportError(node, &diagnostics_gen.An_expression_of_type_void_cannot_be_tested_for_truthiness);
             return t;

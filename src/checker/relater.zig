@@ -1566,6 +1566,9 @@ pub const Relater = struct {
         if (originalSource == originalTarget) return .True;
 
         const c = self.c;
+        // Bounds-check: invalid type indices cannot be related.
+        if (originalSource == 0 or originalSource >= c.typesList.items.len) return .False;
+        if (originalTarget == 0 or originalTarget >= c.typesList.items.len) return .False;
         const sourceFlags = c.typesList.items[originalSource].flags;
         const targetFlags = c.typesList.items[originalTarget].flags;
 
@@ -2942,6 +2945,10 @@ pub fn getRelationKey(source: types.TypeIndex, target: types.TypeIndex, intersec
 pub fn isTypeRelatedTo(c: *Checker, sourceIn: types.TypeIndex, targetIn: types.TypeIndex, relation: *Relation) bool {
     var source = sourceIn;
     var target = targetIn;
+
+    // Bounds-check: invalid type indices cannot be related.
+    if (source == 0 or source >= c.typesList.items.len) return false;
+    if (target == 0 or target >= c.typesList.items.len) return false;
 
     if (isFreshLiteralType(c, source)) {
         source = getRegularTypeOfLiteralType(c, source);

@@ -40,11 +40,11 @@ fn fillNodeStart(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
     var visitor = Visitor{ .tree = tree, .min_child_pos = &min_child_pos };
     for_each.forEachChild(tree, node, &visitor) catch {};
 
-    if (tree.positions.items[node].pos == 0 and min_child_pos != no_position) {
+    if (tree.positions.items[node].pos == ast.Ast.unset_pos and min_child_pos != no_position) {
         tree.positions.items[node].pos = min_child_pos;
     }
 
-    return tree.positions.items[node].pos;
+    return if (tree.positions.items[node].pos == ast.Ast.unset_pos) 0 else tree.positions.items[node].pos;
 }
 
 fn fillNodeEnd(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
@@ -75,9 +75,6 @@ fn fillNodeEnd(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
     for_each.forEachChild(tree, node, &visitor) catch {};
 
     if (tree.positions.items[node].end == 0 and max_child_end != 0) {
-        if (tree.getNodeKind(node) == .FunctionDeclaration) {
-            std.debug.print("FunctionDeclaration max_child_end = {}\n", .{max_child_end});
-        }
         tree.positions.items[node].end = max_child_end;
     }
     return tree.positions.items[node].end;

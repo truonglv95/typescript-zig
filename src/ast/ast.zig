@@ -198,12 +198,17 @@ pub const Ast = struct {
         self.commentDirectives.deinit(self.allocator);
     }
 
+    /// Sentinel value used to mark a position as "unset". We use maxInt(u32)
+    /// so that 0 is a valid source position (start of file).
+    pub const unset_pos: u32 = std.math.maxInt(u32);
+
     /// Thêm một Node mới vào AST và trả về NodeIndex (chính là u32 pointer).
     pub fn pushNode(self: *Ast, node: ast_gen.NodeData) !ast_gen.NodeIndex {
         const index = @as(u32, @intCast(self.nodes.len));
         try self.nodes.append(self.allocator, node);
         try self.parents.append(self.allocator, 0); // Default parent is 0
-        try self.positions.append(self.allocator, .{ .pos = 0, .end = 0 });
+        // Use sentinel value to distinguish "unset" from "positioned at start of file".
+        try self.positions.append(self.allocator, .{ .pos = unset_pos, .end = 0 });
         return index;
     }
 
@@ -325,7 +330,8 @@ pub const Ast = struct {
 
     pub fn getNodePos(self: *Ast, index: NodeIndex) u32 {
         if (index >= self.positions.items.len) return 0;
-        return self.positions.items[index].pos;
+        const p = self.positions.items[index].pos;
+        return if (p == unset_pos) 0 else p;
     }
 
     pub fn getNodeEnd(self: *Ast, index: NodeIndex) u32 {
