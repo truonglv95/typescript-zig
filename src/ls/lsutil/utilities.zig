@@ -13,20 +13,26 @@ const children = @import("children.zig");
 const NodeIndex = ast.NodeIndex;
 
 pub fn probablyUsesSemicolons(tree: *ast.Ast) bool {
-    var withSemicolon: u32 = 0;
-    var withoutSemicolon: u32 = 0;
+    var withSemicolon: usize = 0;
+    var withoutSemicolon: usize = 0;
     const nStatementsToObserve: u32 = 5;
 
     const VisitCtx = struct {
         tree: *ast.Ast,
-        withSemicolon: *u32,
-        withoutSemicolon: *u32,
+        withSemicolon: *usize,
+        withoutSemicolon: *usize,
         nStatementsToObserve: u32,
 
-        fn visit(ctx: *@This(), node: NodeIndex) bool {
-            if (node == 0) return false;
+        pub fn visitList(ctx: *@This(), list: u32) anyerror!void {
+            for (ctx.tree.getNodeList(list)) |child| {
+                try ctx.visitNode(child);
+            }
+        }
+
+        pub fn visitNode(ctx: *@This(), node: NodeIndex) anyerror!void {
+            if (node == 0) return;
             if ((ctx.tree.getNodeFlags(node) & astnav.NodeFlags.Reparsed) != 0) {
-                return false;
+                return;
             }
             const kind = ctx.tree.getNodeKind(node);
             const asi = @import("asi.zig");
@@ -43,12 +49,12 @@ pub fn probablyUsesSemicolons(tree: *ast.Ast) bool {
                     ctx.withSemicolon.* += 1;
                 } else if (lastToken != null and ctx.tree.getNodeKind(lastToken.?) != .CommaToken) {
                     const lastTokenLine = scanner.getECMALineOfPosition(
-                        ctx.tree,
-                        astnav.getStartOfNode(ctx.tree, lastToken.?, false),
+                        ctx.tree.sourceText,
+                        ctx.tree.positions.items[lastToken.?].pos,
                     );
                     const nextTokenLine = scanner.getECMALineOfPosition(
-                        ctx.tree,
-                        scanner.skipTrivia(ctx.tree.sourceText, ctx.tree.positions.items[lastToken.?].end, false),
+                        ctx.tree.sourceText,
+                        scanner.skipTrivia(ctx.tree.sourceText, ctx.tree.positions.items[lastToken.?].end),
                     );
                     if (lastTokenLine != nextTokenLine) {
                         ctx.withoutSemicolon.* += 1;
@@ -57,10 +63,10 @@ pub fn probablyUsesSemicolons(tree: *ast.Ast) bool {
             }
 
             if (ctx.withSemicolon.* + ctx.withoutSemicolon.* >= ctx.nStatementsToObserve) {
-                return true;
+                return;
             }
 
-            return ast.forEachChild(ctx.tree, node, ctx, visit);
+            try ast.forEachChild(ctx.tree, node, ctx);
         }
     };
 
@@ -71,7 +77,7 @@ pub fn probablyUsesSemicolons(tree: *ast.Ast) bool {
         .nStatementsToObserve = nStatementsToObserve,
     };
 
-    _ = ast.forEachChild(tree, 1, &ctx, VisitCtx.visit);
+    ast.forEachChild(tree, 1, &ctx) catch {};
 
     if (withSemicolon == 0 and withoutSemicolon <= 1) {
         return true;

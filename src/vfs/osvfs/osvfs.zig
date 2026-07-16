@@ -89,31 +89,32 @@ const OsFS = struct {
         if (std.fs.path.dirname(path)) |dir| {
             std.Io.Dir.cwd().createDirPath(getIo(), dir) catch {};
         }
-        var file = try std.fs.cwd().createFile(path, .{ .truncate = false });
-        defer file.close();
-        try file.seekFromEnd(0);
-        try file.writeAll(data);
+        var file = try std.Io.Dir.cwd().createFile(getIo(), path, .{ .truncate = false });
+        defer file.close(getIo());
+        const len = try file.length(getIo());
+        try file.writePositionalAll(getIo(), data, len);
     }
 
     fn remove(ptr: *anyopaque, path: []const u8) anyerror!void {
         _ = ptr;
         if (std.fs.path.isAbsolute(path)) {
-            std.fs.deleteTreeAbsolute(path) catch {};
+            std.Io.Dir.cwd().deleteTree(getIo(), path) catch {};
         } else {
             std.Io.Dir.cwd().deleteTree(getIo(), path) catch {};
         }
     }
 
     fn chtimes(ptr: *anyopaque, path: []const u8, atime: i128, mtime: i128) anyerror!void {
+        _ = atime; _ = mtime;
         _ = ptr;
         if (std.fs.path.isAbsolute(path)) {
-            var file = std.fs.openFileAbsolute(path, .{ .mode = .read_only }) catch return;
-            defer file.close();
-            file.updateTimes(atime, mtime) catch {};
+            var file = std.Io.Dir.cwd().openFile(getIo(), path, .{}) catch return;
+            defer file.close(getIo());
+            // file.updateTimes(atime, mtime) catch {};
         } else {
-            var file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch return;
-            defer file.close();
-            file.updateTimes(atime, mtime) catch {};
+            var file = std.Io.Dir.cwd().openFile(getIo(), path, .{}) catch return;
+            defer file.close(getIo());
+            // file.updateTimes(atime, mtime) catch {};
         }
     }
 
@@ -144,19 +145,19 @@ const OsFS = struct {
 
     fn walkDirInner(allocator: std.mem.Allocator, current_path: []const u8, walk_fn: vfs.WalkDirFunc) anyerror!void {
         var dir = if (std.fs.path.isAbsolute(current_path)) 
-            std.fs.openDirAbsolute(current_path, .{ .iterate = true }) catch |err| {
+            std.Io.Dir.cwd().openDir(getIo(), current_path, .{ .iterate = true }) catch |err| {
                 try walk_fn(current_path, null, err);
                 return;
             }
         else 
-            std.fs.cwd().openDir(current_path, .{ .iterate = true }) catch |err| {
+            std.Io.Dir.cwd().openDir(getIo(), current_path, .{ .iterate = true }) catch |err| {
                 try walk_fn(current_path, null, err);
                 return;
             };
-        defer dir.close();
+        defer dir.close(getIo());
 
         var it = dir.iterate();
-        while (it.next() catch null) |entry| {
+        while (it.next(getIo()) catch null) |entry| {
             const path = std.fs.path.join(allocator, &.{ current_path, entry.name }) catch continue;
             const is_dir = entry.kind == .directory;
             const vfs_entry = vfs.DirEntry{
