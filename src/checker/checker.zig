@@ -8739,14 +8739,52 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn onSuccessfullyResolvedSymbol(c: *Checker, errorLocation: ast_gen.NodeIndex, result: types.TypeIndex, meaning: u32, lastLocation: ast_gen.NodeIndex, associatedDeclarationForContainingInitializerOrBindingName: ast_gen.NodeIndex, withinDeferredContext: types.TypeIndex) void {
-        _ = c;
-        _ = errorLocation;
-        _ = result;
-        _ = meaning;
-        _ = lastLocation;
+    /// Port of `checker.go::onSuccessfullyResolvedSymbol`. Performs post-
+    /// resolution checks: block-scoped variable checks, UMD global access
+    /// checks, and parameter initializer scope checks.
+    pub fn onSuccessfullyResolvedSymbol(c: *Checker, errorLocation: ast_gen.NodeIndex, result: ast_gen.SymbolIndex, meaning: u32, lastLocation: ast_gen.NodeIndex, associatedDeclarationForContainingInitializerOrBindingName: ast_gen.NodeIndex, withinDeferredContext: bool) void {
         _ = associatedDeclarationForContainingInitializerOrBindingName;
         _ = withinDeferredContext;
+        if (result == 0 or result >= c.binder.symbols.items.len) return;
+        const sym = c.binder.symbols.items[result];
+        const name = sym.Name;
+        // Check for block-scoped variable usage.
+        if (errorLocation != 0 and
+            ((meaning & symbol.SymbolFlags.BlockScopedVariable) != 0 or
+             ((meaning & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Enum)) != 0 and
+              (meaning & symbol.SymbolFlags.Value) == symbol.SymbolFlags.Value)))
+        {
+            const export_or_local = c.getExportSymbolOfValueSymbolIfExported(result);
+            if (export_or_local < c.binder.symbols.items.len) {
+                const flags = c.binder.symbols.items[export_or_local].Flags;
+                if ((flags & (symbol.SymbolFlags.BlockScopedVariable | symbol.SymbolFlags.Class | symbol.SymbolFlags.Enum)) != 0) {
+                    c.checkResolvedBlockScopedVariable(export_or_local, errorLocation);
+                }
+            }
+        }
+        // Check for UMD global access in external modules.
+        const is_external_module = lastLocation != 0 and
+            c.binder.ast.getKind(lastLocation) == .SourceFile;
+        if (is_external_module and (meaning & symbol.SymbolFlags.Value) == symbol.SymbolFlags.Value) {
+            const merged = c.getMergedSymbol(result);
+            if (merged < c.binder.symbols.items.len) {
+                const merged_sym = c.binder.symbols.items[merged];
+                if (merged_sym.Declarations.items.len > 0) {
+                    // Check if all declarations are namespace export or source file with global exports.
+                    var all_global = true;
+                    for (merged_sym.Declarations.items) |d| {
+                        const k = c.binder.ast.getKind(d);
+                        if (k != .NamespaceExportDeclaration and k != .SourceFile) {
+                            all_global = false;
+                            break;
+                        }
+                    }
+                    if (all_global) {
+                        c.reportErrorWithArgs(errorLocation, &diagnostics_gen.X_0_refers_to_a_UMD_global_but_the_current_file_is_a_module_Consider_adding_an_import_instead, &.{name});
+                    }
+                }
+            }
+        }
     }
 
     /// Simple Levenshtein distance between two strings. Used by spelling
