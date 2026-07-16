@@ -1922,12 +1922,29 @@ pub const Checker = struct {
     }
 
     pub fn getTypesFromUnion(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
-        const unionData = c.getTargetTypeData(t).Union;
+        if (t == 0 or t >= c.typesList.items.len) return &[_]types.TypeIndex{};
+        const type_data = c.typesList.items[t];
+        // Check if the type is actually a Union before accessing .Union field.
+        if ((type_data.flags & types.TypeFlags.Union) == 0) {
+            // Not a union type — return a single-element slice containing t.
+            c.distributedTypesScratch[0] = t;
+            return c.distributedTypesScratch[0..1];
+        }
+        if (type_data.data != .Union) return &[_]types.TypeIndex{};
+        const unionData = type_data.data.Union;
         return c.unionTypesPool.items[unionData.typesStart .. unionData.typesStart + unionData.typesLen];
     }
 
     pub fn getTypesFromIntersection(c: *Checker, t: types.TypeIndex) []const types.TypeIndex {
-        const intersectionData = c.getTargetTypeData(t).Intersection;
+        if (t == 0 or t >= c.typesList.items.len) return &[_]types.TypeIndex{};
+        const type_data = c.typesList.items[t];
+        // Check if the type is actually an Intersection before accessing .Intersection field.
+        if ((type_data.flags & types.TypeFlags.Intersection) == 0) {
+            c.distributedTypesScratch[0] = t;
+            return c.distributedTypesScratch[0..1];
+        }
+        if (type_data.data != .Intersection) return &[_]types.TypeIndex{};
+        const intersectionData = type_data.data.Intersection;
         return c.unionTypesPool.items[intersectionData.typesStart .. intersectionData.typesStart + intersectionData.typesLen];
     }
 
