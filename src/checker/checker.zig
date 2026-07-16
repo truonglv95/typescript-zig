@@ -4117,7 +4117,21 @@ pub const Checker = struct {
                         // Try to get call signatures from the type (e.g., interface
                         // with call signatures like `interface Foo { <T>(x: T): T }`).
                         if (calleeType.symbol) |callee_sym| {
-                            const sigs = self.getSignaturesOfSymbol(callee_sym);
+                            // For interface/class symbols, the call signatures are
+                            // stored as a __call member symbol. Look it up first.
+                            var sigs = self.getSignaturesOfSymbol(callee_sym);
+                            if (sigs.len == 0) {
+                                // Try __call member.
+                                if (self.binder.symbolMembers.getPtr(callee_sym)) |members| {
+                                    if (members.get("__call")) |call_sym| {
+                                        sigs = self.getSignaturesOfSymbol(call_sym);
+                                    }
+                                }
+                            }
+                            if (sigs.len == 0) {
+                                // Try getSignaturesOfType.
+                                sigs = self.getSignaturesOfType(calleeTypeIdx, .Call);
+                            }
                             if (sigs.len > 0) {
                                 sig_idx = self.resolvedSignaturesPool.items[sigs.start];
                                 const sig = &self.signatures.items[sig_idx];
@@ -4142,9 +4156,9 @@ pub const Checker = struct {
                         }
                         if (declNode == 0) {
                             // Last resort: try getSignaturesOfType.
-                            const sigs = self.getSignaturesOfType(calleeTypeIdx, .Call);
-                            if (sigs.len > 0) {
-                                sig_idx = self.resolvedSignaturesPool.items[sigs.start];
+                            const sigs2 = self.getSignaturesOfType(calleeTypeIdx, .Call);
+                            if (sigs2.len > 0) {
+                                sig_idx = self.resolvedSignaturesPool.items[sigs2.start];
                                 const sig = &self.signatures.items[sig_idx];
                                 declNode = sig.declaration;
                             }
@@ -4301,6 +4315,46 @@ pub const Checker = struct {
                                             .typeArgumentsLen = ta_len,
                                         } },
                                     });
+                                }
+                            }
+                        }
+                        // No explicit type arguments — check if the class
+                        // has type parameters. If so, default them to `unknown`.
+                        if (td.symbol != null and td.symbol.? < self.binder.symbols.items.len) {
+                            const cls_sym = self.binder.symbols.items[td.symbol.?];
+                            if (cls_sym.Declarations.items.len > 0) {
+                                const decl = cls_sym.Declarations.items[0];
+                                const decl_data = self.binder.ast.getNode(decl);
+                                const tp_list: ?u32 = switch (decl_data) {
+                                    .ClassDeclaration => |cd| cd.TypeParameters,
+                                    else => null,
+                                };
+                                if (tp_list) |tpl| {
+                                    if (tpl != 0) {
+                                        const tp_nodes = self.binder.ast.getNodeList(tpl);
+                                        if (tp_nodes.len > 0) {
+                                            const ta_start: u32 = @intCast(self.typeArgumentsPool.items.len);
+                                            for (tp_nodes) |tp_node| {
+                                                _ = tp_node;
+                                                const unknown_t = try self.getUnknownType();
+                                                self.typeArgumentsPool.append(self.allocator, unknown_t) catch {};
+                                            }
+                                            const ta_len: u32 = @intCast(self.typeArgumentsPool.items.len - ta_start);
+                                            return try self.createType(.{
+                                                .flags = types.TypeFlags.Object,
+                                                .objectFlags = types.ObjectFlags.Reference,
+                                                .id = 0,
+                                                .symbol = td.symbol,
+                                                .alias = null,
+                                                .data = .{ .Object = .{
+                                                    .Symbol = td.symbol,
+                                                    .target = ctor_type,
+                                                    .typeArgumentsStart = ta_start,
+                                                    .typeArgumentsLen = ta_len,
+                                                } },
+                                            });
+                                        }
+                                    }
                                 }
                             }
                         }
