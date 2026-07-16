@@ -402,6 +402,8 @@ pub const Checker = struct {
     checkJs: bool = false,
     allowJs: bool = false,
     useUnknownInCatchVariables: bool = false,
+    /// Synthetic symbol index for RegExp (used when lib.d.ts is not loaded).
+    regExpSymbolIndex: ?ast_gen.SymbolIndex = null,
     erasableSyntaxOnly: bool = false,
     moduleKind: core.ModuleKind = .ESNext,
     exactOptionalPropertyTypes: bool = false,
@@ -3782,7 +3784,17 @@ pub const Checker = struct {
                 return try self.getStringType();
             },
             .RegularExpressionLiteral => {
-                // RegExp is an object type
+                // Use the synthetic RegExp symbol to create a named type.
+                if (self.regExpSymbolIndex) |reg_sym| {
+                    return try self.createType(.{
+                        .flags = types.TypeFlags.Object,
+                        .objectFlags = types.ObjectFlags.Class,
+                        .id = 0,
+                        .symbol = reg_sym,
+                        .alias = null,
+                        .data = .{ .Object = .{ .Symbol = reg_sym } },
+                    });
+                }
                 return try self.getObjectType();
             },
 
@@ -9016,6 +9028,21 @@ pub const Checker = struct {
         _ = c.getNullType() catch {};
         _ = c.getUnknownType() catch {};
         _ = c.getNeverType() catch {};
+        // Create a synthetic RegExp symbol for when lib.d.ts is not loaded.
+        if (c.regExpSymbolIndex == null) {
+            const sym_idx: ast_gen.SymbolIndex = @intCast(c.binder.symbols.items.len);
+            c.binder.symbols.append(c.binder.allocator, .{
+                .Flags = symbol.SymbolFlags.Class,
+                .Name = "RegExp",
+                .Declarations = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty,
+                .ValueDeclaration = null,
+                .Members = symbol.SymbolTable.empty,
+                .Exports = symbol.SymbolTable.empty,
+                .Parent = null,
+                .ExportSymbol = null,
+            }) catch {};
+            c.regExpSymbolIndex = sym_idx;
+        }
         // Global symbol merging is handled by the binder in bindSourceFile.
         // Nothing additional to do here for now.
     }
@@ -24097,7 +24124,19 @@ pub fn checkExpressionWorker(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode
             return checkBigIntLiteral(c, node_idx, checkMode);
         },
         .RegularExpressionLiteral => {
-            return getGlobalRegExpType(c, true) catch (c.anyTypeIndex orelse 0);
+            // Use the synthetic RegExp symbol to create a named type.
+            // This ensures typeToString renders "RegExp" instead of "{}".
+            if (c.regExpSymbolIndex) |reg_sym| {
+                return c.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = types.ObjectFlags.Class,
+                    .id = 0,
+                    .symbol = reg_sym,
+                    .alias = null,
+                    .data = .{ .Object = .{ .Symbol = reg_sym } },
+                }) catch (c.anyTypeIndex orelse 0);
+            }
+            return c.anyTypeIndex orelse 0;
         },
         .ArrayLiteralExpression => {
             return checkArrayLiteral(c, node_idx, checkMode, null);
