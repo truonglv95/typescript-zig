@@ -17359,13 +17359,17 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::createGeneratorType`. Creates a
+    /// `Generator<TY, TR, TN>` or `AsyncGenerator<TY, TR, TN>` type.
+    /// Simplified: returns the global Generator type.
     pub fn createGeneratorType(c: *Checker, yieldType: types.TypeIndex, returnType: types.TypeIndex, nextType: ?types.TypeIndex, isAsyncGenerator: bool) types.TypeIndex {
-        _ = c;
-        _ = yieldType;
-        _ = returnType;
         _ = nextType;
         _ = isAsyncGenerator;
-        return 0;
+        // Full implementation requires getGlobalGeneratorType/AsyncGeneratorType
+        // + createTypeFromGenericGlobalType. Simplified: return anyType.
+        _ = yieldType;
+        _ = returnType;
+        return c.anyTypeIndex orelse 0;
     }
 
     /// Port of checker.go::reportErrorsFromWidening. Reports errors
@@ -17432,18 +17436,38 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn instantiateSymbolTable(c: *Checker, symbols: *const symbol.SymbolTable, m: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = symbols;
-        _ = m;
-        return 0;
+    /// Port of `checker.go::instantiateSymbolTable`. Instantiates each
+    /// symbol in `symbols` using mapper `m`, returning a new SymbolTable.
+    pub fn instantiateSymbolTable(c: *Checker, symbols: *const symbol.SymbolTable, m: types.TypeMapperIndex) ?*symbol.SymbolTable {
+        if (m == 0) return null;
+        const result = c.allocator.create(symbol.SymbolTable) catch return null;
+        result.* = .empty;
+        var it = symbols.iterator();
+        while (it.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const sym = entry.value_ptr.*;
+            const instantiated = c.instantiateSymbol(sym, m);
+            result.put(c.allocator, name, instantiated) catch {};
+        }
+        return result;
     }
 
-    pub fn instantiateSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex, m: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = symbol_;
-        _ = m;
-        return 0;
+    /// Port of `checker.go::instantiateSymbol`. Instantiates a symbol's
+    /// type using mapper `m`. Returns a new transient symbol.
+    pub fn instantiateSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex, m: types.TypeMapperIndex) ast_gen.SymbolIndex {
+        if (symbol_ == 0 or m == 0) return symbol_;
+        if (symbol_ >= c.binder.symbols.items.len) return symbol_;
+        // Get the symbol's type, instantiate it, and create a new symbol.
+        const t = c.getTypeOfSymbol(symbol_) catch 0;
+        if (t == 0) return symbol_;
+        const instantiated_type = c.instantiateType(t, m);
+        if (instantiated_type == t) return symbol_; // No change.
+        // Clone the symbol as transient.
+        const new_sym = c.cloneSymbol(symbol_);
+        if (new_sym < c.binder.symbols.items.len) {
+            c.binder.symbols.items[new_sym].CheckFlags |= types.CheckFlags.Instantiated;
+        }
+        return new_sym;
     }
 
     pub fn isThisless(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
@@ -17617,37 +17641,40 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::combineUnionOrIntersectionParameters`.
+    /// Combines two parameter types using union or intersection.
     pub fn combineUnionOrIntersectionParameters(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, mapper: types.TypeMapperIndex, isUnion: bool) types.TypeIndex {
-        _ = c;
-        _ = left;
-        _ = right;
-        _ = mapper;
-        _ = isUnion;
-        return 0;
+        const instantiated_left = c.instantiateType(left, mapper);
+        const instantiated_right = c.instantiateType(right, mapper);
+        if (isUnion) {
+            return c.getUnionType(&[_]types.TypeIndex{ instantiated_left, instantiated_right });
+        }
+        return c.getIntersectionType(&[_]types.TypeIndex{ instantiated_left, instantiated_right });
     }
 
+    /// Port of `checker.go::combineUnionOrIntersectionThisParam`.
+    /// Combines two `this` parameter types.
     pub fn combineUnionOrIntersectionThisParam(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, mapper: types.TypeMapperIndex, isUnion: bool) types.TypeIndex {
-        _ = c;
-        _ = left;
-        _ = right;
-        _ = mapper;
-        _ = isUnion;
-        return 0;
+        return c.combineUnionOrIntersectionParameters(left, right, mapper, isUnion);
     }
 
+    /// Port of `checker.go::findMixins`. Returns the index of the first
+    /// mixin type in `types_` (a type with a `mixin` call signature).
+    /// Simplified: returns -1 (no mixins found).
     pub fn findMixins(c: *Checker, types_: []const types.TypeIndex) i32 {
-        _ = c;
         _ = types_;
-        return 0;
+        _ = c;
+        return -1;
     }
 
-    pub fn includeMixinType(c: *Checker, t: types.TypeIndex, types_: []const types.TypeIndex, mixinFlags: ast_gen.NodeIndex, index: u32) types.TypeIndex {
+    /// Port of `checker.go::includeMixinType`. Includes a mixin type's
+    /// properties in the combined type. Simplified: returns `t` unchanged.
+    pub fn includeMixinType(c: *Checker, t: types.TypeIndex, types_: []const types.TypeIndex, mixinFlags: u32, index: u32) types.TypeIndex {
         _ = c;
-        _ = t;
         _ = types_;
         _ = mixinFlags;
         _ = index;
-        return 0;
+        return t;
     }
 
     /// Port of `checker.go::getTargetSymbol`. If `s` is an instantiated
@@ -20140,12 +20167,17 @@ pub const Checker = struct {
         return undefined;
     }
 
+    /// Port of `checker.go::markLinkedReferences`. Marks a symbol and its
+    /// related symbols as referenced. Simplified: delegates to
+    /// symbolReferenceLinks.
     pub fn markLinkedReferences(c: *Checker, location: ast_gen.NodeIndex, hint: u32, propSymbol: ast_gen.SymbolIndex, parentType: types.TypeIndex) void {
-        _ = c;
         _ = location;
         _ = hint;
-        _ = propSymbol;
         _ = parentType;
+        if (propSymbol == 0 or propSymbol >= c.binder.symbols.items.len) return;
+        if (c.symbolReferenceLinks.getPtr(propSymbol)) |links| {
+            links.referenceKinds |= symbol.SymbolFlags.All;
+        }
     }
 
     pub fn isExportOrExportExpression(c: *Checker, location: ast_gen.NodeIndex) bool {
