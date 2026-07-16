@@ -3,6 +3,7 @@ const ast = @import("../../ast/ast.zig");
 const core = @import("../../core/core.zig");
 const locale = @import("../../locale/locale.zig");
 const stringutil = @import("../../stringutil/stringutil.zig");
+const stringutil_compare = @import("../../stringutil/compare.zig");
 const tspath = @import("../../tspath/tspath.zig");
 const formatcodeoptions = @import("formatcodeoptions.zig");
 const userpreferences = @import("userpreferences.zig");
@@ -53,9 +54,9 @@ pub fn getDetectionLists(allocator: std.mem.Allocator, preferences: UserPreferen
 
 pub fn getOrganizeImportsOrdinalStringComparer(ignoreCase: bool) *const fn ([]const u8, []const u8) i32 {
     if (ignoreCase) {
-        return stringutil.compareStringsCaseInsensitiveEslintCompatible;
+        return struct { fn cmp(a: []const u8, b: []const u8) i32 { return @intFromEnum(stringutil_compare.compareStringsCaseInsensitiveEslintCompatible(a, b)); } }.cmp;
     }
-    return stringutil.compareStringsCaseSensitive;
+    return struct { fn cmp(a: []const u8, b: []const u8) i32 { return @intFromEnum(stringutil_compare.compareStringsCaseSensitive(a, b)); } }.cmp;
 }
 
 pub fn getExternalModuleName(tree: *ast.Ast, specifier: NodeIndex) []const u8 {
@@ -119,7 +120,7 @@ pub fn compareOrganizeImportsNaturalStrings(a_param: []const u8, b_param: []cons
         if (cmp != 0) return cmp;
     }
 
-    return std.mem.order(u8, a_param, b_param).compare();
+    return switch (std.mem.order(u8, a_param, b_param)) { .lt => @as(i32, -1), .eq => @as(i32, 0), .gt => @as(i32, 1), };
 }
 
 fn compareStringsNumeric(a_param: []const u8, b_param: []const u8) i32 {
@@ -144,14 +145,14 @@ fn compareStringsNumeric(a_param: []const u8, b_param: []const u8) i32 {
         const aChar = if (a.len >= aLen) a[0..aLen] else a[0..1];
         const bChar = if (b.len >= bLen) b[0..bLen] else b[0..1];
         
-        const cmp = std.mem.order(u8, aChar, bChar).compare();
+        const cmp = switch (std.mem.order(u8, aChar, bChar)) { .lt => @as(i32, -1), .eq => @as(i32, 0), .gt => @as(i32, 1), };
         if (cmp != 0) return cmp;
         
         a = if (a.len >= aLen) a[aLen..] else "";
         b = if (b.len >= bLen) b[bLen..] else "";
     }
 
-    return std.math.order(a.len, b.len).compare();
+    return switch (std.math.order(a.len, b.len)) { .lt => -1, .eq => 0, .gt => 1, };
 }
 
 fn asciiDigitRunEnd(s: []const u8) usize {
@@ -163,18 +164,20 @@ fn asciiDigitRunEnd(s: []const u8) usize {
 }
 
 fn compareNumericText(a: []const u8, b: []const u8) i32 {
-    const aTrim = std.mem.trimLeft(u8, a, "0");
-    const bTrim = std.mem.trimLeft(u8, b, "0");
+    var aTrim = a;
+    while (aTrim.len > 0 and aTrim[0] == '0') aTrim = aTrim[1..];
+    var bTrim = b;
+    while (bTrim.len > 0 and bTrim[0] == '0') bTrim = bTrim[1..];
     const aDigits = if (aTrim.len == 0) "0" else aTrim;
     const bDigits = if (bTrim.len == 0) "0" else bTrim;
 
     if (aDigits.len != bDigits.len) {
-        return std.math.order(aDigits.len, bDigits.len).compare();
+        return switch (std.math.order(aDigits.len, bDigits.len)) { .lt => @as(i32, -1), .eq => @as(i32, 0), .gt => @as(i32, 1), };
     }
-    const cmp = std.mem.order(u8, aDigits, bDigits).compare();
+    const cmp = switch (std.mem.order(u8, aDigits, bDigits)) { .lt => @as(i32, -1), .eq => @as(i32, 0), .gt => @as(i32, 1), };
     if (cmp != 0) return cmp;
     
-    return std.mem.order(u8, a, b).compare();
+    return switch (std.mem.order(u8, a, b)) { .lt => @as(i32, -1), .eq => @as(i32, 0), .gt => @as(i32, 1), };
 }
 
 fn compareOrganizeImportsCaseUpperFirst(a: []const u8, b: []const u8) i32 {
@@ -187,7 +190,7 @@ fn compareOrganizeImportsCaseUpperFirst(a: []const u8, b: []const u8) i32 {
             return 1;
         }
     }
-    return std.math.order(a.len, b.len).compare();
+    return switch (std.math.order(a.len, b.len)) { .lt => -1, .eq => 0, .gt => 1, };
 }
 
 fn getOrganizeImportsNaturalStringComparer(ignoreCase: bool) *const fn ([]const u8, []const u8) i32 {

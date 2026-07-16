@@ -7,7 +7,7 @@ const modulespecifiers = @import("../../modulespecifiers/modulespecifiers.zig");
 
 test "UserPreferences reportStyleChecksAsWarnings defaults to true" {
     const prefs = userpreferences.newDefaultUserPreferences();
-    try std.testing.expectEqual(core.Tristate.ts_true, prefs.reportStyleChecksAsWarnings);
+    try std.testing.expectEqual(core.Tristate.True, prefs.reportStyleChecksAsWarnings);
 }
 
 // In Zig we don't have json.Unmarshal dynamically mapped via reflection yet
@@ -21,16 +21,16 @@ test "UserPreferences IsATADisabled defaults to false" {
 
 test "UserPreferences IsATADisabled unified setting takes precedence" {
     var prefs = userpreferences.newDefaultUserPreferences();
-    prefs.disableAutomaticTypeAcquisition = .ts_true;
-    prefs.automaticTypeAcquisitionEnabled = .ts_true;
+    prefs.disableAutomaticTypeAcquisition = .True;
+    prefs.automaticTypeAcquisitionEnabled = .True;
     try std.testing.expect(!prefs.isATADisabled());
 
-    prefs.automaticTypeAcquisitionEnabled = .ts_false;
+    prefs.automaticTypeAcquisitionEnabled = .False;
     try std.testing.expect(prefs.isATADisabled());
 }
 
 test "UserPreferences IsATADisabled with only legacy setting" {
     var prefs = userpreferences.newDefaultUserPreferences();
-    prefs.disableAutomaticTypeAcquisition = .ts_true;
+    prefs.disableAutomaticTypeAcquisition = .True;
     try std.testing.expect(prefs.isATADisabled());
 }

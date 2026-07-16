@@ -38,9 +38,9 @@ pub fn parseTestData(allocator: std.mem.Allocator, content: []const u8) !*Parsed
     result.ranges = std.ArrayListUnmanaged(*RangeMarker).empty;
 
     // Split files
-    const parsedFiles = try test_case_parser.makeUnitsFromTest(aa, content, "test.ts");
+    const parsedFiles = try test_case_parser.parseTestFilesAndSymlinksWithOptions(test_case_parser.TestUnit, aa, content, "test.ts", test_case_parser.TestFileParser.parse, test_case_parser.ParseTestFilesOptions{ .allowImplicitFirstFile = true });
 
-    for (parsedFiles.testUnitData) |unit| {
+    for (parsedFiles.units.items) |unit| {
         var cleanContent = std.ArrayListUnmanaged(u8).empty;
         var i: usize = 0;
         
@@ -51,14 +51,14 @@ pub fn parseTestData(allocator: std.mem.Allocator, content: []const u8) !*Parsed
 
         while (i < rawContent.len) {
             if (i + 1 < rawContent.len and rawContent[i] == '/' and rawContent[i+1] == '*') {
-                const end = std.mem.indexOf(u8, rawContent[i..], "*/");
+                const end = std.mem.indexOf(u8, rawContent[i+2..], "*/");
                 if (end) |endIdx| {
-                    const markerName = std.mem.trim(u8, rawContent[i+2 .. i+endIdx], " \t\r\n");
+                    const markerName = std.mem.trim(u8, rawContent[i+2 .. i+2+endIdx], " \t\r\n");
                     var marker = try aa.create(Marker);
                     marker.name = markerName;
                     marker.position = cleanContent.items.len;
                     try result.markerPositions.put(markerName, marker);
-                    i += endIdx + 2;
+                    i += 2 + endIdx + 2;
                     continue;
                 }
             } else if (i + 1 < rawContent.len and rawContent[i] == '[' and rawContent[i+1] == '|') {

@@ -31,7 +31,7 @@ pub fn getLastChild(tree: *ast.Ast, node: NodeIndex) ?NodeIndex {
             const tokenEnd: u32 = @intCast(scan.getTokenEnd());
             lastTokenNode = getOrCreateToken(tree, tokenKind, tokenFullStart, tokenEnd, node);
             startPos = tokenEnd;
-            scan.scan();
+            _ = scan.scan();
         }
         
         if (lastTokenNode) |tok| {

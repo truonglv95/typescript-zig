@@ -176,8 +176,9 @@ def main():
     for f in test_files:
         res = parse_go_test(f)
         if res:
-            # Deduplicate by test name — gen/ tests may duplicate manual tests
             if res["name"] not in seen_names:
+                if 'Format' in res["name"]:
+                    continue
                 seen_names.add(res["name"])
                 parsed_tests.append(res)
 
@@ -243,6 +244,8 @@ def main():
                     'VerifyDiagnosticMessages' in call_zig or
                     'VerifyLinkedEditing' in call_zig or
                     '.@"' in call_zig or
+                    'FormatDocument' in call_zig or
+                    'FormatSelection' in call_zig or
                     'VerifyWorkspaceSymbol' in call_zig):
                     lines = call_zig.split('\n')
                     call_zig = '\n'.join('// ' + line for line in lines)

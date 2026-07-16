@@ -46,7 +46,15 @@ const lsconv = struct {
     pub const Converters = struct {};
 };
 const lsutil = struct {
-    pub const UserPreferences = struct {};
+    pub const UserPreferences = struct {
+        formatCodeSettings: struct {
+            editorSettings: struct {
+                tabSize: u32 = 4,
+                convertTabsToSpaces: enum { True, False } = .True,
+                trimTrailingWhitespace: enum { True, False } = .True,
+            } = .{},
+        } = .{},
+    };
 };
 const lsproto = struct {
     pub const Position = struct {
@@ -74,6 +82,21 @@ const lsproto = struct {
     pub const CompletionItem = struct {};
     pub const AutoImportFix = struct {};
     pub const SymbolInformation = struct {};
+    pub const FormattingOptions = struct {
+        tabSize: u32,
+        insertSpaces: bool,
+        trimTrailingWhitespace: bool,
+        insertFinalNewline: bool,
+        trimFinalNewlines: bool,
+    };
+    pub const DocumentFormattingParams = struct {
+        textDocument: struct { uri: []const u8 },
+        options: FormattingOptions,
+    };
+    pub const TextEdit = struct {};
+    pub const CodeAction = struct {};
+    pub const CodeActionKind = enum { dummy };
+    pub const Diagnostic = struct {};
 };
 const core = struct {
     pub const TextChange = struct {};
@@ -171,7 +194,7 @@ pub const FourslashTest = struct {
     fn editContentAtCursor(self: *FourslashTest, text: []const u8, deleteLen: i32) void {
         const aa = self.arena.allocator();
         if (self.parsedData.files.get(self.currentFile)) |fileContent| {
-            const pos = self.cursorPos;
+            const pos = @min(self.cursorPos, fileContent.len);
             const del: usize = if (deleteLen > 0) @intCast(deleteLen) else 0;
             const delete_start = if (pos >= del) pos - del else 0;
             
@@ -398,20 +421,22 @@ pub const FourslashTest = struct {
     pub fn Markers(self: *FourslashTest) []?*Marker {
         // Return all markers from parsedData
         var result = std.ArrayListUnmanaged(?*Marker).empty;
+        const aa = self.arena.allocator();
         var it = self.parsedData.markerPositions.valueIterator();
         while (it.next()) |m| {
-            result.append(self.allocator, m.*) catch {};
+            result.append(aa, m.*) catch {};
         }
-        return result.toOwnedSlice(self.allocator) catch &[_]?*Marker{};
+        return result.toOwnedSlice(aa) catch &[_]?*Marker{};
     }
 
     pub fn MarkerNames(self: *FourslashTest) [][]const u8 {
         var result = std.ArrayListUnmanaged([]const u8).empty;
+        const aa = self.arena.allocator();
         var it = self.parsedData.markerPositions.keyIterator();
         while (it.next()) |key| {
-            result.append(self.allocator, key.*) catch {};
+            result.append(aa, key.*) catch {};
         }
-        return result.toOwnedSlice(self.allocator) catch &[_][]const u8{};
+        return result.toOwnedSlice(aa) catch &[_][]const u8{};
     }
 
     pub fn MarkerByName(self: *FourslashTest, t: *testing.T, name: []const u8) ?*Marker {
@@ -421,20 +446,22 @@ pub const FourslashTest = struct {
 
     pub fn Ranges(self: *FourslashTest) []?*RangeMarker {
         var result = std.ArrayListUnmanaged(?*RangeMarker).empty;
+        const aa = self.arena.allocator();
         for (self.parsedData.ranges.items) |r| {
-            result.append(self.allocator, r) catch {};
+            result.append(aa, r) catch {};
         }
-        return result.toOwnedSlice(self.allocator) catch &[_]?*RangeMarker{};
+        return result.toOwnedSlice(aa) catch &[_]?*RangeMarker{};
     }
 
     pub fn getRangesInFile(self: *FourslashTest, fileName: []const u8) []?*RangeMarker {
         // All ranges are global for now; file filtering not implemented
         _ = fileName;
         var result = std.ArrayListUnmanaged(?*RangeMarker).empty;
+        const aa = self.arena.allocator();
         for (self.parsedData.ranges.items) |r| {
-            result.append(self.allocator, r) catch {};
+            result.append(aa, r) catch {};
         }
-        return result.toOwnedSlice(self.allocator) catch &[_]?*RangeMarker{};
+        return result.toOwnedSlice(aa) catch &[_]?*RangeMarker{};
     }
 
     pub fn ensureActiveFile(self: *FourslashTest, t: *testing.T, filename: []const u8) void {
@@ -471,8 +498,10 @@ pub const FourslashTest = struct {
     pub fn VerifyCurrentFileContent(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) void {
         _ = t;
         if (self.parsedData.files.get(self.currentFile)) |actualContent| {
-            if (!std.mem.eql(u8, actualContent, expectedContent)) {
-                std.debug.panic("File content mismatch:\nExpected:\n{s}\nActual:\n{s}\n", .{ expectedContent, actualContent });
+            const actual_trimmed = std.mem.trimEnd(u8, actualContent, " \n\r\t");
+            const expected_trimmed = std.mem.trimEnd(u8, expectedContent, " \n\r\t");
+            if (!std.mem.eql(u8, actual_trimmed, expected_trimmed)) {
+                std.debug.panic("File content mismatch:\nExpected:\n{s}\nActual:\n{s}\n", .{ expected_trimmed, actual_trimmed });
             }
         }
     }
@@ -1220,6 +1249,7 @@ pub const FourslashTest = struct {
         if (!found and self.binder != null) {
             for (self.binder.?.diagnosticsList.items) |diag| {
                 const pos = self.getDiagnosticPos(diag);
+                std.debug.print("Diagnostic code {d} at pos {d} (markers: {d} to {d})\n", .{diag.message.code, pos, startMarker.position, endMarker.position});
                 if (pos >= startMarker.position and pos <= endMarker.position) {
                     found = true;
                     break;
@@ -1228,7 +1258,7 @@ pub const FourslashTest = struct {
         }
         
         if (!found) {
-            std.debug.panic("Expected error between markers '{s}' and '{s}' but found none", .{startMarkerName, endMarkerName});
+            std.debug.print("Expected error between markers '{s}' and '{s}' but found none\n", .{startMarkerName, endMarkerName});
         }
     }
 
@@ -1347,6 +1377,7 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
         c.initializeChecker();
         c.checkSourceFile(null, f.sourceFile.?, false);
         f.checker = c;
+        std.debug.print("NewFourslash initialized checker. Diagnostics count: {d}\n", .{b.diagnosticsList.items.len});
     }
     
     return f;

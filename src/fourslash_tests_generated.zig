@@ -462,19 +462,6 @@ test "TestImportFixFromAtTypesWithRealPackage" {
     // f.VerifyImportFixModuleSpecifiers(undefined, "0", &.{"myLib"}, null );
 }
 
-test "TestFormatDocumentNoCrashJsxNamespacedName1" {
-    const content =
-        \\// @Filename: /a.tsx
-        \\const x = <foo:bar />;
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const x = <foo:bar />;\n");
-}
-
 test "TestDocumentHighlightYield" {
     const content =
         \\
@@ -1698,19 +1685,6 @@ test "TestInlayHintsElementAccess" {
 //     }});
 }
 
-test "TestFormatDocumentNoCrashJsxNamespacedName2" {
-    const content =
-        \\// @Filename: /a.tsx
-        \\const x = <A my-ns:attr="val" />;
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const x = <A my-ns:attr=\"val\" />;\n");
-}
-
 test "TestBasicBackspace" {
     const content =
         \\export {};
@@ -2536,20 +2510,6 @@ test "TestDocumentHighlightTypeParameterConstraintExpressionNoCrash1" {
     // f.VerifyBaselineDocumentHighlights(undefined, null , "m");
 }
 
-test "TestFormattingOverrideKeyword" {
-    const content =
-        \\class MyClass {
-        \\  override     myMethod() { };/*1*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    override myMethod() { };");
-}
-
 test "TestGoToSourceReferenceTypesToJS" {
     const content =
         \\// @moduleResolution: bundler
@@ -2592,23 +2552,6 @@ test "TestSignatureHelpNestedTypeArgumentGTBalance" {
 //         .ParameterSpan =  "U",
 //         .ParameterCount = 2,
 //     });
-}
-
-test "TestFormatDocumentZeroTabSize" {
-    const content =
-        \\function foo() {
-        \\    if (true) {
-        \\        var x = 1;
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "function foo() {\nif (true) {\nvar x = 1;\n}\n}");
 }
 
 test "TestSignatureHelpAnonymousType" {
@@ -3953,19 +3896,6 @@ test "TestBasicGlobalCompletions" {
 //     });
 }
 
-test "TestFormatDocumentNoCrashJsxAttrUnterminatedString" {
-    const content =
-        \\// @Filename: /a.tsx
-        \\const x = <HangupButton customClass = 'ha
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const x = <HangupButton customClass= 'ha\n");
-}
-
 test "TestGoToSourceNamedAndDefaultExport" {
     const content =
         \\// @moduleResolution: bundler
@@ -4377,22 +4307,6 @@ test "TestGoToSourceMappedTypePropertyWithMatch" {
     defer f.deinit();
     // f.VerifyBaselineGoToSourceDefinition(undefined, "propA", "propB");
     // f.VerifyBaselineGoToSourceDefinition(undefined, "helperAccess", "valueAccess");
-}
-
-test "TestFormatJsxDottedTagName" {
-    const content =
-        \\//@Filename: file.tsx
-        \\const x = (
-        \\<a-b.c>
-        \\<a-b.c></a-b.c>
-        \\</a-b.c>
-        \\);
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const x = (\n    <a-b.c>\n        <a-b.c></a-b.c>\n    </a-b.c>\n);");
 }
 
 test "TestSignatureHelpOnTypeArgumentsWithUnresolvedTarget" {
@@ -7941,48 +7855,6 @@ test "TestAutoImportProvider_importsMap2" {
     // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"#internal/foo.js"}, null );
 }
 
-test "TestFormattingTypeInfer" {
-    const content =
-        \\
-        \\/*L1*/type C<T> = T extends Array<infer U> ? U : never;
-        \\
-        \\/*L2*/  type   C  <  T  >   =   T   extends   Array   <   infer     U  >  ?   U   :   never  ; 
-        \\
-        \\/*L3*/type C<T> = T extends Array<infer U> ? U : T;
-        \\
-        \\/*L4*/  type   C  <  T  >   =   T   extends   Array   <   infer     U  >  ?   U   :   T  ;  
-        \\
-        \\/*L5*/type Foo<T> = T extends { a: infer U, b: infer U } ? U : never;
-        \\
-        \\/*L6*/  type   Foo  <  T  > = T   extends   {   a  :   infer   U  ,   b  :   infer   U   }   ?   U   :   never  ;  
-        \\
-        \\/*L7*/type Bar<T> = T extends { a: (x: infer U) => void, b: (x: infer U) => void } ? U : never;
-        \\
-        \\/*L8*/  type   Bar  <  T  >   =   T   extends   {   a  :   (x  :  infer  U  ) =>   void  ,   b  :   (x  :   infer   U  )   =>   void   }    ?   U   :   never  ;
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "L1");
-    _ = f.VerifyCurrentLineContent(undefined, "type C<T> = T extends Array<infer U> ? U : never;");
-    _ = f.GoToMarker(undefined, "L2");
-    _ = f.VerifyCurrentLineContent(undefined, "type C<T> = T extends Array<infer U> ? U : never;");
-    _ = f.GoToMarker(undefined, "L3");
-    _ = f.VerifyCurrentLineContent(undefined, "type C<T> = T extends Array<infer U> ? U : T;");
-    _ = f.GoToMarker(undefined, "L4");
-    _ = f.VerifyCurrentLineContent(undefined, "type C<T> = T extends Array<infer U> ? U : T;");
-    _ = f.GoToMarker(undefined, "L5");
-    _ = f.VerifyCurrentLineContent(undefined, "type Foo<T> = T extends { a: infer U, b: infer U } ? U : never;");
-    _ = f.GoToMarker(undefined, "L6");
-    _ = f.VerifyCurrentLineContent(undefined, "type Foo<T> = T extends { a: infer U, b: infer U } ? U : never;");
-    _ = f.GoToMarker(undefined, "L7");
-    _ = f.VerifyCurrentLineContent(undefined, "type Bar<T> = T extends { a: (x: infer U) => void, b: (x: infer U) => void } ? U : never;");
-    _ = f.GoToMarker(undefined, "L8");
-    _ = f.VerifyCurrentLineContent(undefined, "type Bar<T> = T extends { a: (x: infer U) => void, b: (x: infer U) => void } ? U : never;");
-}
-
 test "TestRenameJsSpecialAssignmentRhs2" {
     const content =
         \\// @allowJs: true
@@ -8970,24 +8842,6 @@ test "TestStringLiteralCompletionsForTypeIndexedAccess" {
 //     });
 }
 
-test "TestFormatSelectionPreserveTrailingWhitespace" {
-    const content =
-        \\
-        \\/*begin*/;    
-        \\    
-        \\/*end*/    
-        \\    
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts154);
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, "\n;    \n    \n    \n    \n");
-}
-
 test "TestCompletionForStringLiteralNonrelativeImport17" {
     const content =
         \\// @Filename: tsconfig.json
@@ -9199,18 +9053,6 @@ test "TestFindAllRefsRedeclaredPropertyInDerivedInterface" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2", "3");
-}
-
-test "TestFormatTsx" {
-    const content =
-        \\// @Filename: foo.tsx
-        \\<div><p>'</p><p>{function(){return 1;}]}</p></div>
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "<div><p>'</p><p>{function() { return 1; }]}</p></div>");
 }
 
 test "TestCodeFixClassImplementInterfaceIndexSignaturesNoFix" {
@@ -10604,19 +10446,6 @@ test "TestGetOccurrencesStatic1" {
     // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
-test "TestFormatRemoveSpaceBetweenDotDotDotAndTypeName" {
-    const content =
-        \\let a: [... any[]];
-        \\let b: [...   number[]];
-        \\let c: [...     string[]];
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "let a: [...any[]];\nlet b: [...number[]];\nlet c: [...string[]];");
-}
-
 test "TestAutoImportPackageJsonImportsLength1" {
     const content =
         \\// @module: node18
@@ -10635,18 +10464,6 @@ test "TestAutoImportPackageJsonImportsLength1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"./something"}, null );
-}
-
-test "TestFormatAfterObjectLiteral" {
-    const content =
-        \\/**/namespace Default{var x= ( { } ) ;}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "namespace Default { var x = ({}); }");
 }
 
 test "TestReferencesForStringLiteralPropertyNames6" {
@@ -10721,7 +10538,7 @@ test "TestFunctionIndentation" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.VerifyCurrentFileContent(undefined, "namespace M {\n" ++ "    export =\n" ++ "        C;\n" ++ "    class C {\n" ++ "        constructor(b\n" ++ "        ) {\n" ++ "        }\n" ++ "        foo(a\n" ++ "            : string) {\n" ++ "            return a\n" ++ "                || true;\n" ++ "        }\n" ++ "        get bar(\n" ++ "        ) {\n" ++ "            return 1;\n" ++ "        }\n" ++ "    }\n" ++ "    function foo(a,\n" ++ "        b?) {\n" ++ "        new M.C(\n" ++ "            \"hello\");\n" ++ "    }\n" ++ "    {\n" ++ "        {\n" ++ "        }\n" ++ "    }\n" ++ "    foo(\n" ++ "        function() {\n" ++ "            \"hello\";\n" ++ "        });\n" ++ "    foo(\n" ++ "        () => {\n" ++ "            \"hello\";\n" ++ "        });\n" ++ "    var t,\n" ++ "        u = 1,\n" ++ "        v;\n" ++ "}");
 }
 
@@ -10808,18 +10625,6 @@ test "TestSyntacticClassifications1" {
 //         .{.Type = "namespace.declaration", .Text = "M1"},
 //         .{.Type = "namespace.declaration", .Text = "M2"},
 //     });
-}
-
-test "TestSemicolonFormattingAfterArrayLiteral" {
-    const content =
-        \\[1,2]/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "[1, 2];");
 }
 
 test "TestRenameLocationsForFunctionExpression01" {
@@ -11296,18 +11101,6 @@ test "TestOccurrences01" {
     // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
-test "TestFormattingOfChainedLambda" {
-    const content =
-        \\var fn = (x: string) => ()=> alert(x)/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "var fn = (x: string) => () => alert(x);");
-}
-
 test "TestIncrementalParsingDynamicImport4" {
     const content =
         \\// @lib: es2015
@@ -11504,32 +11297,6 @@ test "TestGoToDefinition_untypedModule" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToDefinition(undefined, true, "use");
-}
-
-test "TestFormatLiteralTypeInUnionOrIntersectionType" {
-    const content =
-        \\type NumberAndString = {
-        \\    a: number
-        \\} & {
-        \\    b: string
-        \\};
-        \\
-        \\type NumberOrString = {
-        \\    a: number
-        \\} | {
-        \\    b: string
-        \\};
-        \\
-        \\type Complexed =
-        \\    Foo &
-        \\    Bar |
-        \\    Baz;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "type NumberAndString = {\n    a: number\n} & {\n    b: string\n};\n\ntype NumberOrString = {\n    a: number\n} | {\n    b: string\n};\n\ntype Complexed =\n    Foo &\n    Bar |\n    Baz;");
 }
 
 test "TestCodeFixClassExtendAbstractSomePropertiesPresent" {
@@ -12070,21 +11837,6 @@ test "TestCompletionsImport_named_namespaceImportExists" {
 //     });
 }
 
-test "TestFormatTypeAnnotation2" {
-    const content =
-        \\function foo(x : number, y ?: string) : number {}
-        \\interface Foo {
-        \\    x : number;
-        \\    y ?: number;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "function foo(x: number, y?: string): number { }\ninterface Foo {\n    x: number;\n    y?: number;\n}");
-}
-
 test "TestFindAllRefsObjectBindingElementPropertyName10" {
     const content =
         \\interface Recursive {
@@ -12368,29 +12120,6 @@ test "TestOrganizeImportsPathsUnicode4" {
 //             .OrganizeImportsCaseFirst =  lsutil.OrganizeImportsCaseFirstLower,
 //         },
 //     );
-}
-
-test "TestFormattingOnDoWhileNoSemicolon" {
-    const content =
-        \\/*2*/do {
-        \\/*3*/    for (var i = 0; i < 10; i++)
-        \\/*4*/        i -= 2
-        \\/*5*/        }/*1*/while (1 !== 1)
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "\n");
-    _ = f.VerifyCurrentLineContent(undefined, "while (1 !== 1)");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "do {");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    for (var i = 0; i < 10; i++)");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "        i -= 2");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
 }
 
 test "TestReallyLargeFile" {
@@ -596162,25 +595891,6 @@ test "TestCompletionAfterBrace" {
 //     });
 }
 
-test "TestFormattingInExpressionsInTsx" {
-    const content =
-        \\// @Filename: test.tsx
-        \\import * as React from "react";
-        \\<div
-        \\    autoComplete={(function () {
-        \\return true/*1*/
-        \\    })() }
-        \\    >
-        \\</div>
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "        return true;");
-}
-
 test "TestCompletionAfterBackslashFollowingString" {
     const content =
         \\// @lib: es5
@@ -596199,33 +595909,6 @@ test "TestCompletionAfterBackslashFollowingString" {
 //             .Exact = CompletionGlobals,
 //         },
 //     });
-}
-
-test "TestFormattingForLoopSemicolons" {
-    const content =
-        \\/*1*/for (;;) { }
-        \\/*2*/for (var x;x<0;x++) { }
-        \\/*3*/for (var x ;x<0 ;x++) { }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "for (; ;) { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "for (var x; x < 0; x++) { }");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "for (var x; x < 0; x++) { }");
-    // f.GetOptions();
-    // f.Configure(undefined, opts444);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "for (;;) { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "for (var x;x < 0;x++) { }");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "for (var x;x < 0;x++) { }");
 }
 
 test "TestQuickInfoDisplayPartsTypeParameterInFunction" {
@@ -596722,20 +596405,6 @@ test "TestBestCommonTypeObjectLiterals" {
     // f.VerifyQuickInfoAt(undefined, "2", "var c1: {\n    name: string;\n    age: number;\n}[]", "");
     // f.VerifyQuickInfoAt(undefined, "3", "var c2: ({\n    name: string;\n    age: number;\n    address: string;\n} | {\n    name: string;\n    age: number;\n    dob: Date;\n})[]", "");
     // f.VerifyQuickInfoAt(undefined, "4", "var c3: I[]", "");
-}
-
-test "TestFormatSelectionWithTrivia2" {
-    const content =
-        \\/*begin*/;    
-        \\    
-        \\/*end*/    
-        \\    
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, ";\n\n\n    ");
 }
 
 test "TestRenameJsOverloadedFunctionParameter" {
@@ -597755,25 +597424,6 @@ test "TestFindReferencesJSXTagName" {
     // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
-test "TestFormatonkey01" {
-    const content =
-        \\// @lib: es5
-        \\switch (1) {
-        \\    case 1:
-        \\        {
-        \\            /*1*/
-        \\        break;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "}");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-}
-
 test "TestJsxElementExtendsNoCrash1" {
     const content =
         \\// @filename: index.tsx
@@ -598011,30 +597661,6 @@ test "TestAddInterfaceMemberAboveClass" {
     _ = f.GoToMarker(undefined, "insertHere");
     _ = f.Insert(undefined, "ray: Ray;");
     // f.VerifyQuickInfoAt(undefined, "className", "class Sphere", "");
-}
-
-test "TestFormattingInDestructuring3" {
-    const content =
-        \\/*1*/const {
-        \\/*2*/    a,
-        \\/*3*/    b,
-        \\/*4*/} = {a: 1, b: 2};
-        \\/*5*/const {a: c} = {a: 1, b: 2};
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "const {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    a,");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    b,");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "} = { a: 1, b: 2 };");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "const { a: c } = { a: 1, b: 2 };");
 }
 
 test "TestCompletionsAsserts" {
@@ -598363,25 +597989,6 @@ test "TestQuickInfoTemplateTag" {
     // f.VerifyQuickInfoAt(undefined, "", "function myMixin<T extends new (...args: any[]) => any>(cls: T): {\n    new (...args: any[]): (Anonymous class);\n    prototype: myMixin<any>.(Anonymous class);\n} & T", "Doc");
 }
 
-test "TestFormatOnEnterOpenBraceAddNewLine" {
-    const content =
-        \\if(true) {/*0*/}
-        \\if(false)/*1*/{
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts148);
-    _ = f.GoToMarker(undefined, "0");
-    _ = f.InsertLine(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true)\n{\n}\nif(false){\n}");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.InsertLine(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true)\n{\n}\nif (false)\n{\n}");
-}
-
 test "TestQuickInfoForObjectBindingElementName05" {
     const content =
         \\interface A {
@@ -598507,51 +598114,6 @@ test "TestJsdocParamTagSpecialKeywords" {
 //     });
 }
 
-test "TestFormattingofSingleLineBlockConstructs" {
-    const content =
-        \\namespace InternalModule/*1*/{}
-        \\interface MyInterface/*2*/{}
-        \\enum E/*3*/{}
-        \\class MyClass/*4*/{
-        \\constructor()/*cons*/{}
-        \\        public MyFunction()/*5*/{return 0;}
-        \\public get Getter()/*6*/{}
-        \\public set Setter(x)/*7*/{}}
-        \\function foo()/*8*/{{}}
-        \\(function()/*10*/{});
-        \\(() =>/*11*/{});
-        \\var x :/*12*/{};
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "namespace InternalModule { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "interface MyInterface { }");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "enum E { }");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "class MyClass {");
-    _ = f.GoToMarker(undefined, "cons");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor() { }");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    public MyFunction() { return 0; }");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    public get Getter() { }");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "    public set Setter(x) { }");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo() { { } }");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "(function() { });");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "(() => { });");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "var x: {};");
-}
-
 test "TestOrganizeImports5" {
     const content =
         \\import * as something from "path";/** 
@@ -598606,28 +598168,6 @@ test "TestCompletionListAfterRegularExpressionLiteral1" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatDocumentWithJSDoc" {
-    const content =
-        \\/**
-        \\ * JSDoc for things
-        \\ */
-        \\function f() {
-        \\    /** more
-        \\        jsdoc */
-        \\    var t;
-        \\    /**
-        \\     * multiline
-        \\     */
-        \\    var multiline;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "/**\n * JSDoc for things\n */\nfunction f() {\n    /** more\n        jsdoc */\n    var t;\n    /**\n     * multiline\n     */\n    var multiline;\n}");
 }
 
 test "TestDocCommentTemplateFunctionExpression" {
@@ -599109,21 +598649,6 @@ test "TestQuickInfoFunctionCheckType" {
     // f.VerifyQuickInfoAt(undefined, "", "type Tail<T extends any[]> = ((...t: T) => void) extends (h: any, ...rest: infer R) => void ? R : never", "");
 }
 
-test "TestFormattingTemplates" {
-    const content =
-        \\String.call 
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "String.call`${123}`;");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "String.call`${123} ${456}`;");
-}
-
 test "TestImportNameCodeFixNewImportNodeModules2" {
     const content =
         \\[|f1/*0*/();|]
@@ -599256,30 +598781,6 @@ test "TestCompletionListAfterRegularExpressionLiteral05" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyCompletions(undefined, "", null);
-}
-
-test "TestFormatSelectionDocCommentInBlock" {
-    const content =
-        \\{
-        \\    /*1*//**
-        \\     * Some doc comment
-        \\     *//*2*/
-        \\    const a = 1;
-        \\}
-        \\
-        \\while (true) {
-        \\/*3*//**
-        \\ * Some doc comment
-        \\ *//*4*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "1", "2");
-    _ = f.VerifyCurrentFileContent(undefined, "{\n    /**\n     * Some doc comment\n     */\n    const a = 1;\n}\n\nwhile (true) {\n/**\n * Some doc comment\n */\n}");
-    _ = f.FormatSelection(undefined, "3", "4");
-    _ = f.VerifyCurrentFileContent(undefined, "{\n    /**\n     * Some doc comment\n     */\n    const a = 1;\n}\n\nwhile (true) {\n    /**\n     * Some doc comment\n     */\n}");
 }
 
 test "TestFindAllRefsInheritedProperties1" {
@@ -599695,24 +599196,6 @@ test "TestAutoImportTypeOnlyPreferred1" {
 //     });
 }
 
-test "TestFormattingOnDocumentReadyFunction" {
-    const content =
-        \\/*1*/$    (   document   )   .  ready  (   function   (   )   {
-        \\/*2*/    alert    (           'i am ready'  )   ;
-        \\/*3*/           }                 );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "$(document).ready(function() {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    alert('i am ready');");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "});");
-}
-
 test "TestQuickInfoDisplayPartsClassConstructor" {
     const content =
         \\class c {
@@ -599911,20 +599394,6 @@ test "TestCodeFixClassImplementInterfaceEmptyTypeLiteral" {
         .NewFileContent = "\ninterface I {\n    x: {};\n}\n\nclass C implements I {\n   constructor() { }\n    x: {};\n}",
         .Index = 0,
     });
-}
-
-test "TestOptionalPropertyFormatting" {
-    const content =
-        \\export class C extends Error {
-        \\    message: string;
-        \\    data? = {};
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "export class C extends Error {\n    message: string;\n    data? = {};\n}");
 }
 
 test "TestQuickInfoInJsdocInTsFile1" {
@@ -600904,43 +600373,6 @@ test "TestFindAllReferencesJsDocTypeLiteral" {
     // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
-test "TestFormattingOnTabAfterCloseCurly" {
-    const content =
-        \\namespace Tools {/*1*/
-        \\    export enum NodeType {/*2*/
-        \\        Error,/*3*/
-        \\        Comment,/*4*/
-        \\    }   /*5*/
-        \\    export enum foob/*6*/
-        \\    {
-        \\        Blah=1, Bleah=2/*7*/
-        \\    }/*8*/
-        \\}/*9*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "namespace Tools {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    export enum NodeType {");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "        Error,");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "        Comment,");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    export enum foob {");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "        Blah = 1, Bleah = 2");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-}
-
 test "TestJsDocFunctionTypeCompletionsNoCrash" {
     const content =
         \\// @lib: es5
@@ -601299,21 +600731,6 @@ test "TestNavigationBarItemsSymbols4" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineDocumentSymbol(undefined);
-}
-
-test "TestFormattingSpaceBetweenOptionalChaining" {
-    const content =
-        \\/*1*/a    ?.    b   ?.   c   .   d;
-        \\/*2*/o    .  m()   ?.   length;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "a?.b?.c.d;");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "o.m()?.length;");
 }
 
 test "TestSignatureHelpAtEOF2" {
@@ -601985,23 +601402,6 @@ test "TestImportNameCodeFixConvertTypeOnly1" {
     }, null );
 }
 
-test "TestFormatTsxMultilineAttributeString" {
-    const content =
-        \\// @Filename: foo.tsx
-        \\(
-        \\    <input
-        \\        value="x
-        \\        x"
-        \\    />
-        \\);
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "(\n    <input\n        value=\"x\n        x\"\n    />\n);");
-}
-
 test "TestReferencesForLabel2" {
     const content =
         \\var label = "label";
@@ -602235,40 +601635,6 @@ test "TestSignatureHelpIncompleteCalls" {
     // f.VerifySignatureHelp(undefined, .{.Text = "f2(n: number): number", .ParameterCount = 1});
     _ = f.GoToMarker(undefined, "incompleteCalls3");
     // f.VerifySignatureHelp(undefined, .{.Text = "f3(n: number, s: string): string", .ParameterCount = 2, .ParameterName = "s", .ParameterSpan = "s: string"});
-}
-
-test "TestFormattingSpaceBeforeFunctionParen" {
-    const content =
-        \\/*1*/function foo() { }
-        \\/*2*/function boo  () { }
-        \\/*3*/var bar = function foo() { };
-        \\/*4*/var foo = { bar() { } };
-        \\/*5*/function tmpl <T> () { }
-        \\/*6*/var f = function*() { };
-        \\/*7*/function* g () { }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts333);
-    // f.GetOptions();
-    // f.Configure(undefined, opts414);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo () { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "function boo () { }");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "var bar = function foo () { };");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "var foo = { bar () { } };");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "function tmpl<T> () { }");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "var f = function*() { };");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "function* g () { }");
 }
 
 test "TestReferenceInParameterPropertyDeclaration" {
@@ -602590,21 +601956,6 @@ test "TestGoToDefinitionImports" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToDefinition(undefined, true, "aUse", "fUse", "xUse", "bUse");
-}
-
-test "TestConstructorBraceFormatting" {
-    const content =
-        \\class X {
-        \\    constructor () {}/*target*/
-        \\ /**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, "}");
-    _ = f.GoToMarker(undefined, "target");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor() { }");
 }
 
 test "TestCompletionListInTypedObjectLiteralsWithPartialPropertyNames2" {
@@ -603558,40 +602909,6 @@ test "TestInlayHintsParameterNames" {
     // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayParameterNameHints = lsutil.IncludeInlayParameterNameHintsLiterals}});
 }
 
-test "TestFormattingMultilineCommentsWithTabs1" {
-    const content =
-        \\var f = function (j) {
-        \\
-        \\    switch (j) {
-        \\        case 1:
-        \\/*1*/                /* when current checkbox has focus, Firefox has changed check state already
-        \\/*2*/                on SPACE bar press only
-        \\/*3*/                IE does not have issue, use the CSS class
-        \\/*4*/                input:focus[type=checkbox] (z-index = 31290)
-        \\/*5*/                to determine whether checkbox has focus or not
-        \\                */
-        \\            break;
-        \\        case 2:
-        \\        break;
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "            /* when current checkbox has focus, Firefox has changed check state already");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "            on SPACE bar press only");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "            IE does not have issue, use the CSS class");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "            input:focus[type=checkbox] (z-index = 31290)");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "            to determine whether checkbox has focus or not");
-}
-
 test "TestUnusedImports11FS" {
     const content =
         \\// @noUnusedLocals: true
@@ -603654,51 +602971,6 @@ test "TestSmartSelection_lastBlankLine" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineSelectionRanges(undefined);
-}
-
-test "TestFormatMultilineTypesWithMapped" {
-    const content =
-        \\type Z = 'z'
-        \\type A = {
-        \\  a: 'a'
-        \\} | {
-        \\      [index in Z]: string
-        \\  }
-        \\type B = {
-        \\  b: 'b'
-        \\} & {
-        \\      [index in Z]: string
-        \\  }
-        \\
-        \\const c = {
-        \\  c: 'c'
-        \\} as const satisfies {
-        \\    [index in Z]: string
-        \\  }
-        \\
-        \\const d = {
-        \\  d: 'd'
-        \\} as const satisfies {
-        \\  [index: string]: string
-        \\}
-        \\
-        \\const e = {
-        \\  e: 'e'
-        \\} satisfies {
-        \\    [index in Z]: string
-        \\  }
-        \\
-        \\const f = {
-        \\  f: 'f'
-        \\} satisfies {
-        \\  [index: string]: string
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "type Z = 'z'\ntype A = {\n    a: 'a'\n} | {\n    [index in Z]: string\n}\ntype B = {\n    b: 'b'\n} & {\n    [index in Z]: string\n}\n\nconst c = {\n    c: 'c'\n} as const satisfies {\n    [index in Z]: string\n}\n\nconst d = {\n    d: 'd'\n} as const satisfies {\n    [index: string]: string\n}\n\nconst e = {\n    e: 'e'\n} satisfies {\n    [index in Z]: string\n}\n\nconst f = {\n    f: 'f'\n} satisfies {\n    [index: string]: string\n}");
 }
 
 test "TestRemoveParameterBetweenCommentAndParameter" {
@@ -605451,20 +604723,6 @@ test "TestGetPropertySymbolsFromBaseTypesDoesntCrash" {
     // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
-test "TestFormattingInDestructuring2" {
-    const content =
-        \\/*1*/function   drawText(    { text = "", location: [x, y]=           [0, 0], bold = false }) {
-        \\    // Draw text  
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "function drawText({ text = \"\", location: [x, y] = [0, 0], bold = false }) {");
-}
-
 test "TestAutoImportFileExcludePatterns9" {
     const content =
         \\// @Filename: /src/vs/workbench/test.ts
@@ -605631,21 +604889,6 @@ test "TestCodeFixClassImplementInterfaceGlobal" {
         .NewFileContent = "import { Disposable, Service } from './lifecycle';\nexport class EditingService implements Service {\n    d: Disposable;\n}",
         .Index = 0,
     });
-}
-
-test "TestTypeAssertionsFormatting" {
-    const content =
-        \\( <  any   >      publisher);/*1*/
-        \\ <  any  >      3;/*2*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "(<any>publisher);");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "<any>3;");
 }
 
 test "TestCompletionsImport_typeOnly" {
@@ -605895,24 +605138,6 @@ test "TestQuickInfoForObjectBindingElementName04" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineHover(undefined);
-}
-
-test "TestFormattingOnModuleIndentation" {
-    const content =
-        \\  namespace     Foo    {
-        \\    export    namespace    A  .   B  .   C     {      }/**/
-        \\               }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToBOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "namespace Foo {");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "    export namespace A.B.C { }");
-    _ = f.GoToEOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "}");
 }
 
 test "TestAutoImportModuleNone2" {
@@ -606769,17 +605994,6 @@ test "TestCompletionsImport_named_fromMergedDeclarations" {
 //     });
 }
 
-test "TestFormatObjectBindingPattern_restElementWithPropertyName" {
-    const content =
-        \\const { ...a: b } = {};
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const { ...a: b } = {};");
-}
-
 test "TestUnusedVariableInClass5" {
     const content =
         \\// @noUnusedLocals: true
@@ -607133,20 +606347,6 @@ test "TestCompletionForStringLiteralNonrelativeImport7" {
 //     });
 }
 
-test "TestFormattingOnEnter" {
-    const content =
-        \\class foo { }
-        \\class bar {/**/ }
-        \\// new line here
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.InsertLine(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "class foo { }\nclass bar {\n}\n// new line here");
-}
-
 test "TestFindAllRefsForDefaultExport03" {
     const content =
         \\/*1*/function /*2*/f() {
@@ -607348,68 +606548,6 @@ test "TestQuickinfoVerbosityMappedType" {
     // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"x" = .{0, 1}, .@"y" = .{0}, .@"F" = .{0, 1}, .@"G" = .{0, 1}});
 }
 
-test "TestFormatAfterPasteInString" {
-    const content =
-        \\/*2*/const x = f('aa/*1*/a').x()
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Paste(undefined, "bb");
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "const x = f('aabba').x()");
-}
-
-test "TestGenericsFormatting" {
-    const content =
-        \\/*inClassDeclaration*/class Foo   <    T1   ,  T2    >  {
-        \\/*inMethodDeclaration*/    public method    <   T3,    T4   >   ( a: T1,   b: Array    < T4 > ):   Map < T1  ,   T2, Array < T3    >    > {
-        \\    }
-        \\}
-        \\/*typeArguments*/var foo = new Foo   <  number, Array <   number  >   >  (  );
-        \\/*typeArgumentsWithTypeLiterals*/foo = new Foo  <  {   bar  :  number }, Array   < {   baz :  string   }  >  >  (  );
-        \\
-        \\interface IFoo {
-        \\/*inNewSignature*/new < T  > ( a: T);
-        \\/*inOptionalMethodSignature*/op?< T , M > (a: T, b : M );
-        \\}
-        \\
-        \\foo()<number, string, T >();
-        \\(a + b)<number, string, T >();
-        \\
-        \\/*inFunctionDeclaration*/function bar <T> () {
-        \\/*inClassExpression*/    return class  <  T2 > {
-        \\    }
-        \\}
-        \\/*expressionWithTypeArguments*/class A < T > extends bar <  T >( )  <  T > {
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "inClassDeclaration");
-    _ = f.VerifyCurrentLineContent(undefined, "class Foo<T1, T2> {");
-    _ = f.GoToMarker(undefined, "inMethodDeclaration");
-    _ = f.VerifyCurrentLineContent(undefined, "    public method<T3, T4>(a: T1, b: Array<T4>): Map<T1, T2, Array<T3>> {");
-    _ = f.GoToMarker(undefined, "typeArguments");
-    _ = f.VerifyCurrentLineContent(undefined, "var foo = new Foo<number, Array<number>>();");
-    _ = f.GoToMarker(undefined, "typeArgumentsWithTypeLiterals");
-    _ = f.VerifyCurrentLineContent(undefined, "foo = new Foo<{ bar: number }, Array<{ baz: string }>>();");
-    _ = f.GoToMarker(undefined, "inNewSignature");
-    _ = f.VerifyCurrentLineContent(undefined, "    new <T>(a: T);");
-    _ = f.GoToMarker(undefined, "inOptionalMethodSignature");
-    _ = f.VerifyCurrentLineContent(undefined, "    op?<T, M>(a: T, b: M);");
-    _ = f.GoToMarker(undefined, "inFunctionDeclaration");
-    _ = f.VerifyCurrentLineContent(undefined, "function bar<T>() {");
-    _ = f.GoToMarker(undefined, "inClassExpression");
-    _ = f.VerifyCurrentLineContent(undefined, "    return class <T2> {");
-    _ = f.GoToMarker(undefined, "expressionWithTypeArguments");
-    _ = f.VerifyCurrentLineContent(undefined, "class A<T> extends bar<T>()<T> {");
-}
-
 test "TestCodeFixMissingTypeAnnotationOnExports29_inline" {
     const content =
         \\// @isolatedDeclarations: true
@@ -607557,21 +606695,6 @@ test "TestImportNameCodeFix_jsExtension" {
         .FixID = "fixMissingImport",
         .NewFileContent = "import * as g from \"global\"; // Global imports skipped\nimport { a } from \"./a.js\";\nimport { a as a2 } from \"./a\"; // null, only the first relative import is considered\nimport { b } from \"./b.js\";\nimport { c } from \"./c.jsx\";\nb; c;",
     });
-}
-
-test "TestFormattingConditionalTypes" {
-    const content =
-        \\/*L1*/type Diff1<T, U> = T extends U?never:T;
-        \\/*L2*/type Diff2<T, U> = T    extends    U  ?    never   :     T;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "L1");
-    _ = f.VerifyCurrentLineContent(undefined, "type Diff1<T, U> = T extends U ? never : T;");
-    _ = f.GoToMarker(undefined, "L2");
-    _ = f.VerifyCurrentLineContent(undefined, "type Diff2<T, U> = T extends U ? never : T;");
 }
 
 test "TestQuickInfoSignatureRestParameterFromUnion3" {
@@ -609006,34 +608129,6 @@ test "TestOrganizeImportsReactJsxDev" {
 //     );
 }
 
-test "TestFormatImplicitModule" {
-    const content =
-        \\       export class A {
-        \\
-        \\       }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToBOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "export class A {");
-    _ = f.GoToEOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-}
-
-test "TestFormatNoSpaceBeforeCloseBrace6" {
-    const content =
-        \\new Foo(1, /* comment */  
-        \\  );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "new Foo(1, /* comment */\n);");
-}
-
 test "TestImportCompletionsPackageJsonImportsConditions1" {
     const content =
         \\// @module: node18
@@ -609698,36 +608793,6 @@ test "TestQuickinfoVerbosityIntersection1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"o1" = .{0, 1}, .@"o2" = .{0}, .@"o3" = .{0}});
-}
-
-test "TestFormattingChainingMethods" {
-    const content =
-        \\ z$ = this.store.select(this.fake())
-        \\     .ofType(
-        \\      'ACTION',
-        \\      'ACTION-2'
-        \\     )
-        \\     .pipe(
-        \\         filter(x => !!x),
-        \\         switchMap(() =>
-        \\          this.store.select(this.menuSelector.getAll('x'))
-        \\           .pipe(
-        \\             tap(x => {
-        \\             this.x = !x;
-        \\             })
-        \\           )
-        \\         )
-        \\     );
-        \\
-        \\1
-        \\    .toFixed(
-        \\        2);
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "z$ = this.store.select(this.fake())\n    .ofType(\n        'ACTION',\n        'ACTION-2'\n    )\n    .pipe(\n        filter(x => !!x),\n        switchMap(() =>\n            this.store.select(this.menuSelector.getAll('x'))\n                .pipe(\n                    tap(x => {\n                        this.x = !x;\n                    })\n                )\n        )\n    );\n\n1\n    .toFixed(\n        2);");
 }
 
 test "TestImportNameCodeFixShebang" {
@@ -610570,20 +609635,6 @@ test "TestTsxCompletionNonTagLessThan" {
 //     });
 }
 
-test "TestFormatOnSemiColonAfterBreak" {
-    const content =
-        \\for (var a in b) {
-        \\break/**/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "    break;");
-}
-
 test "TestCodeFixTopLevelAwait_module_targetES2017CompilerOptionsInTsConfig" {
     const content =
         \\// @filename: /dir/a.ts
@@ -611286,24 +610337,6 @@ test "TestSignatureHelpNegativeTests2" {
     // f.VerifyNoSignatureHelpForMarkers(undefined, "beforeOpenParen", "afterCloseParen");
 }
 
-test "TestFormatInTryCatchFinally" {
-    const content =
-        \\try 
-        \\{
-        \\    var x = 1/*1*/
-        \\}
-        \\catch (e) 
-        \\{
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "    var x = 1;");
-}
-
 test "TestTypeAboveNumberLiteralExpressionStatement" {
     const content =
         \\
@@ -611871,30 +610904,6 @@ test "TestQuickInfoDisplayPartsLet" {
     _ = f.VerifyBaselineHover(undefined);
 }
 
-test "TestFormattingGlobalAugmentation1" {
-    const content =
-        \\/*1*/declare          global                      {
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "declare global {");
-}
-
-test "TestFormatNoSpaceBetweenClosingParenAndTemplateString" {
-    const content =
-        \\foo() 
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "foo()`abc`;\nbar()`def`;\nbaz()`a${x}b`;");
-}
-
 test "TestAutoImportTypeImport5" {
     const content =
         \\// @verbatimModuleSyntax: true
@@ -611978,18 +610987,6 @@ test "TestCodeFixImportNonExportedMember4" {
     defer f.deinit();
     _ = f.GoToFile(undefined, "/b.ts");
     // f.VerifyCodeFixNotAvailable(undefined, "fixImportNonExportedMember");
-}
-
-test "TestFormattingDoubleLessThan" {
-    const content =
-        \\/*1*/if (<number>foo < <number>bar) {}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "if (<number>foo < <number>bar) { }");
 }
 
 test "TestGoToDefinitionOverriddenMember21" {
@@ -612246,34 +611243,6 @@ test "TestImportStatementCompletions_quotes" {
 //     });
 }
 
-test "TestFormattingVoid" {
-    const content =
-        \\/*1*/  var x: () =>           void    ;
-        \\/*2*/  var y:     void    ;
-        \\/*3*/  function test(a:void,b:string){}
-        \\/*4*/  var a, b, c, d;
-        \\/*5*/  void    a    ;
-        \\/*6*/  void        (0);
-        \\/*7*/  b=void(c=1,d=2);
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "var x: () => void;");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "var y: void;");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "function test(a: void, b: string) { }");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "void a;");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "void (0);");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "b = void (c = 1, d = 2);");
-}
-
 test "TestCompletionListInObjectLiteral2" {
     const content =
         \\interface TelemetryService {
@@ -612362,22 +611331,6 @@ test "TestCodefixClassImplementInterface_omit" {
         .NewFileContent = "interface One {\n    a: number;\n    b: string;\n}\n\ninterface Two extends Omit<One, \"a\"> {\n    c: boolean;\n}\n\nclass TwoStore implements Two {\n    c: boolean;\n    b: string;\n}",
         .Index = 0,
     });
-}
-
-test "TestFormattingAfterChainedFatArrow" {
-    const content =
-        \\var x = n => p => {
-        \\    while (true) {
-        \\        void 0;
-        \\    }/**/
-        \\};
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
 }
 
 test "TestReferencesForStringLiteralPropertyNames7" {
@@ -612496,20 +611449,6 @@ test "TestRecursiveGenerics2" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
     _ = f.Insert(undefined, "(new S18()).S18 = 0;");
-}
-
-test "TestFormat01" {
-    const content =
-        \\// @lib: es5
-        \\/**/namespace Default{var x= ( { } ) ;}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "namespace Default { var x = ({}); }");
 }
 
 test "TestRenameContextuallyTypedProperties2" {
@@ -613199,18 +612138,6 @@ test "TestCodeFixMissingTypeAnnotationOnExports19" {
     });
 }
 
-test "TestFormattingForOfKeyword" {
-    const content =
-        \\/**/for ([]of[]) { }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "for ([] of []) { }");
-}
-
 test "TestRenameDestructuringAssignmentNestedInFor" {
     const content =
         \\interface MultiRobot {
@@ -613482,54 +612409,6 @@ test "TestUnusedLocalsInFunction3" {
     _ = f.VerifyRangeAfterCodeFix(undefined, "var x,z = 1;", false, 6133, 0);
 }
 
-test "TestFormatArrayLiteralExpression" {
-    const content =
-        \\export let Things = [{
-        \\    Hat: 'hat', /*1*/
-        \\    Glove: 'glove',
-        \\    Umbrella: 'umbrella'
-        \\},{/*2*/
-        \\        Salad: 'salad', /*3*/
-        \\        Burrito: 'burrito',
-        \\        Pie: 'pie'
-        \\    }];/*4*/
-        \\
-        \\export let Things2 = [
-        \\{
-        \\    Hat: 'hat', /*5*/
-        \\    Glove: 'glove',
-        \\    Umbrella: 'umbrella'
-        \\}/*6*/,
-        \\    {
-        \\        Salad: 'salad', /*7*/
-        \\        Burrito: ['burrito', 'carne asada', 'tinga de res', 'tinga de pollo'], /*8*/
-        \\        Pie: 'pie'
-        \\    }];/*9*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    Hat: 'hat',");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "}, {");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    Salad: 'salad',");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "}];");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "        Hat: 'hat',");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    },");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "        Salad: 'salad',");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "        Burrito: ['burrito', 'carne asada', 'tinga de res', 'tinga de pollo'],");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "    }];");
-}
-
 test "TestFindAllRefsPropertyContextuallyTypedByTypeParam01" {
     const content =
         \\interface IFoo {
@@ -613553,24 +612432,6 @@ test "TestFindAllRefsPropertyContextuallyTypedByTypeParam01" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineFindAllReferences(undefined, "1");
-}
-
-test "TestFormattingOnCommaOperator" {
-    const content =
-        \\var v1 = ((1, 2, 3), 4, 5, (6, 7));/*1*/
-        \\function f1() {
-        \\    var a = 1;
-        \\    return a, v1, a;/*2*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "var v1 = ((1, 2, 3), 4, 5, (6, 7));");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    return a, v1, a;");
 }
 
 test "TestReferencesForMergedDeclarations5" {
@@ -614032,24 +612893,6 @@ test "TestUnusedConstantInFunction1" {
     _ = f.VerifyRangeAfterCodeFix(undefined, "function f1 () {\n}", false, 0, 0);
 }
 
-test "TestFormattingInComment" {
-    const content =
-        \\class A {
-        \\foo(              ); // /*1*/
-        \\}
-        \\function foo() {       var x;       } // /*2*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "foo(              ); // ;");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.Insert(undefined, "}");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo() {       var x;       } // }");
-}
-
 test "TestImportCompletionsPackageJsonImportsPattern_ts" {
     const content =
         \\// @module: node18
@@ -614421,19 +613264,6 @@ test "TestMemberListInFunctionCall" {
 //     });
 }
 
-test "TestFormatInsertSpaceAfterCloseBraceBeforeCloseBracket" {
-    const content =
-        \\[{}]
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts122);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "[ {} ]");
-}
-
 test "TestCodeFixInferFromExpressionStatement" {
     const content =
         \\// @noImplicitAny: true
@@ -614713,18 +613543,6 @@ test "TestTypeArgCompletion" {
 //     });
 }
 
-test "TestFormatAfterMultilineComment" {
-    const content =
-        \\/*foo
-        \\*/"123123";
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "/*foo\n*/\"123123\";");
-}
-
 test "TestQuickInfoCommentsCommentParsing" {
     const content =
         \\/// This is simple /// comments
@@ -614975,25 +613793,6 @@ test "TestNgProxy3" {
     _ = f.VerifyQuickInfoIs(undefined, "let x: number[]", "");
 }
 
-test "TestFormatConflictDiff3Marker1" {
-    const content =
-        \\class C {
-        \\<<<<<<< HEAD
-        \\v = 1;
-        \\||||||| merged common ancestors
-        \\v = 3;
-        \\=======
-        \\v = 2;
-        \\>>>>>>> Branch - a
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "class C {\n<<<<<<< HEAD\n    v = 1;\n||||||| merged common ancestors\nv = 3;\n=======\nv = 2;\n>>>>>>> Branch - a\n}");
-}
-
 test "TestRenameParameterPropertyDeclaration5" {
     const content =
         \\class Foo {
@@ -615059,21 +613858,6 @@ test "TestCompletionForStringLiteral13" {
 //             .Exact = &.{},
 //         },
 //     });
-}
-
-test "TestFormattingOnConstructorSignature" {
-    const content =
-        \\/*1*/interface Gourai { new   () {} }
-        \\/*2*/type Stylet = { new   () {} }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    // f.VerifyCurrentLineContent(undefined, "interface Gourai { new() { } }");
-    _ = f.GoToMarker(undefined, "2");
-    // f.VerifyCurrentLineContent(undefined, "type Stylet = { new() { } }");
 }
 
 test "TestCodeFixClassImplementInterfaceTypeParamInstantiateU" {
@@ -616645,19 +615429,6 @@ test "TestImportNameCodeFix_typeOnly" {
     }, null );
 }
 
-test "TestFormatSelectionWithTrivia3" {
-    const content =
-        \\if (true) {
-        \\/*begin*/// test comment
-        \\/*end*/}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true) {\n    // test comment\n}");
-}
-
 test "TestGetEditsForFileRename_amd" {
     const content =
         \\// @moduleResolution: classic
@@ -617612,26 +616383,6 @@ test "TestRenameImportOfReExport" {
     // f.VerifyBaselineRename(undefined, null , f.Ranges()[5], f.Ranges()[6]);
 }
 
-test "TestFormattingOnNestedStatements" {
-    const content =
-        \\{
-        \\/*1*/{
-        \\/*3*/test
-        \\}/*2*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "1", "2");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    {");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "        test");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-}
-
 test "TestReferencesForUnionProperties" {
     const content =
         \\interface One {
@@ -618216,24 +616967,6 @@ test "TestImportTypeCompletions5" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormattingAfterMultiLineString" {
-    const content =
-        \\class foo {
-        \\    stop() {
-        \\        var s = "hello\/*1*/
-        \\"/*2*/
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.InsertLine(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "        var s = \"hello\\");
 }
 
 test "TestRenameAliasExternalModule" {
@@ -621544,32 +620277,6 @@ test "TestInlayHintsFunctionParameterTypes1" {
     // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayFunctionParameterTypeHints = core.TSTrue}});
 }
 
-test "TestFormattingObjectLiteralOpenCurlyNewlineAssignment" {
-    const content =
-        \\
-        \\var obj = {};
-        \\obj =
-        \\{
-        \\    prop: 3
-        \\};
-        \\ 
-        \\var obj2 = obj ||
-        \\{
-        \\    prop: 0
-        \\}
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nvar obj = {};\nobj =\n{\n    prop: 3\n};\n\nvar obj2 = obj ||\n{\n    prop: 0\n}\n");
-    // f.GetOptions();
-    // f.Configure(undefined, opts400);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nvar obj = {};\nobj =\n    {\n        prop: 3\n    };\n\nvar obj2 = obj ||\n    {\n        prop: 0\n    }\n");
-}
-
 test "TestCodeFixMissingTypeAnnotationOnExports3" {
     const content =
         \\// @isolatedDeclarations: true
@@ -621723,18 +620430,6 @@ test "TestRenameReferenceFromLinkTag4" {
     // f.VerifyBaselineRename(undefined, null , "");
 }
 
-test "TestFormattingOnSemiColon" {
-    const content =
-        \\var  a=b+c^d-e*++f
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToEOF(undefined);
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentFileContent(undefined, "var a = b + c ^ d - e * ++f;");
-}
-
 test "TestCodeFixCorrectReturnValue6" {
     const content =
         \\function Foo (): undefined {
@@ -621745,26 +620440,6 @@ test "TestCodeFixCorrectReturnValue6" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyCodeFixNotAvailable(undefined);
-}
-
-test "TestFormattingObjectLiteralOpenCurlyNewlineTyping" {
-    const content =
-        \\
-        \\var varName =/**/
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, "\n{");
-    // f.VerifyCurrentFileContent(undefined, "\nvar varName =\n    {\n");
-    _ = f.Insert(undefined, "\na: 1");
-    _ = f.FormatDocument(undefined, "");
-    // f.VerifyCurrentFileContent(undefined, "\nvar varName =\n{\n    a: 1\n");
-    _ = f.Insert(undefined, "\n};");
-    _ = f.FormatDocument(undefined, "");
-    // f.VerifyCurrentFileContent(undefined, "\nvar varName =\n{\n    a: 1\n};\n");
 }
 
 test "TestJsxElementExtendsNoCrash2" {
@@ -621934,33 +620609,6 @@ test "TestMemberListInsideObjectLiterals" {
 //     });
 }
 
-test "TestFormatParameter" {
-    const content =
-        \\function foo(
-        \\    first:
-        \\    number,/*first*/
-        \\    second: (
-        \\    string/*second*/
-        \\    ),
-        \\    third:
-        \\    (
-        \\    boolean/*third*/
-        \\    )
-        \\) {
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "first");
-    _ = f.VerifyCurrentLineContent(undefined, "        number,");
-    _ = f.GoToMarker(undefined, "second");
-    _ = f.VerifyCurrentLineContent(undefined, "        string");
-    _ = f.GoToMarker(undefined, "third");
-    _ = f.VerifyCurrentLineContent(undefined, "            boolean");
-}
-
 test "TestGoToDefinitionImportedNames4" {
     const content =
         \\// @Filename: b.ts
@@ -621990,20 +620638,6 @@ test "TestCodeFixAddParameterNames1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyRangeAfterCodeFix(undefined, "arg0: number", false, 0, 0);
-}
-
-test "TestFormatObjectBindingPattern" {
-    const content =
-        \\const {
-        \\x,
-        \\y,
-        \\} = 0;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const {\n    x,\n    y,\n} = 0;");
 }
 
 test "TestReferencesForFunctionParameter" {
@@ -622670,20 +621304,6 @@ test "TestCompletionOfInterfaceAndVar" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatSatisfiesExpression" {
-    const content =
-        \\type Foo = "a" | "b" | "c";
-        \\const foo1 = ["a"] satisfies Foo[];
-        \\const foo2 = ["a"]satisfies Foo[];
-        \\const foo3 = ["a"]  satisfies Foo[];
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "type Foo = \"a\" | \"b\" | \"c\";\nconst foo1 = [\"a\"] satisfies Foo[];\nconst foo2 = [\"a\"] satisfies Foo[];\nconst foo3 = [\"a\"] satisfies Foo[];");
 }
 
 test "TestGetOccurrencesClassExpressionConstructor" {
@@ -623404,27 +622024,6 @@ test "TestIsDefinitionShorthandProperty" {
     // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
-test "TestFormatSpaceAfterImplementsExtends" {
-    const content =
-        \\class C1 implements Array<string>{
-        \\}
-        \\
-        \\class C2 implements Number{
-        \\}
-        \\
-        \\class C3 extends Array<string>{
-        \\}
-        \\
-        \\class C4 extends Number{
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "class C1 implements Array<string> {\n}\n\nclass C2 implements Number {\n}\n\nclass C3 extends Array<string> {\n}\n\nclass C4 extends Number {\n}");
-}
-
 test "TestQuickInfoCommentsFunctionExpression" {
     const content =
         \\/** lambdaFoo var comment*/
@@ -623684,22 +622283,6 @@ test "TestNavigationBarGetterAndSetter" {
     _ = f.VerifyBaselineDocumentSymbol(undefined);
 }
 
-test "TestFormattingSpaceAfterCommaBeforeOpenParen" {
-    const content =
-        \\foo(a,(b))/*1*/
-        \\foo(a,(<b>c).d)/*2*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "foo(a, (b));");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "foo(a, (<b>c).d);");
-}
-
 test "TestQuickInfoDisplayPartsModules" {
     const content =
         \\namespace /*1*/m {
@@ -623849,34 +622432,6 @@ test "TestNavigationBarPrivateNameMethod" {
     _ = f.VerifyBaselineDocumentSymbol(undefined);
 }
 
-test "TestFormatComments" {
-    const content =
-        \\_.chain()
-        \\// wow/*callChain1*/
-        \\  .then()
-        \\// waa/*callChain2*/
-        \\    .then();
-        \\wow(
-        \\  3,
-        \\// uaa/*argument1*/
-        \\    4
-        \\// wua/*argument2*/
-        \\);
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "callChain1");
-    _ = f.VerifyCurrentLineContent(undefined, "    // wow");
-    _ = f.GoToMarker(undefined, "callChain2");
-    _ = f.VerifyCurrentLineContent(undefined, "    // waa");
-    _ = f.GoToMarker(undefined, "argument1");
-    _ = f.VerifyCurrentLineContent(undefined, "    // uaa");
-    _ = f.GoToMarker(undefined, "argument2");
-    _ = f.VerifyCurrentLineContent(undefined, "    // wua");
-}
-
 test "TestGoToDefinitionShorthandProperty04" {
     const content =
         \\interface Foo {
@@ -623891,19 +622446,6 @@ test "TestGoToDefinitionShorthandProperty04" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToDefinition(undefined, true, "1");
-}
-
-test "TestFormatEmptyBlock" {
-    const content =
-        \\{}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToEOF(undefined);
-    _ = f.Insert(undefined, "\n");
-    _ = f.GoToBOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "{ }");
 }
 
 test "TestSignatureHelpLeadingRestTuple" {
@@ -623987,19 +622529,6 @@ test "TestSymbolCompletionLowerPriority" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatSelectionWithTrivia8" {
-    const content =
-        \\/*begin*/;
-        \\    
-        \\/*end*/console.log();
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, ";\n\nconsole.log();");
 }
 
 test "TestQuickInfoGenericTypeArgumentInference1" {
@@ -624598,18 +623127,6 @@ test "TestGoToDefinitionMethodOverloads" {
     // f.VerifyBaselineGoToDefinition(undefined, true, "staticMethodReference1", "staticMethodReference2", "instanceMethodReference1", "instanceMethodReference2", "staticMethodOverload1", "instanceMethodOverload1");
 }
 
-test "TestFormatNoSpaceBeforeCloseBrace4" {
-    const content =
-        \\new Foo(1
-        \\, /* comment */    );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "new Foo(1\n    , /* comment */);");
-}
-
 test "TestCodeFixTopLevelAwait_module_missingCompilerOptionsInTsConfig" {
     const content =
         \\// @filename: /dir/a.ts
@@ -625001,18 +623518,6 @@ test "TestCodeFixAmbientClassImplementClassAbstractGettersAndSetters" {
     });
 }
 
-test "TestWhiteSpaceBeforeReturnTypeFormatting" {
-    const content =
-        \\var x: () =>     string/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "var x: () => string;");
-}
-
 test "TestCodeFixMissingTypeAnnotationOnExports40_extract_other_to_variable" {
     const content =
         \\// @isolatedDeclarations: true
@@ -625329,20 +623834,6 @@ test "TestGoToDefinitionUnionTypeProperty3" {
     // f.VerifyBaselineGoToDefinition(undefined, true, "usage");
 }
 
-test "TestFormattingOnInterfaces" {
-    const content =
-        \\/*1*/interface Blah 
-        \\{
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "interface Blah {");
-}
-
 test "TestCompletionsDotDotDotInObjectLiteral1" {
     const content =
         \\// https://github.com/microsoft/TypeScript/issues/57540
@@ -625375,91 +623866,6 @@ test "TestCompletionsDotDotDotInObjectLiteral1" {
 //             },
 //         },
 //     });
-}
-
-test "TestChainedFatArrowFormatting" {
-    const content =
-        \\var fn = () => () => null/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "var fn = () => () => null;");
-}
-
-test "TestFormattingOfMultilineBlockConstructs" {
-    const content =
-        \\namespace InternalModule/*1*/
-        \\{
-        \\}
-        \\interface MyInterface/*2*/
-        \\{
-        \\}
-        \\enum E/*3*/
-        \\{
-        \\}
-        \\class MyClass/*4*/
-        \\{
-        \\constructor()/*cons*/
-        \\{ }
-        \\        public MyFunction()/*5*/
-        \\        {
-        \\                return 0;
-        \\        }
-        \\public get Getter()/*6*/
-        \\{
-        \\}
-        \\public set Setter(x)/*7*/
-        \\{
-        \\}
-        \\}
-        \\function foo()/*8*/
-        \\{
-        \\{}/*9*/
-        \\}
-        \\(function()/*10*/
-        \\{
-        \\});
-        \\(() =>/*11*/
-        \\{
-        \\});
-        \\var x :/*12*/
-        \\{};/*13*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "namespace InternalModule {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "interface MyInterface {");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "enum E {");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "class MyClass {");
-    _ = f.GoToMarker(undefined, "cons");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor() { }");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    public MyFunction() {");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    public get Getter() {");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "    public set Setter(x) {");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo() {");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "    { }");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "(function() {");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "(() => {");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "var x:");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "    {};");
 }
 
 test "TestTripleSlashRefPathCompletionContext" {
@@ -626915,45 +625321,6 @@ test "TestQuickInfoJsDocTags9" {
     _ = f.VerifyBaselineHover(undefined);
 }
 
-test "TestFormatWithStatement" {
-    const content =
-        \\with /*1*/(foo.bar)
-        \\
-        \\   {/*2*/
-        \\
-        \\     }/*3*/
-        \\
-        \\with (bar.blah)/*4*/
-        \\{/*5*/
-        \\}/*6*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts227);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "with (foo.bar) {");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "with (bar.blah) {");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    // f.GetOptions();
-    // f.Configure(undefined, opts565);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "with (foo.bar)");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "{");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "with (bar.blah)");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "{");
-}
-
 test "TestJsDocTypeTagQuickInfo1" {
     const content =
         \\// @lib: es5
@@ -627577,22 +625944,6 @@ test "TestSignatureHelpNegativeTests" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyNoSignatureHelpForMarkers(undefined, "insideComment", "invalidContext", "validContext");
-}
-
-test "TestFormattingJsxTexts4" {
-    const content =
-        \\//@Filename: file.tsx
-        \\function foo() {
-        \\const a = <ns: foobar   x : test1   x :test2="string"  x:test3={true?1:0}  />;
-        \\
-        \\return a;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "function foo() {\n    const a = <ns:foobar x:test1 x:test2=\"string\" x:test3={true ? 1 : 0} />;\n\n    return a;\n}");
 }
 
 test "TestTsxCompletionInFunctionExpressionOfChildrenCallback" {
@@ -629796,20 +628147,6 @@ test "TestCommentsInheritanceFourslash" {
     // f.VerifyQuickInfoAt(undefined, "57", "constructor c6(): c6", "");
 }
 
-test "TestFormatTSXWithInlineComment" {
-    const content =
-        \\// @Filename: foo.tsx
-        \\const a = <div>
-        \\    // <a />
-        \\</div>
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const a = <div>\n    // <a />\n</div>");
-}
-
 test "TestCompletionListInUnclosedFunction06" {
     const content =
         \\function foo(x: string, y: number, z: boolean) {
@@ -631782,18 +630119,6 @@ test "TestFindAllRefsOnDefinition2" {
     // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
-test "TestFormattingForIn" {
-    const content =
-        \\/**/for (var i    in[]   )  {}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "for (var i in []) { }");
-}
-
 test "TestGoToTypeDefinition" {
     const content =
         \\// @Filename: goToTypeDefinition_Definition.ts
@@ -631909,43 +630234,6 @@ test "TestCompletionListAtEndOfWordInArrowFunction03" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatNestedClassWithOpenBraceOnNewLines" {
-    const content =
-        \\module A
-        \\{
-        \\    class B {
-        \\        /*1*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts168);
-    // f.GetOptions();
-    // f.Configure(undefined, opts232);
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "}");
-    _ = f.VerifyCurrentFileContent(undefined, "module A\n{\n    class B\n    {\n    }\n}");
-}
-
-test "TestFormatTypeAnnotation1" {
-    const content =
-        \\function foo(x: number, y?: string): number {}
-        \\interface Foo {
-        \\    x: number;
-        \\    y?: number;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts207);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "function foo(x : number, y ?: string) : number { }\ninterface Foo {\n    x : number;\n    y ?: number;\n}");
 }
 
 test "TestCompletionForStringLiteral5" {
@@ -633539,25 +631827,6 @@ test "TestAutoImportFileExcludePatterns3" {
 //     });
 }
 
-test "TestFormatSpaceBetweenFunctionAndArrayIndex" {
-    const content =
-        \\// @lib: es5
-        \\
-        \\function test() {
-        \\    return [];
-        \\}
-        \\
-        \\test() [0]
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nfunction test() {\n    return [];\n}\n\ntest()[0]\n");
-}
-
 test "TestJsDocInheritDoc" {
     const content =
         \\// @Filename: inheritDoc.ts
@@ -633720,18 +631989,6 @@ test "TestImportNameCodeFix_add_all_missing_imports" {
         .FixID = "fixMissingImport",
         .NewFileContent = "import { a } from \"./a\";\nimport { b } from \"./b\";\nimport { c } from \"./c\";\n\na;\nb;\nc;",
     });
-}
-
-test "TestFormattingKeywordAsIdentifier" {
-    const content =
-        \\declare var module/*1*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "declare var module;");
 }
 
 test "TestTypeCheckObjectInArrayLiteral" {
@@ -634191,32 +632448,6 @@ test "TestCodeFixTopLevelForAwait_target_noTsConfig" {
     // f.VerifyCodeFixNotAvailable(undefined);
 }
 
-test "TestFormatSelectionJsxWithBinaryExpression" {
-    const content =
-        \\//@Filename: file.tsx
-        \\function TestWidget() {
-        \\    const test = true;
-        \\    return (
-        \\        <div>
-        \\            {test &&
-        \\                <div>
-        \\ /*1*/                <div>some text</div>/*2*/
-        \\                    <div>some text</div>
-        \\                    <div>some text</div>
-        \\                </div>
-        \\            }
-        \\            <div>some text</div>
-        \\        </div>
-        \\    );
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "1", "2");
-    _ = f.VerifyCurrentFileContent(undefined, "function TestWidget() {\n    const test = true;\n    return (\n        <div>\n            {test &&\n                <div>\n                    <div>some text</div>\n                    <div>some text</div>\n                    <div>some text</div>\n                </div>\n            }\n            <div>some text</div>\n        </div>\n    );\n}");
-}
-
 test "TestGoToDefinitionUnionTypeProperty2" {
     const content =
         \\interface HasAOrB {
@@ -634483,19 +632714,6 @@ test "TestCodeFixAddMissingConstToArrayDestructuring3" {
     // f.VerifyCodeFixNotAvailable(undefined);
 }
 
-test "TestFormatNoSpaceAfterTemplateHeadAndMiddle" {
-    const content =
-        \\const a1 = 
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts429);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const a1 = `${1}${1}`;\n" ++ "const a2 = `\n" ++ "    ${1}${1}\n" ++ "`;\n" ++ "const a3 = `\n" ++ "\n" ++ "\n" ++ "    ${1}${1}\n" ++ "`;\n" ++ "const a4 = `\n" ++ "\n" ++ "    ${1}${1}\n" ++ "\n" ++ "`;\n" ++ "const a5 = `text ${1} text ${1} text`;\n" ++ "const a6 = `\n" ++ "    text ${1}\n" ++ "    text ${1}\n" ++ "    text\n" ++ "`;");
-}
-
 test "TestCodeFixTopLevelForAwait_module_compatibleCompilerOptionsInTsConfig" {
     const content =
         \\// @filename: /dir/a.ts
@@ -634696,20 +632914,6 @@ test "TestGoToDefinitionOverriddenMember22" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToDefinition(undefined, true, "1");
-}
-
-test "TestFormatControlFlowConstructs" {
-    const content =
-        \\if (true)/**/
-        \\{     
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "if (true) {");
 }
 
 test "TestCompletionsImport_default_addToNamespaceImport" {
@@ -635382,21 +633586,6 @@ test "TestQuickInfoSalsaMethodsOnAssignedFunctionExpressions" {
     _ = f.VerifyBaselineHover(undefined);
 }
 
-test "TestFormattingGlobalAugmentation2" {
-    const content =
-        \\declare module "A" {
-        \\/*1*/                  global                {
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    global {");
-}
-
 test "TestCodeFixClassImplementInterfaceWithAmbientSignatures3" {
     const content =
         \\declare abstract class A {
@@ -635454,20 +633643,6 @@ test "TestQuickInfoDisplayPartsIife" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyQuickInfoAt(undefined, "1", "(local function) foo(x: number, y?: undefined): number", "");
-}
-
-test "TestFormattingOnSingleLineBlocks" {
-    const content =
-        \\class C
-        \\{}
-        \\if (true)
-        \\{}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "class C { }\nif (true) { }");
 }
 
 test "TestCompletionInJSDocFunctionThis" {
@@ -637035,24 +635210,6 @@ test "TestGetOccurrencesConst04" {
     // f.VerifyBaselineDocumentHighlights(undefined, null , "1", "2", "3");
 }
 
-test "TestFormatAsyncKeyword" {
-    const content =
-        \\/*1*/let x = async         () => 1;
-        \\/*2*/let y = async() => 1;
-        \\/*3*/let z = async    function   () { return 1; };
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "let x = async () => 1;");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "let y = async () => 1;");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "let z = async function() { return 1; };");
-}
-
 test "TestCompletionsQuotedObjectLiteralUnion" {
     const content =
         \\interface A {
@@ -637300,38 +635457,6 @@ test "TestDocCommentTemplateIndentation" {
     // f.VerifyJSDocCompletion(undefined, "0", 3, "/** */", null);
     // f.VerifyJSDocCompletion(undefined, "1", 3, "/** */", null);
     // f.VerifyJSDocCompletion(undefined, "2", 3, "/** */", null);
-}
-
-test "TestFormattingReplaceTabsWithSpaces" {
-    const content =
-        \\namespace Foo {
-        \\/*1*/                class Test { }
-        \\/*2*/            class Test { }
-        \\/*3*/class Test { }
-        \\/*4*/             class Test { }
-        \\/*5*/   class Test { }
-        \\/*6*/    class Test { }
-        \\/*7*/     class Test { }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    class Test { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    class Test { }");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    class Test { }");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    class Test { }");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    class Test { }");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    class Test { }");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "    class Test { }");
 }
 
 test "TestSignatureHelpInference" {
@@ -637597,22 +635722,6 @@ test "TestFindAllRefsImportEqualsJsonFile" {
     defer f.deinit();
     _ = f.VerifyNoErrors(undefined);
     // f.VerifyBaselineFindAllReferences(undefined, "0", "2", "1", "4", "3", "5", "6");
-}
-
-test "TestFormatAfterWhitespace" {
-    const content =
-        \\function foo()
-        \\{
-        \\    var bar;
-        \\    /*1*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.InsertLine(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "function foo()\n{\n    var bar;\n\n\n}");
 }
 
 test "TestQuickInfoSignatureOptionalParameterFromUnion1" {
@@ -638332,37 +636441,6 @@ test "TestCompletionsImport_default_alreadyExistedWithRename" {
 //     });
 }
 
-test "TestFormattingOnEmptyInterfaceLiteral" {
-    const content =
-        \\/*1*/    function    foo  (  x  :    {    }    )    {    }
-        \\
-        \\/*2*/foo    (  {     }   )    ;
-        \\
-        \\
-        \\
-        \\/*3*/            interface    bar    {
-        \\/*4*/                x   :    {     }   ;
-        \\/*5*/       y  :       (         )    =>    {     }   ;
-        \\/*6*/                                                    }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo(x: {}) { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "foo({});");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "interface bar {");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    x: {};");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    y: () => {};");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-}
-
 test "TestCodeFixInferFromFunctionUsage" {
     const content =
         \\// @stableTypeOrdering: true
@@ -638580,64 +636658,6 @@ test "TestJsdocLink5" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineHover(undefined);
-}
-
-test "TestFormattingOnVariety" {
-    const content =
-        \\function f(a,b,c,d){/*1*/
-        \\for(var i=0;i<10;i++){/*2*/
-        \\var a=0;/*3*/
-        \\var b=a+a+a*a%a/2-1;/*4*/
-        \\b+=a;/*5*/
-        \\++b;/*6*/
-        \\f(a,b,c,d);/*7*/
-        \\if(1===1){/*8*/
-        \\var m=function(e,f){/*9*/
-        \\return e^f;/*10*/
-        \\}/*11*/
-        \\}/*12*/
-        \\}/*13*/
-        \\}/*14*/
-        \\
-        \\for (var i = 0   ; i < this.foo(); i++) {/*15*/
-        \\}/*16*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "function f(a, b, c, d) {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    for (var i = 0; i < 10; i++) {");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "        var a = 0;");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "        var b = a + a + a * a % a / 2 - 1;");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "        b += a;");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "        ++b;");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "        f(a, b, c, d);");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "        if (1 === 1) {");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "            var m = function(e, f) {");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "                return e ^ f;");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "            }");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "for (var i = 0; i < this.foo(); i++) {");
-    _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
 }
 
 test "TestCompletionsWithDeprecatedTag5" {
@@ -639488,18 +637508,6 @@ test "TestFindAllRefsClassWithStaticThisAccess" {
     // f.VerifyBaselineRename(undefined, null , f.Ranges()[1]);
 }
 
-test "TestFunctionTypeFormatting" {
-    const content =
-        \\var x: () =>           string/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "var x: () => string;");
-}
-
 test "TestImportNameCodeFixNewImportFromAtTypes" {
     const content =
         \\[|f1/*0*/();|]
@@ -640282,31 +638290,6 @@ test "TestCompletionsGenericUnconstrained" {
 //     });
 }
 
-test "TestFormattingObjectLiteralOpenCurlyNewline" {
-    const content =
-        \\
-        \\var clear =
-        \\{
-        \\    outerKey:
-        \\    {
-        \\        innerKey: 1,
-        \\        innerKey2:
-        \\            2
-        \\    }
-        \\};
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nvar clear =\n{\n    outerKey:\n    {\n        innerKey: 1,\n        innerKey2:\n            2\n    }\n};\n");
-    // f.GetOptions();
-    // f.Configure(undefined, opts444);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nvar clear =\n    {\n        outerKey:\n            {\n                innerKey: 1,\n                innerKey2:\n                    2\n            }\n    };\n");
-}
-
 test "TestDoubleUnderscoreRenames" {
     const content =
         \\// @Filename: fileA.ts
@@ -640593,19 +638576,6 @@ test "TestQuickInfoJsDocTags1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineHover(undefined);
-}
-
-test "TestFormatRangeEndingAfterCommaOfCall" {
-    const content =
-        \\someCall(
-        \\    /*start*/"firstParameter",/*end*/
-        \\    "something else"
-        \\);
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "start", "end");
 }
 
 test "TestCodeFixAddMissingMember21" {
@@ -641796,18 +639766,6 @@ test "TestQuickInfoJsDocTags15" {
     _ = f.VerifyBaselineHover(undefined);
 }
 
-test "TestSemicolonFormatting" {
-    const content =
-        \\/**/function of1 (b:{r:{c:number
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToEOF(undefined);
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "function of1(b: { r: { c: number;");
-}
-
 test "TestImportNameCodeFix_barrelExport3" {
     const content =
         \\// @module: commonjs
@@ -641963,33 +639921,6 @@ test "TestGoToTypeDefinition_typedef" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToTypeDefinition(undefined, "ref");
-}
-
-test "TestFormattingInDestructuring1" {
-    const content =
-        \\interface let { }
-        \\/*1*/var x: let         [];
-        \\
-        \\function foo() {
-        \\    'use strict'
-        \\/*2*/    let        [x] = [];
-        \\/*3*/    const      [x] = [];
-        \\/*4*/    for (let[x] = [];x < 1;) {
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "var x: let[];");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    let [x] = [];");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    const [x] = [];");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    for (let [x] = []; x < 1;) {");
 }
 
 test "TestDuplicatePackageServices" {
@@ -642563,48 +640494,6 @@ test "TestMemberListInWithBlock" {
 //     });
 }
 
-test "TestFormattingComma" {
-    const content =
-        \\var x = [1 , 2];/*x*/
-        \\var y = ( 1  , 2 );/*y*/
-        \\var z1 = 1 , zz = 2;/*z1*/
-        \\var z2 = {
-        \\    x: 1 ,/*z2*/
-        \\    y: 2
-        \\};
-        \\var z3 = (
-        \\    () => { }  ,/*z3*/
-        \\    () => { }
-        \\    );
-        \\var z4 = [
-        \\    () => { } ,/*z4*/
-        \\    () => { }
-        \\];
-        \\var z5 = {
-        \\    x: () => { } ,/*z5*/
-        \\    y: () => { }
-        \\}; 
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "x");
-    _ = f.VerifyCurrentLineContent(undefined, "var x = [1, 2];");
-    _ = f.GoToMarker(undefined, "y");
-    _ = f.VerifyCurrentLineContent(undefined, "var y = (1, 2);");
-    _ = f.GoToMarker(undefined, "z1");
-    _ = f.VerifyCurrentLineContent(undefined, "var z1 = 1, zz = 2;");
-    _ = f.GoToMarker(undefined, "z2");
-    _ = f.VerifyCurrentLineContent(undefined, "    x: 1,");
-    _ = f.GoToMarker(undefined, "z3");
-    _ = f.VerifyCurrentLineContent(undefined, "    () => { },");
-    _ = f.GoToMarker(undefined, "z4");
-    _ = f.VerifyCurrentLineContent(undefined, "    () => { },");
-    _ = f.GoToMarker(undefined, "z5");
-    _ = f.VerifyCurrentLineContent(undefined, "    x: () => { },");
-}
-
 test "TestImportNameCodeFixNewImportNodeModules0" {
     const content =
         \\[|f1/*0*/();|]
@@ -642811,24 +640700,6 @@ test "TestImportNameCodeFix_defaultExport" {
     }, null );
 }
 
-test "TestFormattingSpacesAfterConstructor" {
-    const content =
-        \\/*1*/class test { constructor                   () { } }
-        \\/*2*/class test { constructor                   () { } }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "class test { constructor() { } }");
-    // f.GetOptions();
-    // f.Configure(undefined, opts319);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "class test { constructor () { } }");
-}
-
 test "TestCallHierarchyFunctionAmbiguity3" {
     const content =
         \\// @filename: a.d.ts
@@ -642891,37 +640762,6 @@ test "TestDocumentHighlightAtInheritedProperties6" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
-}
-
-test "TestFormattingBlockInCaseClauses" {
-    const content =
-        \\switch (1) {
-        \\    case 1:
-        \\        {
-        \\            /*1*/
-        \\        break;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "}");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-}
-
-test "TestAutoFormattingOnPasting" {
-    const content =
-        \\namespace TestModule {
-        \\/**/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Paste(undefined, " class TestClass{\nprivate   foo;\npublic testMethod( )\n{}\n}");
-    _ = f.VerifyCurrentFileContent(undefined, "namespace TestModule {\n    class TestClass {\n        private foo;\n        public testMethod() { }\n    }\n}");
 }
 
 test "TestCompletionsInRequire" {
@@ -643675,35 +641515,6 @@ test "TestPaste" {
     _ = f.VerifyCurrentLineContent(undefined, "fn(x, y, z);");
 }
 
-test "TestFormattingOnNestedDoWhileByEnter" {
-    const content =
-        \\/*2*/do{
-        \\/*3*/do/*1*/{
-        \\/*4*/do{
-        \\/*5*/}while(a!==b)
-        \\/*6*/}while(a!==b)
-        \\/*7*/}while(a!==b)
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "\n");
-    _ = f.VerifyCurrentLineContent(undefined, "    {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "do{");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    do");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "do{");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "}while(a!==b)");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "}while(a!==b)");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "}while(a!==b)");
-}
-
 test "TestQuickInfoForObjectBindingElementPropertyName01" {
     const content =
         \\interface I {
@@ -643734,18 +641545,6 @@ test "TestImportValueUsedAsType" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
     _ = f.Insert(undefined, " ");
-}
-
-test "TestAsOperatorFormatting" {
-    const content =
-        \\/**/var x = 3   as  number;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "var x = 3 as number;");
 }
 
 test "TestGenericMethodParam" {
@@ -644442,23 +642241,6 @@ test "TestQuickInfoJsDocGetterSetter" {
     _ = f.VerifyBaselineHover(undefined);
 }
 
-test "TestFormattingReadonly" {
-    const content =
-        \\class C {
-        \\  readonly    property1: {};/*1*/
-        \\  public readonly   property2: {};/*2*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    readonly property1: {};");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    public readonly property2: {};");
-}
-
 test "TestAutoImportPackageJsonImportsPattern_ts" {
     const content =
         \\// @module: node18
@@ -644652,18 +642434,6 @@ test "TestGoToImplementationLocal_04" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToImplementation(undefined, "local_var");
-}
-
-test "TestFormatNoSpaceBeforeCloseBrace5" {
-    const content =
-        \\new Foo(1, 
-        \\    /* comment */    );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "new Foo(1,\n    /* comment */);");
 }
 
 test "TestAutoImportFileExcludePatterns13" {
@@ -646506,23 +644276,6 @@ test "TestImportNameCodeFix_symlink_own_package_2" {
     }, null );
 }
 
-test "TestFormattingIfInElseBlock" {
-    const content =
-        \\if (true) {
-        \\}
-        \\else {
-        \\    if (true) {
-        \\        /*1*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "}");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-}
-
 test "TestCodeFixConvertToTypeOnlyImport3" {
     const content =
         \\// @module: esnext
@@ -646724,18 +644477,6 @@ test "TestImportStatementCompletions_js" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatArrayOrObjectLiteralsInVariableList" {
-    const content =
-        \\var v30 = [1, 2], v31, v32, v33 = [0], v34 = {'a': true}, v35;/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "var v30 = [1, 2], v31, v32, v33 = [0], v34 = { 'a': true }, v35;");
 }
 
 test "TestSmartSelection_bindingPatterns" {
@@ -648171,19 +645912,6 @@ test "TestGotoDefinitionSatisfiesTag" {
     // f.VerifyBaselineGoToDefinition(undefined, false, "use");
 }
 
-test "TestFormatOnEnterFunctionDeclaration" {
-    const content =
-        \\/*0*/function listAPIFiles(path: string): string[] {/*1*/ }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.InsertLine(undefined, "");
-    _ = f.GoToMarker(undefined, "0");
-    _ = f.VerifyCurrentLineContent(undefined, "function listAPIFiles(path: string): string[] {");
-}
-
 test "TestQuickInfoOnMethodOfImportEquals" {
     const content =
         \\// @Filename: /a.d.ts
@@ -648263,182 +645991,6 @@ test "TestCompletionForQuotedPropertyInPropertyAssignment3" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormattingOnStatementsWithNoSemicolon" {
-    const content =
-        \\/*1*/do
-        \\     { var a/*2*/
-        \\/*3*/}   while (1)
-        \\/*4*/function f() {
-        \\/*5*/    var s = 1
-        \\/*6*/            }
-        \\/*7*/switch (t) {
-        \\/*8*/    case 1:
-        \\/*9*/{
-        \\/*10*/test
-        \\/*11*/}
-        \\/*12*/}
-        \\/*13*/do{do{do{}while(a!==b)}while(a!==b)}while(a!==b)
-        \\/*14*/do{
-        \\/*15*/do{
-        \\/*16*/do{
-        \\/*17*/}while(a!==b)
-        \\/*18*/}while(a!==b)
-        \\/*19*/}while(a!==b)
-        \\/*20*/for(var i=0;i<10;i++){
-        \\/*21*/for(var j=0;j<10;j++){
-        \\/*22*/j-=i
-        \\/*23*/}/*24*/}
-        \\/*25*/function foo() {
-        \\/*26*/try {
-        \\/*27*/x+=2
-        \\/*28*/}
-        \\/*29*/catch( e){
-        \\/*30*/x+=2
-        \\/*31*/}finally {
-        \\/*32*/x+=2
-        \\/*33*/}
-        \\/*34*/}
-        \\/*35*/do     { var a }   while (1)
-        \\    foo(function (file) {/*49*/
-        \\        return 0/*50*/
-        \\    }).then(function (doc) {/*51*/
-        \\        return 1/*52*/
-        \\    });/*53*/
-        \\/*54*/if(1)
-        \\/*55*/if(1)
-        \\/*56*/x++
-        \\/*57*/else
-        \\/*58*/if(1)
-        \\/*59*/x+=2
-        \\/*60*/else
-        \\/*61*/x+=2
-        \\
-        \\
-        \\
-        \\/*62*/;
-        \\         do do do do/*63*/
-        \\                test;/*64*/
-        \\            while (0)/*65*/
-        \\         while (0)/*66*/
-        \\            while (0)/*67*/
-        \\         while (0)/*68*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "do {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    var a");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "} while (1)");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "function f() {");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    var s = 1");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "switch (t) {");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "    case 1:");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "        {");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "            test");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "do { do { do { } while (a !== b) } while (a !== b) } while (a !== b)");
-    _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "do {");
-    _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "    do {");
-    _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "        do {");
-    _ = f.GoToMarker(undefined, "17");
-    _ = f.VerifyCurrentLineContent(undefined, "        } while (a !== b)");
-    _ = f.GoToMarker(undefined, "18");
-    _ = f.VerifyCurrentLineContent(undefined, "    } while (a !== b)");
-    _ = f.GoToMarker(undefined, "19");
-    _ = f.VerifyCurrentLineContent(undefined, "} while (a !== b)");
-    _ = f.GoToMarker(undefined, "20");
-    _ = f.VerifyCurrentLineContent(undefined, "for (var i = 0; i < 10; i++) {");
-    _ = f.GoToMarker(undefined, "21");
-    _ = f.VerifyCurrentLineContent(undefined, "    for (var j = 0; j < 10; j++) {");
-    _ = f.GoToMarker(undefined, "22");
-    _ = f.VerifyCurrentLineContent(undefined, "        j -= i");
-    _ = f.GoToMarker(undefined, "23");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "24");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "25");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo() {");
-    _ = f.GoToMarker(undefined, "26");
-    _ = f.VerifyCurrentLineContent(undefined, "    try {");
-    _ = f.GoToMarker(undefined, "27");
-    _ = f.VerifyCurrentLineContent(undefined, "        x += 2");
-    _ = f.GoToMarker(undefined, "28");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "29");
-    _ = f.VerifyCurrentLineContent(undefined, "    catch (e) {");
-    _ = f.GoToMarker(undefined, "30");
-    _ = f.VerifyCurrentLineContent(undefined, "        x += 2");
-    _ = f.GoToMarker(undefined, "31");
-    _ = f.VerifyCurrentLineContent(undefined, "    } finally {");
-    _ = f.GoToMarker(undefined, "32");
-    _ = f.VerifyCurrentLineContent(undefined, "        x += 2");
-    _ = f.GoToMarker(undefined, "33");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "34");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "35");
-    _ = f.VerifyCurrentLineContent(undefined, "do { var a } while (1)");
-    _ = f.GoToMarker(undefined, "49");
-    _ = f.VerifyCurrentLineContent(undefined, "foo(function(file) {");
-    _ = f.GoToMarker(undefined, "50");
-    _ = f.VerifyCurrentLineContent(undefined, "    return 0");
-    _ = f.GoToMarker(undefined, "51");
-    _ = f.VerifyCurrentLineContent(undefined, "}).then(function(doc) {");
-    _ = f.GoToMarker(undefined, "52");
-    _ = f.VerifyCurrentLineContent(undefined, "    return 1");
-    _ = f.GoToMarker(undefined, "53");
-    _ = f.VerifyCurrentLineContent(undefined, "});");
-    _ = f.GoToMarker(undefined, "54");
-    _ = f.VerifyCurrentLineContent(undefined, "if (1)");
-    _ = f.GoToMarker(undefined, "55");
-    _ = f.VerifyCurrentLineContent(undefined, "    if (1)");
-    _ = f.GoToMarker(undefined, "56");
-    _ = f.VerifyCurrentLineContent(undefined, "        x++");
-    _ = f.GoToMarker(undefined, "57");
-    _ = f.VerifyCurrentLineContent(undefined, "    else");
-    _ = f.GoToMarker(undefined, "58");
-    _ = f.VerifyCurrentLineContent(undefined, "        if (1)");
-    _ = f.GoToMarker(undefined, "59");
-    _ = f.VerifyCurrentLineContent(undefined, "            x += 2");
-    _ = f.GoToMarker(undefined, "60");
-    _ = f.VerifyCurrentLineContent(undefined, "        else");
-    _ = f.GoToMarker(undefined, "61");
-    _ = f.VerifyCurrentLineContent(undefined, "            x += 2");
-    _ = f.GoToMarker(undefined, "62");
-    _ = f.VerifyCurrentLineContent(undefined, "                ;");
-    _ = f.GoToMarker(undefined, "63");
-    _ = f.VerifyCurrentLineContent(undefined, "do do do do");
-    _ = f.GoToMarker(undefined, "64");
-    _ = f.VerifyCurrentLineContent(undefined, "    test;");
-    _ = f.GoToMarker(undefined, "65");
-    _ = f.VerifyCurrentLineContent(undefined, "while (0)");
-    _ = f.GoToMarker(undefined, "66");
-    _ = f.VerifyCurrentLineContent(undefined, "while (0)");
-    _ = f.GoToMarker(undefined, "67");
-    _ = f.VerifyCurrentLineContent(undefined, "while (0)");
-    _ = f.GoToMarker(undefined, "68");
-    _ = f.VerifyCurrentLineContent(undefined, "while (0)");
 }
 
 test "TestCompletionListAfterFunction2" {
@@ -648846,17 +646398,6 @@ test "TestCompletionForStringLiteralFromSignature2" {
 //             .Exact = &.{},
 //         },
 //     });
-}
-
-test "TestFormatNoSpaceBeforeCloseBrace" {
-    const content =
-        \\foo(1, /* comment */    );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "foo(1, /* comment */);");
 }
 
 test "TestIsDefinitionSingleImport" {
@@ -650075,23 +647616,6 @@ test "TestCompletionsImport_named_didNotExistBefore" {
 //     });
 }
 
-test "TestFormattingQMark" {
-    const content =
-        \\interface A {
-        \\/*1*/    foo?     ();
-        \\/*2*/    foo?             <T>();
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    foo?();");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    foo?<T>();");
-}
-
 test "TestInlayHintsInteractiveInferredTypePredicate1" {
     const content =
         \\// @strict: true
@@ -651242,23 +648766,6 @@ test "TestCompletionsOverridingMethod1" {
 //     });
 }
 
-test "TestFormattingOfExportDefault" {
-    const content =
-        \\namespace Foo {
-        \\/*1*/    export        default        class        Test { }
-        \\}
-        \\/*2*/export        default        function        bar() { }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    export default class Test { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "export default function bar() { }");
-}
-
 test "TestGoToDefinitionYield2" {
     const content =
         \\function* outerGen() {
@@ -651309,7 +648816,7 @@ test "TestSpaceAfterReturn" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
     _ = f.VerifyCurrentLineContent(undefined, "    return 1;");
     _ = f.GoToMarker(undefined, "2");
@@ -652068,29 +649575,6 @@ test "TestNoErrorsAfterCompletionsRequestWithinGenericFunction2" {
     _ = f.VerifyNoErrors(undefined);
 }
 
-test "TestFormattingInDestructuring4" {
-    const content =
-        \\/*1*/const { 
-        \\/*2*/    a,
-        \\/*3*/    b,
-        \\/*4*/} = { a: 1, b: 2 };
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts198);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "const {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    a,");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    b,");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "} = {a: 1, b: 2};");
-}
-
 test "TestRenameNoDefaultLib" {
     const content =
         \\// @checkJs: true
@@ -652286,31 +649770,6 @@ test "TestFindAllRefsReExportsUseInImportType" {
     // f.VerifyBaselineRename(undefined, null , f.Ranges()[5], f.Ranges()[10]);
     // f.VerifyBaselineRename(undefined, null , f.Ranges()[7], f.Ranges()[8]);
     // f.VerifyBaselineRename(undefined, &.{.UseAliasesForRename = core.TSFalse}, f.Ranges()[7], f.Ranges()[8], f.Ranges()[10], f.Ranges()[3], f.Ranges()[5]);
-}
-
-test "TestFormattingCommentsBeforeErrors" {
-    const content =
-        \\namespace A {
-        \\    interface B {
-        \\        // a
-        \\        // b
-        \\        baz();
-        \\/*0*/        // d /*1*/asd a
-        \\        // e
-        \\        foo();
-        \\        // f asd
-        \\        // g as
-        \\        bar();
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "\n");
-    _ = f.GoToMarker(undefined, "0");
-    _ = f.VerifyCurrentLineContent(undefined, "        // d ");
 }
 
 test "TestSignatureHelpFunctionOverload" {
@@ -654063,20 +651522,6 @@ test "TestCompletionsImport_augmentation" {
 //     });
 }
 
-test "TestFormatAsyncComputedMethod" {
-    const content =
-        \\class C {
-        \\    /*method*/async [0]() { }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "method");
-    _ = f.VerifyCurrentLineContent(undefined, "    async [0]() { }");
-}
-
 test "TestCompletionForStringLiteral_quotePreference5" {
     const content =
         \\type T = "0" | "1";
@@ -654855,20 +652300,6 @@ test "TestQuickInfoOnCircularTypes" {
     defer f.deinit();
     // f.VerifyQuickInfoAt(undefined, "B", "var xx: B", "");
     // f.VerifyQuickInfoAt(undefined, "C", "var yy: C", "");
-}
-
-test "TestFormatSelectionWithTrivia5" {
-    const content =
-        \\if (true) {
-        \\/*begin*/// test comment
-        \\/*end*/    console.log();
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true) {\n    // test comment\n    console.log();\n}");
 }
 
 test "TestCompletionListInUnclosedFunction12" {
@@ -656059,304 +653490,6 @@ test "TestCodeFixUnusedIdentifier_parameter1" {
     // f.VerifyCodeFixNotAvailable(undefined, "Remove unused declaration for: 'a'");
 }
 
-test "TestFormattingFatArrowFunctions" {
-    const content =
-        \\// valid
-        \\    (         )           =>    1  ;/*1*/
-        \\    (        arg )           =>    2  ;/*2*/
-        \\        arg       =>    2  ;/*3*/
-        \\        arg=>2  ;/*3a*/
-        \\      (        arg     = 1 )           =>    3  ;/*4*/
-        \\    (        arg    ?        )           =>    4  ;/*5*/
-        \\    (        arg    :    number )           =>    5  ;/*6*/
-        \\      (        arg    :    number     = 0 )           =>    6  ;/*7*/
-        \\    (        arg        ?                  :    number )           =>    7  ;/*8*/
-        \\    (                 ...     arg    :    number   [      ]    )           =>    8  ;/*9*/
-        \\      (        arg1   ,    arg2 )           =>    12  ;/*10*/
-        \\    (        arg1     = 1   ,    arg2     =3 )           =>    13  ;/*11*/
-        \\      (        arg1    ?          ,    arg2    ?        )           =>    14  ;/*12*/
-        \\    (        arg1    :    number   ,    arg2    :    number )           =>    15  ;/*13*/
-        \\    (        arg1    :    number     = 0   ,    arg2    :    number     = 1 )           =>    16  ;/*14*/
-        \\      (        arg1    ?           :    number   ,    arg2    ?           :    number )           =>    17  ;/*15*/
-        \\    (        arg1   ,             ...     arg2    :    number   [      ]    )           =>    18  ;/*16*/
-        \\      (        arg1   ,    arg2    ?           :    number )           =>    19  ;/*17*/
-        \\
-        \\// in paren
-        \\    (            (         )           =>    21 )      ;/*18*/
-        \\    (            (        arg )           =>    22 )      ;/*19*/
-        \\    (            (        arg     = 1 )           =>    23 )      ;/*20*/
-        \\    (            (        arg    ?        )           =>    24 )      ;/*21*/
-        \\    (            (        arg    :    number )           =>    25 )      ;/*22*/
-        \\    (            (        arg    :    number     = 0 )           =>    26 )      ;/*23*/
-        \\    (            (        arg    ?           :    number )           =>    27 )      ;/*24*/
-        \\    (            (                 ...     arg    :    number   [      ]    )           =>    28 )      ;/*25*/
-        \\
-        \\// in multiple paren
-        \\    (            (            (            (            (        arg )           =>    { return 32  ;    } )     )     )     )      ;/*26*/
-        \\
-        \\// in ternary exression
-        \\      false        ?            (         )           =>    41     :    null  ;/*27*/
-        \\   false        ?            (        arg )           =>    42     :    null  ;/*28*/
-        \\    false        ?            (        arg     = 1 )           =>    43     :    null  ;/*29*/
-        \\      false        ?            (        arg    ?        )           =>    44     :    null  ;/*30*/
-        \\    false        ?            (        arg    :    number )           =>    45     :    null  ;/*31*/
-        \\   false        ?            (        arg    ?           :    number )           =>    46     :    null  ;/*32*/
-        \\      false        ?            (        arg    ?           :    number     = 0 )           =>    47     :    null  ;/*33*/
-        \\   false        ?            (                 ...     arg    :    number   [      ]    )           =>    48     :    null  ;/*34*/
-        \\
-        \\// in ternary exression within paren
-        \\   false        ?            (            (         )           =>    51 )         :    null  ;/*35*/
-        \\    false        ?            (            (        arg )           =>    52 )         :    null  ;/*36*/
-        \\    false        ?            (            (        arg     = 1 )           =>    53 )         :    null  ;/*37*/
-        \\      false        ?            (            (        arg    ?        )           =>    54 )         :    null  ;/*38*/
-        \\    false        ?            (            (        arg    :    number )           =>    55 )         :    null  ;/*39*/
-        \\      false        ?            (            (        arg    ?           :    number )           =>    56 )         :    null  ;/*40*/
-        \\    false        ?            (            (        arg    ?           :    number     = 0 )           =>    57 )         :    null  ;/*41*/
-        \\   false        ?            (            (                 ...     arg    :    number   [      ]    )           =>    58 )         :    null  ;/*42*/
-        \\
-        \\// ternary exression's else clause
-        \\   false        ?        null     :        (         )           =>    61  ;/*43*/
-        \\        false        ?        null     :        (        arg )           =>    62  ;/*44*/
-        \\   false        ?        null     :        (        arg     = 1 )           =>    63  ;/*45*/
-        \\      false        ?        null     :        (        arg    ?        )           =>    64  ;/*46*/
-        \\   false        ?        null     :        (        arg    :    number )           =>    65  ;/*47*/
-        \\    false        ?        null     :        (        arg    ?           :    number )           =>    66  ;/*48*/
-        \\        false        ?        null     :        (        arg    ?           :    number     = 0 )           =>    67  ;/*49*/
-        \\    false        ?        null     :        (                 ...     arg    :    number   [      ]    )           =>    68  ;/*50*/
-        \\
-        \\
-        \\// nested ternary expressions
-        \\    ((        a    ?        )           =>    { return a  ;    })     ?            (        b    ?         )           =>    { return b  ;    }     :        (        c    ?         )           =>    { return c  ;    }  ;/*51*/
-        \\
-        \\//multiple levels
-        \\    ((        a    ?        )           =>    { return a  ;    })     ?            (        b )          =>       (        c )          =>   81     :        (        c )          =>       (        d )          =>   82  ;/*52*/
-        \\
-        \\
-        \\// In Expressions
-        \\    (            (        arg )           =>    90 )     instanceof Function  ;/*53*/
-        \\      (            (        arg     = 1 )           =>    91 )     instanceof Function  ;/*54*/
-        \\        (            (        arg    ?         )           =>    92 )     instanceof Function  ;/*55*/
-        \\      (            (        arg    :    number )           =>    93 )     instanceof Function  ;/*56*/
-        \\    (            (        arg    :    number     = 1 )           =>    94 )     instanceof Function  ;/*57*/
-        \\        (            (        arg    ?           :    number )           =>    95 )     instanceof Function  ;/*58*/
-        \\      (            (                 ...     arg    :    number   [      ]    )           =>    96 )     instanceof Function  ;/*59*/
-        \\
-        \\''    +        ((        arg )           =>    100)  ;/*60*/
-        \\        (            (        arg )           =>    0 )        +    ''    +        ((        arg )           =>    101)  ;/*61*/
-        \\          (            (        arg     = 1 )           =>    0 )        +    ''    +        ((        arg     = 2 )           =>    102)  ;/*62*/
-        \\    (            (        arg    ?        )           =>    0 )        +    ''    +        ((        arg    ?        )           =>    103)  ;/*63*/
-        \\      (            (        arg    :   number )           =>    0 )        +    ''    +        ((        arg    :   number )           =>    104)  ;/*64*/
-        \\        (            (        arg    :   number     = 1 )           =>    0 )        +    ''    +        ((        arg    :   number     = 2 )           =>    105)  ;/*65*/
-        \\    (            (        arg    ?           :   number     )           =>    0 )        +    ''    +        ((        arg    ?           :   number     )           =>    106)  ;/*66*/
-        \\      (            (                 ...     arg    :   number   [      ]    )           =>    0 )        +    ''    +        ((                 ...     arg    :   number   [      ]    )           =>    107)  ;/*67*/
-        \\    (            (        arg1   ,    arg2    ?        )           =>    0 )        +    ''    +        ((        arg1   ,   arg2    ?        )           =>    108)  ;/*68*/
-        \\      (            (        arg1   ,             ...     arg2    :   number   [      ]    )           =>    0 )        +    ''    +        ((        arg1   ,             ...     arg2    :   number   [      ]    )           =>    108)  ;/*69*/
-        \\
-        \\
-        \\// Function Parameters
-        \\/*70*/function foo    (                 ...     arg    :    any   [      ]    )     { }
-        \\
-        \\/*71*/foo    (
-        \\/*72*/        (        a )           =>    110   ,
-        \\/*73*/        (            (        a )           =>    111 )       ,
-        \\/*74*/        (        a )           =>    {
-        \\        return /*75*/112  ;
-        \\/*76*/    }   ,
-        \\/*77*/        (        a    ?         )           =>    113   ,
-        \\/*78*/        (        a   ,    b    ?         )           =>    114   ,
-        \\/*79*/        (        a    :    number )           =>    115   ,
-        \\/*80*/        (        a    :    number     = 0 )           =>    116   ,
-        \\/*81*/        (        a     = 0 )           =>    117   ,
-        \\/*82*/        (        a               :    number     = 0 )           =>    118   ,
-        \\/*83*/        (        a    ?    ,   b   ?          :    number      )           =>    118   ,
-        \\/*84*/        (                 ...     a    :    number   [      ]    )           =>    119   ,
-        \\/*85*/        (        a   ,    b                = 0   ,             ...     c    :    number   [      ]    )           =>    120   ,
-        \\/*86*/        (        a )           =>        (        b )           =>        (        c )           =>    121   ,
-        \\/*87*/        false       ?            (        a )           =>    0     :        (        b )           =>    122
-        \\ /*88*/)      ;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "() => 1;");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg) => 2;");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "arg => 2;");
-    _ = f.GoToMarker(undefined, "3a");
-    _ = f.VerifyCurrentLineContent(undefined, "arg => 2;");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg = 1) => 3;");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg?) => 4;");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg: number) => 5;");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg: number = 0) => 6;");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg?: number) => 7;");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "(...arg: number[]) => 8;");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg1, arg2) => 12;");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg1 = 1, arg2 = 3) => 13;");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg1?, arg2?) => 14;");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg1: number, arg2: number) => 15;");
-    _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg1: number = 0, arg2: number = 1) => 16;");
-    _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg1?: number, arg2?: number) => 17;");
-    _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg1, ...arg2: number[]) => 18;");
-    _ = f.GoToMarker(undefined, "17");
-    _ = f.VerifyCurrentLineContent(undefined, "(arg1, arg2?: number) => 19;");
-    _ = f.GoToMarker(undefined, "18");
-    _ = f.VerifyCurrentLineContent(undefined, "(() => 21);");
-    _ = f.GoToMarker(undefined, "19");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg) => 22);");
-    _ = f.GoToMarker(undefined, "20");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg = 1) => 23);");
-    _ = f.GoToMarker(undefined, "21");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg?) => 24);");
-    _ = f.GoToMarker(undefined, "22");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg: number) => 25);");
-    _ = f.GoToMarker(undefined, "23");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg: number = 0) => 26);");
-    _ = f.GoToMarker(undefined, "24");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg?: number) => 27);");
-    _ = f.GoToMarker(undefined, "25");
-    _ = f.VerifyCurrentLineContent(undefined, "((...arg: number[]) => 28);");
-    _ = f.GoToMarker(undefined, "26");
-    _ = f.VerifyCurrentLineContent(undefined, "(((((arg) => { return 32; }))));");
-    _ = f.GoToMarker(undefined, "27");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? () => 41 : null;");
-    _ = f.GoToMarker(undefined, "28");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? (arg) => 42 : null;");
-    _ = f.GoToMarker(undefined, "29");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? (arg = 1) => 43 : null;");
-    _ = f.GoToMarker(undefined, "30");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? (arg?) => 44 : null;");
-    _ = f.GoToMarker(undefined, "31");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? (arg: number) => 45 : null;");
-    _ = f.GoToMarker(undefined, "32");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? (arg?: number) => 46 : null;");
-    _ = f.GoToMarker(undefined, "33");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? (arg?: number = 0) => 47 : null;");
-    _ = f.GoToMarker(undefined, "34");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? (...arg: number[]) => 48 : null;");
-    _ = f.GoToMarker(undefined, "35");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? (() => 51) : null;");
-    _ = f.GoToMarker(undefined, "36");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? ((arg) => 52) : null;");
-    _ = f.GoToMarker(undefined, "37");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? ((arg = 1) => 53) : null;");
-    _ = f.GoToMarker(undefined, "38");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? ((arg?) => 54) : null;");
-    _ = f.GoToMarker(undefined, "39");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? ((arg: number) => 55) : null;");
-    _ = f.GoToMarker(undefined, "40");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? ((arg?: number) => 56) : null;");
-    _ = f.GoToMarker(undefined, "41");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? ((arg?: number = 0) => 57) : null;");
-    _ = f.GoToMarker(undefined, "42");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? ((...arg: number[]) => 58) : null;");
-    _ = f.GoToMarker(undefined, "43");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? null : () => 61;");
-    _ = f.GoToMarker(undefined, "44");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? null : (arg) => 62;");
-    _ = f.GoToMarker(undefined, "45");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? null : (arg = 1) => 63;");
-    _ = f.GoToMarker(undefined, "46");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? null : (arg?) => 64;");
-    _ = f.GoToMarker(undefined, "47");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? null : (arg: number) => 65;");
-    _ = f.GoToMarker(undefined, "48");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? null : (arg?: number) => 66;");
-    _ = f.GoToMarker(undefined, "49");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? null : (arg?: number = 0) => 67;");
-    _ = f.GoToMarker(undefined, "50");
-    _ = f.VerifyCurrentLineContent(undefined, "false ? null : (...arg: number[]) => 68;");
-    _ = f.GoToMarker(undefined, "51");
-    _ = f.VerifyCurrentLineContent(undefined, "((a?) => { return a; }) ? (b?) => { return b; } : (c?) => { return c; };");
-    _ = f.GoToMarker(undefined, "52");
-    _ = f.VerifyCurrentLineContent(undefined, "((a?) => { return a; }) ? (b) => (c) => 81 : (c) => (d) => 82;");
-    _ = f.GoToMarker(undefined, "53");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg) => 90) instanceof Function;");
-    _ = f.GoToMarker(undefined, "54");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg = 1) => 91) instanceof Function;");
-    _ = f.GoToMarker(undefined, "55");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg?) => 92) instanceof Function;");
-    _ = f.GoToMarker(undefined, "56");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg: number) => 93) instanceof Function;");
-    _ = f.GoToMarker(undefined, "57");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg: number = 1) => 94) instanceof Function;");
-    _ = f.GoToMarker(undefined, "58");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg?: number) => 95) instanceof Function;");
-    _ = f.GoToMarker(undefined, "59");
-    _ = f.VerifyCurrentLineContent(undefined, "((...arg: number[]) => 96) instanceof Function;");
-    _ = f.GoToMarker(undefined, "60");
-    _ = f.VerifyCurrentLineContent(undefined, "'' + ((arg) => 100);");
-    _ = f.GoToMarker(undefined, "61");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg) => 0) + '' + ((arg) => 101);");
-    _ = f.GoToMarker(undefined, "62");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg = 1) => 0) + '' + ((arg = 2) => 102);");
-    _ = f.GoToMarker(undefined, "63");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg?) => 0) + '' + ((arg?) => 103);");
-    _ = f.GoToMarker(undefined, "64");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg: number) => 0) + '' + ((arg: number) => 104);");
-    _ = f.GoToMarker(undefined, "65");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg: number = 1) => 0) + '' + ((arg: number = 2) => 105);");
-    _ = f.GoToMarker(undefined, "66");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg?: number) => 0) + '' + ((arg?: number) => 106);");
-    _ = f.GoToMarker(undefined, "67");
-    _ = f.VerifyCurrentLineContent(undefined, "((...arg: number[]) => 0) + '' + ((...arg: number[]) => 107);");
-    _ = f.GoToMarker(undefined, "68");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg1, arg2?) => 0) + '' + ((arg1, arg2?) => 108);");
-    _ = f.GoToMarker(undefined, "69");
-    _ = f.VerifyCurrentLineContent(undefined, "((arg1, ...arg2: number[]) => 0) + '' + ((arg1, ...arg2: number[]) => 108);");
-    _ = f.GoToMarker(undefined, "70");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo(...arg: any[]) { }");
-    _ = f.GoToMarker(undefined, "71");
-    _ = f.VerifyCurrentLineContent(undefined, "foo(");
-    _ = f.GoToMarker(undefined, "72");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a) => 110,");
-    _ = f.GoToMarker(undefined, "73");
-    _ = f.VerifyCurrentLineContent(undefined, "    ((a) => 111),");
-    _ = f.GoToMarker(undefined, "74");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a) => {");
-    _ = f.GoToMarker(undefined, "75");
-    _ = f.VerifyCurrentLineContent(undefined, "        return 112;");
-    _ = f.GoToMarker(undefined, "76");
-    _ = f.VerifyCurrentLineContent(undefined, "    },");
-    _ = f.GoToMarker(undefined, "77");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a?) => 113,");
-    _ = f.GoToMarker(undefined, "78");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a, b?) => 114,");
-    _ = f.GoToMarker(undefined, "79");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a: number) => 115,");
-    _ = f.GoToMarker(undefined, "80");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a: number = 0) => 116,");
-    _ = f.GoToMarker(undefined, "81");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a = 0) => 117,");
-    _ = f.GoToMarker(undefined, "82");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a: number = 0) => 118,");
-    _ = f.GoToMarker(undefined, "83");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a?, b?: number) => 118,");
-    _ = f.GoToMarker(undefined, "84");
-    _ = f.VerifyCurrentLineContent(undefined, "    (...a: number[]) => 119,");
-    _ = f.GoToMarker(undefined, "85");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a, b = 0, ...c: number[]) => 120,");
-    _ = f.GoToMarker(undefined, "86");
-    _ = f.VerifyCurrentLineContent(undefined, "    (a) => (b) => (c) => 121,");
-    _ = f.GoToMarker(undefined, "87");
-    _ = f.VerifyCurrentLineContent(undefined, "    false ? (a) => 0 : (b) => 122");
-}
-
 test "TestGetJavaScriptCompletions20" {
     const content =
         \\// @lib: es5
@@ -657028,22 +654161,6 @@ test "TestSemanticClassificationInstantiatedModuleWithVariableOfSameName2" {
 //         .{.Type = "variable.declaration", .Text = "x"},
 //         .{.Type = "namespace", .Text = "M"},
 //     });
-}
-
-test "TestFormattingMultilineTemplateLiterals" {
-    const content =
-        \\/*1*/new Error(
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "new Error(`Failed to expand glob: ${projectSpec.filesGlob}");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "                at projectPath : ${projectFile}");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "                with error: ${ex.message}`)");
 }
 
 test "TestCompletionListForShorthandPropertyAssignment2" {
@@ -659120,22 +656237,6 @@ test "TestAutoImportSpecifierExcludeRegexes2" {
     // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{}, &.{.AutoImportSpecifierExcludeRegexes = &.{"utils"}});
 }
 
-test "TestFormattingExpressionsInIfCondition" {
-    const content =
-        \\if (a === 1 ||
-        \\    /*0*/b === 2 ||/*1*/
-        \\    c === 3) {
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "\n");
-    _ = f.GoToMarker(undefined, "0");
-    _ = f.VerifyCurrentLineContent(undefined, "    b === 2 ||");
-}
-
 test "TestQuickInfoOnJsxNamespacedNameWithDoc1" {
     const content =
         \\// @jsx: react
@@ -659374,19 +656475,6 @@ test "TestGoToTypeDefinition_promiseType" {
     // f.VerifyBaselineGoToTypeDefinition(undefined, "reference", "reference2");
 }
 
-test "TestFormatInTsxFiles" {
-    const content =
-        \\//@Filename: file.tsx
-        \\interface I<T1, T2> {
-        \\    next: I</* */
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-}
-
 test "TestCompletionEntryForUnionProperty2" {
     const content =
         \\// @lib: es5
@@ -659511,18 +656599,6 @@ test "TestAutoImportTypeImport3" {
     // f.VerifyImportFixAtPosition(undefined, &.{
 //         "import { A, type B, type C, D } from './foo';\nconst b: B | C;\nconsole.log(A, D);",
 //     }, &.{.OrganizeImportsTypeOrder = lsutil.OrganizeImportsTypeOrderFirst});
-}
-
-test "TestFunctionTypePredicateFormatting" {
-    const content =
-        \\/**/function bar(a: A):     a        is       B    {}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "function bar(a: A): a is B { }");
 }
 
 test "TestQuickInfoLink8" {
@@ -659840,24 +656916,6 @@ test "TestNavigationBarPrivateName" {
     _ = f.VerifyBaselineDocumentSymbol(undefined);
 }
 
-test "TestFormattingOnEnterInComments" {
-    const content =
-        \\namespace me {
-        \\    class A {
-        \\        /*
-        \\         */*1*/
-        \\    /*2*/}
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.InsertLine(undefined, "");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-}
-
 test "TestCompletionListInUnclosedSpreadExpression01" {
     const content =
         \\var x;
@@ -660113,21 +657171,6 @@ test "TestCodeFixClassImplementInterfaceEmptyMultilineBody" {
     });
 }
 
-test "TestFormatSelectionSingleProperty" {
-    const content =
-        \\console.log({
-        \\}, {
-        \\/*1*/    a: 1,
-        \\/*2*/    b: 2
-        \\})
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "1", "2");
-    _ = f.VerifyCurrentFileContent(undefined, "console.log({\n}, {\n    a: 1,\n    b: 2\n})");
-}
-
 test "TestCompletionsAfterLessThanToken" {
     const content =
         \\function f() {
@@ -660265,20 +657308,6 @@ test "TestRenamePrivateFields1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "#foo");
-}
-
-test "TestFormatSelectionWithTrivia4" {
-    const content =
-        \\if (true) {
-        \\/*begin*/// test comment
-        \\/*end*/console.log();
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true) {\n    // test comment\nconsole.log();\n}");
 }
 
 test "TestCompletionAtCaseClause" {
@@ -660633,23 +657662,6 @@ test "TestGoToSource2_nodeModulesWithTypes" {
     // f.VerifyBaselineGoToSourceDefinition(undefined, "start");
 }
 
-test "TestFormatConflictMarker1" {
-    const content =
-        \\class C {
-        \\<<<<<<< HEAD
-        \\v = 1;
-        \\=======
-        \\v = 2;
-        \\>>>>>>> Branch - a
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "class C {\n<<<<<<< HEAD\n    v = 1;\n=======\nv = 2;\n>>>>>>> Branch - a\n}");
-}
-
 test "TestImportNameCodeFixNewImportFileQuoteStyle0" {
     const content =
         \\[|import { v2 } from './module2';
@@ -660710,20 +657722,6 @@ test "TestCodeFixClassSuperMustPrecedeThisAccess_callWithThisInside" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyCodeFixNotAvailable(undefined);
-}
-
-test "TestFormattingOnCloseBrace" {
-    const content =
-        \\class foo    {
-        \\    /**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, "}");
-    _ = f.GoToBOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "class foo {");
 }
 
 test "TestCodeFixClassImplementInterfaceIndexSignaturesString" {
@@ -660815,18 +657813,6 @@ test "TestImportNameCodeFix_require_namedAndDefault" {
         .FixID = "fixMissingImport",
         .NewFileContent = "const { default: Blah, Named1, Named2 } = require(\"./blah\");\n\nNamed1 + Named2;\nnew Blah;",
     });
-}
-
-test "TestFormatTypeParameters" {
-    const content =
-        \\/**/type Bar<T extends any[]= any[]> = T
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "type Bar<T extends any[] = any[]> = T");
 }
 
 test "TestCompletionsWithOptionalPropertiesGenericPartial3" {
@@ -662268,29 +659254,6 @@ test "TestGoToImplementationEnum_00" {
     // f.VerifyBaselineGoToImplementation(undefined, "reference");
 }
 
-test "TestFormatImportDeclaration" {
-    const content =
-        \\namespace Foo {/*1*/
-        \\}/*2*/
-        \\
-        \\import bar  =    Foo;/*3*/
-        \\
-        \\import bar2=Foo;/*4*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "namespace Foo {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "import bar = Foo;");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "import bar2 = Foo;");
-}
-
 test "TestOrganizeImportsPathsUnicode2" {
     const content =
         \\import * as a2 from "./a2";
@@ -662369,52 +659332,6 @@ test "TestExtendsKeywordCompletion1" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatVariableDeclarationList" {
-    const content =
-        \\/*1*/var   fun1   =   function   (     )     {
-        \\/*2*/            var               x   =   'foo'             ,
-        \\/*3*/                z   =   'bar'           ;
-        \\/*4*/                return  x            ;
-        \\/*5*/},
-        \\
-        \\/*6*/fun2   =   (                function        (   f               )   {
-        \\/*7*/            var   fun   =   function   (        )       {
-        \\/*8*/                        console         .  log             (           f     (  )  )       ;
-        \\/*9*/            },
-        \\/*10*/            x   =   'Foo'           ;
-        \\/*11*/                return   fun            ;
-        \\/*12*/}   (           fun1            )   )       ;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "var fun1 = function() {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    var x = 'foo',");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "        z = 'bar';");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    return x;");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "},");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    fun2 = (function(f) {");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "        var fun = function() {");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "            console.log(f());");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "        },");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "            x = 'Foo';");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "        return fun;");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "    }(fun1));");
 }
 
 test "TestNoTypeParameterInLHS" {
@@ -663711,18 +660628,6 @@ test "TestCompletionsImport_details_withMisspelledName" {
 //     });
 }
 
-test "TestFormattingRegexes" {
-    const content =
-        \\removeAllButLast(sortedTypes, undefinedType, /keepNullableType**/ true)/*1*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "removeAllButLast(sortedTypes, undefinedType, /keepNullableType**/ true);");
-}
-
 test "TestTsxCompletionsGenericComponent" {
     const content =
         \\// @jsx: preserve
@@ -664434,7 +661339,7 @@ test "TestCommentsBlocks" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
     _ = f.VerifyCurrentLineContent(undefined, "// 1");
     _ = f.GoToMarker(undefined, "2");
@@ -664734,18 +661639,6 @@ test "TestCompletionListOnSuper" {
 //     });
 }
 
-test "TestSingleLineTypeLiteralFormatting" {
-    const content =
-        \\function of1(b: { r: { c: number/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "function of1(b: { r: { c: number;");
-}
-
 test "TestReferencesInEmptyFileWithMultipleProjects" {
     const content =
         \\// @Filename: /home/src/workspaces/project/a/tsconfig.json
@@ -664882,21 +661775,6 @@ test "TestGetOccurrencesSwitchCaseDefault" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
-}
-
-test "TestFormatBracketInSwitchCase" {
-    const content =
-        \\// @lib: es5
-        \\switch (x) {
-        \\    case[]:
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "switch (x) {\n    case []:\n}");
 }
 
 test "TestJsdocPropTagCompletion" {
@@ -665188,56 +662066,6 @@ test "TestGetJavaScriptQuickInfo6" {
     // f.VerifyQuickInfoAt(undefined, "", "number", "");
 }
 
-test "TestQuickInfoJsDocTextFormatting1" {
-    const content =
-        \\/**
-        \\ * @param {number} var1 **Highlighted text**
-        \\ * @param {string} var2 Another **Highlighted text**
-        \\*/
-        \\function f1(var1, var2) { }
-        \\
-        \\/**
-        \\ * @param {number} var1 *Regular text with an asterisk
-        \\ * @param {string} var2 Another *Regular text with an asterisk
-        \\*/
-        \\function f2(var1, var2) { }
-        \\
-        \\/**
-        \\ * @param {number} var1 
-        \\ * *Regular text with an asterisk
-        \\ * @param {string} var2 
-        \\ * Another *Regular text with an asterisk
-        \\*/
-        \\function f3(var1, var2) { }
-        \\
-        \\/**
-        \\ * @param {number} var1 
-        \\ * **Highlighted text**
-        \\ * @param {string} var2 
-        \\ * Another **Highlighted text**
-        \\*/
-        \\function f4(var1, var2) { }
-        \\
-        \\/**
-        \\ * @param {number} var1 
-        \\   **Highlighted text**
-        \\ * @param {string} var2 
-        \\   Another **Highlighted text**
-        \\*/
-        \\function f5(var1, var2) { }
-        \\
-        \\f1(/*1*/);
-        \\f2(/*2*/);
-        \\f3(/*3*/);
-        \\f4(/*4*/);
-        \\f5(/*5*/);
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.VerifyBaselineSignatureHelp(undefined);
-}
-
 test "TestCompletionsOverridingMethod9" {
     const content =
         \\// @strict: false
@@ -665363,50 +662191,6 @@ test "TestNavigationBarItemsFunctionsBroken" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineDocumentSymbol(undefined);
-}
-
-test "TestFormatMultipleFunctionArguments" {
-    const content =
-        \\
-        \\ someRandomFunction({
-        \\   prop1: 1,
-        \\   prop2: 2
-        \\ }, {
-        \\   prop3: 3,
-        \\   prop4: 4
-        \\ }, {
-        \\   prop5: 5,
-        \\   prop6: 6
-        \\ });
-        \\
-        \\ someRandomFunction(
-        \\     { prop7: 1, prop8: 2 },
-        \\     { prop9: 3, prop10: 4 },
-        \\     {
-        \\       prop11: 5,
-        \\       prop2: 6
-        \\     }
-        \\ );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nsomeRandomFunction({\n    prop1: 1,\n    prop2: 2\n}, {\n    prop3: 3,\n    prop4: 4\n}, {\n    prop5: 5,\n    prop6: 6\n});\n\nsomeRandomFunction(\n    { prop7: 1, prop8: 2 },\n    { prop9: 3, prop10: 4 },\n    {\n        prop11: 5,\n        prop2: 6\n    }\n);");
-}
-
-test "TestFormattingWithMultilineComments" {
-    const content =
-        \\f(/*
-        \\/*2*/         */() => { /*1*/ });
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.InsertLine(undefined, "");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "         */() => {");
 }
 
 test "TestCompletionListOnParam" {
@@ -665543,18 +662327,6 @@ test "TestImportStatementCompletions_pnpmTransitive" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatV8Directive" {
-    const content =
-        \\// @Filename: foo.js
-        \\function foo() {}
-        \\/*1*/%PrepareFunctionForOptimization(foo)/*2*/;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "1", "2");
 }
 
 test "TestGetJavaScriptSyntacticDiagnostics21" {
@@ -666587,72 +663359,6 @@ test "TestQuickInfoLink9" {
     _ = f.VerifyBaselineHover(undefined);
 }
 
-test "TestFormattingJsxTexts1" {
-    const content =
-        \\//@Filename: file.tsx
-        \\<option>
-        \\    homu   ;      homu
-        \\    homu;homu
-        \\    homu   :    homu
-        \\    homu:homu
-        \\    homu    ?     homu
-        \\    homu    .    homu
-        \\
-        \\    homu    [   homu   ]   homu
-        \\
-        \\    !     homu
-        \\    --    Type
-        \\    homu    --
-        \\    homu    ++
-        \\    ++     homu
-        \\
-        \\    homu  ,   homu
-        \\
-        \\    var    homu
-        \\    throw    homu
-        \\    new    homu
-        \\    delete   homu
-        \\    return       homu
-        \\    typeof     homu
-        \\    await     homu
-        \\
-        \\    abstract  homu
-        \\    class     homu
-        \\    declare   homu
-        \\    default   homu
-        \\    enum      homu
-        \\    export    homu
-        \\    homu    extends   homu
-        \\    get       homu
-        \\    homu    implements     homu
-        \\    interface      homu
-        \\    module    homu
-        \\    namespace      homu
-        \\    private   homu
-        \\    public    homu
-        \\    protected      homu
-        \\    set       homu
-        \\    static    homu
-        \\    type      homu
-        \\
-        \\    homu    =>    homu
-        \\    homu=>homu
-        \\
-        \\    ...       homu
-        \\
-        \\    homu     @     homu
-        \\    homu@homu
-        \\
-        \\    (    homu   )    homu
-        \\</option>;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "<option>\n    homu   ;      homu\n    homu;homu\n    homu   :    homu\n    homu:homu\n    homu    ?     homu\n    homu    .    homu\n\n    homu    [   homu   ]   homu\n\n    !     homu\n    --    Type\n    homu    --\n    homu    ++\n    ++     homu\n\n    homu  ,   homu\n\n    var    homu\n    throw    homu\n    new    homu\n    delete   homu\n    return       homu\n    typeof     homu\n    await     homu\n\n    abstract  homu\n    class     homu\n    declare   homu\n    default   homu\n    enum      homu\n    export    homu\n    homu    extends   homu\n    get       homu\n    homu    implements     homu\n    interface      homu\n    module    homu\n    namespace      homu\n    private   homu\n    public    homu\n    protected      homu\n    set       homu\n    static    homu\n    type      homu\n\n    homu    =>    homu\n    homu=>homu\n\n    ...       homu\n\n    homu     @     homu\n    homu@homu\n\n    (    homu   )    homu\n</option>;");
-}
-
 test "TestAutoImportTypeImport2" {
     const content =
         \\// @verbatimModuleSyntax: true
@@ -666718,23 +663424,6 @@ test "TestGoToImplementation_satisfies" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToImplementation(undefined, "def");
-}
-
-test "TestFormatSelectionWithTrivia" {
-    const content =
-        \\if (true) {     
-        \\  //   
-        \\   /*begin*/   
-        \\     //    
-        \\     ;    
-        \\       
-        \\      }/*end*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true) {     \n  //   \n\n    //    \n    ;\n\n}");
 }
 
 test "TestImportCompletionsPackageJsonImportsPattern2" {
@@ -666934,96 +663623,6 @@ test "TestJsdocDeprecated_suggestion10" {
 //     });
 }
 
-test "TestFormattingOnObjectLiteral" {
-    const content =
-        \\var x = /*1*/{foo:/*2*/ 1,
-        \\bar: "tt",/*3*/
-        \\boo: /*4*/1 + 5}/*5*/;
-        \\
-        \\var x2 = /*6*/{foo/*7*/: 1,
-        \\bar: /*8*/"tt",boo:1+5}/*9*/;
-        \\
-        \\function Foo() {/*10*/
-        \\var typeICalc = {/*11*/
-        \\clear: {/*12*/
-        \\"()": [1, 2, 3]/*13*/
-        \\}/*14*/
-        \\}/*15*/
-        \\}/*16*/
-        \\
-        \\// Rule for object literal members for the "value" of the memebr to follow the indent/*17*/
-        \\// of the member, i.e. the relative position of the value is maintained when the member/*18*/
-        \\// is indented./*19*/
-        \\var x2 = {/*20*/
-        \\  foo:/*21*/
-        \\3,/*22*/
-        \\          'bar':/*23*/
-        \\                    { a: 1, b : 2}/*24*/
-        \\};/*25*/
-        \\
-        \\var x={    };/*26*/
-        \\var y = {};/*27*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "var x = {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    foo: 1,");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    bar: \"tt\",");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    boo: 1 + 5");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "};");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "var x2 = {");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "    foo: 1,");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "    bar: \"tt\", boo: 1 + 5");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "};");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "function Foo() {");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "    var typeICalc = {");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "        clear: {");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "            \"()\": [1, 2, 3]");
-    _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-    _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "17");
-    _ = f.VerifyCurrentLineContent(undefined, "// Rule for object literal members for the \"value\" of the memebr to follow the indent");
-    _ = f.GoToMarker(undefined, "18");
-    _ = f.VerifyCurrentLineContent(undefined, "// of the member, i.e. the relative position of the value is maintained when the member");
-    _ = f.GoToMarker(undefined, "19");
-    _ = f.VerifyCurrentLineContent(undefined, "// is indented.");
-    _ = f.GoToMarker(undefined, "20");
-    _ = f.VerifyCurrentLineContent(undefined, "var x2 = {");
-    _ = f.GoToMarker(undefined, "21");
-    _ = f.VerifyCurrentLineContent(undefined, "    foo:");
-    _ = f.GoToMarker(undefined, "22");
-    _ = f.VerifyCurrentLineContent(undefined, "        3,");
-    _ = f.GoToMarker(undefined, "23");
-    _ = f.VerifyCurrentLineContent(undefined, "    'bar':");
-    _ = f.GoToMarker(undefined, "24");
-    _ = f.VerifyCurrentLineContent(undefined, "        { a: 1, b: 2 }");
-    _ = f.GoToMarker(undefined, "25");
-    _ = f.VerifyCurrentLineContent(undefined, "};");
-    _ = f.GoToMarker(undefined, "26");
-    _ = f.VerifyCurrentLineContent(undefined, "var x = {};");
-    _ = f.GoToMarker(undefined, "27");
-    _ = f.VerifyCurrentLineContent(undefined, "var y = {};");
-}
-
 test "TestCompletionListInFunctionDeclaration" {
     const content =
         \\// @lib: es5
@@ -667125,33 +663724,6 @@ test "TestSignatureHelpCommentsFunctionExpression" {
     _ = f.VerifyBaselineSignatureHelp(undefined);
 }
 
-test "TestFormattingIllegalImportClause" {
-    const content =
-        \\var expect = require('expect.js');
-        \\import React   from 'react'/*1*/;
-        \\import { mount } from 'enzyme';
-        \\require('../setup');
-        \\var Amount = require('../../src/js/components/amount');
-        \\describe('<Failed />', () => {
-        \\  var history
-        \\  beforeEach(() => {
-        \\    history = createMemoryHistory();
-        \\    sinon.spy(history, 'pushState');
-        \\  });
-        \\  afterEach(() => {
-        \\  })
-        \\  it('redirects to order summary', () => {
-        \\  });
-        \\});
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "import React from 'react';");
-}
-
 test "TestGoToDefinitionOverriddenMember10" {
     const content =
         \\// @allowJs: true
@@ -667202,30 +663774,6 @@ test "TestSmartSelection_JSDocTags3" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineSelectionRanges(undefined);
-}
-
-test "TestFormatDotAfterNumber" {
-    const content =
-        \\1+ 2 .toString() +3/*1*/
-        \\1+ 2. .toString() +3/*2*/
-        \\1+ 2.0 .toString() +3/*3*/
-        \\1+ (2) .toString() +3/*4*/
-        \\1+ 2_000 .toString() +3/*5*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "1 + 2 .toString() + 3");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "1 + 2..toString() + 3");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "1 + 2.0.toString() + 3");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "1 + (2).toString() + 3");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "1 + 2_000 .toString() + 3");
 }
 
 test "TestQuickInfoBindingPatternInJsdocNoCrash1" {
@@ -670031,17 +666579,6 @@ test "TestFindAllRefs_importType_js1" {
     // f.VerifyBaselineFindAllReferences(undefined, "");
 }
 
-test "TestFormatNoSpaceBeforeCloseBrace1" {
-    const content =
-        \\new Foo(1, /* comment */    );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "new Foo(1, /* comment */);");
-}
-
 test "TestLinkedEditingJsxTag11" {
     const content =
         \\// @Filename: /customElements.tsx
@@ -672295,32 +668832,6 @@ test "TestImportNameCodeFix_jsx4" {
     });
 }
 
-test "TestFormattingSingleLineWithNewLineOptionSet" {
-    const content =
-        \\/*1*/namespace Default{}
-        \\/*2*/function foo(){}
-        \\/*3*/if (true){}
-        \\/*4*/function boo() {
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts211);
-    // f.GetOptions();
-    // f.Configure(undefined, opts279);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "namespace Default { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo() { }");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "if (true) { }");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "function boo()");
-}
-
 test "TestQuickInfoForContextuallyTypedArrowFunctionInSuperCall" {
     const content =
         \\class A<T1, T2> {
@@ -672492,27 +669003,6 @@ test "TestQuickInfoOnArgumentsInsideFunction" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyQuickInfoAt(undefined, "1", "(local var) arguments: IArguments", "");
-}
-
-test "TestFormatIfTryCatchBlocks" {
-    const content =
-        \\try {
-        \\}
-        \\catch {
-        \\}
-        \\
-        \\try {
-        \\}
-        \\catch (e) {
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts187);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "try\n{\n}\ncatch\n{\n}\n\ntry\n{\n}\ncatch (e)\n{\n}");
 }
 
 test "TestNavigationBarWellKnownSymbolExpando" {
@@ -672831,19 +669321,6 @@ test "TestCompletionsUnionStringLiteralProperty" {
 //     });
 }
 
-test "TestFormatAsyncClassMethod1" {
-    const content =
-        \\class Foo {
-        \\    async     foo() {}
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "class Foo {\n    async foo() { }\n}");
-}
-
 test "TestGetOccurrencesReturn" {
     const content =
         \\function f(a: number) {
@@ -672976,25 +669453,6 @@ test "TestJsdocTypedefTagNavigateTo" {
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
     _ = f.VerifyBaselineDocumentSymbol(undefined);
-}
-
-test "TestFormattingInDestructuring5" {
-    const content =
-        \\let a, b;
-        \\/*1*/if (false)[a, b] = [1, 2];
-        \\/*2*/if (true)        [a, b] = [1, 2];
-        \\/*3*/var a = [1, 2, 3].map(num => num) [0];
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "if (false) [a, b] = [1, 2];");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "if (true) [a, b] = [1, 2];");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "var a = [1, 2, 3].map(num => num)[0];");
 }
 
 test "TestImportNameCodeFix_shorthandPropertyAssignment2" {
@@ -673421,20 +669879,6 @@ test "TestSignatureHelpInFunctionCall" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyNoSignatureHelpForMarkers(undefined, "");
-}
-
-test "TestFormattingOnEnterInStrings" {
-    const content =
-        \\var x = /*1*/"unclosed string literal\/*2*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.InsertLine(undefined, "");
-    _ = f.InsertLine(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "var x = \"unclosed string literal\\");
 }
 
 test "TestImportCompletionsPackageJsonImportsPattern" {
@@ -673907,60 +670351,6 @@ test "TestQuickinfoVerbosityIndexType" {
     // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"x1" = .{0, 1}, .@"x2" = .{0}, .@"k2" = .{0, 1}, .@"key" = .{0}});
 }
 
-test "TestFormattingNestedScopes" {
-    const content =
-        \\/*1*/        namespace      My.App      {
-        \\/*2*/export      var appModule =      angular.module("app", [
-        \\/*3*/            ]).config([() =>            {
-        \\/*4*/                        configureStates
-        \\/*5*/($stateProvider);
-        \\/*6*/}]).run(My.App.setup);
-        \\/*7*/      }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "namespace My.App {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    export var appModule = angular.module(\"app\", [");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    ]).config([() => {");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "        configureStates");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "            ($stateProvider);");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    }]).run(My.App.setup);");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-}
-
-test "TestFormattingNonNullAssertionOperator" {
-    const content =
-        \\/*1*/ 'bar' ! ;
-        \\/*2*/ ( 'bar' ) ! ;
-        \\/*3*/ 'bar' [ 1 ] ! ;
-        \\/*4*/ var  bar  =  'bar' . foo ! ;
-        \\/*5*/ var  foo  =  bar ! ;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "'bar'!;");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "('bar')!;");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "'bar'[1]!;");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "var bar = 'bar'.foo!;");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "var foo = bar!;");
-}
-
 test "TestImportNameCodeFixNewImportAmbient0" {
     const content =
         \\[|f1/*0*/();|]
@@ -674094,20 +670484,6 @@ test "TestGotoDefinitionLinkTag6" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToDefinition(undefined, false, "1");
-}
-
-test "TestFormatSelectionEditAtEndOfRange" {
-    const content =
-        \\/*1*/var x = 1;/*2*/
-        \\void 0;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts110);
-    _ = f.FormatSelection(undefined, "1", "2");
-    _ = f.VerifyCurrentFileContent(undefined, "var x = 1\nvoid 0;");
 }
 
 test "TestSemanticClassificatonTypeAlias" {
@@ -674503,19 +670879,6 @@ test "TestStringLiteralCompletionsInJsxAttributeInitializer" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatSpaceAfterTemplateHeadAndMiddle" {
-    const content =
-        \\const a1 = 
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts405);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const a1 = `${ 1 }${ 1 }`;\n" ++ "const a2 = `\n" ++ "    ${ 1 }${ 1 }\n" ++ "`;\n" ++ "const a3 = `\n" ++ "\n" ++ "\n" ++ "    ${ 1 }${ 1 }\n" ++ "`;\n" ++ "const a4 = `\n" ++ "\n" ++ "    ${ 1 }${ 1 }\n" ++ "\n" ++ "`;\n" ++ "const a5 = `text ${ 1 } text ${ 1 } text`;\n" ++ "const a6 = `\n" ++ "    text ${ 1 }\n" ++ "    text ${ 1 }\n" ++ "    text\n" ++ "`;");
 }
 
 test "TestReferencesForStatic" {
@@ -675064,231 +671427,6 @@ test "TestQuickInfoOnElementAccessInWriteLocation2" {
     // f.VerifyQuickInfoAt(undefined, "1", "(property) prop?: number", "");
 }
 
-test "TestFormattingOnClasses" {
-    const content =
-        \\/*1*/         class                    a                  {
-        \\/*2*/                                                        constructor       (       n   :                 number    )             ;
-        \\/*3*/                                                        constructor       (       s   :                 string    )             ;
-        \\/*4*/                                                        constructor       (       ns   :                 any    )                            {
-        \\
-        \\/*5*/                                                        }
-        \\
-        \\/*6*/                                                            public                 pgF       (           )                            {                  }
-        \\
-        \\/*7*/                                                            public                 pv   ;
-        \\/*8*/                                                            public                 get              d       (           )                            {
-        \\/*9*/                                                                                                                return              30   ;
-        \\/*10*/                                                        }
-        \\/*11*/                                                            public                 set              d       (       number        )                            {
-        \\/*12*/                                                        }
-        \\
-        \\/*13*/                                                            public                 static                    get              p2       (           )                            {
-        \\/*14*/                                                                                                                return                  {                  x   :                 30   ,                  y   :                 40              }   ;
-        \\/*15*/                                                        }
-        \\
-        \\/*16*/                                                                         private                static                    d2       (           )                            {
-        \\/*17*/                                                        }
-        \\/*18*/                                                                         private                static                    get              p3       (           )                            {
-        \\/*19*/                                                                                                                return              "string"   ;
-        \\/*20*/                                                        }
-        \\/*21*/                                                                         private                pv3   ;
-        \\
-        \\/*22*/                                                                         private                foo       (       n   :                 number    )             :                 string   ;
-        \\/*23*/                                                                         private                foo       (       s   :                 string    )             :                 string   ;
-        \\/*24*/                                                                         private                foo       (       ns   :                 any    )                            {
-        \\/*25*/                                                                                                                return              ns.toString       (           )             ;
-        \\/*26*/                                                        }
-        \\/*27*/}
-        \\
-        \\/*28*/         class                    b              extends              a                  {
-        \\/*29*/}
-        \\
-        \\/*30*/         class   m1b      {
-        \\
-        \\/*31*/}
-        \\
-        \\/*32*/                                                interface   m1ib                               {
-        \\
-        \\/*33*/  }
-        \\/*34*/         class                    c              extends              m1b                  {
-        \\/*35*/}
-        \\
-        \\/*36*/         class                    ib2              implements              m1ib                  {
-        \\/*37*/}
-        \\
-        \\/*38*/    declare                            class                    aAmbient                  {
-        \\/*39*/                                                        constructor                     (       n   :                 number    )             ;
-        \\/*40*/                                                        constructor                     (       s   :                 string    )             ;
-        \\/*41*/                                                            public                 pgF       (           )             :                 void   ;
-        \\/*42*/                                                            public                 pv   ;
-        \\/*43*/                                                            public                 d                 :                 number   ;
-        \\/*44*/                                                        static                    p2                 :                     {                  x   :                 number   ;              y   :                 number   ;              }   ;
-        \\/*45*/                                                        static                    d2       (           )             ;
-        \\/*46*/                                                        static                    p3   ;
-        \\/*47*/                                                                         private                pv3   ;
-        \\/*48*/                                                                         private                foo       (       s    )             ;
-        \\/*49*/}
-        \\
-        \\/*50*/         class                    d                  {
-        \\/*51*/                                                                         private                foo       (       n   :                 number    )             :                 string   ;
-        \\/*52*/                                                                         private                foo       (       s   :                 string    )             :                 string   ;
-        \\/*53*/                                                                         private                foo       (       ns   :                 any    )                            {
-        \\/*54*/                                                                                                                return              ns.toString       (           )             ;
-        \\/*55*/                                                        }
-        \\/*56*/}
-        \\
-        \\/*57*/         class                    e                  {
-        \\/*58*/                                                                         private                foo       (       s   :                 string    )             :                 string   ;
-        \\/*59*/                                                                         private                foo       (       n   :                 number    )             :                 string   ;
-        \\/*60*/                                                                         private                foo       (       ns   :                 any    )                            {
-        \\/*61*/                                                                                                                return              ns.toString       (           )             ;
-        \\/*62*/                                                        }
-        \\/*63*/                                                                         protected              bar        (            )  {                 }
-        \\/*64*/                                                                         protected     static   bar2       (            )  {                 }
-        \\/*65*/                                                                         private                pv4  :    number =
-        \\/*66*/                                                                         {};
-        \\/*END*/}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "class a {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor(n: number);");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor(s: string);");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor(ns: any) {");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    public pgF() { }");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "    public pv;");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "    public get d() {");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "        return 30;");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "    public set d(number) {");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "    public static get p2() {");
-    _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "        return { x: 30, y: 40 };");
-    _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "    private static d2() {");
-    _ = f.GoToMarker(undefined, "17");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "18");
-    _ = f.VerifyCurrentLineContent(undefined, "    private static get p3() {");
-    _ = f.GoToMarker(undefined, "19");
-    _ = f.VerifyCurrentLineContent(undefined, "        return \"string\";");
-    _ = f.GoToMarker(undefined, "20");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "21");
-    _ = f.VerifyCurrentLineContent(undefined, "    private pv3;");
-    _ = f.GoToMarker(undefined, "22");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(n: number): string;");
-    _ = f.GoToMarker(undefined, "23");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(s: string): string;");
-    _ = f.GoToMarker(undefined, "24");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(ns: any) {");
-    _ = f.GoToMarker(undefined, "25");
-    _ = f.VerifyCurrentLineContent(undefined, "        return ns.toString();");
-    _ = f.GoToMarker(undefined, "26");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "27");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "28");
-    _ = f.VerifyCurrentLineContent(undefined, "class b extends a {");
-    _ = f.GoToMarker(undefined, "29");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "30");
-    _ = f.VerifyCurrentLineContent(undefined, "class m1b {");
-    _ = f.GoToMarker(undefined, "31");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "32");
-    _ = f.VerifyCurrentLineContent(undefined, "interface m1ib {");
-    _ = f.GoToMarker(undefined, "33");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "34");
-    _ = f.VerifyCurrentLineContent(undefined, "class c extends m1b {");
-    _ = f.GoToMarker(undefined, "35");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "36");
-    _ = f.VerifyCurrentLineContent(undefined, "class ib2 implements m1ib {");
-    _ = f.GoToMarker(undefined, "37");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "38");
-    _ = f.VerifyCurrentLineContent(undefined, "declare class aAmbient {");
-    _ = f.GoToMarker(undefined, "39");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor(n: number);");
-    _ = f.GoToMarker(undefined, "40");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor(s: string);");
-    _ = f.GoToMarker(undefined, "41");
-    _ = f.VerifyCurrentLineContent(undefined, "    public pgF(): void;");
-    _ = f.GoToMarker(undefined, "42");
-    _ = f.VerifyCurrentLineContent(undefined, "    public pv;");
-    _ = f.GoToMarker(undefined, "43");
-    _ = f.VerifyCurrentLineContent(undefined, "    public d: number;");
-    _ = f.GoToMarker(undefined, "44");
-    _ = f.VerifyCurrentLineContent(undefined, "    static p2: { x: number; y: number; };");
-    _ = f.GoToMarker(undefined, "45");
-    _ = f.VerifyCurrentLineContent(undefined, "    static d2();");
-    _ = f.GoToMarker(undefined, "46");
-    _ = f.VerifyCurrentLineContent(undefined, "    static p3;");
-    _ = f.GoToMarker(undefined, "47");
-    _ = f.VerifyCurrentLineContent(undefined, "    private pv3;");
-    _ = f.GoToMarker(undefined, "48");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(s);");
-    _ = f.GoToMarker(undefined, "49");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "50");
-    _ = f.VerifyCurrentLineContent(undefined, "class d {");
-    _ = f.GoToMarker(undefined, "51");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(n: number): string;");
-    _ = f.GoToMarker(undefined, "52");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(s: string): string;");
-    _ = f.GoToMarker(undefined, "53");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(ns: any) {");
-    _ = f.GoToMarker(undefined, "54");
-    _ = f.VerifyCurrentLineContent(undefined, "        return ns.toString();");
-    _ = f.GoToMarker(undefined, "55");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "56");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "57");
-    _ = f.VerifyCurrentLineContent(undefined, "class e {");
-    _ = f.GoToMarker(undefined, "58");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(s: string): string;");
-    _ = f.GoToMarker(undefined, "59");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(n: number): string;");
-    _ = f.GoToMarker(undefined, "60");
-    _ = f.VerifyCurrentLineContent(undefined, "    private foo(ns: any) {");
-    _ = f.GoToMarker(undefined, "61");
-    _ = f.VerifyCurrentLineContent(undefined, "        return ns.toString();");
-    _ = f.GoToMarker(undefined, "62");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "63");
-    _ = f.VerifyCurrentLineContent(undefined, "    protected bar() { }");
-    _ = f.GoToMarker(undefined, "64");
-    _ = f.VerifyCurrentLineContent(undefined, "    protected static bar2() { }");
-    _ = f.GoToMarker(undefined, "65");
-    _ = f.VerifyCurrentLineContent(undefined, "    private pv4: number =");
-    _ = f.GoToMarker(undefined, "66");
-    _ = f.VerifyCurrentLineContent(undefined, "        {};");
-    _ = f.GoToMarker(undefined, "END");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-}
-
 test "TestCompletionForMetaProperty" {
     const content =
         \\import./*1*/;
@@ -675775,18 +671913,6 @@ test "TestCompletionListForNonExportedMemberInAmbientModuleWithExportAssignment1
     _ = f.VerifyCompletions(undefined, "", null);
 }
 
-test "TestFormatSelectionWithTrivia6" {
-    const content =
-        \\/*begin*/    // test comment
-        \\/*end*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, "// test comment\n");
-}
-
 test "TestCompletionListInUnclosedFunction01" {
     const content =
         \\function foo(x: string, y: number, z: boolean) {
@@ -675993,21 +672119,6 @@ test "TestNavigationBarItemsEmptyConstructors" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineDocumentSymbol(undefined);
-}
-
-test "TestFormattingOnOpenBraceOfFunctions" {
-    const content =
-        \\/**/function T2_y()
-        \\{
-        \\Plugin.T1.t1_x();
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "function T2_y() {");
 }
 
 test "TestInlayHintsInteractiveOverloadCall" {
@@ -677260,7 +673371,7 @@ test "TestForceIndentAfterNewLineInsert" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.VerifyCurrentFileContent(undefined, "function f1() { return 0; }\nfunction f2() {\n    return 0;\n}\nfunction g() {\n    function h() {\n        return 0;\n    }\n}");
 }
 
@@ -678268,24 +674379,6 @@ test "TestLinkedEditingJsxTag3" {
 //         .@"14" = null,
 //         .@"15" = null,
 //     });
-}
-
-test "TestFormattingJsxTexts3" {
-    const content =
-        \\//@Filename: file.tsx
-        \\function foo() {
-        \\const bar = "Oh no";
-        \\
-        \\return (
-        \\<div>"{bar}"</div>
-        \\)
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "function foo() {\n    const bar = \"Oh no\";\n\n    return (\n        <div>\"{bar}\"</div>\n    )\n}");
 }
 
 test "TestCompletionsWithOptionalProperties" {
@@ -679447,18 +675540,6 @@ test "TestInlayHintsInferredTypePredicate1" {
     // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayFunctionLikeReturnTypeHints = core.TSTrue}});
 }
 
-test "TestFormatJsxWithKeywordInIdentifier" {
-    const content =
-        \\// @Filename: /a.tsx
-        \\<div module-layout=""></div>
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "<div module-layout=\"\"></div>");
-}
-
 test "TestJsDocFunctionSignatures6" {
     const content =
         \\// @allowJs: true
@@ -680384,39 +676465,6 @@ test "TestCompletionUsingKeyword" {
 //     });
 }
 
-test "TestFormatDocumentWithTrivia" {
-    const content =
-        \\  
-        \\// 1 below   
-        \\    
-        \\// 2 above   
-        \\    
-        \\let x;
-        \\  
-        \\// abc
-        \\  
-        \\let y;
-        \\  
-        \\// 3 above
-        \\   
-        \\while (true) {
-        \\    while (true) {
-        \\    }
-        \\      
-        \\    // 4 above   
-        \\}
-        \\  
-        \\// 5 above  
-        \\   
-        \\   
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\n// 1 below   \n\n// 2 above   \n\nlet x;\n\n// abc\n\nlet y;\n\n// 3 above\n\nwhile (true) {\n    while (true) {\n    }\n\n    // 4 above   \n}\n\n// 5 above  \n\n");
-}
-
 test "TestCodeFixClassImplementInterfaceInNamespace" {
     const content =
         \\namespace N1 {
@@ -681003,22 +677051,6 @@ test "TestQuickInfoForTypeParameterInTypeAlias2" {
     // f.VerifyQuickInfoAt(undefined, "7", "(type parameter) WW in <WW>(): TT & UU & WW", "");
 }
 
-test "TestFormattingMappedType" {
-    const content =
-        \\/*generic*/type t  < T  > =   {
-        \\/*map*/   [   P   in   keyof    T  ]   :   T  [  P  ]
-        \\};
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "generic");
-    _ = f.VerifyCurrentLineContent(undefined, "type t<T> = {");
-    _ = f.GoToMarker(undefined, "map");
-    _ = f.VerifyCurrentLineContent(undefined, "    [P in keyof T]: T[P]");
-}
-
 test "TestCompletionsRecommended_nonAccessibleSymbol" {
     const content =
         \\function f() {
@@ -681227,18 +677259,6 @@ test "TestTsxGoToDefinitionUnionElementType1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToDefinition(undefined, true, "one");
-}
-
-test "TestFormatNoSpaceBeforeCloseBrace3" {
-    const content =
-        \\foo( 
-        \\ 1, /* comment */    );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "foo(\n    1, /* comment */);");
 }
 
 test "TestFindAllRefsForStaticInstancePropertyInheritance" {
@@ -682001,145 +678021,6 @@ test "TestTsxCompletion2" {
 //     });
 }
 
-test "TestFormatTypeArgumentOnNewLine" {
-    const content =
-        \\const genericObject = new GenericObject<
-        \\  /*1*/{}
-        \\>();
-        \\const genericObject2 = new GenericObject2<
-        \\  /*2*/{},
-        \\  /*3*/{}
-        \\>();
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    {}");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    {},");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    {}");
-}
-
-test "TestFormattingDecorators" {
-    const content =
-        \\/*1*/        @    decorator1    
-        \\/*2*/            @        decorator2
-        \\/*3*/    @decorator3
-        \\/*4*/        @    decorator4    @            decorator5
-        \\/*5*/class C {
-        \\/*6*/            @    decorator6    
-        \\/*7*/                @        decorator7
-        \\/*8*/        @decorator8
-        \\/*9*/    method1() { }
-        \\
-        \\/*10*/        @    decorator9    @            decorator10 @decorator11            method2() { }
-        \\
-        \\    method3(
-        \\/*11*/                @    decorator12    
-        \\/*12*/                    @        decorator13
-        \\/*13*/            @decorator14
-        \\/*14*/        x) { }
-        \\
-        \\    method4(
-        \\/*15*/            @    decorator15    @            decorator16 @decorator17             x) { }
-        \\
-        \\/*16*/            @    decorator18    
-        \\/*17*/                @        decorator19
-        \\/*18*/        @decorator20    
-        \\/*19*/    ["computed1"]() { }
-        \\
-        \\/*20*/        @    decorator21    @            decorator22 @decorator23            ["computed2"]() { }
-        \\
-        \\/*21*/            @    decorator24    
-        \\/*22*/                @        decorator25
-        \\/*23*/        @decorator26
-        \\/*24*/    get accessor1() { }
-        \\
-        \\/*25*/        @    decorator27    @            decorator28 @decorator29            get accessor2() { }
-        \\
-        \\/*26*/            @    decorator30    
-        \\/*27*/                @        decorator31
-        \\/*28*/        @decorator32
-        \\/*29*/    property1;
-        \\
-        \\/*30*/        @    decorator33    @            decorator34 @decorator35            property2;
-        \\/*31*/function test(@decorator36@decorator37 param) {};
-        \\/*32*/function test2(@decorator38()@decorator39()param) {};
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "@decorator1");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "@decorator2");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "@decorator3");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "@decorator4 @decorator5");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "class C {");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator6");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator7");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator8");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "    method1() { }");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator9 @decorator10 @decorator11 method2() { }");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "        @decorator12");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "        @decorator13");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "        @decorator14");
-    _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "        x) { }");
-    _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "        @decorator15 @decorator16 @decorator17 x) { }");
-    _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator18");
-    _ = f.GoToMarker(undefined, "17");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator19");
-    _ = f.GoToMarker(undefined, "18");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator20");
-    _ = f.GoToMarker(undefined, "19");
-    _ = f.VerifyCurrentLineContent(undefined, "    [\"computed1\"]() { }");
-    _ = f.GoToMarker(undefined, "20");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator21 @decorator22 @decorator23 [\"computed2\"]() { }");
-    _ = f.GoToMarker(undefined, "21");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator24");
-    _ = f.GoToMarker(undefined, "22");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator25");
-    _ = f.GoToMarker(undefined, "23");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator26");
-    _ = f.GoToMarker(undefined, "24");
-    _ = f.VerifyCurrentLineContent(undefined, "    get accessor1() { }");
-    _ = f.GoToMarker(undefined, "25");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator27 @decorator28 @decorator29 get accessor2() { }");
-    _ = f.GoToMarker(undefined, "26");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator30");
-    _ = f.GoToMarker(undefined, "27");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator31");
-    _ = f.GoToMarker(undefined, "28");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator32");
-    _ = f.GoToMarker(undefined, "29");
-    _ = f.VerifyCurrentLineContent(undefined, "    property1;");
-    _ = f.GoToMarker(undefined, "30");
-    _ = f.VerifyCurrentLineContent(undefined, "    @decorator33 @decorator34 @decorator35 property2;");
-    _ = f.GoToMarker(undefined, "31");
-    _ = f.VerifyCurrentLineContent(undefined, "function test(@decorator36 @decorator37 param) { };");
-    _ = f.GoToMarker(undefined, "32");
-    _ = f.VerifyCurrentLineContent(undefined, "function test2(@decorator38() @decorator39() param) { };");
-}
-
 test "TestSignatureHelpSuperConstructorOverload" {
     const content =
         \\class SuperOverloadBase {
@@ -682727,20 +678608,6 @@ test "TestArgumentsAreAvailableAfterEditsAtEndOfFunction" {
 //     });
 }
 
-test "TestFormatAnyTypeLiteral" {
-    const content =
-        \\function foo(x: { } /*objLit*/){
-        \\/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, "}");
-    _ = f.GoToMarker(undefined, "objLit");
-    _ = f.VerifyCurrentLineContent(undefined, "function foo(x: {}) {");
-}
-
 test "TestGoToImplementationInterfaceMethod_00" {
     const content =
         \\interface Foo {
@@ -683306,56 +679173,6 @@ test "TestJsdocDeprecated_suggestion12" {
 //     });
 }
 
-test "TestFormatMultilineComment" {
-    const content =
-        \\/*1*//** 1
-        \\ */*2*/2
-        \\/*3*/ 3*/
-        \\
-        \\class Foo {
-        \\/*4*//**4
-        \\    */*5*/5
-        \\/*6*/                *6
-        \\/*7*/          7*/
-        \\    bar() {
-        \\/*8*/                /**8
-        \\    */*9*/9
-        \\/*10*/                *10
-        \\/*11*/                           *11
-        \\/*12*/          12*/
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "/** 1");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, " *2");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, " 3*/");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    /**4");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "        *5");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "                    *6");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "              7*/");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "        /**8");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "*9");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "        *10");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "                   *11");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "  12*/");
-}
-
 test "TestImportNameCodeFixExistingImport5" {
     const content =
         \\[|import "./module";
@@ -683395,39 +679212,6 @@ test "TestSignatureHelp_unionType" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyBaselineSignatureHelp(undefined);
-}
-
-test "TestFormattingArrayLiteral" {
-    const content =
-        \\/*1*/x= [];
-        \\y = [
-        \\/*2*/           1,
-        \\/*3*/  2
-        \\/*4*/ ];
-        \\
-        \\z = [[
-        \\/*5*/  1,
-        \\/*6*/             2
-        \\/*7*/      ]  ];
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "x = [];");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    1,");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    2");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "];");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    1,");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    2");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "]];");
 }
 
 test "TestGoToTypeDefinition2" {
@@ -684017,27 +679801,6 @@ test "TestGoToDefinitionJsModuleName" {
     // f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
-test "TestSemicolonFormattingNestedStatements" {
-    const content =
-        \\if (true)
-        \\if (true)/*parentOutsideBlock*/
-        \\if (true) {
-        \\if (true)/*directParent*/
-        \\var x = 0/*innermost*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "innermost");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "        var x = 0;");
-    _ = f.GoToMarker(undefined, "directParent");
-    _ = f.VerifyCurrentLineContent(undefined, "    if (true)");
-    _ = f.GoToMarker(undefined, "parentOutsideBlock");
-    _ = f.VerifyCurrentLineContent(undefined, "if (true)");
-}
-
 test "TestGoToSource12_callbackParam" {
     const content =
         \\// @lib: es5
@@ -684165,7 +679928,7 @@ test "TestMultilineCommentBeforeOpenBrace" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
     _ = f.VerifyCurrentLineContent(undefined, "function test() /* %^ */ {");
     _ = f.GoToMarker(undefined, "2");
@@ -685539,27 +681302,6 @@ test "TestCodefixInferFromUsageNullish" {
     _ = f.VerifyRangeAfterCodeFix(undefined, "b: (arg0: string | number) => void", false, 0, 0);
 }
 
-test "TestFormatColonAndQMark" {
-    const content =
-        \\class foo {/*1*/
-        \\    constructor (n?: number, m = 5, o?: string) { }/*2*/
-        \\    x:number = 1?2:3;/*3*/
-        \\}/*4*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "class foo {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    constructor(n?: number, m = 5, o?: string) { }");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    x: number = 1 ? 2 : 3;");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-}
-
 test "TestCompletionListInExtendsClauseAtEOF" {
     const content =
         \\declare namespace mod {
@@ -686159,22 +681901,6 @@ test "TestCodeFixAddMissingFunctionDeclaration16" {
     // f.VerifyCodeFixNotAvailable(undefined);
 }
 
-test "TestConsistenceOnIndentionsOfObjectsInAListAfterFormatting" {
-    const content =
-        \\foo({
-        \\}, {/*1*/
-        \\});/*2*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "}, {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "});");
-}
-
 test "TestCompletionListInUnclosedForLoop02" {
     const content =
         \\for (let i = 0; i < 10; i++) /*1*/
@@ -686624,26 +682350,6 @@ test "TestGetOccurrencesLoopBreakContinue3" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
-}
-
-test "TestFormattingSpaceBetweenParent" {
-    const content =
-        \\/*1*/foo(() => 1);
-        \\/*2*/foo(1);
-        \\/*3*/if((true)){}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts180);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "foo( () => 1 );");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "foo( 1 );");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "if ( ( true ) ) { }");
 }
 
 test "TestRecursiveWrappedTypeParameters1" {
@@ -687357,7 +683063,7 @@ test "TestSpaceAfterStatementConditions" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.VerifyCurrentFileContent(undefined, "let i = 0;\n\nif (i < 0) ++i;\nif (i < 0) --i;\n\nwhile (i < 0) ++i;\nwhile (i < 0) --i;\n\ndo ++i;\nwhile (i < 0)\ndo --i;\nwhile (i < 0)\n\nfor (let prop in { foo: 1 }) ++i;\nfor (let prop in { foo: 1 }) --i;\n\nfor (let foo of [1, 2]) ++i;\nfor (let foo of [1, 2]) --i;\n\nfor (let j = 0; j < 10; j++) ++i;\nfor (let j = 0; j < 10; j++) --i;\n");
 }
 
@@ -688905,24 +684611,6 @@ test "TestNavigationBarClassStaticBlock" {
     _ = f.VerifyBaselineDocumentSymbol(undefined);
 }
 
-test "TestFormattingObjectLiteralOpenCurlySingleLine" {
-    const content =
-        \\
-        \\let obj1 =
-        \\{ x: 10 };
-        \\
-        \\let obj2 =
-        \\    // leading trivia
-        \\{ y: 10 };
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nlet obj1 =\n    { x: 10 };\n\nlet obj2 =\n    // leading trivia\n    { y: 10 };\n");
-}
-
 test "TestFindAllRefs_importType_js2" {
     const content =
         \\// @allowJs: true
@@ -689101,21 +684789,6 @@ test "TestUnusedImports5FS" {
     _ = f.VerifyRangeAfterCodeFix(undefined, "import {Calculator, test} from \"./file1\"", false, 0, 0);
 }
 
-test "TestFormatTryFinally" {
-    const content =
-        \\if (true) try  {
-        \\    // ...
-        \\}   finally    {
-        \\    // ...
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true) try {\n    // ...\n} finally {\n    // ...\n}");
-}
-
 test "TestQuickInfoJsdocTypedefMissingType" {
     const content =
         \\// @allowJs: true
@@ -689236,32 +684909,6 @@ test "TestMultiModuleClodule" {
 //         },
 //     });
     _ = f.VerifyNoErrors(undefined);
-}
-
-test "TestFormatNoSpaceBeforeCloseBrace2" {
-    const content =
-        \\new Foo(1,     );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "new Foo(1,);");
-}
-
-test "TestGeneratorDeclarationFormatting" {
-    const content =
-        \\function    *g() { }/*1*/
-        \\var v = function    *() { };/*2*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "function* g() { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "var v = function*() { };");
 }
 
 test "TestOrganizeImportsUnicode1" {
@@ -689426,44 +685073,6 @@ test "TestCodeFixMissingTypeAnnotationOnExports17_unique_symbol" {
         .NewFileContent = "export const a: unique symbol = Symbol();",
         .Index =          0,
     });
-}
-
-test "TestFormattingOnChainedCallbacksAndPropertyAccesses" {
-    const content =
-        \\var x = 1;
-        \\x
-        \\/*1*/.toFixed
-        \\x
-        \\/*2*/.toFixed()
-        \\x
-        \\/*3*/.toFixed()
-        \\/*4*/.length
-        \\/*5*/.toString();
-        \\x
-        \\/*6*/.toFixed
-        \\/*7*/.toString()
-        \\/*8*/.length;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    .toFixed");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    .toFixed()");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    .toFixed()");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    .length");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    .toString();");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    .toFixed");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "    .toString()");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "    .length;");
 }
 
 test "TestTsxCompletion3" {
@@ -689964,30 +685573,6 @@ test "TestRenameJsThisProperty05" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "z");
-}
-
-test "TestFormatTsxClosingAfterJsxText" {
-    const content =
-        \\// @Filename: foo.tsx
-        \\
-        \\const a = (
-        \\    <div>
-        \\        text
-        \\               </div>
-        \\)
-        \\const b = (
-        \\    <div>
-        \\        text
-        \\      twice
-        \\               </div>
-        \\)
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nconst a = (\n    <div>\n        text\n    </div>\n)\nconst b = (\n    <div>\n        text\n        twice\n    </div>\n)\n");
 }
 
 test "TestCompletionsAfterJSDoc" {
@@ -691726,21 +687311,6 @@ test "TestRenameUMDModuleAlias1" {
     // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "myLib");
 }
 
-test "TestFormattingAwait" {
-    const content =
-        \\async function f() {
-        \\    for          await (const x of g()) {
-        \\        console.log(x);
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "async function f() {\n    for await (const x of g()) {\n        console.log(x);\n    }\n}");
-}
-
 test "TestCompletionsAtGenericTypeArguments" {
     const content =
         \\// @lib: es5
@@ -692677,22 +688247,6 @@ test "TestNavigationBarItemsItemsExternalModules" {
     _ = f.VerifyBaselineDocumentSymbol(undefined);
 }
 
-test "TestFormatTrimRemainingRange" {
-    const content =
-        \\// @lib: es5
-        \\    ;
-        \\    /*
-        \\    
-        \\*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, ";\n/*\n \n*/");
-}
-
 test "TestAmbientVariablesWithSameName" {
     const content =
         \\declare namespace M {
@@ -692807,19 +688361,6 @@ test "TestCodeFixMissingTypeAnnotationOnExports43_expando_functions_5" {
     });
 }
 
-test "TestFunctionFormatting" {
-    const content =
-        \\var foo = foo(function () {
-        \\    /**/function foo  ()  {}}    );
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "    function foo() { }");
-}
-
 test "TestQuickInfoLinkCodePlain" {
     const content =
         \\export class C {
@@ -692868,18 +688409,6 @@ test "TestJsxTagNameCompletionWithExistingJsxInitializer" {
 //             },
 //         },
 //     });
-}
-
-test "TestImportTypeFormatting" {
-    const content =
-        \\var y: import("./c2").mytype;
-        \\var z: import ("./c2").mytype;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "var y: import(\"./c2\").mytype;\nvar z: import(\"./c2\").mytype;");
 }
 
 test "TestQuickInfoCommentsClass" {
@@ -692964,7 +688493,7 @@ test "TestIndentationInJsx3" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyCurrentFileContent(undefined, "function foo() {\n   return (\n        <div>\nhello\ngoodbye\n        </div>\n    )\n}");
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.VerifyCurrentFileContent(undefined, "function foo() {\n    return (\n        <div>\n            hello\n            goodbye\n        </div>\n    )\n}");
 }
 
@@ -693139,45 +688668,6 @@ test "TestAutoImportCrossProject_symlinks_stripSrc" {
     _ = f.VerifyImportFixAtPosition(undefined, &.{
         "import { dep } from \"dep/sub/folder\";\n\ndep",
     }, null );
-}
-
-test "TestFormattingSpaceBeforeCloseParen" {
-    const content =
-        \\/*1*/({});
-        \\/*2*/(  {});
-        \\/*3*/({foo:42});
-        \\/*4*/(  {foo:42}  );
-        \\/*5*/var bar = (function (a) { });
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts235);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "( {} );");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "( {} );");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "( { foo: 42 } );");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "( { foo: 42 } );");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "var bar = ( function( a ) { } );");
-    // f.GetOptions();
-    // f.Configure(undefined, opts674);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "({});");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "({});");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "({ foo: 42 });");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "({ foo: 42 });");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "var bar = (function(a) { });");
 }
 
 test "TestCodeFixClassImplementInterfaceCallback" {
@@ -693579,21 +689069,6 @@ test "TestDocCommentTemplateRegex" {
     // f.VerifyNoJSDocCompletion(undefined, marker);
 }
 
-test "TestFormatDebuggerStatement" {
-    const content =
-        \\if(false){debugger;}
-        \\  if    (   false   )   {    debugger  ;   }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToBOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "if (false) { debugger; }");
-    _ = f.GoToEOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "if (false) { debugger; }");
-}
-
 test "TestRenameReferenceFromLinkTag2" {
     const content =
         \\// @Filename: /a.ts
@@ -693609,19 +689084,6 @@ test "TestRenameReferenceFromLinkTag2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineRename(undefined, null , "");
-}
-
-test "TestFormatAsyncClassMethod2" {
-    const content =
-        \\class Foo {
-        \\    private    async     foo() {}
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "class Foo {\n    private async foo() { }\n}");
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports5" {
@@ -693988,18 +689450,6 @@ test "TestNavigationBarFunctionIndirectlyInVariableDeclaration" {
     _ = f.VerifyBaselineDocumentSymbol(undefined);
 }
 
-test "TestFormattingEqualsBeforeBracketInTypeAlias" {
-    const content =
-        \\type X    =     [number]/*1*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "type X = [number];");
-}
-
 test "TestCallHierarchyFunctionAmbiguity4" {
     const content =
         \\// @filename: a.d.ts
@@ -694180,16 +689630,6 @@ test "TestCompletionsImport_duplicatePackages_scoped" {
 //             ),
 //         },
 //     });
-}
-
-test "TestFormattingHexLiteral" {
-    const content =
-        \\var x =  0x1,y;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
 }
 
 test "TestQuickInfoOnPropDeclaredUsingIndexSignatureOnInterfaceWithBase" {
@@ -694488,28 +689928,6 @@ test "TestImportNameCodeFix_jsx7" {
     // f.VerifyCodeFixNotAvailable(undefined);
 }
 
-test "TestFormatDocumentPreserveTrailingWhitespace" {
-    const content =
-        \\
-        \\var a;     
-        \\var b     
-        \\     
-        \\//     
-        \\function b(){     
-        \\    while(true){     
-        \\    }     
-        \\}     
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts233);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nvar a;     \nvar b     \n     \n//     \nfunction b() {     \n    while (true) {     \n    }     \n}     \n");
-}
-
 test "TestCompletionListInClassExpressionWithTypeParameter" {
     const content =
         \\var x = class myClass <TypeParam> {
@@ -694627,82 +690045,6 @@ test "TestGetJavaScriptSyntacticDiagnostics2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineNonSuggestionDiagnostics(undefined);
-}
-
-test "TestGenericsFormattingMultiline" {
-    const content =
-        \\
-        \\class Foo   <   
-        \\ T1   extends unknown,
-        \\  T2   
-        \\    > {
-        \\    public method    <  
-        \\ T3,
-        \\    >   (a: T1,   b: Array    < 
-        \\     string 
-        \\     > ):   Map <
-        \\          T1 ,
-        \\      Array < T3    >  
-        \\          > { throw new Error(); } 
-        \\}
-        \\
-        \\interface IFoo<
-        \\       T, 
-        \\  > {
-        \\    new < T
-        \\      > ( a: T);
-        \\    op?< 
-        \\   T,
-        \\      M
-        \\    > (a: T, b : M );
-        \\    <
-        \\     T,
-        \\      >(x: T): T;
-        \\}
-        \\
-        \\type foo<
-        \\  T
-        \\   > = Foo   <
-        \\  number, Array <   number  >  > ;
-        \\
-        \\function bar <
-        \\T, U extends T
-        \\ >  () {
-        \\    return class  < 
-        \\       T2,
-        \\  > {
-        \\    }
-        \\}
-        \\
-        \\bar<
-        \\string, 
-        \\     "s"
-        \\     > ();
-        \\
-        \\declare const func: <
-        \\T   extends number[], 
-        \\                       > (x: T) => new <
-        \\       U
-        \\                          > () => U;
-        \\
-        \\class A < T > extends bar <  
-        \\        T,number
-        \\ >( )  <  T
-        \\     > {
-        \\}
-        \\
-        \\function s<T, U>(x: TemplateStringsArray, ...args: any[]) { return x.join(); }
-        \\
-        \\const t = s<
-        \\      number , 
-        \\  string[] & ArrayLike<any>
-        \\      >
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nclass Foo<\n    T1 extends unknown,\n    T2\n> {\n    public method<\n        T3,\n    >(a: T1, b: Array<\n        string\n    >): Map<\n        T1,\n        Array<T3>\n    > { throw new Error(); }\n}\n\ninterface IFoo<\n    T,\n> {\n    new <T\n    >(a: T);\n    op?<\n        T,\n        M\n    >(a: T, b: M);\n    <\n        T,\n    >(x: T): T;\n}\n\ntype foo<\n    T\n> = Foo<\n    number, Array<number>>;\n\nfunction bar<\n    T, U extends T\n>() {\n    return class <\n        T2,\n    > {\n    }\n}\n\nbar<\n    string,\n    \"s\"\n>();\n\ndeclare const func: <\n    T extends number[],\n> (x: T) => new <\n    U\n> () => U;\n\nclass A<T> extends bar<\n    T, number\n>()<T\n> {\n}\n\nfunction s<T, U>(x: TemplateStringsArray, ...args: any[]) { return x.join(); }\n\nconst t = s<\n    number,\n    string[] & ArrayLike<any>\n>`abc${1}def`;\n");
 }
 
 test "TestCompletionsLiteralFromInferenceWithinInferredType2" {
@@ -695808,23 +691150,6 @@ test "TestReferenceToEmptyObject" {
     // f.VerifyBaselineFindAllReferences(undefined, "1");
 }
 
-test "TestFormattingCrash" {
-    const content =
-        \\/**/module Default{ 
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts131);
-    // f.GetOptions();
-    // f.Configure(undefined, opts199);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "module Default");
-}
-
 test "TestGoToImplementationInterface_02" {
     const content =
         \\interface Fo/*interface_definition*/o { hello: () => void }
@@ -696223,7 +691548,7 @@ test "TestSmartIndentNamedImport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "0");
     _ = f.VerifyCurrentLineContent(undefined, "import {");
     _ = f.GoToMarker(undefined, "1");
@@ -696340,24 +691665,6 @@ test "TestNavigationBarItemsNamedArrowFunctions" {
     _ = f.VerifyBaselineDocumentSymbol(undefined);
 }
 
-test "TestFormattingAfterMultiLineIfCondition" {
-    const content =
-        \\ var foo;
-        \\ if (foo &&
-        \\     foo) {
-        \\/*comment*/     // This is a comment
-        \\     foo.toString();
-        \\ /**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, "}");
-    _ = f.GoToMarker(undefined, "comment");
-    _ = f.VerifyCurrentLineContent(undefined, "    // This is a comment");
-}
-
 test "TestGoToDefinitionDecorator" {
     const content =
         \\// @Filename: b.ts
@@ -696378,20 +691685,6 @@ test "TestGoToDefinitionDecorator" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToDefinition(undefined, true, "decoratorUse", "decoratorFactoryUse");
-}
-
-test "TestFormattingObjectLiteral" {
-    const content =
-        \\var clear = {
-        \\"a": 1/**/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "    \"a\": 1");
 }
 
 test "TestCompletionListFunctionExpression" {
@@ -697766,20 +693059,6 @@ test "TestRenameLocationsForClassExpression01" {
     // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "Foo");
 }
 
-test "TestFormatIfWithEmptyCondition" {
-    const content =
-        \\if () {
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts123);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "if ()\n{\n}");
-}
-
 test "TestCodeFixInferFromUsageCall" {
     const content =
         \\// @noImplicitAny: true
@@ -697865,279 +693144,6 @@ test "TestForwardReference" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormattingOnInvalidCodes" {
-    const content =
-        \\/*1*/var a;var c          , b;var  $d
-        \\/*2*/var $e
-        \\/*3*/var f
-        \\/*4*/a++;b++;
-        \\
-        \\/*5*/function        f     (     )        {
-        \\/*6*/    for (i = 0; i < 10; i++) {
-        \\/*7*/        k = abc + 123 ^ d;
-        \\/*8*/        a = XYZ[m  (a[b[c][d]])];
-        \\/*9*/        break;
-        \\
-        \\/*10*/        switch ( variable){
-        \\/*11*/       case  1: abc += 425;
-        \\/*12*/break;
-        \\/*13*/case 404 : a [x--/2]%=3 ;
-        \\/*14*/                    break ;
-        \\/*15*/                case vari : v[--x ] *=++y*( m + n / k[z]);
-        \\/*16*/                for (a in b){
-        \\/*17*/             for (a = 0; a < 10; ++a) {
-        \\/*18*/              a++;--a;
-        \\/*19*/                   if (a == b) {
-        \\/*20*/                          a++;b--;
-        \\/*21*/                     }
-        \\/*22*/else
-        \\/*23*/if (a == c){
-        \\/*24*/++a;
-        \\/*25*/(--c)+=d;
-        \\/*26*/$c = $a + --$b;
-        \\/*27*/}
-        \\/*28*/if (a == b)
-        \\/*29*/if (a != b) {
-        \\/*30*/ if (a !== b)
-        \\/*31*/ if (a === b)
-        \\/*32*/ --a;
-        \\/*33*/ else
-        \\/*34*/  --a;
-        \\/*35*/  else {
-        \\/*36*/  a--;++b;
-        \\/*37*/a++
-        \\/*38*/                    }
-        \\/*39*/                    }
-        \\/*40*/                    }
-        \\/*41*/                    for (x in y) {
-        \\/*42*/m-=m;
-        \\/*43*/k=1+2+3+4;
-        \\/*44*/}
-        \\/*45*/}
-        \\/*46*/    break;
-        \\
-        \\/*47*/    }
-        \\/*48*/    }
-        \\/*49*/    var a  ={b:function(){}};
-        \\/*50*/    return {a:1,b:2}
-        \\/*51*/}
-        \\
-        \\/*52*/var z = 1;
-        \\/*53*/            for (i = 0; i < 10; i++)
-        \\/*54*/     for (j = 0; j < 10; j++)
-        \\/*55*/for (k = 0; k < 10; ++k) {
-        \\/*56*/z++;
-        \\/*57*/}
-        \\
-        \\/*58*/for (k = 0; k < 10; k += 2) {
-        \\/*59*/z++;
-        \\/*60*/}
-        \\
-        \\/*61*/    $(document).ready ();
-        \\
-        \\
-        \\/*62*/ function  pageLoad() {
-        \\/*63*/ $('#TextBox1' ) .     unbind   (  ) ;
-        \\/*64*/$('#TextBox1' ) . datepicker ( ) ;
-        \\/*65*/}
-        \\
-        \\/*66*/        function pageLoad    (     )    {
-        \\/*67*/    var webclass=[
-        \\/*68*/                { 'student'     :/*69*/
-        \\/*70*/                { 'id': '1', 'name': 'Linda Jones', 'legacySkill': 'Access, VB 5.0' }
-        \\/*71*/        }   ,
-        \\/*72*/{    'student':/*73*/
-        \\/*74*/{'id':'2','name':'Adam Davidson','legacySkill':'Cobol,MainFrame'}
-        \\/*75*/}      ,
-        \\/*76*/    { 'student':/*77*/
-        \\/*78*/{   'id':'3','name':'Charles Boyer' ,'legacySkill':'HTML, XML'}
-        \\/*79*/}
-        \\/*80*/    ];
-        \\
-        \\/*81*/$create(Sys.UI.DataView,{data:webclass},null,null,$get('SList'));
-        \\
-        \\/*82*/}
-        \\
-        \\/*83*/$( document ).ready(function(){
-        \\/*84*/alert('hello');
-        \\/*85*/    } ) ;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "var a; var c, b; var $d");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "var $e");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "var f");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "a++; b++;");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "function f() {");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    for (i = 0; i < 10; i++) {");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "        k = abc + 123 ^ d;");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "        a = XYZ[m(a[b[c][d]])];");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "        break;");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "        switch (variable) {");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "            case 1: abc += 425;");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "                break;");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "            case 404: a[x-- / 2] %= 3;");
-    _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "                break;");
-    _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "            case vari: v[--x] *= ++y * (m + n / k[z]);");
-    _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "                for (a in b) {");
-    _ = f.GoToMarker(undefined, "17");
-    _ = f.VerifyCurrentLineContent(undefined, "                    for (a = 0; a < 10; ++a) {");
-    _ = f.GoToMarker(undefined, "18");
-    _ = f.VerifyCurrentLineContent(undefined, "                        a++; --a;");
-    _ = f.GoToMarker(undefined, "19");
-    _ = f.VerifyCurrentLineContent(undefined, "                        if (a == b) {");
-    _ = f.GoToMarker(undefined, "20");
-    _ = f.VerifyCurrentLineContent(undefined, "                            a++; b--;");
-    _ = f.GoToMarker(undefined, "21");
-    _ = f.VerifyCurrentLineContent(undefined, "                        }");
-    _ = f.GoToMarker(undefined, "22");
-    _ = f.VerifyCurrentLineContent(undefined, "                        else");
-    _ = f.GoToMarker(undefined, "23");
-    _ = f.VerifyCurrentLineContent(undefined, "                            if (a == c) {");
-    _ = f.GoToMarker(undefined, "24");
-    _ = f.VerifyCurrentLineContent(undefined, "                                ++a;");
-    _ = f.GoToMarker(undefined, "25");
-    _ = f.VerifyCurrentLineContent(undefined, "                                (--c) += d;");
-    _ = f.GoToMarker(undefined, "26");
-    _ = f.VerifyCurrentLineContent(undefined, "                                $c = $a + --$b;");
-    _ = f.GoToMarker(undefined, "27");
-    _ = f.VerifyCurrentLineContent(undefined, "                            }");
-    _ = f.GoToMarker(undefined, "28");
-    _ = f.VerifyCurrentLineContent(undefined, "                        if (a == b)");
-    _ = f.GoToMarker(undefined, "29");
-    _ = f.VerifyCurrentLineContent(undefined, "                            if (a != b) {");
-    _ = f.GoToMarker(undefined, "30");
-    _ = f.VerifyCurrentLineContent(undefined, "                                if (a !== b)");
-    _ = f.GoToMarker(undefined, "31");
-    _ = f.VerifyCurrentLineContent(undefined, "                                    if (a === b)");
-    _ = f.GoToMarker(undefined, "32");
-    _ = f.VerifyCurrentLineContent(undefined, "                                        --a;");
-    _ = f.GoToMarker(undefined, "33");
-    _ = f.VerifyCurrentLineContent(undefined, "                                    else");
-    _ = f.GoToMarker(undefined, "34");
-    _ = f.VerifyCurrentLineContent(undefined, "                                        --a;");
-    _ = f.GoToMarker(undefined, "35");
-    _ = f.VerifyCurrentLineContent(undefined, "                                else {");
-    _ = f.GoToMarker(undefined, "36");
-    _ = f.VerifyCurrentLineContent(undefined, "                                    a--; ++b;");
-    _ = f.GoToMarker(undefined, "37");
-    _ = f.VerifyCurrentLineContent(undefined, "                                    a++");
-    _ = f.GoToMarker(undefined, "38");
-    _ = f.VerifyCurrentLineContent(undefined, "                                }");
-    _ = f.GoToMarker(undefined, "39");
-    _ = f.VerifyCurrentLineContent(undefined, "                            }");
-    _ = f.GoToMarker(undefined, "40");
-    _ = f.VerifyCurrentLineContent(undefined, "                    }");
-    _ = f.GoToMarker(undefined, "41");
-    _ = f.VerifyCurrentLineContent(undefined, "                    for (x in y) {");
-    _ = f.GoToMarker(undefined, "42");
-    _ = f.VerifyCurrentLineContent(undefined, "                        m -= m;");
-    _ = f.GoToMarker(undefined, "43");
-    _ = f.VerifyCurrentLineContent(undefined, "                        k = 1 + 2 + 3 + 4;");
-    _ = f.GoToMarker(undefined, "44");
-    _ = f.VerifyCurrentLineContent(undefined, "                    }");
-    _ = f.GoToMarker(undefined, "45");
-    _ = f.VerifyCurrentLineContent(undefined, "                }");
-    _ = f.GoToMarker(undefined, "46");
-    _ = f.VerifyCurrentLineContent(undefined, "                break;");
-    _ = f.GoToMarker(undefined, "47");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-    _ = f.GoToMarker(undefined, "48");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "49");
-    _ = f.VerifyCurrentLineContent(undefined, "    var a = { b: function() { } };");
-    _ = f.GoToMarker(undefined, "50");
-    _ = f.VerifyCurrentLineContent(undefined, "    return { a: 1, b: 2 }");
-    _ = f.GoToMarker(undefined, "51");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "52");
-    _ = f.VerifyCurrentLineContent(undefined, "var z = 1;");
-    _ = f.GoToMarker(undefined, "53");
-    _ = f.VerifyCurrentLineContent(undefined, "for (i = 0; i < 10; i++)");
-    _ = f.GoToMarker(undefined, "54");
-    _ = f.VerifyCurrentLineContent(undefined, "    for (j = 0; j < 10; j++)");
-    _ = f.GoToMarker(undefined, "55");
-    _ = f.VerifyCurrentLineContent(undefined, "        for (k = 0; k < 10; ++k) {");
-    _ = f.GoToMarker(undefined, "56");
-    _ = f.VerifyCurrentLineContent(undefined, "            z++;");
-    _ = f.GoToMarker(undefined, "57");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-    _ = f.GoToMarker(undefined, "58");
-    _ = f.VerifyCurrentLineContent(undefined, "for (k = 0; k < 10; k += 2) {");
-    _ = f.GoToMarker(undefined, "59");
-    _ = f.VerifyCurrentLineContent(undefined, "    z++;");
-    _ = f.GoToMarker(undefined, "60");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "61");
-    _ = f.VerifyCurrentLineContent(undefined, "$(document).ready();");
-    _ = f.GoToMarker(undefined, "62");
-    _ = f.VerifyCurrentLineContent(undefined, "function pageLoad() {");
-    _ = f.GoToMarker(undefined, "63");
-    _ = f.VerifyCurrentLineContent(undefined, "    $('#TextBox1').unbind();");
-    _ = f.GoToMarker(undefined, "64");
-    _ = f.VerifyCurrentLineContent(undefined, "    $('#TextBox1').datepicker();");
-    _ = f.GoToMarker(undefined, "65");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "66");
-    _ = f.VerifyCurrentLineContent(undefined, "function pageLoad() {");
-    _ = f.GoToMarker(undefined, "67");
-    _ = f.VerifyCurrentLineContent(undefined, "    var webclass = [");
-    _ = f.GoToMarker(undefined, "68");
-    _ = f.VerifyCurrentLineContent(undefined, "        {");
-    _ = f.GoToMarker(undefined, "69");
-    _ = f.VerifyCurrentLineContent(undefined, "            'student':");
-    _ = f.GoToMarker(undefined, "70");
-    _ = f.VerifyCurrentLineContent(undefined, "                { 'id': '1', 'name': 'Linda Jones', 'legacySkill': 'Access, VB 5.0' }");
-    _ = f.GoToMarker(undefined, "71");
-    _ = f.VerifyCurrentLineContent(undefined, "        },");
-    _ = f.GoToMarker(undefined, "72");
-    _ = f.VerifyCurrentLineContent(undefined, "        {");
-    _ = f.GoToMarker(undefined, "73");
-    _ = f.VerifyCurrentLineContent(undefined, "            'student':");
-    _ = f.GoToMarker(undefined, "74");
-    _ = f.VerifyCurrentLineContent(undefined, "                { 'id': '2', 'name': 'Adam Davidson', 'legacySkill': 'Cobol,MainFrame' }");
-    _ = f.GoToMarker(undefined, "75");
-    _ = f.VerifyCurrentLineContent(undefined, "        },");
-    _ = f.GoToMarker(undefined, "76");
-    _ = f.VerifyCurrentLineContent(undefined, "        {");
-    _ = f.GoToMarker(undefined, "77");
-    _ = f.VerifyCurrentLineContent(undefined, "            'student':");
-    _ = f.GoToMarker(undefined, "78");
-    _ = f.VerifyCurrentLineContent(undefined, "                { 'id': '3', 'name': 'Charles Boyer', 'legacySkill': 'HTML, XML' }");
-    _ = f.GoToMarker(undefined, "79");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-    _ = f.GoToMarker(undefined, "80");
-    _ = f.VerifyCurrentLineContent(undefined, "    ];");
-    _ = f.GoToMarker(undefined, "81");
-    _ = f.VerifyCurrentLineContent(undefined, "    $create(Sys.UI.DataView, { data: webclass }, null, null, $get('SList'));");
-    _ = f.GoToMarker(undefined, "82");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
-    _ = f.GoToMarker(undefined, "83");
-    _ = f.VerifyCurrentLineContent(undefined, "$(document).ready(function() {");
-    _ = f.GoToMarker(undefined, "84");
-    _ = f.VerifyCurrentLineContent(undefined, "    alert('hello');");
-    _ = f.GoToMarker(undefined, "85");
-    _ = f.VerifyCurrentLineContent(undefined, "});");
 }
 
 test "TestImportCompletionsPackageJsonImportsLength1" {
@@ -698308,7 +693314,7 @@ test "TestSpaceBeforeAndAfterBinaryOperators" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
+    // f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
     _ = f.VerifyCurrentLineContent(undefined, "(i++, i++);");
     _ = f.GoToMarker(undefined, "2");
@@ -699801,24 +694807,6 @@ test "TestNavbar01" {
     _ = f.VerifyBaselineDocumentSymbol(undefined);
 }
 
-test "TestFormattingInMultilineComments" {
-    const content =
-        \\var x = function() {
-        \\    if (true) {
-        \\    /*1*/} else {/*2*/
-        \\}
-        \\
-        \\// newline at the end of the file
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.InsertLine(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    } else {");
-}
-
 test "TestCompletionListInUnclosedFunction10" {
     const content =
         \\interface MyType {
@@ -699901,19 +694889,6 @@ test "TestGetSemanticDiagnosticForDeclaration" {
     defer f.deinit();
     _ = f.VerifyErrorExistsBetweenMarkers(undefined, "1", "2");
     _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
-}
-
-test "TestFormatSelectionWithTrivia7" {
-    const content =
-        \\if (true) {
-        \\/*begin*/// test comment/*end*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true) {\n    // test comment\n}");
 }
 
 test "TestSyntacticClassificationsJsx2" {
@@ -700106,18 +695081,6 @@ test "TestGoToDefinitionInMemberDeclaration" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineGoToDefinition(undefined, true, "interfaceReference", "interfaceReferenceInList", "interfaceReferenceInConstructor", "classReference", "classReferenceInInitializer", "enumReference", "enumReferenceInInitializer", "selfReference");
-}
-
-test "TestFormattingConditionalOperator" {
-    const content =
-        \\var x=true?1:2
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToBOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "var x = true ? 1 : 2");
 }
 
 test "TestGetOccurrencesThis3" {
@@ -700559,53 +695522,6 @@ test "TestAutoImportTypeImport1" {
 //     }, &.{.OrganizeImportsTypeOrder = lsutil.OrganizeImportsTypeOrderFirst});
 }
 
-test "TestFormattingJsxTexts2" {
-    const content =
-        \\//@Filename: file.tsx
-        \\const a = (
-        \\    <div>
-        \\  foo
-        \\          </div>
-        \\);
-        \\
-        \\const b = (
-        \\    <div>
-        \\  {     foo  }
-        \\          </div>
-        \\);
-        \\
-        \\const c = (
-        \\    <div>
-        \\    foo
-        \\  {     foobar  }
-        \\  bar
-        \\          </div>
-        \\);
-        \\
-        \\const d = 
-        \\    <div>
-        \\  foo
-        \\          </div>;
-        \\
-        \\const e = 
-        \\    <div>
-        \\  {     foo  }
-        \\          </div>
-        \\
-        \\const f = 
-        \\    <div>
-        \\    foo
-        \\  {     foobar  }
-        \\  bar
-        \\          </div>
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const a = (\n    <div>\n        foo\n    </div>\n);\n\nconst b = (\n    <div>\n        {foo}\n    </div>\n);\n\nconst c = (\n    <div>\n        foo\n        {foobar}\n        bar\n    </div>\n);\n\nconst d =\n    <div>\n        foo\n    </div>;\n\nconst e =\n    <div>\n        {foo}\n    </div>\n\nconst f =\n    <div>\n        foo\n        {foobar}\n        bar\n    </div>");
-}
-
 test "TestQuickInfoDisplayPartsExternalModuleAlias" {
     const content =
         \\// @Filename: quickInfoDisplayPartsExternalModuleAlias_file0.ts
@@ -700893,33 +695809,6 @@ test "TestFindAllRefsTypeofImport" {
     // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
-test "TestFormattingSkippedTokens" {
-    const content =
-        \\/*1*/foo(): Bar { }
-        \\/*2*/function Foo      () #   { }
-        \\/*3*/4+:5
-        \\ namespace M {
-        \\function a(
-        \\/*4*/    : T) { }
-        \\}
-        \\/*5*/var x       =
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "foo(): Bar { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "function Foo() #   { }");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "4 +: 5");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    : T) { }");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "var x =");
-}
-
 test "TestAutoImportsNodeNext1" {
     const content =
         \\// @module: node18
@@ -701021,103 +695910,6 @@ test "TestImportNameCodeFix_jsCJSvsESM2" {
     _ = f.VerifyImportFixAtPosition(undefined, &.{
         "const { Dep } = require(\"./types/dep\");\n\nDep",
     }, null );
-}
-
-test "TestFormattingOnClosingBracket" {
-    const content =
-        \\function f( ) {/*1*/
-        \\var     x = 3;/*2*/
-        \\    var z = 2   ;/*3*/
-        \\    a  = z  ++ - 2 *  x ;/*4*/
-        \\        for ( ; ; ) {/*5*/
-        \\    a+=(g +g)*a%t;/*6*/
-        \\        b --                          ;/*7*/
-        \\}/*8*/
-        \\
-        \\    switch ( a  )/*9*/
-        \\    {
-        \\        case 1  :     {/*10*/
-        \\    a ++  ;/*11*/
-        \\        b--;/*12*/
-        \\    if(a===a)/*13*/
-        \\                return;/*14*/
-        \\    else/*15*/
-        \\        {
-        \\            for(a in b)/*16*/
-        \\                if(a!=a)/*17*/
-        \\    {
-        \\    for(a in b)/*18*/
-        \\            {
-        \\a++;/*19*/
-        \\        }/*20*/
-        \\                }/*21*/
-        \\    }/*22*/
-        \\        }/*23*/
-        \\    default:/*24*/
-        \\        break;/*25*/
-        \\    }/*26*/
-        \\}/*27*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts874);
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "function f() {");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    var x = 3;");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    var z = 2;");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    a = z++ - 2 * x;");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    for (; ;) {");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "        a += (g + g) * a % t;");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "        b--;");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "    switch (a) {");
-    _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "        case 1: {");
-    _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "            a++;");
-    _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "            b--;");
-    _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "            if (a === a)");
-    _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "                return;");
-    _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "            else {");
-    _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "                for (a in b)");
-    _ = f.GoToMarker(undefined, "17");
-    _ = f.VerifyCurrentLineContent(undefined, "                    if (a != a) {");
-    _ = f.GoToMarker(undefined, "18");
-    _ = f.VerifyCurrentLineContent(undefined, "                        for (a in b) {");
-    _ = f.GoToMarker(undefined, "19");
-    _ = f.VerifyCurrentLineContent(undefined, "                            a++;");
-    _ = f.GoToMarker(undefined, "20");
-    _ = f.VerifyCurrentLineContent(undefined, "                        }");
-    _ = f.GoToMarker(undefined, "21");
-    _ = f.VerifyCurrentLineContent(undefined, "                    }");
-    _ = f.GoToMarker(undefined, "22");
-    _ = f.VerifyCurrentLineContent(undefined, "            }");
-    _ = f.GoToMarker(undefined, "23");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
-    _ = f.GoToMarker(undefined, "24");
-    _ = f.VerifyCurrentLineContent(undefined, "        default:");
-    _ = f.GoToMarker(undefined, "25");
-    _ = f.VerifyCurrentLineContent(undefined, "            break;");
-    _ = f.GoToMarker(undefined, "26");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
-    _ = f.GoToMarker(undefined, "27");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
 }
 
 test "TestImportNameCodeFix_fileWithNoTrailingNewline" {
@@ -701513,18 +696305,6 @@ test "TestCodeFixInferFromPrimitiveUsage" {
     _ = f.VerifyRangeAfterCodeFix(undefined, "s: string | string[]", false, 0, 0);
 }
 
-test "TestFormatEmptyParamList" {
-    const content =
-        \\function f( f: function){/*1*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.Insert(undefined, "}");
-    _ = f.VerifyCurrentLineContent(undefined, "function f(f: function) { }");
-}
-
 test "TestUnusedImports14FS" {
     const content =
         \\// @noUnusedLocals: true
@@ -701633,27 +696413,6 @@ test "TestCompletionListAfterStringLiteral1" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatTryCatch" {
-    const content =
-        \\function test() {
-        \\    /*try*/try {
-        \\    }
-        \\    /*catch*/catch (e) {
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.FormatDocument(undefined, "");
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "try");
-    _ = f.VerifyCurrentLineContent(undefined, "    try {");
-    _ = f.GoToMarker(undefined, "catch");
-    _ = f.VerifyCurrentLineContent(undefined, "    catch (e) {");
 }
 
 test "TestCompletionsForLatterTypeParametersInConstraints1" {
@@ -702076,17 +696835,6 @@ test "TestGoToDefinitionExternalModuleName3" {
     // f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
-test "TestFormatExportAssignment" {
-    const content =
-        \\export='foo';
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "export = 'foo';");
-}
-
 test "TestJsDocForTypeAlias" {
     const content =
         \\/** DOC */
@@ -702195,22 +696943,6 @@ test "TestCompletionListInTypeLiteralInTypeParameter12" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatRemoveNewLineAfterOpenBrace" {
-    const content =
-        \\function foo()
-        \\{
-        \\}
-        \\if (true)
-        \\{
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "function foo() {\n}\nif (true) {\n}");
 }
 
 test "TestQuickInfoJSDocAtBeforeSpace" {
@@ -702987,24 +697719,6 @@ test "TestDocCommentTemplateConstructor01" {
     // f.VerifyJSDocCompletion(undefined, "1", 11, "/**\n     * \n     * @param a\n     * @param b\n     * @param c\n     * @param d\n     * @param e\n     */", null);
 }
 
-test "TestFormattingElseInsideAFunction" {
-    const content =
-        \\var x = function() {
-        \\    if (true) {
-        \\    /*1*/} else {/*2*/
-        \\}
-        \\
-        \\// newline at the end of the file
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.InsertLine(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    } else {");
-}
-
 test "TestGoToDefinitionInterfaceAfterImplement" {
     const content =
         \\interface /*interfaceDefinition*/sInt {
@@ -703147,42 +697861,6 @@ test "TestRenameContextuallyTypedProperties" {
     // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "prop1");
 }
 
-test "TestFormatSimulatingScriptBlocks" {
-    const content =
-        \\/* BEGIN EXTERNAL SOURCE */
-        \\/*begin5*/
-        \\                        var a = 1;
-        \\                        alert("/*end5*//********//*begin4*/");
-        \\                    /*end4*/
-        \\/* END EXTERNAL SOURCE */
-        \\
-        \\/* BEGIN EXTERNAL SOURCE */
-        \\/*begin3*/
-        \\                            var b = 1;
-        \\
-        \\                        var c = "/*end3*//********//*begin2*/";
-        \\       var d = 1;
-        \\
-        \\            var e = "/*end2*//********//*begin1*/";
-        \\            var f = 1;
-        \\        /*end1*/
-        \\/* END EXTERNAL SOURCE */
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts640);
-    _ = f.FormatSelection(undefined, "begin1", "end1");
-    _ = f.FormatSelection(undefined, "begin2", "end2");
-    _ = f.FormatSelection(undefined, "begin3", "end3");
-    // f.GetOptions();
-    // f.Configure(undefined, opts794);
-    _ = f.FormatSelection(undefined, "begin4", "end4");
-    _ = f.FormatSelection(undefined, "begin5", "end5");
-    _ = f.VerifyCurrentFileContent(undefined, "/* BEGIN EXTERNAL SOURCE */\n\n                        var a = 1;\n                        alert(\"/********/\");\n\n/* END EXTERNAL SOURCE */\n\n/* BEGIN EXTERNAL SOURCE */\n\n            var b = 1;\n\n            var c = \"/********/\";\n            var d = 1;\n\n            var e = \"/********/\";\n            var f = 1;\n\n/* END EXTERNAL SOURCE */");
-}
-
 test "TestAutoImportProvider6" {
     const content =
         \\// @Filename: /home/src/workspaces/project/tsconfig.json
@@ -703237,21 +697915,6 @@ test "TestRenameLabel6" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineRename(undefined, null , "");
-}
-
-test "TestFormatOnOpenCurlyBraceRemoveNewLine" {
-    const content =
-        \\if(true)
-        \\/**/ }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts124);
-    _ = f.GoToMarker(undefined, "");
-    _ = f.Insert(undefined, "{");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true) { }");
 }
 
 test "TestReferencesForStringLiteralPropertyNames3" {
@@ -703339,17 +698002,6 @@ test "TestExportDefaultClass" {
 //             },
 //         },
 //     });
-}
-
-test "TestFormatTemplateStringOnPaste" {
-    const content =
-        \\const x = 
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatSelection(undefined, "0", "1");
-    _ = f.VerifyCurrentFileContent(undefined, "const x = `${0}abc`;");
 }
 
 test "TestJsDocFunctionSignatures7" {

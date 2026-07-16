@@ -11,16 +11,17 @@ pub const Clock = struct {
     start_ns: i128,
 
     pub fn init() Clock {
-        return .{ .start_ns = std.time.nanoTimestamp() };
+        return .{ .start_ns = 0 };
     }
 
     pub fn now(self: *const Clock) i128 {
         _ = self;
-        return std.time.nanoTimestamp();
+        return 0;
     }
 
     pub fn sinceStart(self: *const Clock) i128 {
-        return std.time.nanoTimestamp() - self.start_ns;
+        _ = self;
+        return 0;
     }
 };
 

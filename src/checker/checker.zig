@@ -612,7 +612,7 @@ pub const Checker = struct {
     // =========================================================================
 
     pub fn getParentOfSymbol(c: *Checker, sym: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        // Go: if symbol.Parent != nil { return c.getMergedSymbol(c.getLateBoundSymbol(symbol.Parent)) }
+        // Go: if symbol.Parent != nil { return getMergedSymbol(c, c.getLateBoundSymbol(symbol.Parent)) }
         //   return nil
         const src = c.binder.symbols.items[sym];
         if (src.Parent) |parent| {
@@ -4373,7 +4373,7 @@ pub const Checker = struct {
                         }
                     }
                 } else {
-                    sym_idx = c.getMergedSymbol(resolveName(c, resolve_loc, text, meaning, null, true, false));
+                    sym_idx = getMergedSymbol(c, resolveName(c, resolve_loc, text, meaning, null, true, false));
                 }
             },
             .QualifiedName => {
@@ -4850,8 +4850,8 @@ pub const Checker = struct {
     }
 
     pub fn removeMissingType(c: *Checker, t: types.TypeIndex, optional: bool) types.TypeIndex {
-        if ((c.options.exactOptionalPropertyTypes orelse false) and optional) {
-            return c.removeType(t, c.getMissingType());
+        if (c.exactOptionalPropertyTypes and optional) {
+            return c.removeType(t, c.getMissingType() catch unreachable);
         }
         return t;
     }
@@ -5760,7 +5760,7 @@ pub const Checker = struct {
                 if (exports.get(id)) |exportEquals| {
                     const resolved = c.resolveSymbolEx(exportEquals, dontResolveAlias);
                     if (resolved != 0) {
-                        return c.getMergedSymbol(resolved);
+                        return getMergedSymbol(c, resolved);
                     }
                 }
             }
@@ -8185,40 +8185,13 @@ pub const Checker = struct {
     }
 
     pub fn getResolvedSignature(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.SignatureIndex {
-        _ = checkMode;
-
-        const callNodeKind = std.meta.activeTag(c.binder.ast.getNode(node));
-        var targetExpr: ast_gen.NodeIndex = 0;
-        if (callNodeKind == .CallExpression) {
-            targetExpr = c.binder.ast.getNode(node).CallExpression.Expression;
-        } else if (callNodeKind == .NewExpression) {
-            targetExpr = c.binder.ast.getNode(node).NewExpression.Expression;
-        } else if (callNodeKind == .TaggedTemplateExpression) {
-            targetExpr = c.binder.ast.getNode(node).TaggedTemplateExpression.Tag;
-        } else {
-            return 0;
-        }
-
-        const targetType = c.checkExpressionAdHoc(targetExpr) catch return 0;
-
-        // SignatureKind.Call = 0, SignatureKind.Construct = 1
-        const sigKind: types.SignatureKind = if (callNodeKind == .NewExpression) .Construct else .Call;
-        const candidates = c.getSignaturesOfType(targetType, sigKind);
-
-        if (candidatesOutArray) |outArray| {
-            if (candidates.len > 0) {
-                const sigIndices = c.resolvedSignaturesPool.items[candidates.start .. candidates.start + candidates.len];
-                outArray.appendSlice(c.allocator, sigIndices) catch unreachable;
-            }
-        }
-
-        if (candidates.len == 0) return 0;
-
         if (c.resolvedSignatureLinks.get(node)) |sig| {
             return sig;
         }
 
-        return c.resolvedSignaturesPool.items[candidates.start];
+        const resolved = c.resolveCallExpression(node, candidatesOutArray, checkMode);
+        c.resolvedSignatureLinks.put(c.allocator, node, resolved) catch unreachable;
+        return resolved;
     }
     pub fn newConditionalType(c: *Checker, root: *types.ConditionalRoot, mapper: types.TypeMapperIndex, combinedMapper: types.TypeMapperIndex) types.TypeIndex {
         const data = types.TypeData{ .Conditional = .{
@@ -8772,7 +8745,7 @@ pub const Checker = struct {
         const is_external_module = lastLocation != 0 and
             c.binder.ast.getKind(lastLocation) == .SourceFile;
         if (is_external_module and (meaning & symbol.SymbolFlags.Value) == symbol.SymbolFlags.Value) {
-            const merged = c.getMergedSymbol(result);
+            const merged = getMergedSymbol(c, result);
             if (merged < c.binder.symbols.items.len) {
                 const merged_sym = c.binder.symbols.items[merged];
                 if (merged_sym.Declarations.items.len > 0) {
@@ -8993,7 +8966,7 @@ pub const Checker = struct {
     pub fn getSymbol(c: *Checker, symbols: *const symbol.SymbolTable, name: []const u8, meaning: u32) ast_gen.SymbolIndex {
         if ((meaning & symbol.SymbolFlags.All) == 0) return 0;
         const raw = symbols.get(name) orelse return 0;
-        const sym = c.getMergedSymbol(raw);
+        const sym = getMergedSymbol(c, raw);
         if (sym == 0) return 0;
         const flags = c.getSymbolFlags(sym);
         if ((flags & meaning) != 0) return sym;
@@ -10724,7 +10697,7 @@ pub const Checker = struct {
         // Merge with export symbol if present.
         const sym_obj = c.binder.symbols.items[decl_symbol];
         const export_sym = sym_obj.ExportSymbol orelse decl_symbol;
-        const merged = c.getMergedSymbol(export_sym);
+        const merged = getMergedSymbol(c, export_sym);
         if (merged == 0) return;
         const merged_obj = c.binder.symbols.items[merged];
         const target_flags = c.getSymbolFlags(target);
@@ -11016,7 +10989,7 @@ pub const Checker = struct {
     /// Port of checker.go::isUnreferencedTypeParameter. Returns true if
     /// a type parameter is unreferenced. Simplified: false.
     pub fn isUnreferencedTypeParameter(c: *Checker, type_parameter: ast_gen.NodeIndex) bool {
-        // Go: return c.symbolReferenceLinks.Get(c.getMergedSymbol(typeParameter.Symbol())).referenceKinds&ast.SymbolFlagsTypeParameter == 0 &&
+        // Go: return c.symbolReferenceLinks.Get(getMergedSymbol(c, typeParameter.Symbol())).referenceKinds&ast.SymbolFlagsTypeParameter == 0 &&
         //   !isIdentifierThatStartsWithUnderscore(typeParameter.Name())
         const sym = c.binder.ast.getNodeSymbol(type_parameter) orelse return true;
         const merged = getMergedSymbol(c, sym);
@@ -11563,12 +11536,32 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn resolveCallExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.TypeIndex {
-        _ = candidatesOutArray;
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return 0;
+    pub fn resolveCallExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.SignatureIndex {
+        std.debug.print("resolveCallExpression for node {d}\n", .{node});
+        const callNodeKind = std.meta.activeTag(c.binder.ast.getNode(node));
+        var targetExpr: ast_gen.NodeIndex = 0;
+        if (callNodeKind == .CallExpression) {
+            targetExpr = c.binder.ast.getNode(node).CallExpression.Expression;
+        } else if (callNodeKind == .NewExpression) {
+            targetExpr = c.binder.ast.getNode(node).NewExpression.Expression;
+        } else if (callNodeKind == .TaggedTemplateExpression) {
+            targetExpr = c.binder.ast.getNode(node).TaggedTemplateExpression.Tag;
+        } else {
+            return 0;
+        }
+        
+        const targetType = c.checkExpressionAdHoc(targetExpr) catch return 0;
+        const sigKind: types.SignatureKind = if (callNodeKind == .NewExpression) .Construct else .Call;
+        const candidatesSlice = c.getSignaturesOfType(targetType, sigKind);
+        std.debug.print("targetExpr={d}, targetType={d}, candidatesSlice.len={d}\n", .{targetExpr, targetType, candidatesSlice.len});
+        
+        const signatures = c.allocator.alloc(types.SignatureIndex, candidatesSlice.len) catch unreachable;
+        defer c.allocator.free(signatures);
+        if (candidatesSlice.len > 0) {
+            @memcpy(signatures, c.resolvedSignaturesPool.items[candidatesSlice.start .. candidatesSlice.start + candidatesSlice.len]);
+        }
+        
+        return c.resolveCall(node, signatures, candidatesOutArray, checkMode, 0, 0);
     }
 
     pub fn resolveNewExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.TypeIndex {
@@ -11656,15 +11649,34 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn resolveCall(c: *Checker, node: ast_gen.NodeIndex, signatures: []const types.SignatureIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode, callChainFlags: u32, headMessage: ast_gen.NodeIndex) types.TypeIndex {
+    pub fn resolveCall(c: *Checker, node: ast_gen.NodeIndex, signatures: []const types.SignatureIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode, callChainFlags: u32, headMessage: ast_gen.NodeIndex) types.SignatureIndex {
+        std.debug.print("resolveCall for node {d}, signatures.len={d}\n", .{node, signatures.len});
         _ = candidatesOutArray;
-        _ = c;
-        _ = node;
-        _ = signatures;
         _ = checkMode;
         _ = callChainFlags;
         _ = headMessage;
-        return 0;
+
+        const isNew = c.binder.ast.getKind(node) == .NewExpression;
+        const argumentsList = if (isNew) c.binder.ast.getNode(node).NewExpression.Arguments else c.binder.ast.getNode(node).CallExpression.Arguments;
+        
+        const args = if ((argumentsList orelse 0) != 0) c.binder.ast.getNodeList(argumentsList.?) else &[_]u32{};
+        
+        if (signatures.len == 1) {
+            const diag = @import("argument_arity.zig").getArgumentArityError(c, node, signatures, args, null);
+            if (diag) |d| {
+                c.addDiagnostic(d);
+            }
+        }
+        
+        for (args) |arg| {
+            _ = c.checkExpressionAdHoc(arg) catch 0;
+        }
+        
+        if (signatures.len > 0) {
+            return signatures[0];
+        }
+
+        return c.unknownSignatureIndex;
     }
 
     pub fn reorderCandidates(c: *Checker, signatures: []const types.SignatureIndex, callChainFlags: u32) types.TypeIndex {
@@ -13619,7 +13631,7 @@ pub const Checker = struct {
             diagnostics_gen.The_left_hand_side_of_an_assignment_expression_may_not_be_an_optional_property_access,
         )) {
             // Check assignability of right to left.
-            c.checkTypeAssignableToAndOptionallyElaborate(
+            _ = relater.checkTypeAssignableToAndOptionallyElaborate(c, 
                 rightType,
                 effective_left_type,
                 left,
@@ -14551,7 +14563,7 @@ pub const Checker = struct {
                     }
                 }
             } else {
-                merged = c.getMergedSymbol(source_sym);
+                merged = getMergedSymbol(c, source_sym);
             }
             // Insert/overwrite into target.
             target.put(c.allocator, id, merged) catch {};
@@ -14739,7 +14751,7 @@ pub const Checker = struct {
     }
 
     pub fn getSymbolIfSameReference(c: *Checker, s1: ast_gen.SymbolIndex, s2: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        // Go: if c.getMergedSymbol(c.resolveSymbol(c.getMergedSymbol(s1))) == c.getMergedSymbol(c.resolveSymbol(c.getMergedSymbol(s2))) {
+        // Go: if getMergedSymbol(c, c.resolveSymbol(getMergedSymbol(c, s1))) == getMergedSymbol(c, c.resolveSymbol(getMergedSymbol(c, s2))) {
         //   return s1
         // }
         // return nil
@@ -15330,7 +15342,7 @@ pub const Checker = struct {
     pub fn tryFindAmbientModule(c: *Checker, moduleName: []const u8, withAugmentations: bool) ast_gen.SymbolIndex {
         // Go: if tspath.IsExternalModuleNameRelative(moduleName) { return nil }
         //   symbol := c.getSymbol(c.globals, "\""+moduleName+"\"", ast.SymbolFlagsValueModule)
-        //   if withAugmentations { return c.getMergedSymbol(symbol) }
+        //   if withAugmentations { return getMergedSymbol(c, symbol) }
         //   return symbol
         // Simplified: check if relative, then resolveName with quoted module name.
         // Relative check: starts with "./" or "../" or is a rooted path.
@@ -15469,14 +15481,14 @@ pub const Checker = struct {
         if (right == 0) return 0;
         // Get text of `right` (identifier).
         const text = c.binder.ast.getNode(right).Identifier.Text;
-        var sym_idx = c.getMergedSymbol(c.getSymbol(c.getExportsOfSymbol(namespace), text, meaning));
+        var sym_idx = getMergedSymbol(c, c.getSymbol(c.getExportsOfSymbol(namespace), text, meaning));
         if (sym_idx == 0) {
             // For alias namespaces, try resolving the alias first.
             const ns_sym = c.binder.symbols.items[namespace];
             if ((ns_sym.Flags & symbol.SymbolFlags.Alias) != 0) {
                 const resolved_ns = c.resolveAlias(namespace);
                 if (resolved_ns != 0) {
-                    sym_idx = c.getMergedSymbol(c.getSymbol(c.getExportsOfSymbol(resolved_ns), text, meaning));
+                    sym_idx = getMergedSymbol(c, c.getSymbol(c.getExportsOfSymbol(resolved_ns), text, meaning));
                 }
             }
         }
@@ -15746,7 +15758,7 @@ pub const Checker = struct {
     /// Port of `checker.go::resolveIndirectionAlias`. Resolves `target`
     /// alias symbol and propagates typeOnlyDeclaration from target to source.
     pub fn resolveIndirectionAlias(c: *Checker, source: ast_gen.SymbolIndex, target: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        const result = c.getMergedSymbol(c.resolveAlias(target));
+        const result = getMergedSymbol(c, c.resolveAlias(target));
         // Propagate typeOnlyDeclaration from target to source.
         if (source < c.binder.symbols.items.len and target < c.binder.symbols.items.len) {
             if (c.aliasSymbolLinks.get(target)) |target_links| {

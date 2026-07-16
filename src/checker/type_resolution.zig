@@ -1011,7 +1011,11 @@ pub fn getTypeFromMappedTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
     if (entry.value_ptr.resolvedType == 0) {
         const sym = getSymbolOfNode(c, node);
         const t = newObjectType(c, types.ObjectFlags.Mapped, sym);
-        // t.AsMappedType().declaration = node
+        c.typesList.items[t].data = .{ .Mapped = .{
+            .declaration = node,
+            .typeParameter = 0,
+            .templateType = 0,
+        }};
         // t.alias = getAliasForTypeNode(c, node)
         entry.value_ptr.resolvedType = t;
 

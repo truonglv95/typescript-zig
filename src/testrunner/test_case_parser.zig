@@ -98,17 +98,17 @@ fn getNormalizedAbsolutePath(allocator: std.mem.Allocator, name: []const u8, cur
     return try std.fs.path.join(allocator, &[_][]const u8{ currentDir, name });
 }
 
-pub fn makeUnitsFromTest(allocator: std.mem.Allocator, code: []const u8, fileName: []const u8) !TestCaseContent {
-    const TestFileParser = struct {
-        fn parse(alloc: std.mem.Allocator, name: []const u8, content: []const u8, fileOptions: std.StringHashMap([]const u8)) anyerror!TestUnit {
-            _ = fileOptions;
-            return TestUnit{
-                .content = try alloc.dupe(u8, content),
-                .name = try alloc.dupe(u8, name),
-            };
-        }
-    };
+pub const TestFileParser = struct {
+    pub fn parse(alloc: std.mem.Allocator, name: []const u8, content: []const u8, fileOptions: std.StringHashMap([]const u8)) anyerror!TestUnit {
+        _ = fileOptions;
+        return TestUnit{
+            .content = try alloc.dupe(u8, content),
+            .name = try alloc.dupe(u8, name),
+        };
+    }
+};
 
+pub fn makeUnitsFromTest(allocator: std.mem.Allocator, code: []const u8, fileName: []const u8) !TestCaseContent {
     var result = try parseTestFilesAndSymlinks(TestUnit, allocator, code, fileName, TestFileParser.parse);
 
     var currentDirectory = result.currentDir;

@@ -203,14 +203,14 @@ pub fn getArgumentArityError(
         );
     } else if (args_len < min_count) {
         // Too few arguments — also attach a "parameter was not provided" related info.
-        var diag = makeDiagnostic(allocator, error_node, message, primary_args, head_message);
+        var diag = makeDiagnostic(allocator, error_node, message, primary_args, head_message) orelse return null;
 
         if (closest_signature) |sig| {
             const sig_decl = c.signatures.items[sig].declaration;
             if (sig_decl != 0) {
                 const sig_params = ast_utils.getParametersOfNode(tree, sig_decl);
                 const this_offset: usize = if (c.signatures.items[sig].thisParameter != null) 1 else 0;
-                const target_idx: usize = @intCast(args_len + this_offset);
+                const target_idx: usize = @intCast(@as(usize, @intCast(args_len)) + this_offset);
                 if (target_idx < sig_params.len) {
                     const param = sig_params[target_idx];
                     if (param != 0) {

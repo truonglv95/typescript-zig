@@ -157,7 +157,7 @@ pub fn getPropertyNameFromType(t: *const types.Type) []const u8 {
     } else if (t.flags & types.TypeFlags.UniqueESSymbol != 0) {
         return "symbol"; // Placeholder
     }
-    unreachable;
+    return "";
 }
 
 pub fn isNumericLiteralName(name: []const u8) bool {

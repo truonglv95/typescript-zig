@@ -102,5 +102,8 @@ pub fn build(b: *std.Build) void {
     });
     fourslash_tests.step.dependOn(&gen_fourslash_cmd.step);
     const run_fourslash_tests = b.addRunArtifact(fourslash_tests);
+    if (b.args) |args| {
+        run_fourslash_tests.addArgs(args);
+    }
     test_step.dependOn(&run_fourslash_tests.step);
 }
