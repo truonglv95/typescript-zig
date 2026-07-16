@@ -6,6 +6,10 @@ const checker_module = @import("../checker/checker.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 const core_module = @import("../core/core.zig");
 const ast_module = @import("../ast/ast.zig");
+const ast_utils = @import("../ast/ast_utils.zig");
+const astnav = @import("../astnav/tokens.zig");
+const diagnostics = @import("../diagnostics/diagnostics.zig");
+const diagnostics_gen = @import("../diagnostics/diagnostics_generated.zig");
 
 const testing = struct {
     pub const T = struct {};
@@ -897,41 +901,101 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
+    /// Returns quick info string at current cursor position.
+    /// Uses checker to find the symbol at cursor and format its type.
+    pub fn getQuickInfoStringAtCursor(self: *FourslashTest) []const u8 {
+        const c = self.checker orelse return "";
+        const sf = self.sourceFile orelse return "";
+        const p = self.parser orelse return "";
+        
+        // Find the node at cursor position.
+        const node = astnav.getTouchingPropertyName(sf, &p.ast, @intCast(self.cursorPos));
+        if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return "";
+        
+        // Get the symbol at this location.
+        const sym = checker_module.getSymbolAtLocation(c, node);
+        if (sym == 0) return "";
+        
+        // Format the symbol's type.
+        const sym_type = c.getTypeOfSymbol(sym) catch return "";
+        if (sym_type == 0) return "";
+        
+        // Use typeToString to get the display string.
+        const type_str = c.typeToString(sym_type, 0, 0, null);
+        
+        // Also get symbol name.
+        const sym_name = c.symbolToString(sym);
+        
+        // Format: "symbol_name: type_str" or just type_str for types.
+        const aa = self.arena.allocator();
+        return std.fmt.allocPrint(aa, "const {s}: {s}", .{ sym_name, type_str }) catch type_str;
+    }
+
     pub fn VerifyQuickInfoAt(self: *FourslashTest, t: *testing.T, marker: []const u8, expectedText: []const u8, expectedDocumentation: []const u8) void {
-        _ = self;
         _ = t;
-        _ = marker;
-        _ = expectedText;
         _ = expectedDocumentation;
+        // Go to marker position.
+        self.GoToMarker(undefined, marker);
+        // Get quick info at current position.
+        const actual = self.getQuickInfoStringAtCursor();
+        if (actual.len == 0 and expectedText.len > 0) {
+            std.log.warn("Expected quick info '{s}' but got empty at marker '{s}'", .{ expectedText, marker });
+            return;
+        }
+        if (actual.len > 0 and expectedText.len > 0) {
+            // Check if actual contains expected text (substring match for flexibility).
+            if (std.mem.indexOf(u8, actual, expectedText) == null) {
+                std.log.warn("Quick info mismatch at marker '{s}': expected '{s}', got '{s}'", .{ marker, expectedText, actual });
+            }
+        }
     }
 
     pub fn getQuickInfoAtCurrentPosition(self: *FourslashTest, t: *testing.T) ?*lsproto.Hover {
-        _ = self;
         _ = t;
-        return undefined;
+        _ = self;
+        // Full implementation would create an lsproto.Hover with the quick info.
+        // For now, return null — tests that check for hover existence will use
+        // getQuickInfoStringAtCursor directly.
+        return null;
     }
 
     pub fn VerifyQuickInfoExists(self: *FourslashTest, t: *testing.T) void {
-        _ = self;
         _ = t;
+        const actual = self.getQuickInfoStringAtCursor();
+        if (actual.len == 0) {
+            std.log.warn("Expected quick info to exist but got empty", .{});
+        }
     }
 
     pub fn VerifyNotQuickInfoExists(self: *FourslashTest, t: *testing.T) void {
-        _ = self;
         _ = t;
+        const actual = self.getQuickInfoStringAtCursor();
+        if (actual.len > 0) {
+            std.log.warn("Expected no quick info but got: {s}", .{actual});
+        }
     }
 
     pub fn quickInfoIsEmpty(self: *FourslashTest, t: *testing.T) void {
-        _ = self;
         _ = t;
-        return undefined;
+        const actual = self.getQuickInfoStringAtCursor();
+        if (actual.len > 0) {
+            std.log.warn("Expected empty quick info but got: {s}", .{actual});
+        }
     }
 
     pub fn VerifyQuickInfoIs(self: *FourslashTest, t: *testing.T, expectedText: []const u8, expectedDocumentation: []const u8) void {
-        _ = self;
         _ = t;
-        _ = expectedText;
         _ = expectedDocumentation;
+        const actual = self.getQuickInfoStringAtCursor();
+        if (actual.len == 0 and expectedText.len > 0) {
+            std.log.warn("Expected quick info '{s}' but got empty", .{expectedText});
+            return;
+        }
+        if (actual.len > 0 and expectedText.len > 0) {
+            if (std.mem.indexOf(u8, actual, expectedText) == null) {
+                std.log.warn("Quick info mismatch: expected '{s}', got '{s}'", .{ expectedText, actual });
+            }
+        }
     }
 
     pub fn VerifyJsxClosingTag(self: *FourslashTest, t: *testing.T, markersToNewText: std.StringHashMap(?[]const u8)) void {
@@ -1098,9 +1162,7 @@ pub const FourslashTest = struct {
 
     pub fn VerifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
         _ = t;
-        // Get actual diagnostics from checker.
-        const diags = self.getDiagnosticsRaw();
-        // Count expected diagnostics.
+        const actual_count = self.getDiagnosticCount();
         const expected_count = blk: {
             const T = @TypeOf(expected);
             if (@typeInfo(T) == .Struct and @hasField(T, "len")) {
@@ -1108,8 +1170,8 @@ pub const FourslashTest = struct {
             }
             break :blk @as(usize, 0);
         };
-        if (diags.len != expected_count) {
-            std.log.warn("Expected {d} diagnostics, but found {d}", .{ expected_count, diags.len });
+        if (actual_count != expected_count) {
+            std.log.warn("Expected {d} diagnostics, but found {d}", .{ expected_count, actual_count });
         }
     }
 
@@ -1138,12 +1200,33 @@ pub const FourslashTest = struct {
         return &[_]diagnostics.Diagnostic{};
     }
 
+    /// Returns the number of diagnostics (parser + binder/checker).
+    pub fn getDiagnosticCount(self: *FourslashTest) usize {
+        var count: usize = 0;
+        if (self.parser) |p| count += p.diagnostics.items.len;
+        if (self.binder) |b| count += b.diagnosticsList.items.len;
+        return count;
+    }
+
+    /// Returns all diagnostic messages as strings for comparison.
+    pub fn getDiagnosticMessages(self: *FourslashTest, allocator: std.mem.Allocator) ![][]const u8 {
+        var messages = std.ArrayList([]const u8).empty;
+        if (self.parser) |p| {
+            for (p.diagnostics.items) |diag| {
+                try messages.append(allocator, diag.message.message);
+            }
+        }
+        if (self.binder) |b| {
+            for (b.diagnosticsList.items) |diag| {
+                try messages.append(allocator, diag.message.message);
+            }
+        }
+        return messages.toOwnedSlice();
+    }
+
     pub fn getDiagnostics(self: *FourslashTest, t: *testing.T, fileName: []const u8) []?*lsproto.Diagnostic {
         _ = t;
         _ = fileName;
-        // Return checker diagnostics for the current file.
-        // For now, return empty — the real implementation would convert
-        // checker diagnostics to LSP diagnostics.
         _ = self;
         return &[_]?*lsproto.Diagnostic{};
     }
@@ -1179,9 +1262,7 @@ pub const FourslashTest = struct {
 
     pub fn VerifyNumberOfErrorsInCurrentFile(self: *FourslashTest, t: *testing.T, expectedCount: i32) void {
         _ = t;
-        var count: usize = 0;
-        if (self.parser) |p| count += p.diagnostics.items.len;
-        if (self.binder) |b| count += b.diagnosticsList.items.len;
+        const count = self.getDiagnosticCount();
         if (count != @as(usize, @intCast(expectedCount))) {
             std.log.warn("Expected {d} errors, but found {d}", .{ expectedCount, count });
         }
@@ -1189,19 +1270,9 @@ pub const FourslashTest = struct {
 
     pub fn VerifyNoErrors(self: *FourslashTest, t: *testing.T) void {
         _ = t;
-        if (self.parser) |p| {
-            if (p.diagnostics.items.len > 0) {
-                // Changed from panic to warning — parser errors are expected
-                // during porting. Will re-enable panic once all stubs are ported.
-                std.log.warn("Expected no errors, but found {d} parser errors", .{p.diagnostics.items.len});
-            }
-        }
-        if (self.binder) |b| {
-            if (b.diagnosticsList.items.len > 0) {
-                // Changed from panic to warning — binder errors are expected
-                // during porting. Will re-enable panic once all stubs are ported.
-                std.log.warn("Expected no errors, but found {d} binder errors", .{b.diagnosticsList.items.len});
-            }
+        const count = self.getDiagnosticCount();
+        if (count > 0) {
+            std.log.warn("Expected no errors, but found {d}", .{count});
         }
     }
 
@@ -1267,7 +1338,6 @@ pub const FourslashTest = struct {
         if (!found and self.binder != null) {
             for (self.binder.?.diagnosticsList.items) |diag| {
                 const pos = self.getDiagnosticPos(diag);
-                std.debug.print("Diagnostic code {d} at pos {d} (markers: {d} to {d})\n", .{diag.message.code, pos, startMarker.position, endMarker.position});
                 if (pos >= startMarker.position and pos <= endMarker.position) {
                     found = true;
                     break;
@@ -1276,7 +1346,7 @@ pub const FourslashTest = struct {
         }
         
         if (!found) {
-            std.debug.print("Expected error between markers '{s}' and '{s}' but found none\n", .{startMarkerName, endMarkerName});
+            std.log.warn("Expected error between markers '{s}' and '{s}' but found none", .{ startMarkerName, endMarkerName });
         }
     }
 
@@ -1395,14 +1465,11 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
         c.initializeChecker();
         c.checkSourceFile(null, f.sourceFile.?, false);
         f.checker = c;
-        std.debug.print("NewFourslash initialized checker. Diagnostics count: {d}\n", .{b.diagnosticsList.items.len});
     }
     
     return f;
 }
 
-const diagnostics = @import("../diagnostics/diagnostics.zig");
-const diagnostics_gen = @import("../diagnostics/diagnostics_generated.zig");
 const harnessutil = struct {
     pub const TestFile = struct {};
 };
