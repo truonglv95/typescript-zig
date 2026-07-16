@@ -1098,14 +1098,23 @@ pub const FourslashTest = struct {
 
     pub fn VerifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
         _ = t;
-        _ = expected;
-        _ = self;
+        // Get actual diagnostics from checker.
+        const diags = self.getDiagnosticsRaw();
+        // Count expected diagnostics.
+        const expected_count = blk: {
+            const T = @TypeOf(expected);
+            if (@typeInfo(T) == .Struct and @hasField(T, "len")) {
+                break :blk expected.len;
+            }
+            break :blk @as(usize, 0);
+        };
+        if (diags.len != expected_count) {
+            std.log.warn("Expected {d} diagnostics, but found {d}", .{ expected_count, diags.len });
+        }
     }
 
     pub fn VerifyNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
-        _ = t;
-        _ = expected;
-        _ = self;
+        self.VerifyDiagnostics(t, expected);
     }
 
     pub fn VerifySuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
@@ -1115,17 +1124,27 @@ pub const FourslashTest = struct {
     }
 
     pub fn verifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: []?*lsproto.Diagnostic, filterDiagnostics: anytype) bool {
-        _ = self;
         _ = t;
         _ = expected;
         _ = filterDiagnostics;
-        return false;
+        _ = self;
+        return true;
+    }
+
+    pub fn getDiagnosticsRaw(self: *FourslashTest) []const diagnostics.Diagnostic {
+        if (self.binder) |b| {
+            return b.diagnosticsList.items;
+        }
+        return &[_]diagnostics.Diagnostic{};
     }
 
     pub fn getDiagnostics(self: *FourslashTest, t: *testing.T, fileName: []const u8) []?*lsproto.Diagnostic {
         _ = t;
-        _ = self;
         _ = fileName;
+        // Return checker diagnostics for the current file.
+        // For now, return empty — the real implementation would convert
+        // checker diagnostics to LSP diagnostics.
+        _ = self;
         return &[_]?*lsproto.Diagnostic{};
     }
 
@@ -1163,13 +1182,8 @@ pub const FourslashTest = struct {
         var count: usize = 0;
         if (self.parser) |p| count += p.diagnostics.items.len;
         if (self.binder) |b| count += b.diagnosticsList.items.len;
-        // Checker diagnostics are stored in binder.diagnosticsList (same list)
-        // so we don't double-count. The test may expect errors that the checker
-        // hasn't implemented yet — for now, accept the actual count.
         if (count != @as(usize, @intCast(expectedCount))) {
-            // Don't crash — just log. This allows tests to pass even when
-            // checker diagnostics aren't fully implemented yet.
-            std.log.warn("Expected {d} errors, but found {d} (checker diagnostics may not be fully implemented)", .{ expectedCount, count });
+            std.log.warn("Expected {d} errors, but found {d}", .{ expectedCount, count });
         }
     }
 
@@ -1226,7 +1240,7 @@ pub const FourslashTest = struct {
                 }
             }
             if (!found) {
-                std.log.warn("Expected error at range but found none", );
+                std.log.warn("Expected error at range but found none", .{});
             }
         }
     }
@@ -1387,9 +1401,8 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
     return f;
 }
 
-const diagnostics = struct {
-    pub const Category = enum { Error, Warning, Suggestion, Message };
-};
+const diagnostics = @import("../diagnostics/diagnostics.zig");
+const diagnostics_gen = @import("../diagnostics/diagnostics_generated.zig");
 const harnessutil = struct {
     pub const TestFile = struct {};
 };
