@@ -22860,6 +22860,38 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
         }
     }
 
+    // Binding pattern: var { property1: prop1 } = foo
+    // When cursor is on property1 or prop1, resolve from the initializer's type.
+    if (parent != 0 and c.binder.ast.getNodeKind(parent) == .BindingElement) {
+        const be = c.binder.ast.getNode(parent).BindingElement;
+        // Check if this node is the property name or the binding name.
+        const is_property_name = (be.PropertyName == node);
+        const is_binding_name = (be.name == node);
+        if (is_property_name or is_binding_name) {
+            // Walk up to find VariableDeclaration with initializer.
+            var cur = parent;
+            while (cur != 0) {
+                const k = c.binder.ast.getNodeKind(cur);
+                if (k == .VariableDeclaration) break;
+                cur = c.binder.ast.getNodeParent(cur);
+            }
+            if (cur != 0) {
+                const vd = c.binder.ast.getNode(cur).VariableDeclaration;
+                if (vd.Initializer) |vd_init| {
+                    if (vd_init != 0) {
+                        const init_type = c.checkExpressionCached(vd_init);
+                        if (init_type != 0) {
+                            const name_str = ast_utils.getTextOfNode(c.binder.ast, node);
+                            if (c.getPropertyOfType(init_type, name_str)) |prop_sym| {
+                                return prop_sym;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // fallback: mostly for declarations
     return c.binder.ast.getNodeSymbol(node) orelse 0;
 }
