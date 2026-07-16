@@ -82,12 +82,30 @@ pub fn findPrecedingToken(sourceFile: ast.NodeIndex, a: *ast.Ast, position: u32)
 }
 
 pub fn findPrecedingTokenEx(sourceFile: ast.NodeIndex, a: *ast.Ast, position: u32, startNode: ast.NodeIndex, excludeJSDoc: bool) ast.NodeIndex {
-    _ = sourceFile;
-    _ = a;
-    _ = position;
-    _ = startNode;
     _ = excludeJSDoc;
-    return 0; // TODO
+    
+    const Visitor = struct {
+        tree: *ast.Ast,
+        position: u32,
+        found: ast.NodeIndex = 0,
+
+        pub fn check(self: *@This(), node: ast.NodeIndex) bool {
+            if (node == 0) return false;
+            if (self.tree.getNodeEnd(node) <= self.position) {
+                self.found = node;
+            }
+            return false;
+        }
+    };
+
+    var visitor = Visitor{
+        .tree = a,
+        .position = position,
+    };
+    
+    const root = if (startNode != 0) startNode else sourceFile;
+    _ = @import("../ast/ast_utils.zig").forEachChildBool(a, root, &visitor, Visitor.check);
+    return visitor.found;
 }
 
 pub fn getStartOfNode(node: ast.NodeIndex, a: *ast.Ast, file: ast.NodeIndex, includeJSDoc: bool) u32 {
@@ -97,17 +115,62 @@ pub fn getStartOfNode(node: ast.NodeIndex, a: *ast.Ast, file: ast.NodeIndex, inc
 }
 
 pub fn findNextToken(previousToken: ast.NodeIndex, a: *ast.Ast, parent: ast.NodeIndex, file: ast.NodeIndex) ast.NodeIndex {
-    _ = previousToken;
-    _ = a;
-    _ = parent;
     _ = file;
-    return 0; // TODO
+    const end_pos = a.getNodeEnd(previousToken);
+    
+    const Visitor = struct {
+        tree: *ast.Ast,
+        end_pos: u32,
+        found: ast.NodeIndex = 0,
+
+        pub fn check(self: *@This(), node: ast.NodeIndex) bool {
+            if (self.found != 0) return true;
+            if (node == 0) return false;
+            if (self.tree.getNodePos(node) >= self.end_pos) {
+                self.found = node;
+                return true;
+            }
+            return false;
+        }
+    };
+
+    var visitor = Visitor{
+        .tree = a,
+        .end_pos = end_pos,
+    };
+    
+    _ = @import("../ast/ast_utils.zig").forEachChildBool(a, parent, &visitor, Visitor.check);
+    return visitor.found;
 }
 
 pub fn findChildOfKind(containingNode: ast.NodeIndex, a: *ast.Ast, searchKind: kind, sourceFile: ast.NodeIndex) ast.NodeIndex {
-    _ = containingNode;
-    _ = a;
-    _ = searchKind;
     _ = sourceFile;
-    return 0; // TODO
+    if (std.meta.activeTag(a.getNode(containingNode)) == searchKind) {
+        return containingNode;
+    }
+
+    const Visitor = struct {
+        tree: *ast.Ast,
+        searchKind: kind,
+        found: ast.NodeIndex = 0,
+
+        pub fn check(self: *@This(), node: ast.NodeIndex) bool {
+            if (self.found != 0) return true;
+            if (node == 0) return false;
+            
+            if (std.meta.activeTag(self.tree.getNode(node)) == self.searchKind) {
+                self.found = node;
+                return true;
+            }
+            return false;
+        }
+    };
+
+    var visitor = Visitor{
+        .tree = a,
+        .searchKind = searchKind,
+    };
+    
+    _ = @import("../ast/ast_utils.zig").forEachChildBool(a, containingNode, &visitor, Visitor.check);
+    return visitor.found;
 }

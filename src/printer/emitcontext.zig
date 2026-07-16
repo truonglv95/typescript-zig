@@ -145,9 +145,100 @@ pub const EmitContext = struct {
     }
 
     pub fn endAndMergeVariableEnvironment(self: *EmitContext, statements: []const ast_gen.NodeIndex) []const ast_gen.NodeIndex {
-        _ = self;
-        // TODO: Actually merge hoisted variables. For now, just return the statements.
-        return statements;
+        const declarations = self.endVariableEnvironment() catch unreachable;
+        return self.mergeEnvironment(statements, declarations.items);
+    }
+
+    pub fn mergeEnvironment(self: *EmitContext, statements: []const ast_gen.NodeIndex, declarations: []const ast_gen.NodeIndex) []const ast_gen.NodeIndex {
+        if (declarations.len == 0) {
+            return statements;
+        }
+
+        const ast_utils = @import("../ast/ast_utils.zig");
+
+        const leftStandardPrologueEnd = findSpanEnd(self.tree, statements, ast_utils.isPrologueDirective, 0);
+        const leftHoistedFunctionsEnd = self.findSpanEndWithEmitContext(statements, isHoistedFunction, leftStandardPrologueEnd);
+        const leftHoistedVariablesEnd = self.findSpanEndWithEmitContext(statements, isHoistedVariableStatement, leftHoistedFunctionsEnd);
+
+        const rightStandardPrologueEnd = findSpanEnd(self.tree, declarations, ast_utils.isPrologueDirective, 0);
+        const rightHoistedFunctionsEnd = self.findSpanEndWithEmitContext(declarations, isHoistedFunction, rightStandardPrologueEnd);
+        const rightHoistedVariablesEnd = self.findSpanEndWithEmitContext(declarations, isHoistedVariableStatement, rightHoistedFunctionsEnd);
+        const rightCustomPrologueEnd = self.findSpanEndWithEmitContext(declarations, isCustomPrologue, rightHoistedVariablesEnd);
+
+        if (rightCustomPrologueEnd != declarations.len) {
+            std.debug.panic("Expected declarations to be valid standard or custom prologues", .{});
+        }
+
+        var left = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        left.appendSlice(self.allocator, statements) catch unreachable;
+
+        if (rightCustomPrologueEnd > rightHoistedVariablesEnd) {
+            left.insertSlice(self.allocator, leftHoistedVariablesEnd, declarations[rightHoistedVariablesEnd..rightCustomPrologueEnd]) catch unreachable;
+        }
+
+        if (rightHoistedVariablesEnd > rightHoistedFunctionsEnd) {
+            left.insertSlice(self.allocator, leftHoistedFunctionsEnd, declarations[rightHoistedFunctionsEnd..rightHoistedVariablesEnd]) catch unreachable;
+        }
+
+        if (rightHoistedFunctionsEnd > rightStandardPrologueEnd) {
+            left.insertSlice(self.allocator, leftStandardPrologueEnd, declarations[rightStandardPrologueEnd..rightHoistedFunctionsEnd]) catch unreachable;
+        }
+
+        if (rightStandardPrologueEnd > 0) {
+            if (leftStandardPrologueEnd == 0) {
+                left.insertSlice(self.allocator, 0, declarations[0..rightStandardPrologueEnd]) catch unreachable;
+            } else {
+                var leftPrologues = std.StringHashMap(void).init(self.allocator);
+                defer leftPrologues.deinit();
+
+                for (statements[0..leftStandardPrologueEnd]) |leftPrologue| {
+                    const text = self.tree.getNode(leftPrologue).ExpressionStatement.Expression;
+                    leftPrologues.put(self.tree.getNode(text).StringLiteral.Text, {}) catch unreachable;
+                }
+
+                var i: usize = rightStandardPrologueEnd;
+                while (i > 0) {
+                    i -= 1;
+                    const rightPrologue = declarations[i];
+                    const text = self.tree.getNode(rightPrologue).ExpressionStatement.Expression;
+                    if (!leftPrologues.contains(self.tree.getNode(text).StringLiteral.Text)) {
+                        left.insert(self.allocator, 0, rightPrologue) catch unreachable;
+                    }
+                }
+            }
+        }
+
+        return left.items;
+    }
+
+    fn isCustomPrologue(self: *EmitContext, node: ast_gen.NodeIndex) bool {
+        return (self.getEmitFlags(node) & EmitFlags.CustomPrologue) != 0;
+    }
+
+    fn isHoistedFunction(self: *EmitContext, node: ast_gen.NodeIndex) bool {
+        return self.isCustomPrologue(node) and self.tree.getNode(node) == .FunctionDeclaration;
+    }
+
+    fn isHoistedVariableStatement(self: *EmitContext, node: ast_gen.NodeIndex) bool {
+        return self.isCustomPrologue(node) and self.tree.getNode(node) == .VariableStatement;
+    }
+
+    fn findSpanEndWithEmitContext(self: *EmitContext, statements: []const ast_gen.NodeIndex, match: *const fn (*EmitContext, ast_gen.NodeIndex) bool, startIndex: usize) usize {
+        for (statements[startIndex..], 0..) |statement, i| {
+            if (!match(self, statement)) {
+                return startIndex + i;
+            }
+        }
+        return statements.len;
+    }
+
+    fn findSpanEnd(tree: *ast.Ast, statements: []const ast_gen.NodeIndex, match: *const fn (*ast.Ast, ast_gen.NodeIndex) bool, startIndex: usize) usize {
+        for (statements[startIndex..], 0..) |statement, i| {
+            if (!match(tree, statement)) {
+                return startIndex + i;
+            }
+        }
+        return statements.len;
     }
 
     pub fn parseNode(self: *EmitContext, a: anytype) ast_gen.NodeIndex {

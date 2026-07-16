@@ -11,11 +11,17 @@ const tspath = @import("../tspath/pkg.zig");
 const fileInclude = @import("fileInclude.zig");
 const processingDiagnostic = @import("processingDiagnostic.zig");
 
+pub const LibFile = struct {
+    name: []const u8,
+    path: []const u8,
+    replaced: bool,
+};
+
 pub const ParseTask = struct {
     normalizedFilePath: []const u8,
     path: tspath.Path,
     file: ast.SourceFileIndex,
-    libFile: ?*anyopaque, // TODO: LibFile
+    libFile: ?*LibFile,
     redirectedParseTask: ?*ParseTask,
     subTasks: std.ArrayList(*ParseTask),
     loaded: bool,

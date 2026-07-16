@@ -57,8 +57,65 @@ pub fn provideFileRenameEdits(
                 const specifier = ast_utils.tryGetImportFromModuleSpecifier(tree, stmt);
                 if (specifier != 0) {
                     const text = ast_utils.getTextOfNode(tree, specifier);
-                    if (tspath.isExternalModuleNameRelative(text)) {
-                        // TODO: Implement actual path updates comparing old_file_name and new_file_name
+                    var actual_text = text;
+                    if (actual_text.len >= 2 and (actual_text[0] == '"' or actual_text[0] == '\'')) {
+                        actual_text = actual_text[1 .. actual_text.len - 1];
+                    }
+                    if (tspath.isExternalModuleNameRelative(actual_text)) {
+                        const old_dir = tspath.getDirectoryPath(allocator, fileName) catch continue;
+                        defer allocator.free(old_dir);
+
+                        const old_absolute = tspath.combinePaths(allocator, old_dir, &[_][]const u8{actual_text}) catch continue;
+                        defer allocator.free(old_absolute);
+
+                        const old_absolute_norm = tspath.normalizePath(allocator, old_absolute) catch continue;
+                        defer allocator.free(old_absolute_norm);
+
+                        const cmp_opts = tspath.ComparePathsOptions{ .useCaseSensitiveFileNames = ls.useCaseSensitiveFileNames() };
+
+                        var new_absolute = old_absolute_norm;
+                        var to_free: ?[]const u8 = null;
+                        defer if (to_free) |f| allocator.free(f);
+
+                        if (tspath.comparePaths(old_absolute_norm, old_file_name, cmp_opts) == 0) {
+                            new_absolute = new_file_name;
+                        } else if ((tspath.startsWithDirectory(allocator, old_absolute_norm, old_file_name, ls.useCaseSensitiveFileNames()) catch false)) {
+                            const rest = old_absolute_norm[old_file_name.len..];
+                            new_absolute = std.fmt.allocPrint(allocator, "{s}{s}", .{new_file_name, rest}) catch continue;
+                            to_free = new_absolute;
+                        } else {
+                            const old_file_name_no_ext = tspath.removeFileExtension(old_file_name);
+                            if (tspath.comparePaths(old_absolute_norm, old_file_name_no_ext, cmp_opts) == 0) {
+                                new_absolute = tspath.removeFileExtension(new_file_name);
+                            } else if ((tspath.startsWithDirectory(allocator, old_absolute_norm, old_file_name_no_ext, ls.useCaseSensitiveFileNames()) catch false)) {
+                                const rest = old_absolute_norm[old_file_name_no_ext.len..];
+                                const new_file_name_no_ext = tspath.removeFileExtension(new_file_name);
+                                new_absolute = std.fmt.allocPrint(allocator, "{s}{s}", .{new_file_name_no_ext, rest}) catch continue;
+                                to_free = new_absolute;
+                            }
+                        }
+
+                        var new_import_from_path = fileName;
+                        if (tspath.comparePaths(fileName, old_file_name, cmp_opts) == 0) {
+                            new_import_from_path = new_file_name;
+                        }
+
+                        const new_import_dir = tspath.getDirectoryPath(allocator, new_import_from_path) catch continue;
+                        defer allocator.free(new_import_dir);
+
+                        const relative = tspath.getRelativePathFromDirectory(allocator, new_import_dir, new_absolute, cmp_opts) catch continue;
+                        defer allocator.free(relative);
+
+                        const updated = tspath.ensurePathIsNonModuleName(allocator, relative) catch continue;
+                        defer allocator.free(updated);
+
+                        if (!std.mem.eql(u8, actual_text, updated)) {
+                            const range = ast_utils.getTextRangeOfNode(tree, specifier);
+                            tracker.replaceRangeWithText(sourceFileNode, .{
+                                .pos = range.start + 1,
+                                .end = range.end - 1,
+                            }, updated) catch {};
+                        }
                     }
                 }
             }

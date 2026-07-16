@@ -6,6 +6,8 @@ const checker = @import("../checker/checker.zig");
 const compiler = @import("../compiler/program.zig");
 const languageservice = @import("languageservice.zig");
 const lsproto = @import("../lsp/lsproto/lsproto.zig");
+const displaypartswriter = @import("displaypartswriter.zig");
+
 const ast_gen = @import("../ast/ast_generated.zig");
 
 pub const InvocationKind = enum {

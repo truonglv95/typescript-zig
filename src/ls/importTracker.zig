@@ -101,14 +101,14 @@ pub const ImportTracker = struct {
         defer direct_imports.deinit(self.allocator);
 
         var indirect_users = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        
+
         try self.getImportersForExport(&direct_imports, &indirect_users, export_info);
-        
+
         var import_searches = std.ArrayListUnmanaged(LocationAndSymbol).empty;
         var single_references = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
-        
+
         try self.getSearchesFromDirectImports(direct_imports.items, export_symbol, export_info.export_kind, is_for_rename, &import_searches, &single_references);
-        
+
         return ImportsResult{
             .import_searches = import_searches,
             .single_references = single_references,
@@ -368,9 +368,9 @@ pub const ImportTracker = struct {
                     const property_name = ast_utils.propertyName(c.tree, element);
                     const text_node = if (property_name != 0) property_name else name;
                     const text = ast_utils.text(c.tree, text_node);
-                    
+
                     if (!c.isNameMatch(text)) continue;
-                    
+
                     if (property_name != 0) {
                         try c.single_references.append(c.tracker.allocator, property_name);
                         if (!c.is_for_rename or std.mem.eql(u8, ast_utils.text(c.tree, name), c.export_symbol_name)) {
@@ -393,7 +393,7 @@ pub const ImportTracker = struct {
                     }
                 }
             }
-            
+
             fn handleImport(c: *@This(), decl: ast_gen.NodeIndex) !void {
                 if (ast_utils.isImportEqualsDeclaration(c.tree, decl)) {
                     if (isExternalModuleImportEquals(c.tree, decl)) {
@@ -441,7 +441,7 @@ pub const ImportTracker = struct {
                             }
                         }
                     }
-                    
+
                     const name = ast_utils.name(c.tree, import_clause);
                     if (name != 0 and (c.export_kind == .Default or c.export_kind == .ExportEquals)) {
                         const no_default_name = symbolNameNoDefault(c.tracker.chk, c.export_symbol);
@@ -483,7 +483,7 @@ fn forEachImport(
     comptime action: fn (@TypeOf(ctx), ast_gen.NodeIndex, ast_gen.NodeIndex) anyerror!void,
 ) !void {
     const tree = &chk.binder.ast;
-    
+
     var implicit_imports = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
     defer implicit_imports.deinit(allocator);
 
@@ -584,20 +584,20 @@ fn getContainingModuleSymbol(tree: anytype, importer: ast_gen.NodeIndex, chk: *c
 
 fn findNamespaceReExports(allocator: std.mem.Allocator, tree: anytype, source_file_like: ast_gen.NodeIndex, name: ast_gen.NodeIndex, chk: *checker.Checker) !bool {
     const namespace_import_symbol = chk.getSymbolAtLocation(name);
-    
+
     const Ctx = struct {
         tree: @TypeOf(tree),
         chk: *checker.Checker,
         namespace_import_symbol: ast_gen.SymbolIndex,
     };
     var ctx = Ctx{ .tree = tree, .chk = chk, .namespace_import_symbol = namespace_import_symbol };
-    
+
     const Wrapper = struct {
         fn action(inner: *Ctx, statement: ast_gen.NodeIndex) anyerror!bool {
             if (!ast_utils.isExportDeclaration(inner.tree, statement)) return false;
             const export_clause = ast_utils.exportClause(inner.tree, statement);
             const module_specifier = ast_utils.moduleSpecifier(inner.tree, statement);
-            
+
             if (module_specifier == 0 and export_clause != 0 and ast_utils.isNamedExports(inner.tree, export_clause)) {
                 const elements = ast_utils.elements(inner.tree, export_clause);
                 for (elements) |element| {
@@ -609,7 +609,7 @@ fn findNamespaceReExports(allocator: std.mem.Allocator, tree: anytype, source_fi
             return false;
         }
     };
-    
+
     return try forEachPossibleImportOrExportStatement(allocator, tree, source_file_like, &ctx, Wrapper.action);
 }
 
@@ -622,7 +622,7 @@ pub fn getImportOrExportSymbol(
 ) !?ImportExportSymbol {
     _ = allocator;
     const tree = &chk.binder.ast;
-    
+
     const Ctx = struct {
         tree: @TypeOf(tree),
         chk: *checker.Checker,
@@ -681,7 +681,7 @@ pub fn getImportOrExportSymbol(
             const parent = ast_utils.parent(c.tree, c.node);
             const grandparent = ast_utils.parent(c.tree, parent);
             const export_symbol = c.chk.symbolExportSymbol(c.symbol_idx);
-            
+
             if (export_symbol != 0) {
                 if (ast_utils.isPropertyAccessExpression(c.tree, parent)) {
                     if (ast_utils.isBinaryExpression(c.tree, grandparent) and ast_utils.containsNode(c.chk.symbolDeclarations(c.symbol_idx), parent)) {
@@ -721,7 +721,7 @@ pub fn getImportOrExportSymbol(
 
         fn getImport(c: *@This()) ?ImportExportSymbol {
             if (!isNodeImport(c.tree, c.node)) return null;
-            
+
             var imported_symbol: ast_gen.SymbolIndex = 0;
             if (c.chk.hasSymbolFlag(c.symbol_idx, ast.SymbolFlags.Alias)) {
                 imported_symbol = c.chk.getImmediateAliasedSymbol(c.symbol_idx);
@@ -729,16 +729,16 @@ pub fn getImportOrExportSymbol(
                 imported_symbol = c.chk.getPropertySymbolOfObjectBindingPatternWithoutPropertyName(c.symbol_idx);
             }
             if (imported_symbol == 0) return null;
-            
+
             imported_symbol = skipExportSpecifierSymbol(c.tree, imported_symbol, c.chk);
             if (imported_symbol == 0) return null;
-            
+
             const imported_name = c.chk.symbolName(imported_symbol);
             if (std.mem.eql(u8, imported_name, "export=")) {
                 imported_symbol = getExportEqualsLocalSymbol(c.tree, imported_symbol, c.chk);
                 if (imported_symbol == 0) return null;
             }
-            
+
             const imported_name_no_default = symbolNameNoDefault(c.chk, imported_symbol);
             if (imported_name_no_default.len == 0 or std.mem.eql(u8, imported_name_no_default, "default") or std.mem.eql(u8, imported_name_no_default, c.chk.symbolName(c.symbol_idx))) {
                 return ImportExportSymbol{
@@ -749,7 +749,7 @@ pub fn getImportOrExportSymbol(
             return null;
         }
     };
-    
+
     var ctx = Ctx{ .tree = tree, .chk = chk, .node = node, .symbol_idx = symbol_idx };
     if (ctx.getExport(coming_from_export)) |res| return res;
     if (!coming_from_export) {
@@ -836,7 +836,7 @@ fn getExportEqualsLocalSymbol(tree: anytype, imported_symbol: ast_gen.SymbolInde
     }
     const decl = chk.symbolValueDeclaration(imported_symbol);
     if (decl == 0) return 0;
-    
+
     if (ast_utils.isExportAssignment(tree, decl)) {
         return chk.getSymbolOfNode(ast_utils.expression(tree, decl));
     } else if (ast_utils.isBinaryExpression(tree, decl)) {
@@ -907,7 +907,7 @@ pub fn findModuleReferences(
             chk: *checker.Checker,
             referencing_file: ast_gen.NodeIndex,
             tree: @TypeOf(tree),
-            
+
             fn action(inner: *@This(), import_decl: ast_gen.NodeIndex, module_specifier: ast_gen.NodeIndex) !void {
                 const module_symbol = inner.chk.getSymbolAtLocation(module_specifier);
                 if (module_symbol == inner.search_module_symbol) {

@@ -3,8 +3,6 @@ const ast = @import("../ast/ast.zig");
 const ast_gen = @import("../ast/ast_generated.zig");
 
 // Exports interfaces and types defining the node builder - concrete implementations are on top of the checker, but these types and interfaces are used by the emit resolver in the printer
-
-// TODO: previously all symboltracker methods were optional, but now they're required.
 pub const SymbolTracker = struct {
     ptr: *anyopaque,
     vtable: *const VTable,

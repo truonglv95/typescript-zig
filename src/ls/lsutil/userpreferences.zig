@@ -43,6 +43,14 @@ pub const OrganizeImportsTypeOrder = enum {
     First,
 };
 
+pub const OrganizeImportsSort = enum {
+    Auto,
+    Ordinal,
+    OrdinalIgnoreCase,
+    Natural,
+    NaturalIgnoreCase,
+};
+
 pub const InlayHintsPreferences = struct {
     includeInlayParameterNameHints: IncludeInlayParameterNameHints = .None,
     includeInlayParameterNameHintsWhenArgumentMatchesName: core.Tristate = .Unknown,
@@ -66,6 +74,8 @@ pub const UserPreferences = struct {
     formatCodeSettings: formatcodeoptions.FormatCodeSettings = formatcodeoptions.getDefaultFormatCodeSettings(),
     quotePreference: QuotePreference = .Unknown,
     lazyConfiguredProjectsFromExternalProject: core.Tristate = .Unknown,
+    enableJSDocCompletions: core.Tristate = .True,
+    generateReturnInDocTemplate: core.Tristate = .True,
     maximumHoverLength: i32 = 0,
     
     includeCompletionsForModuleExports: core.Tristate = .True,
@@ -82,6 +92,7 @@ pub const UserPreferences = struct {
     autoImportEntrypointDirectorySearch: core.Tristate = .Unknown,
     preferTypeOnlyAutoImports: core.Tristate = .Unknown,
     
+    organizeImportsSort: OrganizeImportsSort = .Auto,
     organizeImportsIgnoreCase: core.Tristate = .Unknown,
     organizeImportsCollation: OrganizeImportsCollation = .Ordinal,
     organizeImportsLocale: []const u8 = "",

@@ -73,7 +73,6 @@ pub const EmitHost = struct {
     }
 
     pub fn getOutputPathsFor(self: *EmitHost, file: ast_gen.NodeIndex, forceDtsPaths: bool) declarations.OutputPaths {
-        // TODO: cache
         return outputpaths.getOutputPathsFor(file, self.options(), self, forceDtsPaths);
     }
 

@@ -1,12 +1,12 @@
 const std = @import("std");
 
-//! Cross-project orchestration for multi-project language service.
-//!
-//! Port of `internal/ls/crossproject.go` (421 LOC).
-//!
-//! Provides interfaces and helpers for language service features that
-//! span multiple projects (e.g. find-all-references across project
-//! references, go-to-definition in a different project).
+// Cross-project orchestration for multi-project language service.
+//
+// Port of `internal/ls/crossproject.go` (421 LOC).
+//
+// Provides interfaces and helpers for language service features that
+// span multiple projects (e.g. find-all-references across project
+// references, go-to-definition in a different project).
 
 /// A project in the language service.
 /// Port of Go's `ls.Project` interface.

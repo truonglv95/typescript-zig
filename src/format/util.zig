@@ -66,7 +66,7 @@ pub fn getOpenTokenForList(tree: *ast.Ast, node: ast_gen.NodeIndex, list_node: a
 
 /// Port of GetLineStartPositionForPosition.
 pub fn getLineStartPositionForPosition(allocator: std.mem.Allocator, text: []const u8, position: usize) !usize {
-    const line_starts = @import("../scanner/scanner.zig").getECMALineStarts(allocator, text);
+    const line_starts = try @import("../scanner/scanner.zig").getECMALineStarts(allocator, text);
     defer allocator.free(line_starts);
     const line = @import("../scanner/scanner.zig").getECMALineOfPositionFromStarts(line_starts, position);
     if (line < line_starts.len) return line_starts[line];

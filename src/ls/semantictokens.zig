@@ -102,10 +102,54 @@ pub const SemanticToken = struct {
     tokenModifier: TokenModifier,
 };
 
-pub fn semanticTokensLegend() lsproto.SemanticTokensLegend {
-    return .{
-        .tokenTypes = &[_][]const u8{},
-        .tokenModifiers = &[_][]const u8{},
+fn containsString(slice: [][]const u8, str: []const u8) bool {
+    var s = str;
+    if (std.mem.endsWith(u8, s, "_")) {
+        s = s[0 .. s.len - 1];
+    }
+    for (slice) |item| {
+        if (std.mem.eql(u8, item, s)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn semanticTokensLegend(allocator: std.mem.Allocator, clientCapabilities: ?lsproto.SemanticTokensClientCapabilities) !lsproto.SemanticTokensLegend {
+    var types = std.ArrayList([]const u8).init(allocator);
+    var modifiers = std.ArrayList([]const u8).init(allocator);
+
+    if (clientCapabilities) |caps| {
+        for (tokenTypes) |t| {
+            if (containsString(caps.tokenTypes, @tagName(t))) {
+                var s = @tagName(t);
+                if (std.mem.endsWith(u8, s, "_")) s = s[0 .. s.len - 1];
+                try types.append(s);
+            }
+        }
+        for (tokenModifiers) |m| {
+            if (containsString(caps.tokenModifiers, @tagName(m))) {
+                var s = @tagName(m);
+                if (std.mem.endsWith(u8, s, "_")) s = s[0 .. s.len - 1];
+                try modifiers.append(s);
+            }
+        }
+    } else {
+        for (tokenTypes) |t| {
+            var s = @tagName(t);
+            if (std.mem.endsWith(u8, s, "_")) s = s[0 .. s.len - 1];
+            try types.append(s);
+        }
+        for (tokenModifiers) |m| {
+            var s = @tagName(m);
+            if (std.mem.endsWith(u8, s, "_")) s = s[0 .. s.len - 1];
+            try modifiers.append(s);
+        }
+    }
+
+    return lsproto.SemanticTokensLegend{
+        .tokenTypes = try types.toOwnedSlice(),
+        .tokenModifiers = try modifiers.toOwnedSlice(),
     };
 }
 
@@ -113,6 +157,7 @@ pub fn provideDocumentSemanticTokens(
     ls: *languageservice.LanguageService,
     allocator: std.mem.Allocator,
     params: *lsproto.SemanticTokensParams,
+    clientCapabilities: ?lsproto.SemanticTokensClientCapabilities,
 ) !?lsproto.SemanticTokens {
     const programAndFile = ls.getProgramAndFile(params.textDocument.uri);
     const file = programAndFile.file;
@@ -127,7 +172,37 @@ pub fn provideDocumentSemanticTokens(
     }
 
     const tree = chk.binder.ast;
-    const encoded = try encodeSemanticTokens(allocator, tokens, file, tree, ls);
+    const encoded = try encodeSemanticTokens(allocator, tokens, file, tree, ls, clientCapabilities);
+
+    return lsproto.SemanticTokens{
+        .data = encoded,
+    };
+}
+
+pub fn provideDocumentSemanticTokensRange(
+    ls: *languageservice.LanguageService,
+    allocator: std.mem.Allocator,
+    params: *lsproto.SemanticTokensRangeParams,
+    clientCapabilities: ?lsproto.SemanticTokensClientCapabilities,
+) !?lsproto.SemanticTokens {
+    const programAndFile = ls.getProgramAndFile(params.textDocument.uri);
+    const file = programAndFile.file;
+
+    const chk = ls.getTypeCheckerForFile(file);
+
+    const script = ls.getScript(file);
+    const start = ls.converters.lineAndCharacterToPosition(script, params.range.start);
+    const end = ls.converters.lineAndCharacterToPosition(script, params.range.end);
+
+    const tokens = try collectSemanticTokensInRange(allocator, chk, file, ls.program, @intCast(start), @intCast(end));
+    defer allocator.free(tokens);
+
+    if (tokens.len == 0) {
+        return null;
+    }
+
+    const tree = chk.binder.ast;
+    const encoded = try encodeSemanticTokens(allocator, tokens, file, tree, ls, clientCapabilities);
 
     return lsproto.SemanticTokens{
         .data = encoded,
@@ -310,14 +385,26 @@ fn reclassifyByType(chk: *checker.Checker, node: ast_gen.NodeIndex, tt: TokenTyp
     if (tt == .variable or tt == .property or tt == .parameter) {
         const typ = chk.getTypeAtLocation(node);
         if (typ != 0) {
-            if (tt != .parameter) {
-                const constructSigs = chk.getSignaturesOfType(typ, .Construct);
-                if (constructSigs.items.len > 0) return .class;
-            }
+            var hasConstructSigs = false;
+            var hasCallSigs = false;
+            var hasNoProperties = false;
+
+            const constructSigs = chk.getSignaturesOfType(typ, .Construct);
+            if (constructSigs.items.len > 0) hasConstructSigs = true;
 
             const callSigs = chk.getSignaturesOfType(typ, .Call);
-            if (callSigs.items.len > 0) {
-                if (isExpressionInCallExpression(chk.binder.ast, node)) {
+            if (callSigs.items.len > 0) hasCallSigs = true;
+
+            const props = chk.getPropertiesOfObjectType(typ);
+            if (props.len == 0) hasNoProperties = true;
+            // Note: full union type iteration omitted to keep it simple, similar to DOD
+
+            if (tt != .parameter and hasConstructSigs) {
+                return .class;
+            }
+
+            if (hasCallSigs) {
+                if (hasNoProperties or isExpressionInCallExpression(chk.binder.ast, node)) {
                     if (tt == .property) return .method;
                     return .function;
                 }
@@ -387,7 +474,28 @@ fn isInfinityOrNaNString(text: []const u8) bool {
     return std.mem.eql(u8, text, "Infinity") or std.mem.eql(u8, text, "NaN");
 }
 
-pub fn encodeSemanticTokens(allocator: std.mem.Allocator, tokens: []SemanticToken, file: compiler.FileId, tree: *ast.Ast, ls: *languageservice.LanguageService) ![]u32 {
+pub fn encodeSemanticTokens(allocator: std.mem.Allocator, tokens: []SemanticToken, file: compiler.FileId, tree: *ast.Ast, ls: *languageservice.LanguageService, clientCapabilities: ?lsproto.SemanticTokensClientCapabilities) ![]u32 {
+    var typeMapping = std.AutoHashMap(TokenType, u32).init(allocator);
+    defer typeMapping.deinit();
+    var modifierMapping = std.AutoHashMap(lsp_gen.SemanticTokenModifier, u32).init(allocator);
+    defer modifierMapping.deinit();
+
+    var clientIdx: u32 = 0;
+    for (tokenTypes, 0..) |serverType, i| {
+        if (clientCapabilities == null or containsString(clientCapabilities.?.tokenTypes, @tagName(serverType))) {
+            try typeMapping.put(@enumFromInt(i), clientIdx);
+            clientIdx += 1;
+        }
+    }
+
+    var clientBit: u32 = 0;
+    for (tokenModifiers) |serverModifier| {
+        if (clientCapabilities == null or containsString(clientCapabilities.?.tokenModifiers, @tagName(serverModifier))) {
+            try modifierMapping.put(serverModifier, clientBit);
+            clientBit += 1;
+        }
+    }
+
     var encoded = std.ArrayList(u32).init(allocator);
     var prevLine: u32 = 0;
     var prevChar: u32 = 0;
@@ -395,8 +503,24 @@ pub fn encodeSemanticTokens(allocator: std.mem.Allocator, tokens: []SemanticToke
     const script = ls.getScript(file);
 
     for (tokens) |token| {
-        const clientTypeIdx: u32 = @intFromEnum(token.tokenType);
-        const clientModifierMask: u32 = token.tokenModifier.toInt();
+        const clientTypeIdxOpt = typeMapping.get(token.tokenType);
+        if (clientTypeIdxOpt == null) {
+            continue;
+        }
+        const clientTypeIdx = clientTypeIdxOpt.?;
+
+        var clientModifierMask: u32 = 0;
+        inline for (std.meta.fields(TokenModifier)) |field| {
+            if (field.type == bool and @field(token.tokenModifier, field.name)) {
+                for (tokenModifiers) |serverModifier| {
+                    if (std.mem.eql(u8, @tagName(serverModifier), field.name)) {
+                        if (modifierMapping.get(serverModifier)) |bit| {
+                            clientModifierMask |= (@as(u32, 1) << @intCast(bit));
+                        }
+                    }
+                }
+            }
+        }
 
         const tokenStart = scanner.getTokenPosOfNode(tree, token.node, false);
         const tokenEnd = tree.getNodeEnd(token.node);
@@ -408,6 +532,7 @@ pub fn encodeSemanticTokens(allocator: std.mem.Allocator, tokens: []SemanticToke
         if (startPos.line == endPos.line) {
             tokenLength = endPos.character - startPos.character;
         } else {
+            // we should panic or skip, let's skip
             continue;
         }
 

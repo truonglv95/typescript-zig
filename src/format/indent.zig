@@ -4,12 +4,85 @@ const kind = @import("../ast/kind.zig");
 const lsutil = @import("../ls/lsutil/lsutil.zig");
 
 pub fn getIndentationForNode(n: ast.NodeIndex, originalRange: *const ast.TextRange, tree: *ast.Ast, options: lsutil.FormatCodeSettings) u32 {
-    _ = n;
-    _ = originalRange;
-    _ = tree;
-    _ = options;
-    // TODO: implement GetIndentationForNode
-    return 0;
+    const start_pos = root_scanner.getTokenPosOfNode(n, tree, false);
+    var currentStartLine = root_scanner.getECMALineOfPosition(tree.sourceText, start_pos);
+
+    var current = n;
+    var parent = tree.parents.items[current];
+    var indentationDelta: u32 = 0;
+
+    while (parent != 0) {
+        var useActualIndentation = true;
+        if (originalRange.pos != originalRange.end) {
+            const start = root_scanner.getTokenPosOfNode(current, tree, false);
+            useActualIndentation = start < originalRange.pos or start > originalRange.end;
+        }
+
+        const containingListOrParentStartLine = root_scanner.getECMALineOfPosition(tree.sourceText, root_scanner.getTokenPosOfNode(parent, tree, false));
+        var parentAndChildShareLine = (containingListOrParentStartLine == currentStartLine);
+
+        if (tree.nodes.items(.kind)[parent] == .IfStatement) {
+            if (tree.getNode(parent).IfStatement.ElseStatement) |elseStmt| {
+                if (elseStmt == current) {
+                    const elseKeyword = root_scanner.findPrecedingToken(tree.sourceText, tree.positions.items[current].pos);
+                    if (elseKeyword != 0) {
+                        const elseLine = root_scanner.getECMALineOfPosition(tree.sourceText, tree.positions.items[elseKeyword].pos);
+                        if (elseLine == currentStartLine) {
+                            parentAndChildShareLine = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (useActualIndentation) {
+            const parentKind = tree.nodes.items(.kind)[parent];
+            const useActual = parentKind == .SourceFile or !parentAndChildShareLine;
+            if (useActual) {
+                const lineStart = root_scanner.getECMAPositionOfLineAndByteOffset(tree.sourceText, @intCast(currentStartLine), 0);
+                var col: u32 = 0;
+                var pos = lineStart;
+                while (pos < tree.sourceText.len) : (pos += 1) {
+                    const ch = tree.sourceText[pos];
+                    if (ch == ' ' or ch == '\t') {
+                        if (ch == '\t') {
+                            const tabSize = if (options.editorSettings.tabSize > 0) @as(u32, @intCast(options.editorSettings.tabSize)) else 4;
+                            col += tabSize + (col % tabSize);
+                        } else {
+                            col += 1;
+                        }
+                    } else break;
+                }
+                return col + indentationDelta;
+            }
+        }
+
+        if (shouldIndentChildNode(options, parent, current, tree, false) and !parentAndChildShareLine) {
+            indentationDelta += @intCast(options.editorSettings.indentSize);
+        }
+
+        var useTrueStart = false;
+        if (tree.nodes.items(.kind)[parent] == .CallExpression) {
+            const expr = tree.getNode(parent).CallExpression.expression;
+            const exprEnd = tree.positions.items[expr].end;
+            const exprEndLine = root_scanner.getECMALineOfPosition(tree.sourceText, exprEnd);
+            if (exprEndLine == currentStartLine) {
+                useTrueStart = true;
+            }
+        }
+
+        current = parent;
+        parent = tree.parents.items[current];
+
+        if (useTrueStart) {
+            const pos = root_scanner.getTokenPosOfNode(current, tree, false);
+            currentStartLine = root_scanner.getECMALineOfPosition(tree.sourceText, pos);
+        } else {
+            currentStartLine = containingListOrParentStartLine;
+        }
+    }
+
+    return indentationDelta + @as(u32, @intCast(options.editorSettings.baseIndentSize));
 }
 
 const scanner = @import("scanner.zig");

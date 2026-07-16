@@ -137,7 +137,6 @@ pub fn getRenameInfoForNode(
         };
     }
 
-    // TODO: allow rename of import path logic
     if (ast_utils.isStringLiteralLike(&program.ast, node)) {
         const importFrom = ast_utils.tryGetImportFromModuleSpecifier(&program.ast, node);
         if (importFrom != 0) {
@@ -240,18 +239,88 @@ fn getRenameInfoForModule(
     newName: []const u8,
     specifier: ast.NodeIndex,
     sourceFile: ast.NodeIndex,
-    _: u32,
+    symbolIndex: u32,
     chk: *checker.Checker,
 ) ?RenameInfo {
-    _ = allocator;
-    _ = newName;
-    const specifierText = ast_utils.getTextOfNode(chk.binder.ast, specifier);
+    const rawSpecifierText = ast_utils.getTextOfNode(chk.binder.ast, specifier);
+    var specifierText = rawSpecifierText;
+    if (specifierText.len >= 2 and (specifierText[0] == '"' or specifierText[0] == '\'')) {
+        specifierText = specifierText[1 .. specifierText.len - 1];
+    }
     const tspath = @import("../tspath/tspath.zig");
     if (!tspath.isExternalModuleNameRelative(specifierText)) {
         return getRenameInfoError(ls, "You cannot rename a module via a global import");
     }
-    // Simplification for now since we don't have all client capability logic ported
-    return getRenameInfoSuccess(ls, chk.binder.ast, specifier, sourceFile, specifierText);
+
+    const moduleSymbol = chk.binder.symbols.items[symbolIndex];
+    var moduleSourceFile: ast.NodeIndex = 0;
+    for (moduleSymbol.Declarations.items) |decl| {
+        if (chk.binder.ast.getNode(decl) == .SourceFile) {
+            moduleSourceFile = decl;
+            break;
+        }
+    }
+
+    if (moduleSourceFile == 0) return null;
+
+    const sfNode = chk.binder.ast.getNode(moduleSourceFile).SourceFile;
+    const fileName = sfNode.fileName;
+
+    var withoutIndex: []const u8 = "";
+    if (!std.mem.endsWith(u8, specifierText, "/index") and !std.mem.endsWith(u8, specifierText, "/index.js")) {
+        const candidate = tspath.removeFileExtension(fileName);
+        if (std.mem.endsWith(u8, candidate, "/index")) {
+            withoutIndex = candidate[0 .. candidate.len - 6];
+        }
+    }
+
+    var displayName = fileName;
+    if (withoutIndex.len != 0) {
+        displayName = withoutIndex;
+    }
+
+    const dirPath = tspath.getDirectoryPath(allocator, displayName) catch displayName;
+    defer {
+        if (dirPath.ptr != displayName.ptr) {
+            allocator.free(dirPath);
+        }
+    }
+    const newPath = tspath.combinePaths(allocator, dirPath, &[_][]const u8{newName}) catch newName;
+    const ignoreCase = !ls.useCaseSensitiveFileNames();
+    var oldExt: []const u8 = "";
+    if (tspath.isDeclarationFileName(displayName)) {
+        oldExt = tspath.getDeclarationFileExtension(displayName);
+    } else {
+        oldExt = tspath.GetAnyExtensionFromPath(displayName, null, ignoreCase);
+    }
+
+    var newFileName: []const u8 = newPath;
+    if (!tspath.hasExtension(newPath)) {
+        newFileName = std.fmt.allocPrint(allocator, "{s}{s}", .{newPath, oldExt}) catch newPath;
+    } else if (std.mem.eql(u8, tspath.GetAnyExtensionFromPath(newPath, null, ignoreCase), tspath.GetAnyExtensionFromPath(specifierText, null, ignoreCase))) {
+        newFileName = tspath.changeAnyExtension(allocator, newPath, oldExt, &[_][]const u8{}, ignoreCase) catch newPath;
+    }
+
+    const indexAfterLastSlash = if (std.mem.lastIndexOfScalar(u8, specifierText, '/')) |idx| idx + 1 else 0;
+    
+    const range = ast_utils.getTextRangeOfNode(chk.binder.ast, specifier);
+    const start = range.start + 1 + @as(u32, @intCast(indexAfterLastSlash));
+    const length = @as(u32, @intCast(specifierText.len - indexAfterLastSlash));
+
+    const startPos = ls.converters.positionToLineAndCharacter(sourceFile, start);
+    const endPos = ls.converters.positionToLineAndCharacter(sourceFile, start + length);
+
+    return RenameInfo{
+        .canRename = true,
+        .localizedErrorMessage = null,
+        .displayName = specifierText[indexAfterLastSlash..],
+        .triggerSpan = lsproto.Range{
+            .start = startPos,
+            .end = endPos,
+        },
+        .fileToRename = displayName,
+        .newFileName = newFileName,
+    };
 }
 
 fn getRenameInfoError(ls: *languageservice.LanguageService, message: []const u8) RenameInfo {

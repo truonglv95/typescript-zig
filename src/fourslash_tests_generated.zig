@@ -798,21 +798,41 @@ test "TestDiagnosticsDefaultImportMergedWithJSDocTypeAlias1" {
     const content =
         \\// @allowJs: true
         \\// @checkJs: true
-        \\// @Filename: /index.js
-        \\// Namespaced typedef
-        \\/** @typedef {string} [|NS|].[|T|] */
+        \\// @Filename: /lib/types.d.ts
+        \\export interface RunnerOptions {
+        \\  dryRun?: boolean;
+        \\}
         \\
-        \\// Namespaced typedef aliased to qualified namespaced typedef.
-        \\/** @typedef {NS.T} NS.[|U|] */
+        \\// @Filename: /lib/runner.js
+        \\"use strict";
         \\
-        \\// Namespaced typedef aliased to implicitly-resolved typedef.
-        \\/** @typedef {U} NS.[|V|] */
+        \\/**
+        \\ * @typedef {import('./types.d.ts').RunnerOptions} RunnerOptions
+        \\ */
+        \\
+        \\var EventEmitter = require("node:events").EventEmitter;
+        \\
+        \\class Runner extends EventEmitter {
+        \\  constructor() { super(); }
+        \\}
+        \\
+        \\module.exports = Runner;
+        \\
+        \\// @Filename: /lib/stats-collector.mjs
+        \\/** @typedef {import('./runner.js')} Runner */
+        \\
+        \\import Runner from "./runner.js";
+        \\
+        \\const createStatsCollector = (runner) => runner && Runner;
+        \\
+        \\export { createStatsCollector };
         \\
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined);
+    _ = f.GoToFile(undefined, "/lib/stats-collector.mjs");
+    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 2);
 }
 
 test "TestOrganizeImportsWithTraceResolution1" {
@@ -959,8 +979,16 @@ test "TestCodeLensInterface01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCodeFixAvailable(undefined, null);
+    // f.VerifyBaselineCodeLens(undefined, &.{
+//         .CodeLens = .{
+//             .ReferencesCodeLensEnabled =            core.TSTrue,
+//             .ReferencesCodeLensShowOnAllFunctions = core.TSTrue,
+// 
+//             .ImplementationsCodeLensEnabled =                core.TSTrue,
+//             .ImplementationsCodeLensShowOnInterfaceMethods = core.TSTrue,
+//             .ImplementationsCodeLensShowOnAllClassMethods =  core.TSTrue,
+//         },
+//     });
 }
 
 test "TestGetEditsForFileRename_cssImport4" {
@@ -7106,291 +7134,33 @@ test "TestGoToImplementationNoCrashMultiSourceDts" {
 
 test "TestBasicEdit" {
     const content =
-        \\// @Filename: first.ts
-        \\class A {
-        \\  #foo() {
-        \\    class B {
-        \\      #bar() {   
-        \\         function baz () {
-        \\         }
-        \\      }
-        \\    }
-        \\  }
+        \\export {};
+        \\interface Point {
+        \\    x: number;
+        \\    y: number;
         \\}
-        \\
-        \\class B {
-        \\    constructor(private prop: string) {}
-        \\}
-        \\
-        \\// @Filename: second.ts
-        \\class Foo {
-        \\    #privateProp: string;
-        \\}
-        \\
+        \\declare const p: Point;
+        \\p/*a*/
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
-    _ = f.GoToFile(undefined, "second.ts");
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
-}
-
-test "TestQuickCatchInfo" {
-    const content =
-        \\try {} catch(/*1*/error) {}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "var error: unknown", "");
-}
-
-test "TestDocumentHighlightNestedRequireDestructureNoCrash1" {
-    const content =
-        \\// @allowJs: true
-        \\// @Filename: /bar.js
-        \\const { a: { b } } = require('./foo');
-        \\/**/b;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "");
-}
-
-test "TestCompletionsJSDocSignature" {
-    const content =
-        \\// @noLib: true
-        \\// @checkJs: true
-        \\// @allowJs: true
-        \\// @filename: index.js
-        \\/**
-        \\ * @type {{
-        \\ *   (input: string):/*1*/ X|Y/*2*/
-        \\ * }}
-        \\ */
-        \\let x;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCompletions(undefined, "1", &.{
+    _ = f.GoToMarker(undefined, "a");
+    _ = f.Insert(undefined, ".");
+    _ = f.GoToEOF(undefined);
+    // f.VerifyCompletions(undefined, null, &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{".", ",", ";"},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{},
-//     });
-    // f.VerifyCompletions(undefined, "2", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{".", ",", ";"},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{},
-//     });
-}
-
-test "TestAutoCloseTagsWithTriviaAndComplexNames" {
-    const content =
-        \\// @noLib: true
-        \\
-        \\// @Filename: /0.tsx
-        \\// JSDoc
-        \\const x = <
-        \\    /** hello world! */
-        \\    div /** hello world! */
-        \\    >/*0*/
-        \\
-        \\// @Filename: /1.tsx
-        \\// Single-line comments
-        \\const x =
-        \\    <
-        \\    // hello world!
-        \\    div // hello world!
-        \\    >/*1*/
-        \\
-        \\// @Filename: /2.tsx
-        \\// Namespaced tag
-        \\const x =
-        \\    <ns:sometag>/*2*/
-        \\
-        \\// @Filename: /3.tsx
-        \\// Namespace with single-line comments
-        \\const x = <
-        \\    // pre-ns    
-        \\    ns
-        \\    // pre-colon
-        \\    :
-        \\    // post-colon
-        \\    sometag
-        \\    // post-id
-        \\    >/*3*/
-        \\
-        \\// @Filename: /4.tsx
-        \\// UppercaseComponent-named tag
-        \\const x = <SomeComponent>/*4*/
-        \\
-        \\// @Filename: /5.tsx
-        \\// propertyAccess.Component-named tag
-        \\const x = <
-        \\    someModule
-        \\    .
-        \\    SomeComponent
-        \\>/*5*/
-        \\
-        \\// @Filename: /6.tsx
-        \\// propertyAccess.Component-named tag with single-line comments
-        \\const x =
-        \\    <
-        \\    // pre-object
-        \\    someModule
-        \\    // pre-dot
-        \\    .
-        \\    // post-dot
-        \\    SomeComponent
-        \\    // post-id
-        \\    >/*6*/;
-        \\
-        \\// @Filename: /7.tsx
-        \\// Generic propertyAccess.Component-named tag
-        \\const x =
-        \\    <
-        \\    someModule.SomeComponent<string>
-        \\    prop="stringValue"
-        \\    >/*7*/;
-        \\
-        \\// @Filename: /8.tsx
-        \\// Namespaced tag with hyphens
-        \\const x =
-        \\    <my-namespace:my-tag>/*8*/
-        \\
-        \\// @Filename: /9.tsx
-        \\// Generic tag with no attributes
-        \\const x = <SomeComponent<number>>/*9*/
-        \\
-        \\// @Filename: /10.tsx
-        \\// Tag name containing $ (must be snippet-escaped)
-        \\const x = <$Foo>/*10*/
-        \\
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineClosingTags(undefined);
-}
-
-test "TestAutoImportExportEqualsOfImportStar" {
-    const content =
-        \\// @module: commonjs
-        \\// @Filename: /node_modules/mdx/package.json
-        \\{ "name": "mdx", "version": "1.0.0", "types": "index.d.ts" }
-        \\// @Filename: /node_modules/mdx/index.d.ts
-        \\import * as mdx from './lib/index.js'
-        \\
-        \\export = mdx
-        \\// @Filename: /node_modules/mdx/lib/index.d.ts
-        \\export * from './core.js'
-        \\export * from './compile.js'
-        \\// @Filename: /node_modules/mdx/lib/core.d.ts
-        \\export declare function core(): void
-        \\// @Filename: /node_modules/mdx/lib/compile.d.ts
-        \\export declare function compile(): void
-        \\// @Filename: /package.json
-        \\{ "dependencies": { "mdx": "*" } }
-        \\// @Filename: /index.ts
-        \\mdx/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    // f.BaselineAutoImportsCompletions(undefined, &.{""});
-}
-
-test "TestPathCompletionsPartialPathRelativeImport" {
-    const content =
-        \\// @Filename: /src/main.ts
-        \\import { } from "./foo//*$*/";
-        \\// @Filename: /src/foo/async.ts
-        \\export const asyncApi = "async";
-        \\// @Filename: /src/foo/fs.ts
-        \\export const fsApi = "fs";
-        \\// @Filename: /src/foo/sync.ts
-        \\export const syncApi = "sync";
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCompletions(undefined, "$", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
-//             .EditRange =        Ignored,
+//             .CommitCharacters = &DefaultCommitCharacters,
 //         },
 //         .Items = &.{
 //             .Exact = &.{
-//                 "async",
-//                 "fs",
-//                 "sync",
-//             },
-//         },
-//     });
-    // f.VerifyCompletions(undefined, "$", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Exact = &.{
-//                 "async",
-//                 "fs",
-//                 "sync",
-//             },
-//         },
-//     });
-    // f.VerifyCompletions(undefined, "$", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Exact = &.{
-//                 "async",
-//                 "fs",
-//                 "sync",
-//             },
-//         },
-//     });
-    // f.VerifyCompletions(undefined, "$", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Exact = &.{
-//                 "async",
-//                 "fs",
-//                 "sync",
-//             },
-//         },
-//     });
-    // f.VerifyCompletions(undefined, "$", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Exact = &.{
-//                 "_async/api",
-//                 "_fs/api",
-//                 "_sync/api",
+//                 &.{
+//                     .Label =    "x",
+//                     .Kind =     undefined(lsproto.CompletionItemKindField),
+//                     .SortText = undefined(string(ls.SortTextLocationPriority)),
+//                 },
+//                 "y",
 //             },
 //         },
 //     });
@@ -8349,6 +8119,61 @@ test "TestQuickInfoMeaning" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.VerifyNoErrors(undefined);
+    // f.VerifyWorkspaceSymbol(undefined, []*.{
+//         .{
+//             .Pattern =     "foo",
+//             .Preferences = null,
+//             .Exact = undefined([]*.{
+//                 .{
+//                     .Name =     "foo",
+//                     .Kind =     lsproto.SymbolKindVariable,
+//                     .Location = f.Ranges()[0].LSLocation(),
+//                 },
+//                 .{
+//                     .Name =     "foo",
+//                     .Kind =     lsproto.SymbolKindVariable,
+//                     .Location = f.Ranges()[2].LSLocation(),
+//                 },
+//                 .{
+//                     .Name =     "foo_module",
+//                     .Kind =     lsproto.SymbolKindNamespace,
+//                     .Location = f.Ranges()[1].LSLocation(),
+//                 },
+//             }),
+//         },
+//     });
+    _ = f.GoToMarker(undefined, "foo_value");
+    _ = f.VerifyQuickInfoIs(undefined, "const foo: number", "");
+    _ = f.GoToMarker(undefined, "foo_type");
+    _ = f.VerifyQuickInfoIs(undefined, "(alias) interface foo\nimport foo = require(\"foo_module\")", "");
+    // f.VerifyWorkspaceSymbol(undefined, []*.{
+//         .{
+//             .Pattern =     "bar",
+//             .Preferences = null,
+//             .Exact = undefined([]*.{
+//                 .{
+//                     .Name =     "bar",
+//                     .Kind =     lsproto.SymbolKindInterface,
+//                     .Location = f.Ranges()[3].LSLocation(),
+//                 },
+//                 .{
+//                     .Name =     "bar",
+//                     .Kind =     lsproto.SymbolKindVariable,
+//                     .Location = f.Ranges()[5].LSLocation(),
+//                 },
+//                 .{
+//                     .Name =     "bar_module",
+//                     .Kind =     lsproto.SymbolKindNamespace,
+//                     .Location = f.Ranges()[4].LSLocation(),
+//                 },
+//             }),
+//         },
+//     });
+    _ = f.GoToMarker(undefined, "bar_value");
+    _ = f.VerifyQuickInfoIs(undefined, "(alias) const bar: number\nimport bar = require(\"bar_module\")", "");
+    _ = f.GoToMarker(undefined, "bar_type");
+    _ = f.VerifyQuickInfoIs(undefined, "interface bar", "");
+    // f.VerifyBaselineGoToDefinition(undefined, false, "foo_value", "foo_type", "bar_value", "bar_type");
 }
 
 test "TestRenameRest" {
@@ -10131,9 +9956,20 @@ test "TestJsxAttributeCompletionStyleNoSnippet" {
     const content =
         \\// @Filename: foo.tsx
         \\declare namespace JSX {
+        \\    interface Element { }
         \\    interface IntrinsicElements {
-        \\        button: any;
-        \\        div: any;
+        \\        foo: {
+        \\            prop_a: boolean;
+        \\            prop_b: string;
+        \\            prop_c: any;
+        \\            prop_d: { p1: string; }
+        \\            prop_e: string | undefined;
+        \\            prop_f: boolean | undefined | { p1: string; };
+        \\            prop_g: { p1: string; } | undefined;
+        \\            prop_h?: string;
+        \\            prop_i?: boolean;
+        \\            prop_j?: { p1: string; };
+        \\        }
         \\    }
         \\}
         \\
@@ -12262,7 +12098,7 @@ test "TestFindAllRefsObjectBindingElementPropertyName10" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined, "fixModuleOption");
+    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestCodeFixNegativeReplaceQualifiedNameWithIndexedAccessType01" {
@@ -12460,12 +12296,6 @@ test "TestCompletionForStringLiteral12" {
 //                 },
 //             },
 //         },
-//     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
-//         .Name =        "publicSym",
-//         .Source =      "./a",
-//         .Description = "Update import from \"./a\"",
-//         .NewFileContent = undefined("import { i, publicSym } from \"./a\";\ni.;"),
 //     });
 }
 
@@ -603234,65 +603064,13 @@ test "TestCompletionsObjectLiteralWithPartialConstraint" {
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
-//             .Includes = &.{
-//                 "i",
-//             },
-//         },
-//     });
-}
-
-test "TestReferencesForAmbients" {
-    const content =
-        \\/*1*/declare module "/*2*/foo" {
-        \\    /*3*/var /*4*/f: number;
-        \\}
-        \\
-        \\/*5*/declare module "/*6*/bar" {
-        \\    /*7*/export import /*8*/foo = require("/*9*/foo");
-        \\    var f2: typeof /*10*/foo./*11*/f;
-        \\}
-        \\
-        \\declare module "baz" {
-        \\    /*12*/import bar = require("/*13*/bar");
-        \\    var f2: typeof bar./*14*/foo;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
-}
-
-test "TestGetJavaScriptCompletions15" {
-    const content =
-        \\// @allowNonTsExtensions: true
-        \\// @Filename: refFile1.ts
-        \\export var V = 1;
-        \\// @Filename: refFile2.ts
-        \\export var V = "123"
-        \\// @Filename: refFile3.ts
-        \\export var V = "123"
-        \\// @Filename: main.js
-        \\import ref1 = require("./refFile1");
-        \\var ref2 = require("./refFile2");
-        \\ref1.V./*1*/;
-        \\ref2.V./*2*/;
-        \\var v = { x: require("./refFile3") };
-        \\v.x./*3*/;
-        \\v.x.V./*4*/;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCompletions(undefined, "1", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &DefaultCommitCharacters,
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Includes = &.{
-//                 "toExponential",
+//             .Exact = &.{
+//                 &.{
+//                     .Label =      "world?",
+//                     .InsertText = undefined("world"),
+//                     .FilterText = undefined("world"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
 //             },
 //         },
 //     });
@@ -603303,8 +603081,19 @@ test "TestGetJavaScriptCompletions15" {
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
-//             .Includes = &.{
-//                 "toLowerCase",
+//             .Exact = &.{
+//                 &.{
+//                     .Label =      "autoIncrement?",
+//                     .InsertText = undefined("autoIncrement"),
+//                     .FilterText = undefined("autoIncrement"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
+//                 &.{
+//                     .Label =      "keyPath?",
+//                     .InsertText = undefined("keyPath"),
+//                     .FilterText = undefined("keyPath"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
 //             },
 //         },
 //     });
@@ -603316,27 +603105,9 @@ test "TestGetJavaScriptCompletions15" {
 //         },
 //         .Items = &.{
 //             .Exact = &.{
-//                 "V",
-//                 &.{
-//                     .Label =    "ref1",
-//                     .SortText = undefined(string(ls.SortTextJavascriptIdentifiers)),
-//                 },
-//                 &.{
-//                     .Label =    "ref2",
-//                     .SortText = undefined(string(ls.SortTextJavascriptIdentifiers)),
-//                 },
-//                 &.{
-//                     .Label =    "require",
-//                     .SortText = undefined(string(ls.SortTextJavascriptIdentifiers)),
-//                 },
-//                 &.{
-//                     .Label =    "v",
-//                     .SortText = undefined(string(ls.SortTextJavascriptIdentifiers)),
-//                 },
-//                 &.{
-//                     .Label =    "x",
-//                     .SortText = undefined(string(ls.SortTextJavascriptIdentifiers)),
-//                 },
+//                 "b",
+//                 "g",
+//                 "r",
 //             },
 //         },
 //     });
@@ -603347,8 +603118,42 @@ test "TestGetJavaScriptCompletions15" {
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
-//             .Includes = &.{
-//                 "toLowerCase",
+//             .Exact = &.{
+//                 &.{
+//                     .Label =      "a?",
+//                     .InsertText = undefined("a"),
+//                     .FilterText = undefined("a"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
+//             },
+//         },
+//     });
+    // f.VerifyCompletions(undefined, "5", &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Exact = &.{
+//                 &.{
+//                     .Label =      "x?",
+//                     .InsertText = undefined("x"),
+//                     .FilterText = undefined("x"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
+//             },
+//         },
+//     });
+    // f.VerifyCompletions(undefined, "6", &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Exact = &.{
+//                 "a",
 //             },
 //         },
 //     });
@@ -604242,8 +604047,7 @@ test "TestCompletionListInUnclosedVoidExpression01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCompletions(undefined, &.{"case_1", "case_2", "case_3", "case_4"}, null);
-    // f.VerifyCompletions(undefined, "case_5", &.{
+    // f.VerifyCompletions(undefined, "1", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
 //             .CommitCharacters = &DefaultCommitCharacters,
@@ -604327,7 +604131,7 @@ test "TestCompletionEntryForArrayElementConstrainedToString2" {
     // f.VerifyCompletions(undefined, &.{"ts"}, &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
-//             .CommitCharacters = &DefaultCommitCharacters,
+//             .CommitCharacters = &&.{},
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
@@ -605371,20 +605175,73 @@ test "TestRewriteRelativeImportExtensionsProjectReferences2" {
     // f.VerifyBaselineNonSuggestionDiagnostics(undefined);
 }
 
-test "TestRenameJsPropertyAssignment4" {
+test "TestQuickInfoInheritDoc" {
     const content =
+        \\// @noEmit: true
         \\// @allowJs: true
-        \\// @Filename: /a.js
-        \\function f() {
-        \\   var /*1*/foo = this;
-        \\   /*2*/foo.x = 1;
+        \\// @Filename: quickInfoInheritDoc.ts
+        \\abstract class BaseClass {
+        \\    /**
+        \\     * Useful description always applicable
+        \\     * 
+        \\     * @returns {string} Useful description of return value always applicable.
+        \\     */
+        \\    public static doSomethingUseful(stuff?: any): string {
+        \\        throw new Error('Must be implemented by subclass');
+        \\    }
+        \\
+        \\    /**
+        \\     * BaseClass.func1
+        \\     * @param {any} stuff1 BaseClass.func1.stuff1
+        \\     * @returns {void} BaseClass.func1.returns
+        \\     */
+        \\    public static func1(stuff1: any): void {
+        \\    }
+        \\
+        \\    /**
+        \\     * Applicable description always.
+        \\     */
+        \\    public static readonly someProperty: string = 'general value';
+        \\}
+        \\
+        \\
+        \\
+        \\
+        \\class SubClass extends BaseClass {
+        \\
+        \\    /**
+        \\     * @inheritDoc
+        \\     * 
+        \\     * @param {{ tiger: string; lion: string; }} [mySpecificStuff] Description of my specific parameter.
+        \\     */
+        \\    public static /*1*/doSomethingUseful(mySpecificStuff?: { tiger: string; lion: string; }): string {
+        \\        let useful = '';
+        \\
+        \\        // do something useful to useful
+        \\
+        \\        return useful;
+        \\    }
+        \\
+        \\    /**
+        \\     * @inheritDoc
+        \\     * @param {any} stuff1 SubClass.func1.stuff1
+        \\     * @returns {void} SubClass.func1.returns
+        \\     */
+        \\    public static /*2*/func1(stuff1: any): void {
+        \\    }
+        \\
+        \\    /**
+        \\     * text over tag
+        \\     * @inheritDoc
+        \\     * text after tag
+        \\     */
+        \\    public static readonly /*3*/someProperty: string = 'specific to this class value'
         \\}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.GoToFile(undefined, "/a.js");
-    // f.VerifyBaselineRename(undefined, null , "1", "2");
+    _ = f.VerifyBaselineHover(undefined);
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports10" {
@@ -606666,123 +606523,6 @@ test "TestGetJavaScriptQuickInfo8" {
     _ = f.Backspace(undefined, 1);
     _ = f.GoToMarker(undefined, "2");
     _ = f.Insert(undefined, ".");
-    // f.VerifyCompletions(undefined, null, &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Exact = &.{},
-//         },
-//     });
-}
-
-test "TestUnusedImports8FS" {
-    const content =
-        \\// @noUnusedLocals: true
-        \\// @Filename: file2.ts
-        \\[|import {Calculator as calc, test as t1, test2 as t2} from "./file1"|]
-        \\
-        \\var x = new calc();
-        \\x.handleChar();
-        \\t1();
-        \\// @Filename: file1.ts
-        \\export class Calculator {
-        \\    handleChar() { }
-        \\}
-        \\export function test() {
-        \\
-        \\}
-        \\export function test2() {
-        \\
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "import {Calculator as calc, test as t1} from \"./file1\"", false, 0, 0);
-}
-
-test "TestGetOutliningSpansForTemplateLiteral" {
-    const content =
-        \\declare function tag(...args: any[]): void
-        \\const a = [|
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyOutliningSpans(undefined);
-}
-
-test "TestAutoImportProvider4" {
-    const content =
-        \\// @Filename: /home/src/workspaces/project/a/package.json
-        \\{ "dependencies": { "b": "*" } }
-        \\// @Filename: /home/src/workspaces/project/a/tsconfig.json
-        \\{ "compilerOptions": { "lib": ["es5"], "module": "commonjs", "target": "esnext" }, "references": [{ "path": "../b" }] }
-        \\// @Filename: /home/src/workspaces/project/a/index.ts
-        \\new Shape/**/
-        \\// @Filename: /home/src/workspaces/project/b/package.json
-        \\{ "types": "out/index.d.ts" }
-        \\// @Filename: /home/src/workspaces/project/b/tsconfig.json
-        \\{ "compilerOptions": { "lib": ["es5"], "outDir": "out", "composite": true } }
-        \\// @Filename: /home/src/workspaces/project/b/index.ts
-        \\export class Shape {}
-        \\// @link: /home/src/workspaces/project/b -> /home/src/workspaces/project/a/node_modules/b
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
-        "import { Shape } from \"b\";\n\nnew Shape",
-    }, null );
-}
-
-test "TestSignatureHelpTaggedTemplatesNegatives5" {
-    const content =
-        \\function foo(strs, ...rest) {
-        \\}
-        \\
-        \\/*1*/fo/*2*/o /*3*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyNoSignatureHelpForMarkers(undefined, f.MarkerNames());
-}
-
-test "TestRecursiveClassReference" {
-    const content =
-        \\declare namespace Thing { }
-        \\
-        \\namespace Thing {
-        \\   var /**/x: Mode;
-        \\}
-        \\
-        \\namespace Thing {
-        \\  export class Mode { }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyQuickInfoExists(undefined);
-}
-
-test "TestCompletionsAfterLessThanToken" {
-    const content =
-        \\function f() {
-        \\    const k: Record</**/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
     // f.VerifyCompletions(undefined, null, &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
@@ -608223,234 +607963,7 @@ test "TestProtoPropertyInObjectLiteral" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "class Opt", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "(property) propx: number", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "const obj1: OptionProp", "");
-    // f.VerifyQuickInfoAt(undefined, "4", "(property) propx: true", "");
-}
-
-test "TestQuickInfoCommentsClassMembers" {
-    const content =
-        \\/** This is comment for c1*/
-        \\class c/*1*/1 {
-        \\    /** p1 is property of c1*/
-        \\    public p/*2*/1: number;
-        \\    /** sum with property*/
-        \\    public p/*3*/2(/** number to add*/b: number) {
-        \\        return this.p1 + b;
-        \\    }
-        \\    /** getter property 1*/
-        \\    public get p/*6*/3() {
-        \\        return this.p/*8q*/2(this.p1);
-        \\    }
-        \\    /** setter property 1*/
-        \\    public set p/*10*/3(/** this is value*/value: number) {
-        \\        this.p1 = this.p/*13q*/2(value);
-        \\    }
-        \\    /** pp1 is property of c1*/
-        \\    private p/*14*/p1: number;
-        \\    /** sum with property*/
-        \\    private p/*15*/p2(/** number to add*/b: number) {
-        \\        return this.p1 + b;
-        \\    }
-        \\    /** getter property 2*/
-        \\    private get p/*18*/p3() {
-        \\        return this.p/*20q*/p2(this.pp1);
-        \\    }
-        \\    /** setter property 2*/
-        \\    private set p/*22*/p3( /** this is value*/value: number) {
-        \\        this.pp1 = this.p/*25q*/p2(value);
-        \\    }
-        \\    /** Constructor method*/
-        \\    constru/*26*/ctor() {
-        \\    }
-        \\    /** s1 is static property of c1*/
-        \\    static s/*27*/1: number;
-        \\    /** static sum with property*/
-        \\    static s/*28*/2(/** number to add*/b: number) {
-        \\        return c1.s1 + b;
-        \\    }
-        \\    /** static getter property*/
-        \\    static get s/*32*/3() {
-        \\        return c1.s/*35q*/2(c1.s1);
-        \\    }
-        \\    /** setter property 3*/
-        \\    static set s/*37*/3( /** this is value*/value: number) {
-        \\        c1.s1 = c1.s/*42q*/2(value);
-        \\    }
-        \\    public nc_/*43*/p1: number;
-        \\    public nc_/*44*/p2(b: number) {
-        \\        return this.nc_p1 + b;
-        \\    }
-        \\    public get nc_/*46*/p3() {
-        \\        return this.nc/*47q*/_p2(this.nc_p1);
-        \\    }
-        \\    public set nc/*48*/_p3(value: number) {
-        \\        this.nc_p1 = this.nc/*49q*/_p2(value);
-        \\    }
-        \\    private nc/*50*/_pp1: number;
-        \\    private nc_/*51*/pp2(b: number) {
-        \\        return this.nc_pp1 + b;
-        \\    }
-        \\    private get nc/*53*/_pp3() {
-        \\        return this.nc_/*54q*/pp2(this.nc_pp1);
-        \\    }
-        \\    private set nc_p/*55*/p3(value: number) {
-        \\        this.nc_pp1 = this./*56q*/nc_pp2(value);
-        \\    }
-        \\    static nc/*57*/_s1: number;
-        \\    static nc/*58*/_s2(b: number) {
-        \\        return c1.nc_s1 + b;
-        \\    }
-        \\    static get nc/*60*/_s3() {
-        \\        return c1.nc/*61q*/_s2(c1.nc_s1);
-        \\    }
-        \\    static set nc/*62*/_s3(value: number) {
-        \\        c1.nc_s1 = c1.nc_/*63q*/s2(value);
-        \\    }
-        \\}
-        \\var i/*64*/1 = new c/*65q*/1();
-        \\var i1/*66*/_p = i1.p1;
-        \\var i1/*68*/_f = i1.p/*69*/2;
-        \\var i1/*70*/_r = i1.p/*71q*/2(20);
-        \\var i1_p/*72*/rop = i1./*73*/p3;
-        \\i1./*74*/p3 = i1_/*75*/prop;
-        \\var i1_/*76*/nc_p = i1.n/*77*/c_p1;
-        \\var i1/*78*/_ncf = i1.nc_/*79*/p2;
-        \\var i1_/*80*/ncr = i1.nc/*81q*/_p2(20);
-        \\var i1_n/*82*/cprop = i1.n/*83*/c_p3;
-        \\i1.nc/*84*/_p3 = i1_/*85*/ncprop;
-        \\var i1_/*86*/s_p = /*87*/c1./*88*/s1;
-        \\var i1_s/*89*/_f = c1./*90*/s2;
-        \\var i1_/*91*/s_r = c1.s/*92q*/2(20);
-        \\var i1_s/*93*/_prop = c1.s/*94*/3;
-        \\c1.s/*95*/3 = i1_s/*96*/_prop;
-        \\var i1_s/*97*/_nc_p = c1.n/*98*/c_s1;
-        \\var i1_s_/*99*/ncf = c1.nc/*100*/_s2;
-        \\var i1_s_/*101*/ncr = c1.n/*102q*/c_s2(20);
-        \\var i1_s_n/*103*/cprop = c1.nc/*104*/_s3;
-        \\c1.nc/*105*/_s3 = i1_s_nc/*106*/prop;
-        \\var i1/*107*/_c = c/*108*/1;
-        \\
-        \\class cProperties {
-        \\    private val: number;
-        \\    /** getter only property*/
-        \\    public get p1() {
-        \\        return this.val;
-        \\    }
-        \\    public get nc_p1() {
-        \\        return this.val;
-        \\    }
-        \\    /**setter only property*/
-        \\    public set p2(value: number) {
-        \\        this.val = value;
-        \\    }
-        \\    public set nc_p2(value: number) {
-        \\        this.val = value;
-        \\    }
-        \\}
-        \\var cProperties_i = new cProperties();
-        \\cProperties_i./*110*/p2 = cProperties_i.p/*111*/1;
-        \\cProperties_i.nc/*112*/_p2 = cProperties_i.nc/*113*/_p1;
-        \\class cWithConstructorProperty {
-        \\    /**
-        \\    * this is class cWithConstructorProperty's constructor
-        \\    * @param a this is first parameter a
-        \\    */
-        \\    /*119*/constructor(/**more info about a*/public a: number) {
-        \\        var b/*118*/bbb = 10;
-        \\        th/*116*/is./*114*/a = /*115*/a + 2 + bb/*117*/bb;
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
-}
-
-test "TestInlayHintsEnumMemberValue" {
-    const content =
-        \\enum E {
-        \\    A,
-        \\    AA,
-        \\    B = 10,
-        \\    BB,
-        \\    C = 'C',
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayEnumMemberValueHints = core.TSTrue}});
-}
-
-test "TestQuickInfo_errorSignatureFillsInTypeParameter" {
-    const content =
-        \\declare function f<T>(x: number): T;
-        \\const x/**/ = f();
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "const x: unknown", "");
-}
-
-test "TestUnderscoreTypings02" {
-    const content =
-        \\// @strict: false
-        \\// @module: CommonJS
-        \\interface Dictionary<T> {
-        \\    [x: string]: T;
-        \\}
-        \\export interface ChainedObject<T> {
-        \\    functions: ChainedArray<string>;
-        \\    omit(): ChainedObject<T>;
-        \\    clone(): ChainedObject<T>;
-        \\}
-        \\interface ChainedDictionary<T> extends ChainedObject<Dictionary<>> {
-        \\    foldl(): ChainedObject<T>;
-        \\    clone(): ChainedDictionary<T>;
-        \\}
-        \\export interface ChainedArray<T> extends ChainedObject<Array<T>> {
-        \\    groupBy(): ChainedDictionary<any[]>;
-        \\    groupBy(propertyName): ChainedDictionary<any[]>;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToPosition(undefined, 0);
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 2);
-}
-
-test "TestEditJsdocType" {
-    const content =
-        \\// @allowJs: true
-        \\// @noLib: true
-        \\// @Filename: /a.js
-        \\/** @type/**/ */
-        \\const x = 0;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyQuickInfoIs(undefined, "", "");
-    _ = f.Insert(undefined, " ");
-    _ = f.VerifyQuickInfoIs(undefined, "", "");
-}
-
-test "TestSatisfiesOperatorCompletion" {
-    const content =
-        \\type T = number;
-        \\var x;
-        \\var y = x satisfies /**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCompletions(undefined, "", &.{
+    // f.VerifyCompletions(undefined, "1", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
 //             .CommitCharacters = &DefaultCommitCharacters,
@@ -613881,84 +613394,29 @@ test "TestInlayHintsInteractiveMultifile1" {
     // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayVariableTypeHints = core.TSTrue, .IncludeInlayFunctionLikeReturnTypeHints = core.TSTrue}});
 }
 
-test "TestTsxRename6" {
+test "TestQuickinfoForUnionProperty" {
     const content =
-        \\//@Filename: file.tsx
-        \\// @jsx: preserve
-        \\// @noLib: true
-        \\declare namespace JSX {
-        \\    interface Element { }
-        \\    interface IntrinsicElements {
-        \\    }
-        \\    interface ElementAttributesProperty { props; }
+        \\interface One {
+        \\    commonProperty: number;
+        \\    commonFunction(): number;
         \\}
-        \\interface OptionPropBag {
-        \\    propx: number
-        \\    propString: string
-        \\    optional?: boolean
+        \\
+        \\interface Two {
+        \\    commonProperty: string
+        \\    commonFunction(): number;
         \\}
-        \\[|declare function [|{| "contextRangeIndex": 0 |}Opt|](attributes: OptionPropBag): JSX.Element;|]
-        \\let opt = [|<[|{| "contextRangeIndex": 2 |}Opt|] />|];
-        \\let opt1 = [|<[|{| "contextRangeIndex": 4 |}Opt|] propx={100} propString />|];
-        \\let opt2 = [|<[|{| "contextRangeIndex": 6 |}Opt|] propx={100} optional/>|];
-        \\let opt3 = [|<[|{| "contextRangeIndex": 8 |}Opt|] wrong />|];
-        \\let opt4 = [|<[|{| "contextRangeIndex": 10 |}Opt|] propx={100} propString="hi" />|];
+        \\
+        \\var /*1*/x : One | Two;
+        \\
+        \\x./*2*/commonProperty;
+        \\x./*3*/commonFunction;
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "Opt");
-}
-
-test "TestDocumentHighlightDefaultInSwitch" {
-    const content =
-        \\const foo = 'foo';
-        \\[|switch|] (foo) {
-        \\   [|case|] 'foo':
-        \\       [|break|];
-        \\   [|default|]:
-        \\       [|break|];
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , f.Ranges()[1], f.Ranges()[4]);
-}
-
-test "TestCodeFixAddMissingImportForReactJsx2" {
-    const content =
-        \\// @jsx: react-jsxdev
-        \\// @Filename: node_modules/react/index.d.ts
-        \\export declare var React: any;
-        \\// @Filename: node_modules/react/package.json
-        \\{
-        \\  "name": "react",
-        \\  "types": "./index.d.ts"
-        \\}
-        \\// @Filename: foo.tsx
-        \\ export default function Foo(){
-        \\     return <></>;
-        \\ }
-        \\// @Filename: bar.tsx
-        \\ export default function Bar(){
-        \\     return <Foo></Foo>;
-        \\ }
-        \\// @Filename: package.json
-        \\{
-        \\  "dependencies": {
-        \\    "react": "*"
-        \\  }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToFile(undefined, "bar.tsx");
-    _ = f.VerifyCodeFixAll(undefined, .{
-        .FixID = "fixMissingImport",
-        .NewFileContent = "import Foo from \"./foo\";\n\nexport default function Bar(){\n    return <Foo></Foo>;\n}",
-    });
+    // f.VerifyQuickInfoAt(undefined, "1", "var x: One | Two", "");
+    // f.VerifyQuickInfoAt(undefined, "2", "(property) commonProperty: string | number", "");
+    // f.VerifyQuickInfoAt(undefined, "3", "(method) commonFunction(): number", "");
 }
 
 test "TestGoToDefinitionJsModuleNameAtImportName" {
@@ -615591,409 +615049,7 @@ test "TestCompletionForStringLiteral13" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFixAvailable(undefined, &.{"Add annotation of type '\"A\" | \"B\"'", "Add annotation of type 'typeof A | typeof B'", "Add annotation of type 'string'", "Add satisfies and an inline type assertion with '\"A\" | \"B\"'", "Add satisfies and an inline type assertion with 'typeof A | typeof B'", "Add satisfies and an inline type assertion with 'string'"});
-    _ = f.VerifyCodeFix(undefined, .{
-        .Description = "Add satisfies and an inline type assertion with 'typeof A | typeof B'",
-        .NewFileContent = "const A = \"A\"\nconst B = \"B\"\nexport const AB = (Math.random() ? A : B) satisfies typeof A | typeof B as typeof A | typeof B;",
-        .Index = 4,
-    });
-}
-
-test "TestFormattingOfExportDefault" {
-    const content =
-        \\namespace Foo {
-        \\/*1*/    export        default        class        Test { }
-        \\}
-        \\/*2*/export        default        function        bar() { }
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    export default class Test { }");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "export default function bar() { }");
-}
-
-test "TestGetOccurrencesNonStringImportAssertion" {
-    const content =
-        \\// @module: node18
-        \\import * as react from "react" with { cache: /**/0 };
-        \\react.Children;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "");
-}
-
-test "TestImportNameCodeFixNewImportAmbient0" {
-    const content =
-        \\[|f1/*0*/();|]
-        \\// @Filename: ambientModule.ts
-        \\declare module "ambient-module" {
-        \\   export function f1();
-        \\   export var v1;
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
-        "import { f1 } from \"ambient-module\";\n\nf1();",
-    }, null );
-}
-
-test "TestCodeFixClassImplementInterfaceAutoImportsReExports" {
-    const content =
-        \\// @Filename: node_modules/test-module/index.d.ts
-        \\declare namespace e {
-        \\    interface Foo {}
-        \\}
-        \\export = e;
-        \\// @Filename: a.ts
-        \\import { Foo } from "test-module";
-        \\export interface A {
-        \\    foo(): Foo;
-        \\}
-        \\// @Filename: b.ts
-        \\import { A } from "./a";
-        \\export class B implements A {}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToFile(undefined, "b.ts");
-    _ = f.VerifyCodeFix(undefined, .{
-        .Description = "Implement interface 'A'",
-        .NewFileContent = "import { Foo } from \"test-module\";\nimport { A } from \"./a\";\nexport class B implements A {\n    foo(): Foo {\n        throw new Error(\"Method not implemented.\");\n    }\n}",
-        .Index = 0,
-    });
-}
-
-test "TestGoToSource16_callbackParamDifferentFile" {
-    const content =
-        \\// @lib: es5
-        \\// @moduleResolution: bundler
-        \\// @Filename: /home/src/workspaces/project/node_modules/@types/yargs/package.json
-        \\{
-        \\    "name": "@types/yargs",
-        \\    "version": "1.0.0",
-        \\    "types": "./index.d.ts"
-        \\}
-        \\// @Filename: /home/src/workspaces/project/node_modules/@types/yargs/callback.d.ts
-        \\export declare class Yargs { positional(): Yargs; }
-        \\// @Filename: /home/src/workspaces/project/node_modules/@types/yargs/index.d.ts
-        \\import { Yargs } from "./callback";
-        \\export declare function command(command: string, cb: (yargs: Yargs) => void): void;
-        \\// @Filename: /home/src/workspaces/project/node_modules/yargs/package.json
-        \\{
-        \\    "name": "yargs",
-        \\    "version": "1.0.0",
-        \\    "main": "index.js"
-        \\}
-        \\// @Filename: /home/src/workspaces/project/node_modules/yargs/callback.js
-        \\export class Yargs { positional() { } }
-        \\// @Filename: /home/src/workspaces/project/node_modules/yargs/index.js
-        \\import { Yargs } from "./callback";
-        \\export function command(cmd, cb) { cb(Yargs) }
-        \\// @Filename: /home/src/workspaces/project/index.ts
-        \\import { command } from "yargs";
-        \\command("foo", yargs => {
-        \\    yargs.[|/*start*/positional|]();
-        \\});
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    // f.VerifyBaselineGoToSourceDefinition(undefined, "start");
-}
-
-test "TestFormatArrayLiteralExpression" {
-    const content =
-        \\export let Things = [{
-        \\    Hat: 'hat', /*1*/
-        \\    Glove: 'glove',
-        \\    Umbrella: 'umbrella'
-        \\},{/*2*/
-        \\        Salad: 'salad', /*3*/
-        \\        Burrito: 'burrito',
-        \\        Pie: 'pie'
-        \\    }];/*4*/
-        \\
-        \\export let Things2 = [
-        \\{
-        \\    Hat: 'hat', /*5*/
-        \\    Glove: 'glove',
-        \\    Umbrella: 'umbrella'
-        \\}/*6*/,
-        \\    {
-        \\        Salad: 'salad', /*7*/
-        \\        Burrito: ['burrito', 'carne asada', 'tinga de res', 'tinga de pollo'], /*8*/
-        \\        Pie: 'pie'
-        \\    }];/*9*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.FormatDocument(undefined, "");
-    _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    Hat: 'hat',");
-    _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "}, {");
-    _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    Salad: 'salad',");
-    _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "}];");
-    _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "        Hat: 'hat',");
-    _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "    },");
-    _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "        Salad: 'salad',");
-    _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "        Burrito: ['burrito', 'carne asada', 'tinga de res', 'tinga de pollo'],");
-    _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "    }];");
-}
-
-test "TestFindAllRefsOnPrivateParameterProperty1" {
-    const content =
-        \\class ABCD {
-        \\    constructor(private x: number, public y: number, /*1*/private /*2*/z: number) {
-        \\    }
-        \\
-        \\    func() {
-        \\        return this./*3*/z;
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
-}
-
-test "TestCompletionsOverridingMethod4" {
-    const content =
-        \\// @newline: LF
-        \\// @Filename: secret.ts
-        \\class Secret {
-        \\    #secret(): string {
-        \\        return "secret";
-        \\    }
-        \\
-        \\    private tell(): string {
-        \\        return this.#secret();
-        \\    }
-        \\
-        \\    protected hint(): string {
-        \\        return "hint";
-        \\    }
-        \\
-        \\    public refuse(): string {
-        \\        return "no comments";
-        \\    }
-        \\}
-        \\
-        \\class Gossip extends Secret {
-        \\    /* no telling secrets */
-        \\    /*a*/
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCompletions(undefined, "a", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Includes = &.{
-//                 &.{
-//                     .Label =      "hint",
-//                     .InsertText = undefined("protected hint(): string {\n}"),
-//                     .FilterText = undefined("hint"),
-//                     .SortText =   undefined(string(ls.SortTextLocationPriority)),
-//                 },
-//                 &.{
-//                     .Label =      "refuse",
-//                     .InsertText = undefined("public refuse(): string {\n}"),
-//                     .FilterText = undefined("refuse"),
-//                     .SortText =   undefined(string(ls.SortTextLocationPriority)),
-//                 },
-//             },
-//             .Excludes = &.{
-//                 "tell",
-//                 "#secret",
-//             },
-//         },
-//     });
-}
-
-test "TestDocCommentTemplateConstructor01" {
-    const content =
-        \\class C {
-        \\    private p;
-        \\    /*0*/
-        \\    constructor(a, b, c, d);
-        \\    /*1*/
-        \\    constructor(public a, private b, protected c, d, e?) {
-        \\    }
-        \\
-        \\    foo();
-        \\    foo(a?, b?, ...args) {
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyJSDocCompletion(undefined, "0", 11, "/**\n     * \n     * @param a\n     * @param b\n     * @param c\n     * @param d\n     */", null);
-    // f.VerifyJSDocCompletion(undefined, "1", 11, "/**\n     * \n     * @param a\n     * @param b\n     * @param c\n     * @param d\n     * @param e\n     */", null);
-}
-
-test "TestCodeFixTopLevelAwait_module_blankCompilerOptionsInTsConfig" {
-    const content =
-        \\// @filename: /dir/a.ts
-        \\declare const p: Promise<number>;
-        \\await p;
-        \\export {};
-        \\// @filename: /dir/tsconfig.json
-        \\{
-        \\    "compilerOptions": {
-        \\        "module": "commonjs"
-        \\    }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined, "fixModuleOption");
-}
-
-test "TestFindAllRefsForUMDModuleAlias1" {
-    const content =
-        \\// @Filename: 0.d.ts
-        \\export function doThing(): string;
-        \\export function doTheOtherThing(): void;
-        \\/*1*/export as namespace /*2*/myLib;
-        \\// @Filename: 1.ts
-        \\/// <reference path="0.d.ts" />
-        \\/*3*/myLib.doThing();
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
-}
-
-test "TestJavaScriptClass2" {
-    const content =
-        \\// @allowNonTsExtensions: true
-        \\// @Filename: Foo.js
-        \\class Foo {
-        \\   constructor() {
-        \\       [|this.[|{| "contextRangeIndex": 0 |}union|] = 'foo';|]
-        \\       [|this.[|{| "contextRangeIndex": 2 |}union|] = 100;|]
-        \\   }
-        \\   method() { return this.[|union|]; }
-        \\}
-        \\var x = new Foo();
-        \\x.[|union|];
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "union");
-}
-
-test "TestAmbientVariablesWithSameName" {
-    const content =
-        \\declare namespace M {
-        \\    export var x: string;
-        \\}
-        \\declare var x: number;
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToEOF(undefined);
-    _ = f.InsertLine(undefined, "");
-    _ = f.VerifyNoErrors(undefined);
-}
-
-test "TestQuickInfoNestedExportEqualExportDefault" {
-    const content =
-        \\export = (state, messages) => {
-        \\   export/*1*/ default/*2*/ {
-        \\   }
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
-}
-
-test "TestAutoImportProvider_exportMap5" {
-    const content =
-        \\// @types package lookup
-        \\// @Filename: /home/src/workspaces/project/tsconfig.json
-        \\{
-        \\  "compilerOptions": {
-        \\    "module": "nodenext",
-        \\    "lib": ["es5"]
-        \\  }
-        \\}
-        \\// @Filename: /home/src/workspaces/project/package.json
-        \\{
-        \\  "type": "module",
-        \\  "dependencies": {
-        \\    "dependency": "^1.0.0"
-        \\  }
-        \\}
-        \\// @Filename: /home/src/workspaces/project/node_modules/dependency/package.json
-        \\{
-        \\  "type": "module",
-        \\  "name": "dependency",
-        \\  "version": "1.0.0",
-        \\  "exports": {
-        \\    ".": "./lib/index.js",
-        \\    "./lol": "./lib/lol.js"
-        \\  }
-        \\}
-        \\// @Filename: /home/src/workspaces/project/node_modules/dependency/lib/index.js
-        \\export function fooFromIndex() {}
-        \\// @Filename: /home/src/workspaces/project/node_modules/dependency/lib/lol.js
-        \\export function fooFromLol() {}
-        \\// @Filename: /home/src/workspaces/project/node_modules/@types/dependency/package.json
-        \\{
-        \\  "type": "module",
-        \\  "name": "@types/dependency",
-        \\  "version": "1.0.0",
-        \\  "exports": {
-        \\    ".": "./lib/index.d.ts",
-        \\    "./lol": "./lib/lol.d.ts"
-        \\  }
-        \\}
-        \\// @Filename: /home/src/workspaces/project/node_modules/@types/dependency/lib/index.d.ts
-        \\export declare function fooFromIndex(): void;
-        \\// @Filename: /home/src/workspaces/project/node_modules/@types/dependency/lib/lol.d.ts
-        \\export declare function fooFromLol(): void;
-        \\// @Filename: /home/src/workspaces/project/src/foo.ts
-        \\fooFrom/**/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    _ = f.GoToMarker(undefined, "");
-    // f.VerifyCompletions(undefined, "", &.{
+    // f.VerifyCompletions(undefined, "1", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
 //             .CommitCharacters = &DefaultCommitCharacters,
@@ -618317,16 +617373,11 @@ test "TestGetOccurrencesYield" {
         \\    yield 1;
         \\  }
         \\}
-        \\[|else     if|] ()
-        \\[|else if|]
-        \\[|else|]  /*  whar garbl   */   [|if|] (i/**/f (true) { } else { })
-        \\else
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "");
 }
 
 test "TestReferencesForContextuallyTypedObjectLiteralProperties" {
@@ -618471,10 +617522,6 @@ test "TestRenameFunctionParameter2" {
         \\ */
         \\const foo = function foo(p/**/) {
         \\    return p;
-        \\}
-        \\
-        \\function baz() {
-        \\    var v = 10;
         \\}
     ;
 
@@ -619241,96 +618288,16 @@ test "TestGoToSource3_nodeModulesAtTypes" {
 
 test "TestLetQuickInfoAndCompletionList" {
     const content =
-        \\// @lib: es5
-        \\interface Foo {
-        \\   one: any;
-        \\   two: any;
-        \\   three: any;
-        \\}
-        \\
-        \\let x: Foo = {
-        \\    get one() { return "" },
-        \\    set two(t) {},
-        \\    /**/
+        \\let /*1*/a = 10;
+        \\/*2*/a = 30;
+        \\function foo() {
+        \\    let /*3*/b = 20;
+        \\    /*4*/b = /*5*/a;
         \\}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
-    // f.VerifyCompletions(undefined, "", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &DefaultCommitCharacters,
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Exact = &.{
-//                 "three",
-//             },
-//         },
-//     });
-}
-
-test "TestJsxTagNameCompletionUnclosed" {
-    const content =
-        \\//@Filename: file.tsx
-        \\interface NestedInterface {
-        \\    Foo: NestedInterface;
-        \\    (props: {}): any;
-        \\}
-        \\
-        \\declare const Foo: NestedInterface;
-        \\
-        \\function fn1() {
-        \\    return <Foo>
-        \\        </*1*/
-        \\    </Foo>
-        \\}
-        \\function fn2() {
-        \\    return <Foo>
-        \\        <Fo/*2*/
-        \\    </Foo>
-        \\}
-        \\function fn3() {
-        \\    return <Foo>
-        \\        <Foo./*3*/
-        \\    </Foo>
-        \\}
-        \\function fn4() {
-        \\    return <Foo>
-        \\        <Foo.F/*4*/
-        \\    </Foo>
-        \\}
-        \\function fn5() {
-        \\    return <Foo>
-        \\        <Foo.Foo./*5*/
-        \\    </Foo>
-        \\}
-        \\function fn6() {
-        \\    return <Foo>
-        \\        <Foo.Foo.F/*6*/
-        \\    </Foo>
-        \\}
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCompletions(undefined, "1", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &DefaultCommitCharacters,
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Includes = &.{
-//                 &.{
-//                     .Label =  "Foo",
-//                     .Detail = undefined("const Foo: NestedInterface"),
-//                 },
-//             },
-//         },
-//     });
     // f.VerifyCompletions(undefined, "2", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
@@ -619340,23 +618307,8 @@ test "TestJsxTagNameCompletionUnclosed" {
 //         .Items = &.{
 //             .Includes = &.{
 //                 &.{
-//                     .Label =  "Foo",
-//                     .Detail = undefined("const Foo: NestedInterface"),
-//                 },
-//             },
-//         },
-//     });
-    // f.VerifyCompletions(undefined, "3", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &DefaultCommitCharacters,
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Includes = &.{
-//                 &.{
-//                     .Label =  "Foo",
-//                     .Detail = undefined("(property) NestedInterface.Foo: NestedInterface"),
+//                     .Label =  "a",
+//                     .Detail = undefined("let a: number"),
 //                 },
 //             },
 //         },
@@ -619370,8 +618322,12 @@ test "TestJsxTagNameCompletionUnclosed" {
 //         .Items = &.{
 //             .Includes = &.{
 //                 &.{
-//                     .Label =  "Foo",
-//                     .Detail = undefined("(property) NestedInterface.Foo: NestedInterface"),
+//                     .Label =  "a",
+//                     .Detail = undefined("let a: number"),
+//                 },
+//                 &.{
+//                     .Label =  "b",
+//                     .Detail = undefined("let b: number"),
 //                 },
 //             },
 //         },
@@ -619379,33 +618335,27 @@ test "TestJsxTagNameCompletionUnclosed" {
     // f.VerifyCompletions(undefined, "5", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
-//             .CommitCharacters = &DefaultCommitCharacters,
+//             .CommitCharacters = &&.{},
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
 //             .Includes = &.{
 //                 &.{
-//                     .Label =  "Foo",
-//                     .Detail = undefined("(property) NestedInterface.Foo: NestedInterface"),
+//                     .Label =  "a",
+//                     .Detail = undefined("let a: number"),
 //                 },
-//             },
-//         },
-//     });
-    // f.VerifyCompletions(undefined, "6", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &DefaultCommitCharacters,
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Includes = &.{
 //                 &.{
-//                     .Label =  "Foo",
-//                     .Detail = undefined("(property) NestedInterface.Foo: NestedInterface"),
+//                     .Label =  "b",
+//                     .Detail = undefined("let b: number"),
 //                 },
 //             },
 //         },
 //     });
+    // f.VerifyQuickInfoAt(undefined, "1", "let a: number", "");
+    // f.VerifyQuickInfoAt(undefined, "2", "let a: number", "");
+    // f.VerifyQuickInfoAt(undefined, "3", "let b: number", "");
+    // f.VerifyQuickInfoAt(undefined, "4", "let b: number", "");
+    // f.VerifyQuickInfoAt(undefined, "5", "let a: number", "");
 }
 
 test "TestCompletionsLiteralDirectlyInRestConstrainedToTupleType" {
@@ -619507,7 +618457,7 @@ test "TestAutoImportReExportFromAmbientModule" {
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
-//             .Exact = CompletionFunctionMembersPlus(
+//             .Includes = &.{
 //                 &.{
 //                     .Label = "accessSync",
 //                     .Data = &.{
@@ -619589,8 +618539,6 @@ test "TestCompletionForStringLiteralFromSignature" {
 //             },
 //         },
 //     });
-    _ = f.Insert(undefined, "foo(");
-    // f.VerifySignatureHelp(undefined, .{.Text = "foo(): void"});
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports60_drops_unneeded_non_trailing_unknown" {
@@ -619649,7 +618597,7 @@ test "TestGetOccurrencesIsDefinitionOfExport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "super", "superExpression", "superBroken");
+    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestAutoImportProvider_exportMap9" {
@@ -620799,105 +619747,92 @@ test "TestCodeFixClassImplementInterfaceMultipleImplementsIntersection1" {
 
 test "TestCompletionListPrivateNamesAccessors" {
     const content =
-        \\/* BEGIN EXTERNAL SOURCE */
-        \\/*begin5*/
-        \\                        var a = 1;
-        \\                        alert("/*end5*//********//*begin4*/");
-        \\                    /*end4*/
-        \\/* END EXTERNAL SOURCE */
-        \\
-        \\/* BEGIN EXTERNAL SOURCE */
-        \\/*begin3*/
-        \\                            var b = 1;
-        \\
-        \\                        var c = "/*end3*//********//*begin2*/";
-        \\       var d = 1;
-        \\
-        \\            var e = "/*end2*//********//*begin1*/";
-        \\            var f = 1;
-        \\        /*end1*/
-        \\/* END EXTERNAL SOURCE */
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.GetOptions();
-    // f.Configure(undefined, opts640);
-    _ = f.FormatSelection(undefined, "begin1", "end1");
-    _ = f.FormatSelection(undefined, "begin2", "end2");
-    _ = f.FormatSelection(undefined, "begin3", "end3");
-    // f.GetOptions();
-    // f.Configure(undefined, opts794);
-    _ = f.FormatSelection(undefined, "begin4", "end4");
-    _ = f.FormatSelection(undefined, "begin5", "end5");
-    _ = f.VerifyCurrentFileContent(undefined, "/* BEGIN EXTERNAL SOURCE */\n\n                        var a = 1;\n                        alert(\"/********/\");\n\n/* END EXTERNAL SOURCE */\n\n/* BEGIN EXTERNAL SOURCE */\n\n            var b = 1;\n\n            var c = \"/********/\";\n            var d = 1;\n\n            var e = \"/********/\";\n            var f = 1;\n\n/* END EXTERNAL SOURCE */");
-}
-
-test "TestInlayHintsInteractiveImportType2" {
-    const content =
-        \\// @allowJs: true
-        \\// @checkJs: true
-        \\// @Filename: /a.js
-        \\module.exports.a = 1
-        \\// @Filename: /b.js
-        \\function foo () { return require('./a'); }
-        \\function bar () { return require('./a').a; }
-        \\const c = foo()
-        \\const d = bar()
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    _ = f.GoToFile(undefined, "/b.js");
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayVariableTypeHints = core.TSTrue, .IncludeInlayFunctionLikeReturnTypeHints = core.TSTrue}});
-}
-
-test "TestQuickinfoVerbosityMappedType" {
-    const content =
-        \\type Apple = boolean | number;
-        \\type Orange = string | boolean;
-        \\type F<T> = {
-        \\    [K in keyof T as T[K] extends Apple ? never : K]: T[K];
+        \\class Foo {
+        \\   get #x() { return 1 };
+        \\   set #x(value: number) { };
+        \\   y() {};
         \\}
-        \\type Bar = {
-        \\    banana: string;
-        \\    apple: boolean;
+        \\class Bar extends Foo {
+        \\   get #z() { return 1 };
+        \\   set #z(value: number) { };
+        \\   t() {};
+        \\   l;
+        \\   constructor() {
+        \\       this./*1*/
+        \\       class Baz {
+        \\           get #z() { return 1 };
+        \\           set #z(value: number) { };
+        \\           get #u() { return 1 };
+        \\           set #u(value: number) { };
+        \\           v() {};
+        \\           k;
+        \\           constructor() {
+        \\               this./*2*/
+        \\               new Bar()./*3*/
+        \\           }
+        \\       }
+        \\   }
         \\}
-        \\const x/*x*/: F/*F*/<Bar> = { banana: 'hello' };
-        \\const y/*y*/: { [K in keyof Bar]?: Bar[K] } = { banana: 'hello' };
-        \\type G<T> = {
-        \\    [K in keyof T]: T[K] & Apple
-        \\};
-        \\const z: G/*G*/<Bar> = { banana: 'hello', apple: true };
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"x" = .{0, 1}, .@"y" = .{0}, .@"F" = .{0, 1}, .@"G" = .{0, 1}});
-}
-
-test "TestMemberListErrorRecovery" {
-    const content =
-        \\class Foo { static fun() { }; }
         \\
-        \\Foo./**/;
-        \\/*1*/var bar;
+        \\new Foo()./*4*/
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCompletions(undefined, "", &.{
+    // f.VerifyCompletions(undefined, "1", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
 //             .CommitCharacters = &DefaultCommitCharacters,
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
-//             .Includes = &.{
-//                 &.{
-//                     .Label =    "fun",
-//                     .SortText = undefined(string(ls.SortTextLocalDeclarationPriority)),
-//                 },
+//             .Unsorted = &.{
+//                 "#z",
+//                 "t",
+//                 "l",
+//                 "y",
+//             },
+//         },
+//     });
+    // f.VerifyCompletions(undefined, "2", &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Unsorted = &.{
+//                 "#z",
+//                 "#u",
+//                 "v",
+//                 "k",
+//             },
+//         },
+//     });
+    // f.VerifyCompletions(undefined, "3", &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Unsorted = &.{
+//                 "#z",
+//                 "t",
+//                 "l",
+//                 "y",
+//             },
+//         },
+//     });
+    // f.VerifyCompletions(undefined, "4", &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Exact = &.{
+//                 "y",
 //             },
 //         },
 //     });
@@ -621032,8 +619967,8 @@ test "TestGoToDefinitionOverriddenMember9" {
 test "TestCodeFixTopLevelAwait_module_compatibleCompilerOptionsInTsConfig" {
     const content =
         \\// @filename: /dir/a.ts
-        \\declare const p: number[];
-        \\for await (const _ of p);
+        \\declare const p: Promise<number>;
+        \\await p;
         \\export {};
         \\// @filename: /dir/tsconfig.json
         \\{
@@ -639840,9 +638775,12 @@ test "TestImportNameCodeFixNewImportFileQuoteStyleMixed1" {
 
 test "TestCompletionsImport_filteredByPackageJson_direct" {
     const content =
-        \\// @noImplicitAny: true
-        \\function wat([|b |]) {
-        \\    b();
+        \\//@noEmit: true
+        \\//@Filename: /package.json
+        \\{
+        \\  "dependencies": {
+        \\    "react": "*"
+        \\  }
         \\}
         \\//@Filename: /node_modules/react/index.d.ts
         \\export declare var React: any;
@@ -642590,7 +641528,6 @@ test "TestCompletionsInExport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.MarkTestAsStradaServer();
     // f.VerifyCompletions(undefined, "", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
@@ -642598,38 +641535,97 @@ test "TestCompletionsInExport" {
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
-//             .Includes = &.{
+//             .Exact = &.{
+//                 "a",
+//                 "T",
 //                 &.{
-//                     .Label = "Config",
-//                     .Data = &.{
-//                         .AutoImport = &.{
-//                             .ModuleSpecifier = "@jest/types",
-//                         },
-//                     },
-//                     .AdditionalTextEdits = fourslash.AnyTextEdits,
-//                     .SortText =            undefined(string(ls.SortTextAutoImportSuggestions)),
+//                     .Label =    "type",
+//                     .SortText = undefined(string(ls.SortTextGlobalsOrKeywords)),
 //                 },
 //             },
 //         },
 //     });
-    _ = f.Insert(undefined, "o");
-    // f.VerifyCompletions(undefined, "", &.{
+    _ = f.Insert(undefined, "a, ");
+    // f.VerifyCompletions(undefined, null, &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
 //             .CommitCharacters = &DefaultCommitCharacters,
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
-//             .Includes = &.{
+//             .Exact = &.{
+//                 "T",
 //                 &.{
-//                     .Label = "Config",
-//                     .Data = &.{
-//                         .AutoImport = &.{
-//                             .ModuleSpecifier = "@jest/types",
-//                         },
-//                     },
-//                     .AdditionalTextEdits = fourslash.AnyTextEdits,
-//                     .SortText =            undefined(string(ls.SortTextAutoImportSuggestions)),
+//                     .Label =      "a?",
+//                     .InsertText = undefined("a"),
+//                     .FilterText = undefined("a"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
+//                 &.{
+//                     .Label =    "type",
+//                     .SortText = undefined(string(ls.SortTextGlobalsOrKeywords)),
+//                 },
+//             },
+//         },
+//     });
+    _ = f.Insert(undefined, "T as ");
+    // f.VerifyCompletions(undefined, null, &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Exact = &.{},
+//         },
+//     });
+    _ = f.Insert(undefined, "U, ");
+    // f.VerifyCompletions(undefined, null, &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Exact = &.{
+//                 "T",
+//                 &.{
+//                     .Label =      "a?",
+//                     .InsertText = undefined("a"),
+//                     .FilterText = undefined("a"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
+//                 &.{
+//                     .Label =    "type",
+//                     .SortText = undefined(string(ls.SortTextGlobalsOrKeywords)),
+//                 },
+//             },
+//         },
+//     });
+    _ = f.Insert(undefined, "T, ");
+    // f.VerifyCompletions(undefined, null, &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Exact = &.{
+//                 &.{
+//                     .Label =      "a?",
+//                     .InsertText = undefined("a"),
+//                     .FilterText = undefined("a"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
+//                 &.{
+//                     .Label =      "T?",
+//                     .InsertText = undefined("T"),
+//                     .FilterText = undefined("T"),
+//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                 },
+//                 &.{
+//                     .Label =    "type",
+//                     .SortText = undefined(string(ls.SortTextGlobalsOrKeywords)),
 //                 },
 //             },
 //         },
@@ -647274,125 +646270,15 @@ test "TestCompletionsSymbolMembers" {
         \\declare const i: I;
         \\i[|./*i*/|];
         \\
-        \\var x = <Foo> { [|hello|]: () => {} };
-        \\var y = <Foo> (((({ [|hello|]: () => {} }))));
+        \\namespace N { export const s2 = Symbol("s2"); }
+        \\interface J { [N.s2]: number; }
+        \\declare const j: J;
+        \\j[|./*j*/|];
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToImplementation(undefined, "reference");
-}
-
-test "TestGetOutliningForObjectsInArray" {
-    const content =
-        \\const x =[| [
-        \\    [|{ a: 0 }|],
-        \\    [|{ b: 1 }|],
-        \\    [|{ c: 2 }|]
-        \\]|];
-        \\
-        \\const y =[| [
-        \\    [|{
-        \\        a: 0
-        \\    }|],
-        \\    [|{
-        \\        b: 1
-        \\    }|],
-        \\    [|{
-        \\        c: 2
-        \\    }|]
-        \\]|];
-        \\
-        \\const w =[| [
-        \\    [|[ 0 ]|],
-        \\    [|[ 1 ]|],
-        \\    [|[ 2 ]|]
-        \\]|];
-        \\
-        \\const z =[| [
-        \\    [|[
-        \\        0
-        \\    ]|],
-        \\    [|[
-        \\        1
-        \\    ]|],
-        \\    [|[
-        \\        2
-        \\    ]|]
-        \\]|];
-        \\
-        \\const z =[| [
-        \\    [|[
-        \\        [|{ hello: 0 }|]
-        \\    ]|],
-        \\    [|[
-        \\        [|{ hello: 3 }|]
-        \\    ]|],
-        \\    [|[
-        \\        [|{ hello: 5 }|],
-        \\        [|{ hello: 7 }|]
-        \\    ]|]
-        \\]|];
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyOutliningSpans(undefined);
-}
-
-test "TestCompletionListInArrowFunctionInUnclosedCallSite01" {
-    const content =
-        \\declare function foo(...params: any[]): any;
-        \\function getAllFiles(rootFileNames: string[]) {
-        \\    var processedFiles = rootFileNames.map(fileName => foo(/*1*/
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCompletions(undefined, "1", &.{
-//         .IsIncomplete = false,
-//         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
-//             .EditRange =        Ignored,
-//         },
-//         .Items = &.{
-//             .Includes = &.{
-//                 "fileName",
-//                 "rootFileNames",
-//                 "getAllFiles",
-//                 "foo",
-//             },
-//         },
-//     });
-}
-
-test "TestJsxAttributeCompletionStyleNone" {
-    const content =
-        \\// @Filename: foo.tsx
-        \\declare namespace JSX {
-        \\    interface Element { }
-        \\    interface IntrinsicElements {
-        \\        foo: {
-        \\            prop_a: boolean;
-        \\            prop_b: string;
-        \\            prop_c: any;
-        \\            prop_d: { p1: string; }
-        \\            prop_e: string | undefined;
-        \\            prop_f: boolean | undefined | { p1: string; };
-        \\            prop_g: { p1: string; } | undefined;
-        \\            prop_h?: string;
-        \\            prop_i?: boolean;
-        \\            prop_j?: { p1: string; };
-        \\        }
-        \\    }
-        \\}
-        \\
-        \\<foo [|prop_/**/|] />
-    ;
-
-    const f = fourslash.NewFourslash(undefined, undefined, content);
-    defer f.deinit();
-    // f.VerifyCompletions(undefined, "", &.{
+    // f.VerifyCompletions(undefined, "i", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
 //             .CommitCharacters = &DefaultCommitCharacters,
@@ -647401,43 +646287,37 @@ test "TestJsxAttributeCompletionStyleNone" {
 //         .Items = &.{
 //             .Exact = &.{
 //                 &.{
-//                     .Label = "prop_a",
+//                     .Label =      "s",
+//                     .InsertText = undefined("[s]"),
+//                     .SortText =   undefined(string(ls.SortTextGlobalsOrKeywords)),
+//                     .TextEdit = &.{
+//                         .TextEdit = &.{
+//                             .NewText = "s",
+//                             .Range =   f.Ranges()[0].LSRange,
+//                         },
+//                     },
 //                 },
+//             },
+//         },
+//     });
+    // f.VerifyCompletions(undefined, "j", &.{
+//         .IsIncomplete = false,
+//         .ItemDefaults = &.{
+//             .CommitCharacters = &DefaultCommitCharacters,
+//             .EditRange =        Ignored,
+//         },
+//         .Items = &.{
+//             .Exact = &.{
 //                 &.{
-//                     .Label = "prop_b",
-//                 },
-//                 &.{
-//                     .Label = "prop_c",
-//                 },
-//                 &.{
-//                     .Label = "prop_d",
-//                 },
-//                 &.{
-//                     .Label = "prop_e",
-//                 },
-//                 &.{
-//                     .Label = "prop_f",
-//                 },
-//                 &.{
-//                     .Label = "prop_g",
-//                 },
-//                 &.{
-//                     .Label =      "prop_h?",
-//                     .InsertText = undefined("prop_h"),
-//                     .FilterText = undefined("prop_h"),
-//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
-//                 },
-//                 &.{
-//                     .Label =      "prop_i?",
-//                     .InsertText = undefined("prop_i"),
-//                     .FilterText = undefined("prop_i"),
-//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
-//                 },
-//                 &.{
-//                     .Label =      "prop_j?",
-//                     .InsertText = undefined("prop_j"),
-//                     .FilterText = undefined("prop_j"),
-//                     .SortText =   undefined(string(ls.SortTextOptionalMember)),
+//                     .Label =      "N",
+//                     .InsertText = undefined("[N]"),
+//                     .SortText =   undefined(string(ls.SortTextGlobalsOrKeywords)),
+//                     .TextEdit = &.{
+//                         .TextEdit = &.{
+//                             .NewText = "N",
+//                             .Range =   f.Ranges()[1].LSRange,
+//                         },
+//                     },
 //                 },
 //             },
 //         },
@@ -693167,7 +692047,7 @@ test "TestCompletionListForExportEquals" {
     // f.VerifyCompletions(undefined, "", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
+//             .CommitCharacters = &DefaultCommitCharacters,
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{
@@ -693322,10 +692202,6 @@ test "TestQuickInfoNestedExportEqualExportDefault" {
         \\   export/*1*/ default/*2*/ {
         \\   }
         \\}
-        \\// @Filename: index.ts
-        \\import type { Base } from './interface';
-        \\
-        \\export class C implements Base {[| |]}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
@@ -694933,7 +693809,7 @@ test "TestGetOccurrencesSuper" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "start");
+    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestCodeFixClassImplementInterfaceInheritsAbstractMethod" {
@@ -703423,7 +702299,7 @@ test "TestCompletionJSDocNamePath" {
     // f.VerifyCompletions(undefined, "1", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
-//             .CommitCharacters = &&.{},
+//             .CommitCharacters = &DefaultCommitCharacters,
 //             .EditRange =        Ignored,
 //         },
 //         .Items = &.{

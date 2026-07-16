@@ -165,7 +165,16 @@ pub const RegExpParser = struct {
                     reference.end - reference.pos,
                     &.{reference.name},
                 );
-                // TODO: spelling suggestion
+                if (self.group_specifiers.count() > 0) {
+                    if (getSpellingSuggestionForStrings(reference.name, self.group_specifiers)) |suggestion| {
+                        self.error(
+                            &diagnostics_gen.Did_you_mean_0,
+                            reference.pos,
+                            reference.end - reference.pos,
+                            &.{suggestion},
+                        );
+                    }
+                }
             }
         }
 
@@ -300,4 +309,45 @@ pub fn compareDecimalStrings(a: []const u8, b: []const u8) i32 {
         .eq => 0,
         .gt => 1,
     };
+}
+
+fn levenshteinDistance(s1: []const u8, s2: []const u8) usize {
+    if (s1.len == 0) return s2.len;
+    if (s2.len == 0) return s1.len;
+    var row: [256]usize = undefined;
+    if (s2.len + 1 > row.len) return std.math.maxInt(usize);
+    for (row[0 .. s2.len + 1], 0..) |*v, i| v.* = i;
+    var prev: usize = 0;
+    for (s1, 0..) |c1, i| {
+        prev = i + 1;
+        var diag: usize = row[0];
+        row[0] = prev;
+        for (s2, 0..) |c2, j| {
+            const cost: usize = if (c1 == c2) 0 else 1;
+            const new_dist = @min(@min(row[j + 1] + 1, row[j] + 1), diag + cost);
+            diag = row[j + 1];
+            row[j + 1] = new_dist;
+        }
+    }
+    return row[s2.len];
+}
+
+fn getSpellingSuggestionForStrings(name: []const u8, candidates: anytype) ?[]const u8 {
+    var best_dist: usize = std.math.maxInt(usize);
+    var best_cand: ?[]const u8 = null;
+    var it = candidates.keyIterator();
+    while (it.next()) |cand_ptr| {
+        const cand = cand_ptr.*;
+        if (cand.len == 0 or std.mem.eql(u8, cand, name)) continue;
+        const max_len = @max(name.len, cand.len);
+        const min_len = @min(name.len, cand.len);
+        if (max_len - min_len > 2 and (max_len - min_len) > max_len / 3) continue;
+        const dist = levenshteinDistance(name, cand);
+        if (dist < best_dist) {
+            best_dist = dist;
+            best_cand = cand;
+        }
+    }
+    if (best_dist <= 2) return best_cand;
+    return null;
 }

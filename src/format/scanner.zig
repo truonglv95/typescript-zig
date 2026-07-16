@@ -159,12 +159,9 @@ pub const FormattingScanner = struct {
     pub fn shouldRescanJsxAttributeValue(node: ast.NodeIndex, tree: *ast.Ast) bool {
         const parent = tree.nodes.items(.parent)[node];
         if (parent != 0 and tree.nodes.items(.kind)[parent] == .JsxAttribute) {
-            // Need to check if it's the initializer
-            // Simplification: In Zig ast, if it's JsxAttribute, its second child is initializer.
-            // TODO: implement initializer check accurately if needed
-            // For now assume true if it's a child of JsxAttribute and not the first child (the name).
-            // (Assuming `initializer` property check)
-            return true;
+            if (tree.getNode(parent).JsxAttribute.Initializer) |initializer| {
+                return initializer == node;
+            }
         }
         return false;
     }
@@ -289,9 +286,7 @@ pub const FormattingScanner = struct {
             },
             .RescanJsxIdentifier => {
                 self.lastScanAction = .RescanJsxIdentifier;
-                // return self.s.scanJsxIdentifier();
-                // TODO: scanJsxIdentifier is not in root_scanner yet? Let's just return token for now
-                return token;
+                return self.s.scanJsxIdentifier();
             },
             .RescanJsxText => {
                 self.lastScanAction = .RescanJsxText;

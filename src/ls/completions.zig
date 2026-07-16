@@ -424,6 +424,8 @@ pub const RelevantTokens = struct {
 };
 
 pub fn getRelevantTokens(ls: *languageservice.LanguageService, position: u32, file: compiler.FileId) RelevantTokens {
+    _ = ls; _ = file;
+
     _ = ls;
     _ = position;
     _ = file;
@@ -434,6 +436,8 @@ pub fn getRelevantTokens(ls: *languageservice.LanguageService, position: u32, fi
 }
 
 pub fn isInString(ls: *languageservice.LanguageService, file: compiler.FileId, position: u32, previousToken: ast.NodeIndex) bool {
+    _ = ls; _ = file; _ = previousToken;
+
     _ = ls;
     _ = file;
     _ = position;
@@ -446,6 +450,8 @@ pub fn isInString(ls: *languageservice.LanguageService, file: compiler.FileId, p
 }
 
 pub fn isValidTrigger(ls: *languageservice.LanguageService, file: compiler.FileId, triggerCharacter: []const u8, contextToken: ast.NodeIndex, position: u32) bool {
+    _ = ls; _ = file; _ = contextToken; _ = triggerCharacter;
+
     _ = ls;
     _ = file;
     _ = triggerCharacter;
@@ -460,14 +466,8 @@ pub fn isValidTrigger(ls: *languageservice.LanguageService, file: compiler.FileI
 }
 
 pub fn getJSDocSnippetCompletion(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, file: compiler.FileId, position: u32) ?*CompletionList {
-    _ = allocator;
-    _ = ls;
-    _ = file;
-    _ = position;
-    _ = ls;
-    _ = file;
-    _ = position;
-    return null;
+    const jsdoc_snippet = @import("jsdoc_snippet.zig");
+    return jsdoc_snippet.getJSDocSnippetCompletion(ls, allocator, file, position) catch null;
 }
 
 pub fn getStringLiteralCompletions(
@@ -509,6 +509,8 @@ pub fn getLabelCompletionsAtPosition(
 }
 
 pub fn getOptionalReplacementSpan(ls: *languageservice.LanguageService, node: ast.NodeIndex, file: compiler.FileId) ?*lsproto.Range {
+    _ = ls; _ = file; _ = node;
+
     _ = ls;
     _ = node;
     _ = file;
@@ -1891,6 +1893,7 @@ pub fn isTypeKeywordTokenOrIdentifier(node: ?*ast.NodeIndex) bool {
 }
 
 pub fn isInStringOrRegularExpressionOrTemplateLiteral(tree: *const ast.Tree, context_token: ast.Node.Index, position: u32) bool {
+
     const is_regex = tree.isRegularExpressionLiteral(context_token);
     return (is_regex or tree.isStringTextContainingNode(context_token)) and
         tree.nodeLoc(context_token).containsExclusive(position) or

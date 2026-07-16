@@ -4362,9 +4362,9 @@ pub const Checker = struct {
                 const text = c.binder.ast.getNode(name).Identifier.Text;
                 const resolve_loc = location orelse name;
                 if (meaning == symbol.SymbolFlags.Namespace) {
-                    sym_idx = c.getMergedSymbol(resolveName(c, resolve_loc, text, meaning, null, true, false));
+                    sym_idx = getMergedSymbol(c, resolveName(c, resolve_loc, text, meaning, null, true, false));
                     if (sym_idx == 0) {
-                        const alias = c.getMergedSymbol(resolveName(c, resolve_loc, text, symbol.SymbolFlags.Alias, null, true, false));
+                        const alias = getMergedSymbol(c, resolveName(c, resolve_loc, text, symbol.SymbolFlags.Alias, null, true, false));
                         if (alias != 0) {
                             const alias_sym = c.binder.symbols.items[alias];
                             if (std.mem.eql(u8, alias_sym.Name, "export=")) {
@@ -9068,7 +9068,7 @@ pub const Checker = struct {
             const node_kind = c.binder.ast.getKind(node);
             switch (node_kind) {
                 .EnumDeclaration => return true, // IsEnumConst and preserveConstEnums not yet wired
-                .ModuleDeclaration => return c.isInstantiatedModule(node, false),
+                .ModuleDeclaration => return isInstantiatedModule(node, false),
                 else => return true,
             }
         }

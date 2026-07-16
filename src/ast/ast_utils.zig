@@ -41,9 +41,19 @@ pub const OEKSatisfies: u32 = 1 << 5;
 pub const OEKAllExceptAssertionsOrExpressionsWithTypeArguments: u32 = OEKParentheses | OEKPartiallyEmittedExpressions;
 
 pub fn isJSDocTypeAssertion(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
-    _ = a;
-    _ = nodeIndex;
-    return false; // TODO
+    if (nodeIndex == 0 or std.meta.activeTag(a.getNode(nodeIndex)) != .ParenthesizedExpression or !isInJSFile(a, nodeIndex)) {
+        return false;
+    }
+    const expr = a.getNode(nodeIndex).ParenthesizedExpression.Expression;
+    if (expr == 0) return false;
+    const exprNode = a.getNode(expr);
+    if (std.meta.activeTag(exprNode) == .AsExpression) {
+        const typeNode = exprNode.AsExpression.Type;
+        if (typeNode != 0 and (a.getNodeFlags(typeNode) & NodeFlags.Reparsed) != 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 pub fn skipOuterExpressions(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex, kinds: u32) ast_gen.NodeIndex {
@@ -532,10 +542,23 @@ pub fn isAmbientModule(a: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     return false;
 }
 
+pub fn isCatchClauseVariableDeclarationOrBindingElement(astTree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
+    const root = getRootDeclaration(astTree, nodeIndex);
+    if (root == 0) return false;
+    const rootNode = astTree.getNode(root);
+    if (std.meta.activeTag(rootNode) == .VariableDeclaration) {
+        const parent = astTree.getNodeParent(root);
+        if (parent != 0 and std.meta.activeTag(astTree.getNode(parent)) == .CatchClause) {
+            return true;
+        }
+    }
+    return false;
+}
+
 pub fn isBlockScopedVariable(astTree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) bool {
     const flags = getCombinedNodeFlags(astTree, nodeIndex);
     const result = (flags & NodeFlags.BlockScoped) != 0;
-    return result; // TODO: CatchClauseVariableDeclaration
+    return result or isCatchClauseVariableDeclarationOrBindingElement(astTree, nodeIndex);
 }
 
 pub fn getRootDeclaration(astTree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast_gen.NodeIndex {

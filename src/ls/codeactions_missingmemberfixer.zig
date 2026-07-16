@@ -28,6 +28,79 @@ pub const missingMemberFixProvider = codeactions.CodeFixProvider{
     .getAllCodeActions = null,
 };
 
+pub const preserveOptionalFlagsMethod: u32 = 1 << 0;
+pub const preserveOptionalFlagsProperty: u32 = 1 << 1;
+pub const preserveOptionalFlagsAll: u32 = preserveOptionalFlagsMethod | preserveOptionalFlagsProperty;
+
+const autoimport = @import("autoimport/autoimport.zig");
+const change = @import("change/tracker.zig");
+const checker = @import("../checker/checker.zig");
+const compiler = @import("../compiler/program.zig");
+const lsutil = @import("lsutil/lsutil.zig");
+
+pub const MissingMemberFixer = struct {
+    allocator: std.mem.Allocator,
+    changeTracker: *change.ChangeTracker,
+    typeChecker: *checker.Checker,
+    program: *compiler.Program,
+    preferences: lsutil.UserPreferences,
+    importAdder: ?*autoimport.ImportAdder,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        changeTracker: *change.ChangeTracker,
+        typeChecker: *checker.Checker,
+        program: *compiler.Program,
+        preferences: lsutil.UserPreferences,
+        importAdder: ?*autoimport.ImportAdder,
+    ) MissingMemberFixer {
+        return .{
+            .allocator = allocator,
+            .changeTracker = changeTracker,
+            .typeChecker = typeChecker,
+            .program = program,
+            .preferences = preferences,
+            .importAdder = importAdder,
+        };
+    }
+
+    pub fn createIndexSignatureDeclarationFromType(
+        self: *MissingMemberFixer,
+        tree: *ast.Ast,
+        classDeclaration: ast_gen.NodeIndex,
+        implementedType: checker.TypeIndex,
+        keyType: checker.TypeIndex,
+    ) ast_gen.NodeIndex {
+        _ = self;
+        _ = tree;
+        _ = classDeclaration;
+        _ = implementedType;
+        _ = keyType;
+        // Stub implementation, return 0 for now
+        return 0;
+    }
+
+    pub fn createMemberFromSymbol(
+        self: *MissingMemberFixer,
+        tree: *ast.Ast,
+        symbol: ast.SymbolIndex,
+        enclosingDeclaration: ast_gen.NodeIndex,
+        sourceFile: ast.NodeIndex,
+        body: ast_gen.NodeIndex,
+        preserveOptional: u32,
+    ) ![]ast_gen.NodeIndex {
+        _ = self;
+        _ = tree;
+        _ = symbol;
+        _ = enclosingDeclaration;
+        _ = sourceFile;
+        _ = body;
+        _ = preserveOptional;
+        // Stub implementation, return empty array for now
+        return &.{};
+    }
+};
+
 pub fn getMissingMemberCodeActions(
     allocator: std.mem.Allocator,
     fixContext: *codeactions.CodeFixContext,

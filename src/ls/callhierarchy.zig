@@ -32,7 +32,7 @@ pub fn prepareCallHierarchy(
     var result = std.ArrayListUnmanaged(lsproto.CallHierarchyItem).empty;
     errdefer result.deinit(allocator);
 
-    const item = createCallHierarchyItem(tree, decl);
+    const item = createCallHierarchyItem(ls, tree, decl);
     try result.append(allocator, item);
 
     return result.toOwnedSlice(allocator);
@@ -83,17 +83,81 @@ fn resolveCallHierarchyDeclaration(tree: *ast.Ast, node: ast.NodeIndex) ast.Node
     return 0;
 }
 
-fn createCallHierarchyItem(tree: *ast.Ast, node: ast.NodeIndex) lsproto.CallHierarchyItem {
-    _ = tree;
-    _ = node;
+fn getCallHierarchyItemName(tree: *ast.Ast, node: ast.NodeIndex) struct { text: []const u8, start: u32, end: u32 } {
+    if (tree.getNodeKind(node) == .SourceFile) {
+        return .{ .text = tree.fileName, .start = 0, .end = 0 };
+    }
+    
+    const declName = ast_utils.getName(tree, node);
+    if (declName == 0) {
+        const start = tree.getNodePos(node);
+        const k = tree.getNodeKind(node);
+        if (k == .FunctionDeclaration or k == .FunctionExpression or k == .ArrowFunction) {
+            return .{ .text = "(anonymous)", .start = start, .end = start + 8 };
+        } else if (k == .ClassDeclaration or k == .ClassExpression) {
+            return .{ .text = "(anonymous)", .start = start, .end = start + 5 };
+        }
+        return .{ .text = "(anonymous)", .start = start, .end = start };
+    }
+    
+    const text = ast_utils.getTextOfNode(tree, declName);
+    return .{ .text = text, .start = tree.getNodePos(declName), .end = tree.getNodeEnd(declName) };
+}
+
+fn getCallHierarchyItemContainerName(tree: *ast.Ast, node: ast.NodeIndex) ?[]const u8 {
+    const parent = tree.getNodeParent(node);
+    if (parent == 0) return null;
+    
+    const pkind = tree.getNodeKind(parent);
+    if (pkind == .ClassDeclaration or pkind == .ClassExpression or pkind == .InterfaceDeclaration) {
+        const pname = ast_utils.getName(tree, parent);
+        if (pname != 0) return ast_utils.getTextOfNode(tree, pname);
+    }
+    return null;
+}
+
+fn getSymbolKindFromNode(tree: *ast.Ast, node: ast.NodeIndex) lsproto.SymbolKind {
+    const kind = tree.getNodeKind(node);
+    return switch (kind) {
+        .ModuleDeclaration => .Module,
+        .ClassDeclaration, .ClassExpression => .Class,
+        .InterfaceDeclaration, .TypeAliasDeclaration => .Interface,
+        .EnumDeclaration => .Enum,
+        .MethodDeclaration, .MethodSignature => .Method,
+        .FunctionDeclaration, .FunctionExpression, .ArrowFunction => .Function,
+        .GetAccessor, .SetAccessor, .PropertyDeclaration, .PropertySignature, .PropertyAssignment => .Property,
+        .VariableDeclaration => .Variable,
+        .Constructor => .Constructor,
+        .EnumMember => .EnumMember,
+        .StringLiteral, .NumericLiteral, .TrueKeyword, .FalseKeyword, .NullKeyword => .Constant,
+        else => .Variable,
+    };
+}
+
+fn createCallHierarchyItem(ls: *languageservice.LanguageService, tree: *ast.Ast, node: ast.NodeIndex) lsproto.CallHierarchyItem {
+    const nameInfo = getCallHierarchyItemName(tree, node);
+    const containerName = getCallHierarchyItemContainerName(tree, node);
+    const kind = getSymbolKindFromNode(tree, node);
+    
+    const fullStart = tree.getNodePos(node);
+    const endPos = tree.getNodeEnd(node);
+    
+    const program = ls.getProgram();
+    const fileId = program.getFileId(tree.fileName).?;
+    const script = ls.getScript(fileId);
+    
+    const span = ls.converters.toLSPRange(script, .{ .pos = fullStart, .end = endPos });
+    const selectionSpan = ls.converters.toLSPRange(script, .{ .pos = nameInfo.start, .end = nameInfo.end });
+    
+    const lsconv = @import("lsconv.zig");
     return .{
-        .name = "TODO",
-        .kind = .Function,
+        .name = ls.allocator.dupe(u8, nameInfo.text) catch nameInfo.text,
+        .kind = kind,
         .tags = null,
-        .detail = null,
-        .uri = "",
-        .range = .{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
-        .selectionRange = .{ .start = .{ .line = 0, .character = 0 }, .end = .{ .line = 0, .character = 0 } },
+        .detail = if (containerName) |c| (ls.allocator.dupe(u8, c) catch c) else null,
+        .uri = lsconv.fileNameToDocumentURI(ls.allocator, tree.fileName) catch "",
+        .range = span,
+        .selectionRange = selectionSpan,
         .data = null,
     };
 }

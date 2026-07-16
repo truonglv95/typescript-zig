@@ -157,13 +157,13 @@ pub fn parseJsonConfigFileContentWorker(
         // parsedConfig.options.ConfigFilePath = tspath.NormalizeSlashes(configFileName);
     }
     
-    _ = extraFileExtensions; // TODO: properly map these
     // _ = host;
     const result = allocator.create(commandlineparser.ParsedCommandLine) catch unreachable;
     result.* = .{
         .ParsedConfig = .{ .WatchOptions = undefined },
         .Errors = errors,
         .Raw = undefined,
+        .extraFileExtensions = extraFileExtensions,
     };
     return result;
 }

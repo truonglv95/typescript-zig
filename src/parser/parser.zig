@@ -830,7 +830,7 @@ pub const Parser = struct {
             kind.Kind.IfKeyword => return self.parseIfStatement(),
             kind.Kind.DoKeyword => return self.parseDoStatement(),
             kind.Kind.WhileKeyword => return self.parseWhileStatement(),
-            kind.Kind.ForKeyword => return self.parseForStatement(), // TODO: parseForOrForInOrForOfStatement
+            kind.Kind.ForKeyword => return self.parseForOrForInOrForOfStatement(),
             kind.Kind.ContinueKeyword => return self.parseContinueStatement(),
             kind.Kind.BreakKeyword => return self.parseBreakStatement(),
             kind.Kind.ReturnKeyword => return self.parseReturnStatement(),
@@ -2225,7 +2225,7 @@ pub const Parser = struct {
         return stmt;
     }
 
-    pub fn parseForStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
+    pub fn parseForOrForInOrForOfStatement(self: *Parser) anyerror!ast_gen.NodeIndex {
         const start_pos = self.scanner.state.tokenStart;
         _ = self.parseExpected(kind.Kind.ForKeyword);
         var awaitToken: ?ast_gen.NodeIndex = null;

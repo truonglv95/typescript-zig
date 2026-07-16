@@ -14,8 +14,8 @@ pub const Host = struct {
         readFile: *const fn (ptr: *anyopaque, path: []const u8, allocator: std.mem.Allocator) ?[]const u8,
         converters: *const fn (ptr: *anyopaque) *lsconv.Converters,
         getPreferences: *const fn (ptr: *anyopaque, activeFile: []const u8) lsutil.UserPreferences,
-        getECMALineInfo: *const fn (ptr: *anyopaque, fileName: []const u8) *sourcemap.lineinfo.ECMALineInfo,
-        autoImportRegistry: *const fn (ptr: *anyopaque) *anyopaque,
+        getECMALineInfo: *const fn (ptr: *anyopaque, fileName: []const u8) ?*sourcemap.lineinfo.ECMALineInfo,
+        autoImportRegistry: *const fn (ptr: *anyopaque) ?*anyopaque,
 
         // Used for module specifier completions.
         // ! Do not use for anything else, as this violates the principle that

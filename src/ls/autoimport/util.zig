@@ -195,14 +195,78 @@ pub fn addPackageJsonDependencies(contents: *packagejson.PackageJson, deps: *col
 }
 
 pub const PackageRealpathFuncs = struct {
-    toRealpath: *const fn ([]const u8) []const u8,
-    toSymlink: *const fn ([]const u8) []const u8,
+    allocator: std.mem.Allocator,
+    fs: *vfs.FS,
+    packageDir: []const u8,
+    realPackageDir: []const u8,
+    isSymlinked: bool,
+    dirCache: std.StringHashMapUnmanaged([]const u8),
+
+    pub fn init(allocator: std.mem.Allocator, fs: *vfs.FS, packageDir: []const u8) !PackageRealpathFuncs {
+        const realPackageDir = fs.realpath(allocator, packageDir) orelse try allocator.dupe(u8, packageDir);
+        const isSymlinked = !std.mem.eql(u8, realPackageDir, packageDir);
+        return PackageRealpathFuncs{
+            .allocator = allocator,
+            .fs = fs,
+            .packageDir = try allocator.dupe(u8, packageDir),
+            .realPackageDir = realPackageDir,
+            .isSymlinked = isSymlinked,
+            .dirCache = .empty,
+        };
+    }
+
+    pub fn deinit(self: *PackageRealpathFuncs) void {
+        self.allocator.free(self.packageDir);
+        self.allocator.free(self.realPackageDir);
+        var it = self.dirCache.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.dirCache.deinit(self.allocator);
+    }
+
+    pub fn toRealpath(self: *PackageRealpathFuncs, allocator: std.mem.Allocator, fileName: []const u8) ![]const u8 {
+        if (self.isSymlinked) {
+            if (std.mem.startsWith(u8, fileName, self.packageDir)) {
+                return std.fmt.allocPrint(allocator, "{s}{s}", .{ self.realPackageDir, fileName[self.packageDir.len..] });
+            }
+        }
+        
+        const module_util = @import("../../module/util.zig");
+        const pkgDir = module_util.parseNodeModuleFromPath(fileName, false);
+        if (pkgDir.len == 0) {
+            return allocator.dupe(u8, fileName);
+        }
+        
+        if (self.dirCache.get(pkgDir)) |realDir| {
+            if (std.mem.eql(u8, realDir, pkgDir)) {
+                return allocator.dupe(u8, fileName);
+            }
+            return std.fmt.allocPrint(allocator, "{s}{s}", .{ realDir, fileName[pkgDir.len..] });
+        }
+        
+        const realDir = self.fs.realpath(self.allocator, pkgDir) orelse try self.allocator.dupe(u8, pkgDir);
+        try self.dirCache.put(self.allocator, try self.allocator.dupe(u8, pkgDir), realDir);
+        if (std.mem.eql(u8, realDir, pkgDir)) {
+            return allocator.dupe(u8, fileName);
+        }
+        return std.fmt.allocPrint(allocator, "{s}{s}", .{ realDir, fileName[pkgDir.len..] });
+    }
+
+    pub fn toSymlink(self: *PackageRealpathFuncs, allocator: std.mem.Allocator, fileName: []const u8) ![]const u8 {
+        if (!self.isSymlinked) {
+            return allocator.dupe(u8, fileName);
+        }
+        if (std.mem.startsWith(u8, fileName, self.realPackageDir)) {
+            return std.fmt.allocPrint(allocator, "{s}{s}", .{ self.packageDir, fileName[self.realPackageDir.len..] });
+        }
+        return allocator.dupe(u8, fileName);
+    }
 };
 
-pub fn getPackageRealpathFuncs(fs: *vfs.FS, packageDir: []const u8) PackageRealpathFuncs {
-    _ = fs;
-    _ = packageDir;
-    return undefined;
+pub fn getPackageRealpathFuncs(allocator: std.mem.Allocator, fs: *vfs.FS, packageDir: []const u8) !PackageRealpathFuncs {
+    return PackageRealpathFuncs.init(allocator, fs, packageDir);
 }
 
 pub const ResolutionHost = struct {

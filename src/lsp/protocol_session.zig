@@ -294,14 +294,14 @@ const DummyHost = struct {
         _ = activeFile;
         return .{};
     }
-    fn getECMALineInfo(ptr: *anyopaque, fileName: []const u8) *sourcemap.lineinfo.ECMALineInfo {
+    fn getECMALineInfo(ptr: *anyopaque, fileName: []const u8) ?*sourcemap.lineinfo.ECMALineInfo {
         _ = ptr;
         _ = fileName;
-        @panic("not implemented");
+        return null;
     }
-    fn autoImportRegistry(ptr: *anyopaque) *anyopaque {
+    fn autoImportRegistry(ptr: *anyopaque) ?*anyopaque {
         _ = ptr;
-        @panic("not implemented");
+        return null;
     }
     fn readDirectory(ptr: *anyopaque, currentDir: []const u8, path: []const u8, extensions: []const []const u8, excludes: []const []const u8, includes: []const []const u8, depth: usize, allocator: std.mem.Allocator) []const []const u8 {
         _ = ptr;

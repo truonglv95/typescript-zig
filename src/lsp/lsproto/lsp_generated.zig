@@ -1,4 +1,5 @@
 const std = @import("std");
+const structcodec = @import("structcodec.zig");
 
 pub const SemanticTokenType = enum([]const u8) {
     namespace = "namespace",

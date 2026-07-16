@@ -399,49 +399,111 @@ fn getFromAllDeclarations(
     return null; 
 }
 
+
+fn findTokensInNodeExcludingChildren(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, node: ast.NodeIndex, targetKinds: []const std.meta.Tag(ast.NodeData), outRanges: *std.ArrayList(ast.TextRange)) !void {
+    var childRanges = std.ArrayList(ast.TextRange).init(allocator);
+    defer childRanges.deinit();
+
+    const Visitor = struct {
+        arr: *std.ArrayList(ast.TextRange),
+        t: *ast.Ast,
+        pub fn check(self: *@This(), n: ast.NodeIndex) bool {
+            if (n != 0) {
+                self.arr.append(.{
+                    .pos = self.t.getNodePos(n),
+                    .end = self.t.getNodeEnd(n),
+                }) catch {};
+            }
+            return false;
+        }
+    };
+    var v = Visitor{ .arr = &childRanges, .t = &ls.program.ast };
+    _ = ast_utils.forEachChildBool(&ls.program.ast, node, &v, Visitor.check);
+
+    var pos = ls.program.ast.getNodePos(node);
+    const end = ls.program.ast.getNodeEnd(node);
+    var scan = scanner.getScannerForSourceFile(&ls.program.ast, pos);
+
+    var childIdx: usize = 0;
+
+    while (pos < end) {
+        while (childIdx < childRanges.items.len and pos >= childRanges.items[childIdx].end) {
+            childIdx += 1;
+        }
+
+        if (childIdx < childRanges.items.len and pos >= childRanges.items[childIdx].pos) {
+            pos = childRanges.items[childIdx].end;
+            scan = scanner.getScannerForSourceFile(&ls.program.ast, pos);
+            continue;
+        }
+
+        const tokenKind = scan.token();
+        const tokenFullStart = scan.tokenFullStart();
+        const tokenEnd = scan.tokenEnd();
+
+        if (tokenFullStart >= end) break;
+
+        for (targetKinds) |k| {
+            if (k == tokenKind) {
+                try outRanges.append(.{ .pos = scan.tokenPos(), .end = tokenEnd });
+                break;
+            }
+        }
+
+        pos = tokenEnd;
+        scan.scan();
+    }
+}
+
+fn highlightRanges(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, ranges: []ast.TextRange, fileId: compiler.FileId) !?[]lsproto.DocumentHighlight {
+    if (ranges.len == 0) return null;
+    var highlights = std.ArrayList(lsproto.DocumentHighlight).init(allocator);
+    errdefer highlights.deinit();
+
+    for (ranges) |r| {
+        try highlights.append(lsproto.DocumentHighlight{
+            .range = ls.converters.toLSPRange(ls.getScript(fileId), r),
+            .kind = .Read,
+        });
+    }
+    return try highlights.toOwnedSlice();
+}
+
 fn getIfElseOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, ifStatement: ast.NodeIndex, fileId: compiler.FileId) !?[]lsproto.DocumentHighlight {
     var currentIf = ifStatement;
     while (true) {
         const parent = ls.program.ast.getParent(currentIf);
         if (ls.program.ast.getNodeKind(parent) == .IfStatement) {
             const pNode = ls.program.ast.getNode(parent).IfStatement;
-            if (pNode.ElseStatement) |els| {
-                if (els == currentIf) {
-                    currentIf = parent;
-                    continue;
-                }
+            if (pNode.ElseStatement != null and pNode.ElseStatement.? == currentIf) {
+                currentIf = parent;
+                continue;
             }
         }
         break;
     }
 
-    var highlights = std.ArrayList(lsproto.DocumentHighlight).init(allocator);
-    errdefer highlights.deinit();
+    var ranges = std.ArrayList(ast.TextRange).init(allocator);
+    defer ranges.deinit();
 
     while (true) {
-        try highlights.append(.{
-            .range = findallreferences.getLspRangeOfNode(ls, fileId, currentIf, null, 0),
-            .kind = .Read,
-        });
+        try findTokensInNodeExcludingChildren(ls, allocator, currentIf, &[_]std.meta.Tag(ast.NodeData){.IfKeyword}, &ranges);
+
         const nodeData = ls.program.ast.getNode(currentIf).IfStatement;
         if (nodeData.ElseStatement) |els| {
+            try findTokensInNodeExcludingChildren(ls, allocator, currentIf, &[_]std.meta.Tag(ast.NodeData){.ElseKeyword}, &ranges);
             if (ls.program.ast.getNodeKind(els) == .IfStatement) {
                 currentIf = els;
                 continue;
             } else {
-                try highlights.append(.{
-                    .range = findallreferences.getLspRangeOfNode(ls, fileId, els, null, 0),
-                    .kind = .Read,
-                });
                 break;
             }
         } else {
             break;
         }
     }
-    
-    if (highlights.items.len == 0) return null;
-    return try highlights.toOwnedSlice();
+
+    return try highlightRanges(ls, allocator, ranges.items, fileId);
 }
 
 fn aggregateOwnedThrowStatements(tree: *ast.Ast, node: ast.NodeIndex, throwStatements: *std.ArrayList(ast.NodeIndex)) !void {
@@ -598,6 +660,15 @@ fn getSwitchCaseDefaultOccurrences(ls: *languageservice.LanguageService, allocat
         const clauses = ls.program.ast.getNode(caseBlock).CaseBlock.Clauses;
         for (ls.program.ast.getNodeList(clauses)) |clause| {
             try keywords.append(clause);
+        }
+        
+        var statements = std.ArrayList(ast.NodeIndex).init(allocator);
+        defer statements.deinit();
+        try aggregateAllBreakAndContinueStatements(&ls.program.ast, caseBlock, &statements);
+        for (statements.items) |stmt| {
+            if (ls.program.ast.getNodeKind(stmt) == .BreakStatement and ownsBreakOrContinueStatement(&ls.program.ast, node, stmt)) {
+                try keywords.append(stmt);
+            }
         }
     }
 
@@ -835,13 +906,88 @@ fn getYieldOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.
 }
 
 fn getModifierOccurrences(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, kind: std.meta.Tag(ast.NodeData), node: ast.NodeIndex, fileId: compiler.FileId) !?[]ast.NodeIndex {
-    _ = ls;
     _ = fileId;
-    _ = kind;
     var keywords = std.ArrayList(ast.NodeIndex).init(allocator);
     errdefer keywords.deinit();
 
-    try keywords.append(node);
+    const container = ls.program.ast.getParent(node);
+    if (container == 0) return null;
+
+    var nodesToSearch = std.ArrayList(ast.NodeIndex).init(allocator);
+    defer nodesToSearch.deinit();
+
+    const parentKind = ls.program.ast.getNodeKind(container);
+    switch (parentKind) {
+        .ModuleBlock, .SourceFile, .Block, .CaseClause, .DefaultClause => {
+            // we omit the abstract class modifier flag check for simplicity here
+            // because DOD approach is mostly scanning modifiers.
+            if (ls.program.ast.getNodeKind(node) == .ClassDeclaration) {
+                try nodesToSearch.append(node);
+                const members = ast_utils.getMembers(&ls.program.ast, node);
+                if (members != 0) {
+                    for (ls.program.ast.getNodeList(members)) |m| {
+                        try nodesToSearch.append(m);
+                    }
+                }
+            } else {
+                const statements = ast_utils.getStatements(&ls.program.ast, container);
+                if (statements != 0) {
+                    for (ls.program.ast.getNodeList(statements)) |s| {
+                        try nodesToSearch.append(s);
+                    }
+                }
+            }
+        },
+        .Constructor, .MethodDeclaration, .FunctionDeclaration => {
+            const params = ast_utils.getParameters(&ls.program.ast, container);
+            if (params != 0) {
+                for (ls.program.ast.getNodeList(params)) |p| {
+                    try nodesToSearch.append(p);
+                }
+            }
+            const grandParent = ls.program.ast.getParent(container);
+            if (ast_utils.isClassLike(&ls.program.ast, grandParent)) {
+                const members = ast_utils.getMembers(&ls.program.ast, grandParent);
+                if (members != 0) {
+                    for (ls.program.ast.getNodeList(members)) |m| {
+                        try nodesToSearch.append(m);
+                    }
+                }
+            }
+        },
+        .ClassDeclaration, .ClassExpression, .InterfaceDeclaration, .TypeLiteral => {
+            const members = ast_utils.getMembers(&ls.program.ast, container);
+            if (members != 0) {
+                for (ls.program.ast.getNodeList(members)) |m| {
+                    try nodesToSearch.append(m);
+                    if (ls.program.ast.getNodeKind(m) == .Constructor) {
+                        const params = ast_utils.getParameters(&ls.program.ast, m);
+                        if (params != 0) {
+                            for (ls.program.ast.getNodeList(params)) |p| {
+                                try nodesToSearch.append(p);
+                            }
+                        }
+                    }
+                }
+            }
+            try nodesToSearch.append(container);
+        },
+        else => {},
+    }
+
+    for (nodesToSearch.items) |n| {
+        const modifiersList = ast_utils.getModifiers(&ls.program.ast, n);
+        if (modifiersList) |idx| {
+            if (idx != 0) {
+                for (ls.program.ast.getNodeList(idx)) |m| {
+                    if (ls.program.ast.getNodeKind(m) == kind) {
+                        try keywords.append(m);
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     if (keywords.items.len == 0) return null;
     return try keywords.toOwnedSlice();

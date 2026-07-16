@@ -164,7 +164,7 @@ pub fn isConstructorSignatureContext(ctx: *context.FormattingContext) bool {
 pub fn isControlDeclContext(ctx: *context.FormattingContext) bool {
     const contextKind = std.meta.activeTag(ctx.tree.getNode(ctx.contextNode));
     return switch (contextKind) {
-        .IfStatement, .SwitchStatement, .ForStatement, .ForInStatement, .ForOfStatement, .WhileStatement, .TryStatement, .DoStatement, .WithStatement, .CatchClause => true, // TODO ElseClause?
+        .IfStatement, .SwitchStatement, .ForStatement, .ForInStatement, .ForOfStatement, .WhileStatement, .TryStatement, .DoStatement, .WithStatement, .CatchClause => true,
         else => false,
     };
 }

@@ -60,10 +60,83 @@ pub const PackageJson = struct {
     }
 
     pub fn getVersionPaths(self: *PackageJson, allocator: std.mem.Allocator) !VersionPaths {
-        _ = allocator; // for DoD, you'd allocate diagnostics here
-        // TODO: implement version matching and diagnostic generation
-        // for now we just return version paths
+        if (!self.once.isSet()) {
+            self.once.set();
+            if (self.fields.typesVersions == .NotPresent) {
+                const msg = try allocator.create(DiagnosticAndArgs);
+                msg.* = .{
+                    .message = &diagnostics.X_package_json_does_not_have_a_0_field,
+                    .args = try duplicateArgs(allocator, &[_][]const u8{"typesVersions"}),
+                };
+                try self.versionTraces.append(msg.*);
+                return self.versionPaths;
+            }
+            if (self.fields.typesVersions != .Object) {
+                const msg = try allocator.create(DiagnosticAndArgs);
+                msg.* = .{
+                    .message = &diagnostics.Expected_type_of_0_field_in_package_json_to_be_1_got_2,
+                    .args = try duplicateArgs(allocator, &[_][]const u8{ "typesVersions", "object", @tagName(self.fields.typesVersions) }),
+                };
+                try self.versionTraces.append(msg.*);
+                return self.versionPaths;
+            }
+
+            const msg = try allocator.create(DiagnosticAndArgs);
+            msg.* = .{
+                .message = &diagnostics.X_package_json_has_a_typesVersions_field_with_version_specific_path_mappings,
+                .args = try duplicateArgs(allocator, &[_][]const u8{"typesVersions"}),
+            };
+            try self.versionTraces.append(msg.*);
+
+            const ts_version = semver.tryParseVersion(allocator, "7.0.0-dev") catch unreachable orelse unreachable;
+
+            var types_versions_obj = self.fields.typesVersions.asObject();
+            var it = types_versions_obj.iterator();
+            while (it.next()) |entry| {
+                const key_range = semver.tryParseVersionRange(allocator, entry.key_ptr.*) catch null orelse {
+                    const msg2 = try allocator.create(DiagnosticAndArgs);
+                    msg2.* = .{
+                        .message = &diagnostics.X_package_json_has_a_typesVersions_entry_0_that_is_not_a_valid_semver_range,
+                        .args = try duplicateArgs(allocator, &[_][]const u8{entry.key_ptr.*}),
+                    };
+                    try self.versionTraces.append(msg2.*);
+                    continue;
+                };
+                const is_match = key_range.testVersion(&ts_version);
+                if (is_match) {
+                    if (entry.value_ptr.* != .Object) {
+                        const msg3 = try allocator.create(DiagnosticAndArgs);
+                        msg3.* = .{
+                            .message = &diagnostics.Expected_type_of_0_field_in_package_json_to_be_1_got_2,
+                            .args = try duplicateArgs(allocator, &[_][]const u8{ try std.fmt.allocPrint(allocator, "typesVersions['{s}']", .{entry.key_ptr.*}), "object", @tagName(entry.value_ptr.*) }),
+                        };
+                        try self.versionTraces.append(msg3.*);
+                        return self.versionPaths;
+                    }
+                    self.versionPaths = .{
+                        .version = entry.key_ptr.*,
+                        .pathsJSON = entry.value_ptr.asObject(),
+                    };
+                    return self.versionPaths;
+                }
+            }
+
+            const msg_err = try allocator.create(DiagnosticAndArgs);
+            msg_err.* = .{
+                .message = &diagnostics.X_package_json_does_not_have_a_typesVersions_entry_that_matches_version_0,
+                .args = try duplicateArgs(allocator, &[_][]const u8{"7.0"}),
+            };
+            try self.versionTraces.append(msg_err.*);
+        }
         return self.versionPaths;
+    }
+
+    fn duplicateArgs(allocator: std.mem.Allocator, args: []const []const u8) ![][]const u8 {
+        var copy = try allocator.alloc([]const u8, args.len);
+        for (args, 0..) |arg, i| {
+            copy[i] = try allocator.dupe(u8, arg);
+        }
+        return copy;
     }
 };
 

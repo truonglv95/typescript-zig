@@ -29,7 +29,8 @@ pub fn newStateBaseline(allocator: std.mem.Allocator, fsFromMap: anytype) !*Stat
     errdefer allocator.destroy(self);
 
     self.baseline = std.ArrayList(u8).init(allocator);
-    self.fsDiffer = undefined; // TODO: Port fsbaselineutil.FSDiffer
+    const FSDiffer = @import("../testutil/fsbaselineutil/differ.zig").FSDiffer;
+    self.fsDiffer = FSDiffer.init(allocator, fsFromMap);
     self.isInitialized = false;
     self.serializedProjects = std.StringHashMap(ProjectInfo).init(allocator);
     self.serializedOpenFiles = std.StringHashMap(*OpenFileInfo).init(allocator);

@@ -60,6 +60,26 @@ pub const OutputRecorderFS = struct {
         }
     }
 
+    pub const vtable = vfs.FS.VTable{
+        .useCaseSensitiveFileNames = struct { fn w(ptr: *anyopaque) bool { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.useCaseSensitiveFileNames(); } }.w,
+        .fileExists = struct { fn w(ptr: *anyopaque, path: []const u8) bool { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.fileExists(path); } }.w,
+        .directoryExists = struct { fn w(ptr: *anyopaque, path: []const u8) bool { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.directoryExists(path); } }.w,
+        .readFile = struct { fn w(ptr: *anyopaque, allocator: std.mem.Allocator, path: []const u8) ?[]u8 { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.readFile(allocator, path); } }.w,
+        .writeFile = struct { fn w(ptr: *anyopaque, path: []const u8, data: []const u8) !void { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).writeFile(path, data); } }.w,
+        .appendFile = struct { fn w(ptr: *anyopaque, path: []const u8, data: []const u8) !void { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.appendFile(path, data); } }.w,
+        .remove = struct { fn w(ptr: *anyopaque, path: []const u8) !void { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.remove(path); } }.w,
+        .chtimes = struct { fn w(ptr: *anyopaque, path: []const u8, atime: i128, mtime: i128) !void { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.chtimes(path, atime, mtime); } }.w,
+        .getAccessibleEntries = struct { fn w(ptr: *anyopaque, allocator: std.mem.Allocator, path: []const u8) vfs.Entries { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.getAccessibleEntries(allocator, path); } }.w,
+        .stat = struct { fn w(ptr: *anyopaque, path: []const u8) ?vfs.FileInfo { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.stat(path); } }.w,
+        .walkDir = struct { fn w(ptr: *anyopaque, root: []const u8, walk_fn: vfs.WalkDirFunc) !void { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.walkDir(root, walk_fn); } }.w,
+        .realpath = struct { fn w(ptr: *anyopaque, allocator: std.mem.Allocator, path: []const u8) ?[]const u8 { return @as(*OutputRecorderFS, @ptrCast(@alignCast(ptr))).fs.realpath(allocator, path); } }.w,
+    };
+
+    pub fn toFS(self: *OutputRecorderFS) vfs.FS {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+
     pub fn getOutputs(self: *OutputRecorderFS, allocator: std.mem.Allocator) ![]*TestFile {
         self.outputsMut.lock();
         defer self.outputsMut.unlock();
@@ -75,9 +95,8 @@ pub const OutputRecorderFS = struct {
     }
 };
 
-pub fn newOutputRecorderFS(allocator: std.mem.Allocator, base_fs: *vfs.FS) !*vfs.FS {
-    _ = allocator;
-    _ = base_fs;
-    // TODO: Return wrapper implementing vfs.FS
-    unreachable;
+pub fn newOutputRecorderFS(allocator: std.mem.Allocator, base_fs: *vfs.FS) !vfs.FS {
+    const recorder = try allocator.create(OutputRecorderFS);
+    recorder.* = OutputRecorderFS.init(allocator, base_fs);
+    return recorder.toFS();
 }

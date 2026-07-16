@@ -203,8 +203,6 @@ pub fn getAllRules() []const rule.RuleSpec {
         createRule("NoSpaceBeforeNonNullAssertionOperator", anyToken, rule.toTokenRange(&[_]kind.Kind{.ExclamationToken}), &[_]rule.ContextPredicate{ rulecontext.isNonJsxSameLineTokenContext, rulecontext.isNonNullAssertionContext }, ruleActionDeleteSpace, .None),
         createRule("NoSpaceAfterNewKeywordOnConstructorSignature", rule.toTokenRange(&[_]kind.Kind{.NewKeyword}), rule.toTokenRange(&[_]kind.Kind{.OpenParenToken}), &[_]rule.ContextPredicate{ rulecontext.isNonJsxSameLineTokenContext, rulecontext.isConstructorSignatureContext }, ruleActionDeleteSpace, .None),
         createRule("SpaceLessThanAndNonJSXTypeAnnotation", rule.toTokenRange(&[_]kind.Kind{.LessThanToken}), rule.toTokenRange(&[_]kind.Kind{.LessThanToken}), &[_]rule.ContextPredicate{ rulecontext.isNonJsxSameLineTokenContext }, ruleActionInsertSpace, .None),
-
-        // TODO: The rest of the rules...
     };
 
     const userConfigurableRules = [_]rule.RuleSpec{

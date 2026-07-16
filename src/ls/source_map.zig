@@ -1,12 +1,12 @@
 const std = @import("std");
 
-//! Source map utilities for language service.
-//!
-//! Port of `internal/ls/source_map.go` (134 LOC).
-//!
-//! Provides source map range mapping between generated .js files and
-//! their original .ts source files, used for debugging and go-to-definition
-//! in generated files.
+// Source map utilities for language service.
+//
+// Port of `internal/ls/source_map.go` (134 LOC).
+//
+// Provides source map range mapping between generated .js files and
+// their original .ts source files, used for debugging and go-to-definition
+// in generated files.
 
 /// A mapping from a generated file position to a source file position.
 pub const SourceMapMapping = struct {

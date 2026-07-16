@@ -161,7 +161,6 @@ pub const LanguageService = struct {
         return documentPos;
     }
 
-
     pub fn getDocumentPositionMapper(self: *LanguageService, fileName: []const u8) *sourcemap.DocumentPositionMapper {
         if (self.documentPositionMappers.get(fileName)) |d| {
             return d;

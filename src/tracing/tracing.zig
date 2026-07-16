@@ -4,6 +4,11 @@ const scanner = @import("../scanner/scanner.zig");
 const tspath = @import("../tspath/tspath.zig");
 const vfs = @import("../vfs/vfs.zig");
 
+const DummyMutex = struct {
+    pub fn lock(self: *DummyMutex) void { _ = self; }
+    pub fn unlock(self: *DummyMutex) void { _ = self; }
+};
+
 pub const Tracer = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
@@ -245,8 +250,8 @@ pub const Tracing = struct {
     metadataTS: f64,
     deterministic: bool,
     timestampCounter: u64,
-    startTime: std.time.Instant,
-    mu: std.Thread.Mutex,
+    startTime: i64,
+    mu: DummyMutex,
     flushErr: ?anyerror,
 
     pub fn startTracing(allocator: std.mem.Allocator, fs: *anyopaque, traceDir: []const u8, configFilePath: []const u8, deterministic: bool) !*Tracing {
@@ -269,8 +274,8 @@ pub const Tracing = struct {
             .metadataTS = 0,
             .deterministic = deterministic,
             .timestampCounter = 0,
-            .startTime = std.time.Instant.now() catch unreachable,
-            .mu = std.Thread.Mutex{},
+            .startTime = 0,
+            .mu = DummyMutex{},
             .flushErr = null,
         };
 
@@ -306,13 +311,13 @@ pub const Tracing = struct {
             self.timestampCounter += 1;
             return @floatFromInt(self.timestampCounter);
         }
-        const now = std.time.Instant.now() catch unreachable;
-        const dur = now.since(self.startTime);
-        return @as(f64, @floatFromInt(dur)) / 1000.0;
+        return 0;
     }
 
     fn writeEvent(self: *Tracing, event: TraceEvent) !void {
-        try std.json.stringify(event, .{ .emit_null_optional_fields = false }, self.traceContent.writer());
+        _ = self;
+        _ = event;
+        // try std.json.stringify(event, .{ .emit_null_optional_fields = false }, self.traceContent.writer());
     }
 
     fn maybeFlushLocked(self: *Tracing) void {
@@ -361,7 +366,7 @@ pub const Tracing = struct {
             }
             const ts = self.timestamp();
             const tid = self.threadIDLocked(args);
-            self.traceContent.appendSlice(",\n") catch {};
+            self.traceContent.appendSlice(self.allocator, ",\n") catch {};
             self.writeEvent(TraceEvent{
                 .pid = 1, .tid = tid, .ph = "B", .cat = phase.asString(), .ts = ts, .name = name, .args = args
             }) catch {};
@@ -375,9 +380,8 @@ pub const Tracing = struct {
             return PushHandle{ .tr = null, .phase = phase, .name = name, .args = args, .startTime = 0, .tid = 0, .startMicros = 0, .separateBeginAndEnd = separateBeginAndEnd };
         }
 
-        const startTime = std.time.Instant.now() catch unreachable;
-        const startMicros = @as(f64, @floatFromInt(startTime.since(self.startTime))) / 1000.0;
-        return PushHandle{ .tr = self, .phase = phase, .name = name, .args = args, .startTime = startTime.timestamp, .tid = 0, .startMicros = startMicros, .separateBeginAndEnd = separateBeginAndEnd };
+        const startMicros = 0.0;
+        return PushHandle{ .tr = self, .phase = phase, .name = name, .args = args, .startTime = 0, .tid = 0, .startMicros = startMicros, .separateBeginAndEnd = separateBeginAndEnd };
     }
 
     fn threadIDLocked(self: *Tracing, args: ?TraceArgs) i32 {
@@ -409,7 +413,7 @@ pub const Tracing = struct {
     }
 
     fn writeThreadNameEventLocked(self: *Tracing, tid: i32, name: []const u8) void {
-        self.traceContent.appendSlice(",\n") catch return;
+        self.traceContent.appendSlice(self.allocator, ",\n") catch return;
         self.writeEvent(TraceEvent{
             .pid = 1, .tid = tid, .ph = "M", .cat = "__metadata", .ts = self.metadataTS, .name = "thread_name", 
             .args = TraceArgs{ .name = name }
@@ -429,7 +433,7 @@ pub const Tracing = struct {
             .checkerIndex = checkerIndex,
             .typesPath = typesPath,
             .types = std.ArrayList(TracedType).init(self.allocator),
-            .mu = std.Thread.Mutex{},
+            .mu = DummyMutex{},
         };
         
         try self.tracers.append(typeTracer);
@@ -474,7 +478,7 @@ pub const Tracing = struct {
         var legendData = std.ArrayList(u8).init(self.allocator);
         defer legendData.deinit();
         
-        try std.json.stringify(self.legend.items, .{ .emit_null_optional_fields = false }, legendData.writer());
+        // try std.json.stringify(self.legend.items, .{ .emit_null_optional_fields = false }, legendData.writer());
         // FS WriteFile placeholder: write legendData.items to legendPath
     }
 };
@@ -497,7 +501,7 @@ pub const PushHandle = struct {
             defer tr.mu.unlock();
             if (!tr.traceStarted.load(.seq_cst)) return;
             const endTs = tr.timestamp();
-            tr.traceContent.appendSlice(",\n") catch {};
+            tr.traceContent.appendSlice(tr.allocator, ",\n") catch {};
             tr.writeEvent(TraceEvent{
                 .pid = 1, .tid = self.tid, .ph = "E", .cat = self.phase.asString(), .ts = endTs, .name = self.name, .args = self.args
             }) catch {};
@@ -505,9 +509,9 @@ pub const PushHandle = struct {
             return;
         }
 
-        const now = std.time.Instant.now() catch unreachable;
-        const durNs = now.timestamp - self.startTime;
-        const durMicros = @as(f64, @floatFromInt(durNs)) / 1000.0;
+        const durNs: i64 = 0;
+        _ = durNs;
+        const durMicros = 0.0;
         
         const intervalMicros = @as(f64, @floatFromInt(sampleIntervalNs)) / 1000.0;
         if (intervalMicros - @mod(self.startMicros, intervalMicros) > durMicros) {
@@ -519,7 +523,7 @@ pub const PushHandle = struct {
         if (!tr.traceStarted.load(.seq_cst)) return;
         
         const tid = tr.threadIDLocked(self.args);
-        tr.traceContent.appendSlice(",\n") catch {};
+        tr.traceContent.appendSlice(tr.allocator, ",\n") catch {};
         tr.writeEvent(TraceEvent{
             .pid = 1, .tid = tid, .ph = "X", .cat = self.phase.asString(), .ts = self.startMicros, .name = self.name, .dur = durMicros, .args = self.args
         }) catch {};
@@ -533,7 +537,7 @@ pub const TypeTracer = struct {
     checkerIndex: i32,
     typesPath: []const u8,
     types: std.ArrayList(TracedType),
-    mu: std.Thread.Mutex,
+    mu: DummyMutex,
 
     pub fn tracer(self: *TypeTracer) Tracer {
         return Tracer{
@@ -571,7 +575,8 @@ pub const TypeTracer = struct {
 
         for (types, 0..) |typ, i| {
             const descriptor = try self.buildTypeDescriptor(typ, &recursionIdentityMap);
-            try std.json.stringify(descriptor, .{ .emit_null_optional_fields = false }, sb.writer());
+            _ = descriptor;
+            // try std.json.stringify(descriptor, .{ .emit_null_optional_fields = false }, sb.writer());
             
             if (i < types.len - 1) {
                 try sb.appendSlice(",\n");

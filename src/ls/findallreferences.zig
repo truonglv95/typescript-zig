@@ -17,6 +17,7 @@ const tspath = @import("../tspath/tspath.zig");
 const ast_utils = @import("../ast/ast_utils.zig");
 const types = @import("../checker/types.zig");
 const languageservice = @import("languageservice.zig");
+const importtracker = @import("importTracker.zig");
 
 // === types for settings ===
 pub const ReferenceUse = enum {
@@ -45,9 +46,9 @@ pub const RefInfo = struct {
 
 pub const SymbolAndEntries = struct {
     definition: ?*Definition,
-    references: []*ReferenceEntry,
+    references: std.ArrayList(*ReferenceEntry),
 
-    pub fn init(allocator: std.mem.Allocator, kind: DefinitionKind, node: ast.NodeIndex, symbol: ast_gen.SymbolIndex, references: []*ReferenceEntry) !*SymbolAndEntries {
+    pub fn init(allocator: std.mem.Allocator, kind: DefinitionKind, node: ast.NodeIndex, symbol: ?*ast.Symbol, references: std.ArrayList(*ReferenceEntry)) !*SymbolAndEntries {
         const self = try allocator.create(SymbolAndEntries);
         const def = try allocator.create(Definition);
         def.* = .{
@@ -64,7 +65,7 @@ pub const SymbolAndEntries = struct {
     }
 
     pub fn references_slice(self: *SymbolAndEntries) []*ReferenceEntry {
-        return self.references;
+        return self.references.items;
     }
 
     pub fn definitionNode(self: *SymbolAndEntries) ast.NodeIndex {
@@ -309,7 +310,6 @@ pub fn getRangeOfNode(ls: *languageservice.LanguageService, fileId: compiler.Fil
     return ast.TextRange{ .pos = @intCast(tree.getNodePos(node)), .end = @intCast(tree.getNodeEnd(node)) };
 }
 
-
 pub fn isForRenameWithPrefixAndSuffixText(options: RefOptions) bool {
     return options.use == .rename and options.useAliasesForRename;
 }
@@ -460,7 +460,7 @@ pub fn provideSymbolsAndEntries(
         fn run(q: *std.ArrayList(*ReferenceEntry), e: *std.ArrayList(*SymbolAndEntries), symbolAndEntries: []*SymbolAndEntries) void {
             for (symbolAndEntries) |s| {
                 e.append(s) catch unreachable;
-                for (s.references) |ref| {
+                for (s.references.items) |ref| {
                     q.append(ref) catch unreachable;
                 }
             }
@@ -619,7 +619,6 @@ pub fn getReferenceAtPosition(ls: *languageservice.LanguageService, node: ast.No
     return .{ .file = 0 };
 }
 
-
 pub fn isTypeKeyword(kind: ast.Kind) bool {
     switch (kind) {
         .AnyKeyword, .UnknownKeyword, .NumberKeyword, .BigIntKeyword, .ObjectKeyword, .BooleanKeyword, .StringKeyword, .SymbolKeyword, .ThisKeyword, .VoidKeyword, .UndefinedKeyword, .NullKeyword, .NeverKeyword => return true,
@@ -753,7 +752,6 @@ pub fn getReferencedSymbolsSpecial(ls: *languageservice.LanguageService, allocat
     return null;
 }
 
-
 pub fn getName(ls: *languageservice.LanguageService, node: ast.NodeIndex) ast.NodeIndex {
     return ast_utils.getName(&ls.program.ast, node);
 }
@@ -817,8 +815,7 @@ fn walkUpParenthesizedExpressions(tree: *ast.Ast, node_in: ast.NodeIndex) ast.No
 
 fn isEqualityOperatorKind(kind: std.meta.Tag(ast_gen.NodeData)) bool {
     switch (kind) {
-        .EqualsEqualsEqualsToken, .EqualsEqualsToken,
-        .ExclamationEqualsEqualsToken, .ExclamationEqualsToken => return true,
+        .EqualsEqualsEqualsToken, .EqualsEqualsToken, .ExclamationEqualsEqualsToken, .ExclamationEqualsToken => return true,
         else => return false,
     }
 }
@@ -857,34 +854,20 @@ fn getContextualTypeFromParent(tree: *ast.Ast, node: ast.NodeIndex, chk: *checke
         },
         else => {
             return chk.getContextualType(node, contextFlags);
-        }
+        },
     }
 }
 
 fn isTypeElement(kind: std.meta.Tag(ast_gen.NodeData)) bool {
     switch (kind) {
-        .ConstructSignature,
-        .CallSignature,
-        .PropertySignature,
-        .MethodSignature,
-        .IndexSignature,
-        .GetAccessor,
-        .SetAccessor => return true,
+        .ConstructSignature, .CallSignature, .PropertySignature, .MethodSignature, .IndexSignature, .GetAccessor, .SetAccessor => return true,
         else => return false,
     }
 }
 
 fn isTypeNode(kind: std.meta.Tag(ast_gen.NodeData)) bool {
     switch (kind) {
-        .AnyKeyword, .UnknownKeyword, .NumberKeyword, .BigIntKeyword, .ObjectKeyword,
-        .BooleanKeyword, .StringKeyword, .SymbolKeyword, .VoidKeyword, .UndefinedKeyword,
-        .NeverKeyword, .IntrinsicKeyword, .ExpressionWithTypeArguments, .JSDocAllType,
-        .JSDocNullableType, .JSDocNonNullableType, .JSDocOptionalType, .JSDocVariadicType,
-        .TypePredicate, .TypeReference, .FunctionType, .ConstructorType, .TypeQuery,
-        .TypeLiteral, .ArrayType, .TupleType, .OptionalType, .RestType, .UnionType,
-        .IntersectionType, .ConditionalType, .InferType, .ParenthesizedType, .ThisType,
-        .TypeOperator, .IndexedAccessType, .MappedType, .LiteralType, .NamedTupleMember,
-        .TemplateLiteralType, .TemplateLiteralTypeSpan, .ImportType => return true,
+        .AnyKeyword, .UnknownKeyword, .NumberKeyword, .BigIntKeyword, .ObjectKeyword, .BooleanKeyword, .StringKeyword, .SymbolKeyword, .VoidKeyword, .UndefinedKeyword, .NeverKeyword, .IntrinsicKeyword, .ExpressionWithTypeArguments, .JSDocAllType, .JSDocNullableType, .JSDocNonNullableType, .JSDocOptionalType, .JSDocVariadicType, .TypePredicate, .TypeReference, .FunctionType, .ConstructorType, .TypeQuery, .TypeLiteral, .ArrayType, .TupleType, .OptionalType, .RestType, .UnionType, .IntersectionType, .ConditionalType, .InferType, .ParenthesizedType, .ThisType, .TypeOperator, .IndexedAccessType, .MappedType, .LiteralType, .NamedTupleMember, .TemplateLiteralType, .TemplateLiteralTypeSpan, .ImportType => return true,
         else => return false,
     }
 }
@@ -899,7 +882,7 @@ fn getAncestorTypeNode(tree: *ast.Ast, node: ast.NodeIndex) ast.NodeIndex {
         const parent = tree.getNodeParent(current);
         if (parent == 0) break;
         const parentKind = tree.getNodeKind(parent);
-        
+
         if (parentKind != .QualifiedName and !isTypeNode(parentKind) and !isTypeElement(parentKind)) {
             break;
         }
@@ -931,7 +914,7 @@ pub fn getContextualTypeFromParentOrAncestorTypeNode(ls: *languageservice.Langua
 
 pub fn getPossibleSymbolReferenceNodes(ls: *languageservice.LanguageService, allocator: std.mem.Allocator, sourceFile: ast.NodeIndex, textArg: []const u8) []const ast.NodeIndex {
     if (textArg.len == 0) return &[_]ast.NodeIndex{};
-    
+
     const tree = &ls.program.ast;
     const fileId = ls.program.getFileId(tree.getAstNode(sourceFile).source_file.fileName).?;
     const script = ls.getScript(fileId);
@@ -951,7 +934,8 @@ pub fn getPossibleSymbolReferenceNodes(ls: *languageservice.LanguageService, all
         const endPosition = position.? + textArg.len;
 
         if ((position.? == 0 or !ast_utils.isIdentifierPart(text[position.? - 1])) and
-            (endPosition == text.len or !ast_utils.isIdentifierPart(text[endPosition]))) {
+            (endPosition == text.len or !ast_utils.isIdentifierPart(text[endPosition])))
+        {
             positions.append(@intCast(position.?)) catch {};
         }
 
@@ -1077,7 +1061,7 @@ pub fn getReferencedSymbolsForModuleIfDeclaredBySourceFile(
             }
             var newRefs = std.ArrayList(*SymbolAndEntries).init(allocator);
             newRefs.appendSlice(moduleReferences) catch {};
-            
+
             const moduleSymbolAndEntries = allocator.create(SymbolAndEntries) catch @panic("OOM");
             moduleSymbolAndEntries.* = .{
                 .definition_kind = .Keyword,
@@ -1085,7 +1069,7 @@ pub fn getReferencedSymbolsForModuleIfDeclaredBySourceFile(
                 .symbol = symbol,
                 .entries = &[_]*ReferenceEntry{},
             };
-            
+
             if (exportEquals != null) {
                 const exportSymbolAndEntries = allocator.create(SymbolAndEntries) catch @panic("OOM");
                 exportSymbolAndEntries.* = .{
@@ -1168,6 +1152,7 @@ pub const State = struct {
     // internal state
     sourceFileToSeenSymbols: std.AutoHashMap(ast.NodeIndex, std.AutoHashMap(*ast.Symbol, void)),
     inheritsFromCache: std.AutoHashMap(InheritKey, bool),
+    importTracker: ?importtracker.ImportTracker = null,
 
     pub fn deinit(self: *State) void {
         var it = self.sourceFileToSeenSymbols.valueIterator();
@@ -1176,6 +1161,9 @@ pub const State = struct {
         }
         self.sourceFileToSeenSymbols.deinit();
         self.inheritsFromCache.deinit();
+        if (self.importTracker) |*it_tr| {
+            it_tr.deinit();
+        }
     }
 
     pub fn getReferencesAtExportSpecifier(self: *State, name: ast.NodeIndex, symbol: *ast.Symbol, exportSpecifier: ast.NodeIndex, search: *RefSearch, addReferencesHere: bool, alwaysGetReferences: bool) void {
@@ -1193,11 +1181,64 @@ pub const State = struct {
         _ = symbol;
         _ = kind;
     }
-    pub fn searchForImportsOfExport(self: *State, node: ast.NodeIndex, symbol: *ast.Symbol, info: *ExportInfo) void {
-        _ = self;
-        _ = node;
-        _ = symbol;
-        _ = info;
+    pub fn searchForImportsOfExport(self: *State, node: ast.NodeIndex, symbol: *ast.Symbol, info: *ExportInfo) !void {
+        var r = try self.getImportSearches(symbol, info);
+        defer {
+            r.import_searches.deinit(self.allocator);
+            r.single_references.deinit(self.allocator);
+            r.indirect_users.deinit(self.allocator);
+        }
+
+        if (r.single_references.items.len != 0) {
+            for (r.single_references.items) |singleRef| {
+                const parent = self.program.ast.parents.items[singleRef];
+                if (!ast_utils.isImportOrExportSpecifier(&self.program.ast, parent)) {
+                    self.addReference(singleRef, symbol, .node);
+                }
+            }
+        }
+
+        for (r.import_searches.items) |i| {
+            const search = self.createSearch(i.import_location, self.chk.getSymbolFromIndex(i.import_symbol).?, .@"export", "", &[_]*ast.Symbol{});
+            self.getReferencesInContainer(ast_utils.getSourceFileOfNode(&self.program.ast, i.import_location), ast_utils.getSourceFileOfNode(&self.program.ast, i.import_location), search, true);
+        }
+
+        if (r.indirect_users.items.len != 0) {
+            var indirectSearch: ?*RefSearch = null;
+            switch (info.exportKind) {
+                .named => indirectSearch = self.createSearch(node, symbol, .@"export", "", &[_]*ast.Symbol{}),
+                .default => {
+                    if (self.options.use != .rename) {
+                        indirectSearch = self.createSearch(node, symbol, .@"export", "default", &[_]*ast.Symbol{});
+                    }
+                },
+            }
+            if (indirectSearch) |search| {
+                for (r.indirect_users.items) |indirectUser| {
+                    self.searchForName(indirectUser, search);
+                }
+            }
+        }
+    }
+
+    pub fn getImportSearches(self: *State, exportSymbol: *ast.Symbol, exportInfo: *ExportInfo) !importtracker.ImportsResult {
+        if (self.importTracker == null) {
+            var sourceFilesSet = std.AutoHashMapUnmanaged(ast_gen.NodeIndex, void).empty;
+            for (self.sourceFiles) |sf| {
+                try sourceFilesSet.put(self.allocator, sf, {});
+            }
+            self.importTracker = try importtracker.ImportTracker.init(self.allocator, self.program, self.sourceFiles, sourceFilesSet, self.chk);
+        }
+
+        var it_export_info = importtracker.ExportInfo{
+            .exporting_module_symbol = self.chk.getSymbolIndex(exportInfo.exportingModuleSymbol).?,
+            .export_kind = switch (exportInfo.exportKind) {
+                .named => .Named,
+                .default => .Default,
+            },
+        };
+
+        return try self.importTracker.?.track(self.chk.getSymbolIndex(exportSymbol).?, &it_export_info, self.options.use == .rename);
     }
     pub fn createSearch(self: *State, location: ast.NodeIndex, symbol: *ast.Symbol, comingFrom: ImpExpKind, text_arg: []const u8, searchSymbols: []const *ast.Symbol) *RefSearch {
         var text = text_arg;
@@ -1234,8 +1275,6 @@ pub const State = struct {
         return search;
     }
 
-
-
     pub fn populateSearchSymbolSet(self: *State, symbol: *ast.Symbol, location: ast.NodeIndex, isForRename: bool, useAliasesForRename: bool, implementations: bool) []const *ast.Symbol {
         _ = useAliasesForRename;
 
@@ -1245,7 +1284,7 @@ pub const State = struct {
             return res;
         }
         var result = std.ArrayList(*ast.Symbol).init(self.allocator);
-        
+
         const Ctx = struct {
             result: *std.ArrayList(*ast.Symbol),
             symbol: *ast.Symbol,
@@ -1285,7 +1324,7 @@ pub const State = struct {
             Ctx.cb,
             Ctx.allowBaseTypes,
         ) catch null;
-        
+
         return result.toOwnedSlice() catch return &[_]*ast.Symbol{};
     }
 
@@ -1303,20 +1342,20 @@ pub const State = struct {
             state: *State,
             context: @TypeOf(context),
             sym_capture: *ast.Symbol,
-            
+
             fn call(ctx: *const @This(), sym: *ast.Symbol) !?*ast.Symbol {
                 const rootSymbols = ctx.state.checker.getRootSymbols(ctx.state.allocator, sym);
                 for (rootSymbols) |rootSymbol| {
                     if (try cbSymbol(ctx.context, sym, rootSymbol, null)) |result| {
                         return result;
                     }
-                    
+
                     if (rootSymbol.Parent != null and (rootSymbol.Flags & (checker.SymbolFlags.Class | checker.SymbolFlags.Interface)) != 0 and allowBaseTypes(ctx.context, rootSymbol)) {
                         const BaseTypeContext = struct {
                             inner_ctx: *const @This(),
                             inner_sym: *ast.Symbol,
                             inner_root: *ast.Symbol,
-                            
+
                             fn cb(baseCtx: *const @This(), base: *ast.Symbol) !?*ast.Symbol {
                                 return cbSymbol(baseCtx.inner_ctx.context, baseCtx.inner_sym, baseCtx.inner_root, base);
                             }
@@ -1326,7 +1365,7 @@ pub const State = struct {
                             .inner_sym = sym,
                             .inner_root = rootSymbol,
                         };
-                        
+
                         if (try ls_utils.getPropertySymbolsFromBaseTypes(
                             ctx.state.allocator,
                             &ctx.state.program.ast,
@@ -1522,8 +1561,6 @@ pub const State = struct {
         }
     }
 
-
-
     pub fn searchForName(self: *State, sourceFile: ast.NodeIndex, search: *RefSearch) void {
         // In a full DoD implementation, we would check the sourceFile's name table here.
         // For now, we assume it's in the file.
@@ -1532,16 +1569,16 @@ pub const State = struct {
 
     pub fn explicitlyInheritsFrom(self: *State, symbol: *ast.Symbol, parent: *ast.Symbol) bool {
         if (symbol.id == parent.id) return true;
-        
+
         const key = InheritKey{ .symbol = symbol, .parent = parent };
         if (self.inheritsFromCache.get(key)) |cached| {
             return cached;
         }
 
         self.inheritsFromCache.put(self.allocator, key, false) catch {}; // Prevent infinite recursion
-        
+
         if (symbol.Declarations.items.len == 0) return false;
-        
+
         var inherits = false;
         for (symbol.Declarations.items) |decl| {
             const superTypeNodes = ls_utils.getAllSuperTypeNodes(self.allocator, &self.program.ast, decl) catch &[_]ast.NodeIndex{};
@@ -1800,7 +1837,7 @@ pub fn getReferencedSymbolsForSymbol(ls: *languageservice.LanguageService, alloc
     } else if (node != ast.null_node and program.ast.getNodeKind(node) == .DefaultKeyword and std.mem.eql(u8, symbol.name, ast_utils.InternalSymbolNameDefault) and symbol.parent != null) {
         state.addReference(node, symbol, EntryKind.node);
         var exportInfo = ExportInfo{ .exportingModuleSymbol = symbol.parent.?, .exportKind = ExportKind.default };
-        state.searchForImportsOfExport(node, symbol, &exportInfo);
+        state.searchForImportsOfExport(node, symbol, &exportInfo) catch {};
     } else {
         const searchSymbols = state.populateSearchSymbolSet(symbol, node, options.use == .rename, options.useAliasesForRename, options.implementations);
         const search = state.createSearch(node, symbol, ImpExpKind.unknown, "", searchSymbols);
@@ -1878,10 +1915,10 @@ pub fn isValidReferencePosition(tree: *ast.Ast, node: ast.NodeIndex, searchSymbo
         .NoSubstitutionTemplateLiteral, .StringLiteral => {
             if (ast_utils.getText(tree, node).len != searchSymbolName.len) return false;
             return isLiteralNameOfPropertyDeclarationOrIndexAccess(tree, node) or
-                   isNameOfModuleDeclaration(tree, node) or
-                   isExpressionOfExternalModuleImportEqualsDeclaration(tree, node) or
-                   (tree.getKind(tree.parents.items[node]) == .CallExpression and isBindableObjectDefinePropertyCall(tree, tree.parents.items[node]) and tree.getAstNode(tree.parents.items[node]).call_expression.arguments[1] == node) or
-                   ast_utils.isImportOrExportSpecifier(tree, tree.parents.items[node]);
+                isNameOfModuleDeclaration(tree, node) or
+                isExpressionOfExternalModuleImportEqualsDeclaration(tree, node) or
+                (tree.getKind(tree.parents.items[node]) == .CallExpression and isBindableObjectDefinePropertyCall(tree, tree.parents.items[node]) and tree.getAstNode(tree.parents.items[node]).call_expression.arguments[1] == node) or
+                ast_utils.isImportOrExportSpecifier(tree, tree.parents.items[node]);
         },
         .NumericLiteral => return isLiteralNameOfPropertyDeclarationOrIndexAccess(tree, node) and ast_utils.getText(tree, node).len == searchSymbolName.len,
         .DefaultKeyword => return "default".len == searchSymbolName.len,

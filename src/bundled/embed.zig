@@ -21,9 +21,73 @@ pub fn IsBundled(path: []const u8) bool {
 }
 
 // In typescript-go, WrapFS wraps a vfs.FS.
-// We provide a stub for WrapFS, since vfs.FS in Zig is not fully defined yet.
-// When it is defined, we can implement wrappedFS.
-pub fn wrapFS(fs: anytype) @TypeOf(fs) {
-    // TODO: implement vfs wrapper when vfs is fully implemented.
-    return fs;
+pub fn wrapFS(fs: anytype) WrappedFS(@TypeOf(fs)) {
+    return .{ .fs = fs };
+}
+
+pub fn WrappedFS(comptime FS: type) type {
+    return struct {
+        fs: FS,
+
+        pub fn useCaseSensitiveFileNames(self: *@This()) bool {
+            return self.fs.useCaseSensitiveFileNames();
+        }
+
+        pub fn fileExists(self: *@This(), path: []const u8) bool {
+            if (splitPath(path)) |rest| {
+                return embed_generated.embeddedContents.has(rest);
+            }
+            return self.fs.fileExists(path);
+        }
+
+        pub fn readFile(self: *@This(), allocator: std.mem.Allocator, path: []const u8) ?[]const u8 {
+            if (splitPath(path)) |rest| {
+                if (embed_generated.embeddedContents.get(rest)) |contents| {
+                    return allocator.dupe(u8, contents) catch null;
+                }
+                return null;
+            }
+            return self.fs.readFile(allocator, path);
+        }
+
+        pub fn directoryExists(self: *@This(), path: []const u8) bool {
+            if (splitPath(path)) |rest| {
+                return std.mem.eql(u8, rest, "libs") or std.mem.eql(u8, rest, "");
+            }
+            return self.fs.directoryExists(path);
+        }
+
+        pub fn getAccessibleEntries(self: *@This(), allocator: std.mem.Allocator, path: []const u8) !@import("../vfs/vfs.zig").Entries {
+            if (splitPath(path)) |rest| {
+                var result = @import("../vfs/vfs.zig").Entries{};
+                if (rest.len == 0) {
+                    var dirs = std.ArrayList([]const u8).init(allocator);
+                    try dirs.append("libs");
+                    result.directories = try dirs.toOwnedSlice();
+                } else if (std.mem.eql(u8, rest, "libs")) {
+                    var files = std.ArrayList([]const u8).init(allocator);
+                    for (libs_generated.LibNames) |lib| {
+                        try files.append(lib);
+                    }
+                    result.files = try files.toOwnedSlice();
+                }
+                return result;
+            }
+            return try self.fs.getAccessibleEntries(allocator, path);
+        }
+
+        pub fn realpath(self: *@This(), allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+            if (splitPath(path) != null) {
+                return try allocator.dupe(u8, path);
+            }
+            return try self.fs.realpath(allocator, path);
+        }
+
+        pub fn writeFile(self: *@This(), path: []const u8, data: []const u8) !void {
+            if (splitPath(path) != null) {
+                @panic("cannot write to embedded file system");
+            }
+            return try self.fs.writeFile(path, data);
+        }
+    };
 }

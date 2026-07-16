@@ -81,15 +81,15 @@ pub const SessionHost = struct {
         return .{};
     }
 
-    fn getECMALineInfo(ptr: *anyopaque, fileName: []const u8) *sourcemap.ECMALineInfo {
+    fn getECMALineInfo(ptr: *anyopaque, fileName: []const u8) ?*sourcemap.ECMALineInfo {
         _ = ptr;
         _ = fileName;
-        @panic("not implemented");
+        return null;
     }
 
-    fn autoImportRegistry(ptr: *anyopaque) *autoimport.Registry {
+    fn autoImportRegistry(ptr: *anyopaque) ?*autoimport.Registry {
         _ = ptr;
-        @panic("not implemented");
+        return null;
     }
 
     fn readDirectory(

@@ -88,10 +88,11 @@ pub const Emitter = struct {
     declarationEmitBlocked: ?*const fn (*anyopaque) bool = null,
 
     pub fn emit(self: *Emitter) !void {
+        var trace_handle: ?tracing.PushHandle = null;
         if (self.tr) |tr| {
-            // TODO: push/pop tracing logic
-            _ = tr;
+            trace_handle = tr.push(.emit, "emit", .{ .path = self.tree.fileName }, true);
         }
+        defer if (trace_handle) |*handle| handle.end();
 
         try self.emitJSFile(self.sourceFile, self.paths.jsFilePath, self.paths.sourceMapFilePath);
         try self.emitDeclarationFile(self.sourceFile, self.paths.declarationFilePath, self.paths.declarationMapPath);
@@ -113,10 +114,11 @@ pub const Emitter = struct {
     }
 
     pub fn runScriptTransformers(self: *Emitter, emitContext: *emitcontext.EmitContext, sourceFile: ast_gen.NodeIndex) !ast_gen.NodeIndex {
+        var trace_handle: ?tracing.PushHandle = null;
         if (self.tr) |tr| {
-            // TODO: tracing
-            _ = tr;
+            trace_handle = tr.push(.emit, "transformNodes", .{ .path = self.tree.fileName }, false);
         }
+        defer if (trace_handle) |*handle| handle.end();
         var transformersList = try getScriptTransformers(self.allocator, emitContext, self.host, sourceFile, self.tree);
         defer {
             for (transformersList.items) |transformer| {
@@ -140,10 +142,11 @@ pub const Emitter = struct {
     }
 
     pub fn runDeclarationTransformers(self: *Emitter, emitContext: *emitcontext.EmitContext, sourceFile: ast_gen.NodeIndex, declarationFilePath: []const u8, declarationMapPath: []const u8) !struct { ast_gen.NodeIndex, []diagnostics.Diagnostic } {
+        var trace_handle: ?tracing.PushHandle = null;
         if (self.tr) |tr| {
-            // TODO: tracing
-            _ = tr;
+            trace_handle = tr.push(.emit, "transformNodes", .{ .path = self.tree.fileName }, false);
         }
+        defer if (trace_handle) |*handle| handle.end();
         var diags = std.ArrayListUnmanaged(diagnostics.Diagnostic).empty;
         var transformersList = try self.getDeclarationTransformers(emitContext, declarationFilePath, declarationMapPath);
         defer {
@@ -182,10 +185,11 @@ pub const Emitter = struct {
             return;
         }
 
+        var trace_handle: ?tracing.PushHandle = null;
         if (self.tr) |tr| {
-            // TODO: tracing
-            _ = tr;
+            trace_handle = tr.push(.emit, "emitJsFileOrBundle", .{ .jsFilePath = jsFilePath }, true);
         }
+        defer if (trace_handle) |*handle| handle.end();
 
         var nodeFactory = factory.NodeFactory.init(self.allocator, self.tree);
         defer nodeFactory.deinit();
@@ -208,10 +212,11 @@ pub const Emitter = struct {
             return;
         }
 
+        var trace_handle: ?tracing.PushHandle = null;
         if (self.tr) |tr| {
-            // TODO: tracing
-            _ = tr;
+            trace_handle = tr.push(.emit, "emitDeclarationFileOrBundle", .{ .declarationFilePath = declarationFilePath }, true);
         }
+        defer if (trace_handle) |*handle| handle.end();
 
         var nodeFactory = factory.NodeFactory.init(self.allocator, self.tree);
         defer nodeFactory.deinit();

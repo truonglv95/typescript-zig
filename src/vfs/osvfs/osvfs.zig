@@ -86,23 +86,35 @@ const OsFS = struct {
 
     fn appendFile(ptr: *anyopaque, path: []const u8, data: []const u8) anyerror!void {
         _ = ptr;
-        _ = path;
-        _ = data;
-        return error.NotImplemented;
+        if (std.fs.path.dirname(path)) |dir| {
+            std.Io.Dir.cwd().createDirPath(getIo(), dir) catch {};
+        }
+        var file = try std.fs.cwd().createFile(path, .{ .truncate = false });
+        defer file.close();
+        try file.seekFromEnd(0);
+        try file.writeAll(data);
     }
 
     fn remove(ptr: *anyopaque, path: []const u8) anyerror!void {
         _ = ptr;
-        _ = path;
-        return error.NotImplemented;
+        if (std.fs.path.isAbsolute(path)) {
+            std.fs.deleteTreeAbsolute(path) catch {};
+        } else {
+            std.Io.Dir.cwd().deleteTree(getIo(), path) catch {};
+        }
     }
 
     fn chtimes(ptr: *anyopaque, path: []const u8, atime: i128, mtime: i128) anyerror!void {
         _ = ptr;
-        _ = path;
-        _ = atime;
-        _ = mtime;
-        return error.NotImplemented;
+        if (std.fs.path.isAbsolute(path)) {
+            var file = std.fs.openFileAbsolute(path, .{ .mode = .read_only }) catch return;
+            defer file.close();
+            file.updateTimes(atime, mtime) catch {};
+        } else {
+            var file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch return;
+            defer file.close();
+            file.updateTimes(atime, mtime) catch {};
+        }
     }
 
     fn stat(ptr: *anyopaque, path: []const u8) ?vfs.FileInfo {
@@ -113,9 +125,63 @@ const OsFS = struct {
 
     fn walkDir(ptr: *anyopaque, root: []const u8, walk_fn: vfs.WalkDirFunc) anyerror!void {
         _ = ptr;
-        _ = root;
-        _ = walk_fn;
-        return error.NotImplemented;
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+
+        const root_entry = vfs.DirEntry{
+            .name = std.fs.path.basename(root),
+            .is_dir = true,
+            .type = 0,
+        };
+
+        walk_fn(root, root_entry, null) catch |err| {
+            if (err == vfs.skip_dir or err == vfs.skip_all) return;
+            return err;
+        };
+
+        try walkDirInner(arena.allocator(), root, walk_fn);
+    }
+
+    fn walkDirInner(allocator: std.mem.Allocator, current_path: []const u8, walk_fn: vfs.WalkDirFunc) anyerror!void {
+        var dir = if (std.fs.path.isAbsolute(current_path)) 
+            std.fs.openDirAbsolute(current_path, .{ .iterate = true }) catch |err| {
+                try walk_fn(current_path, null, err);
+                return;
+            }
+        else 
+            std.fs.cwd().openDir(current_path, .{ .iterate = true }) catch |err| {
+                try walk_fn(current_path, null, err);
+                return;
+            };
+        defer dir.close();
+
+        var it = dir.iterate();
+        while (it.next() catch null) |entry| {
+            const path = std.fs.path.join(allocator, &.{ current_path, entry.name }) catch continue;
+            const is_dir = entry.kind == .directory;
+            const vfs_entry = vfs.DirEntry{
+                .name = entry.name,
+                .is_dir = is_dir,
+                .type = 0,
+            };
+
+            var skip_children = false;
+            walk_fn(path, vfs_entry, null) catch |err| {
+                if (err == vfs.skip_dir) {
+                    skip_children = true;
+                } else if (err == vfs.skip_all) {
+                    return err;
+                } else {
+                    return err;
+                }
+            };
+
+            if (is_dir and !skip_children) {
+                walkDirInner(allocator, path, walk_fn) catch |err| {
+                    if (err == vfs.skip_all) return err;
+                };
+            }
+        }
     }
 
     const vtable = vfs.FS.VTable{

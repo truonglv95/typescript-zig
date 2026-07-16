@@ -388,6 +388,8 @@ pub const Registry = struct {
 
     pub fn nodeModulesDirectories(self: *Registry, allocator: std.mem.Allocator) !std.StringHashMap([]const u8) {
         _ = self;
+        
+        _ = self;
         return std.StringHashMap([]const u8).init(allocator);
     }
     pub fn cloneRegistry(self: *Registry, allocator: std.mem.Allocator, change: RegistryChange, host: RegistryCloneHost, log_tree: ?*logging.LogTree) !*Registry {

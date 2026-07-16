@@ -55,6 +55,7 @@ pub const ParsedCommandLine = struct {
     },
     Errors: std.ArrayList(*diagnostics.Diagnostic),
     Raw: *std.StringHashMap(OptionValue),
+    extraFileExtensions: []const @import("tsconfigparsing.zig").FileExtensionInfo = &[_]@import("tsconfigparsing.zig").FileExtensionInfo{},
 
     pub fn FileNames(self: *@This()) [][]const u8 {
         _ = self;

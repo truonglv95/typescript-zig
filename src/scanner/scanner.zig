@@ -891,21 +891,49 @@ pub const Scanner = struct {
             }
             if (ch == '\\') {
                 if (!jsxAttributeString) {
-                    // slow path placeholder (TODO: decode escape sequence)
-                    self.state.pos += 1;
-                    if (self.state.pos < self.end) {
+                    var buf = std.ArrayListUnmanaged(u8).empty;
+                    buf.appendSlice(self.allocator, self.text[start..self.state.pos]) catch {};
+                    
+                    while (self.state.pos < self.end) {
+                        const next_ch = self.char();
+                        if (next_ch < 0) {
+                            self.state.tokenFlags |= TokenFlags.Unterminated;
+                            self.errorAt(&@import("../diagnostics/diagnostics_generated.zig").Unterminated_string_literal, self.state.pos, 0, &[_][]const u8{});
+                            break;
+                        }
+                        if (next_ch == quote) {
+                            self.state.pos += 1;
+                            break;
+                        }
+                        if (next_ch == '\\' and !jsxAttributeString) {
+                            self.state.pos += 1;
+                            const esc_ch = self.char();
+                            if (esc_ch >= 0) {
+                                self.state.pos += 1;
+                                switch (esc_ch) {
+                                    'b' => buf.append(self.allocator, '\x08') catch {},
+                                    't' => buf.append(self.allocator, '\t') catch {},
+                                    'n' => buf.append(self.allocator, '\n') catch {},
+                                    'v' => buf.append(self.allocator, '\x0B') catch {},
+                                    'f' => buf.append(self.allocator, '\x0C') catch {},
+                                    'r' => buf.append(self.allocator, '\r') catch {},
+                                    '\'' => buf.append(self.allocator, '\'') catch {},
+                                    '"' => buf.append(self.allocator, '"') catch {},
+                                    '\\' => buf.append(self.allocator, '\\') catch {},
+                                    else => buf.append(self.allocator, @intCast(esc_ch)) catch {},
+                                }
+                            }
+                            continue;
+                        }
+                        if ((next_ch == '\n' or next_ch == '\r') and !jsxAttributeString) {
+                            self.state.tokenFlags |= TokenFlags.Unterminated;
+                            self.errorAt(&@import("../diagnostics/diagnostics_generated.zig").Unterminated_string_literal, self.state.pos, 0, &[_][]const u8{});
+                            break;
+                        }
+                        buf.append(self.allocator, @intCast(next_ch)) catch {};
                         self.state.pos += 1;
-                    } else {
-                        self.state.tokenFlags |= TokenFlags.Unterminated;
-                        break;
                     }
-                    continue;
-                }
-            }
-            if (ch == '\n' or ch == '\r') {
-                if (!jsxAttributeString) {
-                    self.state.tokenFlags |= TokenFlags.Unterminated;
-                    break;
+                    return buf.toOwnedSlice(self.allocator) catch "";
                 }
             }
             self.state.pos += 1;

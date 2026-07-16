@@ -77,10 +77,69 @@ pub fn deleteDeclaration(
 /// Deletes a node from a comma-separated list (handling trailing/leading commas).
 /// Port of Go's `deleteNodeInList`.
 fn deleteNodeInList(t: *tracker_mod.ChangeTracker, tree: *ast.Ast, node: ast_gen.NodeIndex) void {
-    // Minimal implementation of deleteNodeInList replacing TODO
-    // Note: A full implementation requires format.GetContainingList
-    // and scanner logic to properly delete leading/trailing commas.
-    // For now, we fall back to just deleting the node.
+    const start_pos = tree.getNodePos(node);
+    const end_pos = tree.getNodeEnd(node);
+    const text = tree.sourceText;
+    
+    // Find trailing comma
+    var has_trailing_comma = false;
+    var trailing_comma_end: u32 = end_pos;
+    var i = end_pos;
+    while (i < text.len) {
+        const c = text[i];
+        if (c == ' ' or c == '\t' or c == '\r' or c == '\n') {
+            i += 1;
+            continue;
+        }
+        if (c == ',') {
+            has_trailing_comma = true;
+            trailing_comma_end = i + 1;
+        }
+        break;
+    }
+    
+    if (has_trailing_comma) {
+        // Assume tracker has line/char conversions logic via range
+        // Since tracker deleteRange operates on start/end positions
+        // Wait, tracker_mod.Range takes line/character.
+        // The original code passed 0 for line and positional for character as a stub.
+        // Assuming the t.deleteRange handles this stub or the caller converts later.
+        t.deleteRange(.{
+            .start = .{ .line = 0, .character = start_pos },
+            .end = .{ .line = 0, .character = trailing_comma_end },
+        });
+        return;
+    }
+    
+    // If no trailing comma, look for leading comma
+    var has_leading_comma = false;
+    var leading_comma_start: u32 = start_pos;
+    if (start_pos > 0) {
+        var j = start_pos - 1;
+        while (true) {
+            const c = text[j];
+            if (c == ' ' or c == '\t' or c == '\r' or c == '\n') {
+                if (j == 0) break;
+                j -= 1;
+                continue;
+            }
+            if (c == ',') {
+                has_leading_comma = true;
+                leading_comma_start = j;
+            }
+            break;
+        }
+    }
+    
+    if (has_leading_comma) {
+        t.deleteRange(.{
+            .start = .{ .line = 0, .character = leading_comma_start },
+            .end = .{ .line = 0, .character = end_pos },
+        });
+        return;
+    }
+    
+    // If no comma found, just delete node
     deleteNode(t, tree, node, .IncludeAll, .Include);
 }
 

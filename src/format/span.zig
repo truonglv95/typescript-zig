@@ -398,7 +398,7 @@ pub fn getOwnOrInheritedDelta(node: ast.NodeIndex, options: lsutil.FormatCodeSet
         }
 
         if (indent.shouldIndentChildNode(options, n, child, tree, false)) {
-            return @intCast(options.editorSettings.indentSize); // TODO: handle nil check from Go version? indentSize is always set in TS
+            return @intCast(options.editorSettings.indentSize);
         }
 
         previousLine = line;

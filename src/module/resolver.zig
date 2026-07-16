@@ -854,10 +854,90 @@ pub const ResolutionState = struct {
                     try self.diagnostics.append(self.allocator, diagnostic);
                     return try self.unresolved();
                 }
-                // TODO: the rest of tryLoadInputFileForPath (scanning output directories)
+                const rootDir = self.compilerOptions.rootDir orelse try tspath.getDirectoryPath(self.allocator, self.compilerOptions.configFilePath.?);
+                const candidateDirectories = try self.getOutputDirectoriesForBaseDirectory(rootDir);
+                defer {
+                    for (candidateDirectories) |dir| {
+                        self.allocator.free(dir);
+                    }
+                    self.allocator.free(candidateDirectories);
+                }
+
+                for (candidateDirectories) |candidateDir| {
+                    if (try tspath.containsPath(self.allocator, candidateDir, finalPath, .{
+                        .useCaseSensitiveFileNames = self.resolver.host.useCaseSensitiveFileNames(),
+                        .currentDirectory = self.resolver.host.getCurrentDirectory(),
+                    })) {
+                        var pathFragment: []const u8 = "";
+                        if (finalPath.len > candidateDir.len) {
+                            pathFragment = finalPath[candidateDir.len + 1 ..];
+                        }
+                        const possibleInputBase = try tspath.combinePaths(self.allocator, rootDir, &[_][]const u8{pathFragment});
+                        defer self.allocator.free(possibleInputBase);
+                        const jsAndDtsExtensions = [_][]const u8{
+                            ExtensionMjs, ExtensionCjs, tspath.ExtensionJs, tspath.ExtensionJson, ExtensionDmts, ExtensionDcts, tspath.ExtensionDts,
+                        };
+                        for (jsAndDtsExtensions) |ext| {
+                            if (tspath.fileExtensionIs(possibleInputBase, ext)) {
+                                const inputExts = try tspath.getPossibleOriginalInputExtensionForExtension(self.allocator, possibleInputBase);
+                                defer self.allocator.free(inputExts);
+                                for (inputExts) |possibleExt| {
+                                    if (!extensionIsOk(self.extensions, possibleExt)) {
+                                        continue;
+                                    }
+                                    const possibleInputWithInputExtension = try tspath.changeExtension(self.allocator, possibleInputBase, possibleExt);
+                                    defer self.allocator.free(possibleInputWithInputExtension);
+                                    if (self.resolver.host.fileExists(possibleInputWithInputExtension)) {
+                                        if (self.loadFileNameFromPackageJSONField(self.extensions, possibleInputWithInputExtension, "")) |resolved| {
+                                            if (!resolved.shouldContinueSearching()) {
+                                                return resolved;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         return self.continueSearching();
+    }
+
+    pub fn getOutputDirectoriesForBaseDirectory(self: *ResolutionState, commonSourceDirGuess: []const u8) ![][]const u8 {
+        var currentDir: []const u8 = undefined;
+        if (self.compilerOptions.configFilePath != null) {
+            currentDir = self.resolver.host.getCurrentDirectory();
+        } else {
+            currentDir = commonSourceDirGuess;
+        }
+
+        var candidateDirectories = std.ArrayList([]const u8).init(self.allocator);
+        errdefer {
+            for (candidateDirectories.items) |dir| {
+                self.allocator.free(dir);
+            }
+            candidateDirectories.deinit();
+        }
+
+        if (self.compilerOptions.declarationDir) |declDir| {
+            if (declDir.len > 0) {
+                const combined = try tspath.combinePaths(self.allocator, currentDir, &[_][]const u8{declDir});
+                defer self.allocator.free(combined);
+                const normalized = try tspath.getNormalizedAbsolutePath(self.allocator, combined, self.resolver.host.getCurrentDirectory());
+                try candidateDirectories.append(normalized);
+            }
+        }
+
+        if (self.compilerOptions.outDir) |outDir| {
+            if (outDir.len > 0 and (self.compilerOptions.declarationDir == null or !std.mem.eql(u8, outDir, self.compilerOptions.declarationDir.?))) {
+                const combined = try tspath.combinePaths(self.allocator, currentDir, &[_][]const u8{outDir});
+                defer self.allocator.free(combined);
+                const normalized = try tspath.getNormalizedAbsolutePath(self.allocator, combined, self.resolver.host.getCurrentDirectory());
+                try candidateDirectories.append(normalized);
+            }
+        }
+        return try candidateDirectories.toOwnedSlice();
     }
 
     pub fn getPackageScopeForPath(self: *ResolutionState, directory: []const u8) ?*packagejson.InfoCacheEntry {
@@ -1669,4 +1749,20 @@ pub fn normalizePathForCJSResolution(allocator: std.mem.Allocator, containingDir
         return try std.fmt.allocPrint(allocator, "{s}/", .{combined});
     }
     return combined;
+}
+
+pub fn extensionIsOk(extensions: types.Extensions, extension: []const u8) bool {
+    if (extensions.javaScript and (std.mem.eql(u8, extension, tspath.ExtensionJs) or std.mem.eql(u8, extension, tspath.ExtensionJsx) or std.mem.eql(u8, extension, ExtensionMjs) or std.mem.eql(u8, extension, ExtensionCjs))) {
+        return true;
+    }
+    if (extensions.typeScript and (std.mem.eql(u8, extension, tspath.ExtensionTs) or std.mem.eql(u8, extension, tspath.ExtensionTsx) or std.mem.eql(u8, extension, ExtensionMts) or std.mem.eql(u8, extension, ExtensionCts))) {
+        return true;
+    }
+    if (extensions.declaration and (std.mem.eql(u8, extension, tspath.ExtensionDts) or std.mem.eql(u8, extension, ExtensionDmts) or std.mem.eql(u8, extension, ExtensionDcts))) {
+        return true;
+    }
+    if (extensions.json and std.mem.eql(u8, extension, tspath.ExtensionJson)) {
+        return true;
+    }
+    return false;
 }

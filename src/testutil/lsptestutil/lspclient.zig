@@ -89,7 +89,8 @@ pub const LSPClient = struct {
     onServerNotification: ?ServerNotificationHandler,
     ctx: ?*anyopaque,
 
-    pendingRequests: std.AutoHashMap(jsonrpc.ID, *std.Thread.Condition), // Dummy for now
+    pendingRequests: std.AutoHashMap(jsonrpc.ID, *PendingRequest),
+
     pendingRequestsMu: std.Thread.Mutex,
 
     serverThread: std.Thread,
@@ -120,7 +121,7 @@ pub const LSPClient = struct {
             .onServerRequest = onServerRequest,
             .onServerNotification = null,
             .ctx = null,
-            .pendingRequests = std.AutoHashMap(jsonrpc.ID, *std.Thread.Condition).init(allocator),
+            .pendingRequests = std.AutoHashMap(jsonrpc.ID, *PendingRequest).init(allocator),
             .pendingRequestsMu = .{},
             .serverThread = undefined,
             .routerThread = undefined,
@@ -178,11 +179,17 @@ pub const LSPClient = struct {
         self.pendingRequestsMu.lock();
         defer self.pendingRequestsMu.unlock();
 
-        if (self.pendingRequests.get(resp.id.?)) |cond| {
+        if (self.pendingRequests.get(resp.id.?)) |pending| {
             _ = self.pendingRequests.remove(resp.id.?);
-            cond.signal();
+            pending.response = resp;
+            pending.cond.signal();
         }
     }
+
+    pub const PendingRequest = struct {
+        cond: std.Thread.Condition = .{},
+        response: ?*lsproto.ResponseMessage = null,
+    };
 
     fn handleServerRequest(self: *LSPClient, req: *lsproto.RequestMessage) !void {
         var response: ?*lsproto.ResponseMessage = null;
@@ -220,13 +227,35 @@ pub fn sendRequest(
     info: anytype,
     params: Params,
 ) !struct { *lsproto.Message, Resp, bool } {
-    _ = info;
-    _ = params;
-    _ = allocator;
     const id = c.nextID();
-    _ = id;
-    // Skeleton: In a real impl, we would create a condition variable, add to pending requests, write, and wait
-    return error.NotImplemented;
+    const reqID = jsonrpc.ID{ .integer = id };
+    const reqMsg = try info.newRequestMessage(allocator, reqID, params);
+
+    var pending = LSPClient.PendingRequest{};
+    
+    c.pendingRequestsMu.lock();
+    try c.pendingRequests.put(reqID, &pending);
+    c.pendingRequestsMu.unlock();
+
+    try c.writeMsg(reqMsg.message());
+
+    c.pendingRequestsMu.lock();
+    while (pending.response == null) {
+        pending.cond.wait(&c.pendingRequestsMu);
+    }
+    c.pendingRequestsMu.unlock();
+
+    if (pending.response) |resp| {
+        if (resp.err != null) {
+            return .{ resp.message(), undefined, false };
+        }
+        if (resp.result) |res| {
+            const parsed = try info.unmarshalResult(allocator, res);
+            return .{ resp.message(), parsed, true };
+        }
+        return .{ resp.message(), undefined, true }; // Some requests have void/null responses
+    }
+    return .{ undefined, undefined, false };
 }
 
 pub fn sendNotification(
@@ -236,9 +265,6 @@ pub fn sendNotification(
     info: anytype,
     params: Params,
 ) !void {
-    _ = allocator;
-    _ = c;
-    _ = info;
-    _ = params;
-    return error.NotImplemented;
+    const reqMsg = try info.newNotificationMessage(allocator, params);
+    try c.writeMsg(reqMsg.message());
 }

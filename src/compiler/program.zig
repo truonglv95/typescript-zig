@@ -18,6 +18,7 @@ const semver_range = @import("../semver/version_range.zig");
 const text_writer = @import("../printer/textwriter.zig");
 const emitcontext = @import("../printer/emitcontext.zig");
 const transformers = @import("../transformers/transformer.zig");
+const tracing = @import("../tracing/tracing.zig");
 const declarations = @import("../transformers/declarations.zig");
 const harness = @import("harness.zig");
 
@@ -37,6 +38,8 @@ pub const ProgramOptions = struct {
     projectName: []const u8 = "",
     pathMappings: []const PathMapping = &.{},
     defaultLibraryPath: []const u8 = "",
+    tracing: ?*tracing.Tracing = null,
+    writeFile: ?*const fn (fileName: []const u8, text: []const u8, data: ?*emitter_mod.WriteFileData) anyerror!void = null,
 };
 
 pub const Dependency = struct {
@@ -395,8 +398,8 @@ pub const Program = struct {
                     .EmittedFiles = &[_][]const u8{},
                     .SourceMaps = &[_]*emitter_mod.SourceMapEmitResult{},
                 },
-                .writeFile = null, // TODO
-                .tr = null,
+                .writeFile = self.opts.writeFile,
+                .tr = self.opts.tracing,
                 .declarationTransformerContext = self,
                 .declarationTransformerFactory = createDeclarationTransformer,
                 .declarationEmitBlocked = declarationEmitBlocked,
