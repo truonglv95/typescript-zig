@@ -1846,8 +1846,11 @@ pub const Binder = struct {
     fn bindVariableDeclarationOrBindingElement(self: *Binder, nodeIndex: ast_gen.NodeIndex, nameIndex: ast_gen.NodeIndex) !void {
         if (!self.isBindingPattern(nameIndex)) {
             const name = self.getIdentifierName(nameIndex);
-            const isBlockOrCatchScoped = ast_utils.isBlockScopedVariable(self.ast, nodeIndex) or self.isCatchClauseVariable(nodeIndex);
-            if (isBlockOrCatchScoped) {
+            // Catch clause variables are function-scoped (displayed as `var`),
+            // NOT block-scoped. They should get FunctionScopedVariable flag.
+            if (self.isCatchClauseVariable(nodeIndex)) {
+                _ = try self.declareSymbolAndAddToSymbolTable(nodeIndex, symbol.SymbolFlags.FunctionScopedVariable, symbol.SymbolFlags.FunctionScopedVariableExcludes, name);
+            } else if (ast_utils.isBlockScopedVariable(self.ast, nodeIndex)) {
                 _ = try self.bindBlockScopedDeclaration(nodeIndex, symbol.SymbolFlags.BlockScopedVariable, symbol.SymbolFlags.BlockScopedVariableExcludes, name);
             } else if (self.isPartOfParameterDeclaration(nodeIndex)) {
                 _ = try self.declareSymbolAndAddToSymbolTable(nodeIndex, symbol.SymbolFlags.FunctionScopedVariable, symbol.SymbolFlags.ParameterExcludes, name);

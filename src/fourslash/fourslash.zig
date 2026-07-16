@@ -292,6 +292,7 @@ pub const FourslashTest = struct {
                         c.allowJs = true;
                         c.strictNullChecks = true;
                         c.noImplicitAny = true;
+                        c.useUnknownInCatchVariables = true;
                         c.initializeChecker();
                         if (self.sourceFile) |sf| {
                             c.checkSourceFile(null, sf, false);
@@ -1461,21 +1462,76 @@ pub const FourslashTest = struct {
             }
         }
 
-        // Class: format as "class Name"
+        // Class: format as "class Name" or "class Name<T>" if it has type parameters
         if ((symObj.Flags & symbol.SymbolFlags.Class) != 0) {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
             out.appendSlice(aa, "class ") catch {};
             out.appendSlice(aa, symObj.Name) catch {};
+            // Append type parameters if present.
+            if (symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                const decl = p.ast.getNode(decl_node);
+                const tp_list: ?u32 = switch (decl) {
+                    .ClassDeclaration => |cd| cd.TypeParameters,
+                    .ClassExpression => |ce| ce.TypeParameters,
+                    else => null,
+                };
+                if (tp_list) |tpl| {
+                    if (tpl != 0) {
+                        const tp_nodes = p.ast.getNodeList(tpl);
+                        if (tp_nodes.len > 0) {
+                            out.appendSlice(aa, "<") catch {};
+                            for (tp_nodes, 0..) |tp_node, i| {
+                                if (i > 0) out.appendSlice(aa, ", ") catch {};
+                                if (tp_node != 0) {
+                                    const tp_name_node = ast_utils.getNameOfNode(&p.ast, tp_node);
+                                    if (tp_name_node != 0) {
+                                        const tp_name = ast_utils.getTextOfNode(&p.ast, tp_name_node);
+                                        out.appendSlice(aa, tp_name) catch {};
+                                    }
+                                }
+                            }
+                            out.appendSlice(aa, ">") catch {};
+                        }
+                    }
+                }
+            }
             return out.toOwnedSlice(aa) catch "";
         }
 
-        // Interface: format as "interface Name"
+        // Interface: format as "interface Name" or "interface Name<T>"
         if ((symObj.Flags & symbol.SymbolFlags.Interface) != 0) {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
             out.appendSlice(aa, "interface ") catch {};
             out.appendSlice(aa, symObj.Name) catch {};
+            // Append type parameters if present.
+            if (symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                const decl = p.ast.getNode(decl_node);
+                if (decl == .InterfaceDeclaration) {
+                    if (decl.InterfaceDeclaration.TypeParameters) |tpl| {
+                        if (tpl != 0) {
+                            const tp_nodes = p.ast.getNodeList(tpl);
+                            if (tp_nodes.len > 0) {
+                                out.appendSlice(aa, "<") catch {};
+                                for (tp_nodes, 0..) |tp_node, i| {
+                                    if (i > 0) out.appendSlice(aa, ", ") catch {};
+                                    if (tp_node != 0) {
+                                        const tp_name_node = ast_utils.getNameOfNode(&p.ast, tp_node);
+                                        if (tp_name_node != 0) {
+                                            const tp_name = ast_utils.getTextOfNode(&p.ast, tp_name_node);
+                                            out.appendSlice(aa, tp_name) catch {};
+                                        }
+                                    }
+                                }
+                                out.appendSlice(aa, ">") catch {};
+                            }
+                        }
+                    }
+                }
+            }
             return out.toOwnedSlice(aa) catch "";
         }
 
@@ -2543,6 +2599,7 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
         c.allowJs = true;
         c.strictNullChecks = true;
         c.noImplicitAny = true;
+        c.useUnknownInCatchVariables = true;
         c.initializeChecker();
         c.checkSourceFile(null, f.sourceFile.?, false);
         f.checker = c;

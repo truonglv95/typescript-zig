@@ -401,6 +401,7 @@ pub const Checker = struct {
     noImplicitAny: bool = false,
     checkJs: bool = false,
     allowJs: bool = false,
+    useUnknownInCatchVariables: bool = false,
     erasableSyntaxOnly: bool = false,
     moduleKind: core.ModuleKind = .ESNext,
     exactOptionalPropertyTypes: bool = false,
@@ -3431,6 +3432,14 @@ pub const Checker = struct {
                         if ((f & types.TypeFlags.BooleanLiteral) != 0) return try self.getBooleanType();
                     }
                     return initType;
+                }
+                // Catch clause variables have no Type and no Initializer.
+                // With useUnknownInCatchVariables, their type is `unknown`.
+                const parent = self.binder.ast.getNodeParent(nodeIndex);
+                if (parent != 0 and self.binder.ast.getNodeKind(parent) == .CatchClause) {
+                    if (self.useUnknownInCatchVariables) {
+                        return try self.getUnknownType();
+                    }
                 }
                 return try self.getAnyType();
             },
