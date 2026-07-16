@@ -2912,13 +2912,19 @@ pub const Checker = struct {
         return n;
     }
 
-    pub fn inferTypes(c: *Checker, inferences: []types.InferenceInfoIndex, target: types.TypeIndex, source: types.TypeIndex, priority: i32, b: bool) void {
+    /// Port of `checker.go::inferTypes`. Infers type arguments by relating
+    /// `source` to `target`. Full implementation requires InferenceState,
+    /// inferFromTypes, and hundreds of lines of type relationship logic.
+    /// Simplified: no-op (inference is handled at a higher level).
+    pub fn inferTypes(c: *Checker, inferences: []types.InferenceInfoIndex, target: types.TypeIndex, source: types.TypeIndex, priority: i32, contravariant: bool) void {
         _ = c;
         _ = inferences;
         _ = target;
         _ = source;
         _ = priority;
-        _ = b;
+        _ = contravariant;
+        // Full implementation requires the entire inference engine from
+        // inference.go (~1600 lines). Conservative: no-op.
     }
 
     pub fn isTypeIdenticalTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
