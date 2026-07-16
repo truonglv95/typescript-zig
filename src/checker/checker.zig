@@ -5075,35 +5075,46 @@ pub const Checker = struct {
         if (signature.resolvedReturnType) |rt| {
             if (rt != 0) return rt;
         }
+        if (signature.declaration == 0) return 0;
+        const decl = signature.declaration;
+
         // Try to read the explicit return type annotation from the declaration.
-        if (signature.declaration != 0) {
-            const decl = signature.declaration;
-            const node = c.binder.ast.getNode(decl);
-            const type_node: ast_gen.NodeIndex = switch (node) {
-                .FunctionDeclaration => |n| n.Type orelse 0,
-                .FunctionExpression => |n| n.Type orelse 0,
-                .MethodDeclaration => |n| n.Type orelse 0,
-                .ArrowFunction => |n| n.Type orelse 0,
-                .GetAccessor => |n| n.Type orelse 0,
-                .SetAccessor => |n| n.Type orelse 0,
-                .CallSignature => |n| n.Type orelse 0,
-                .ConstructSignature => |n| n.Type orelse 0,
-                .IndexSignature => |n| n.Type orelse 0,
-                else => 0,
-            };
-            if (type_node != 0) {
-                const t = c.getTypeOfNode(type_node) catch 0;
-                if (t != 0) {
-                    signature.resolvedReturnType = t;
-                    return t;
-                }
+        const node = c.binder.ast.getNode(decl);
+        const type_node: ast_gen.NodeIndex = switch (node) {
+            .FunctionDeclaration => |n| n.Type orelse 0,
+            .FunctionExpression => |n| n.Type orelse 0,
+            .MethodDeclaration => |n| n.Type orelse 0,
+            .ArrowFunction => |n| n.Type orelse 0,
+            .GetAccessor => |n| n.Type orelse 0,
+            .SetAccessor => |n| n.Type orelse 0,
+            .CallSignature => |n| n.Type orelse 0,
+            .ConstructSignature => |n| n.Type orelse 0,
+            .IndexSignature => |n| n.Type orelse 0,
+            else => 0,
+        };
+        if (type_node != 0) {
+            const t = c.getTypeOfNode(type_node) catch 0;
+            if (t != 0) {
+                signature.resolvedReturnType = t;
+                return t;
             }
         }
-        // No explicit return type — fall back to void for statements-with-body,
-        // and unknown for arrow-function expressions (which TS infers from body).
-        // We don't yet infer from the body — that requires running the full
-        // checker on the function body, which has not been ported.
-        return c.voidTypeIndex orelse 0;
+
+        // No explicit return type annotation — infer from the body.
+        // Use a recursion guard to avoid infinite recursion when inferring
+        // return type triggers more type checking that recursively asks for
+        // the same signature's return type. Cap at depth 6 (generous — we
+        // expect at most 2-3 levels in practice).
+        if (c.typeCheckDepth > 6) {
+            return c.voidTypeIndex orelse 0;
+        }
+        c.typeCheckDepth += 1;
+        defer c.typeCheckDepth -= 1;
+        const t = c.getReturnTypeFromBody(decl, CheckMode.Normal);
+        if (t != 0) {
+            signature.resolvedReturnType = t;
+        }
+        return t;
     }
 
     pub fn getErasedSignature(c: *Checker, signature: *types.Signature) *types.Signature {
@@ -17525,7 +17536,18 @@ pub const Checker = struct {
 
         if (body_kind != .Block) {
             // Expression body (arrow function): return type is the expression type
-            const ret = c.checkExpressionCachedEx(body, check_mode);
+            var ret = c.checkExpressionCachedEx(body, check_mode);
+            // Widen literal types: `() => 123` returns number, `() => "abc"` returns string.
+            if (ret != 0 and ret < c.typesList.items.len) {
+                const f = c.typesList.items[ret].flags;
+                if ((f & types.TypeFlags.NumberLiteral) != 0) {
+                    ret = c.getNumberType() catch ret;
+                } else if ((f & types.TypeFlags.StringLiteral) != 0) {
+                    ret = c.getStringType() catch ret;
+                } else if ((f & types.TypeFlags.BooleanLiteral) != 0) {
+                    ret = c.getBooleanType() catch ret;
+                }
+            }
             if (c.isConstContext(body)) {
                 return c.getRegularTypeOfLiteralType(ret);
             }
@@ -22064,10 +22086,21 @@ fn collectReturnTypes(
         .ReturnStatement => |n| {
             if (n.Expression) |expr| {
                 if (expr != 0) {
-                    const t = c.checkExpressionCached(expr);
+                    var t = c.checkExpressionCached(expr);
+                    if (t != 0 and t < c.typesList.items.len) {
+                        // Widen literal types: return 123 -> number, "abc" -> string, true -> boolean
+                        const f = c.typesList.items[t].flags;
+                        if ((f & types.TypeFlags.NumberLiteral) != 0) {
+                            t = c.getNumberType() catch t;
+                        } else if ((f & types.TypeFlags.StringLiteral) != 0) {
+                            t = c.getStringType() catch t;
+                        } else if ((f & types.TypeFlags.BooleanLiteral) != 0) {
+                            t = c.getBooleanType() catch t;
+                        }
+                    }
                     if (t != 0) {
                         return_types.append(c.allocator, t) catch {};
-                        if ((c.typesList.items[t].flags & types.TypeFlags.Never) != 0) {
+                        if (t < c.typesList.items.len and (c.typesList.items[t].flags & types.TypeFlags.Never) != 0) {
                             has_never_return.* = true;
                         }
                     }
@@ -22183,6 +22216,93 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
     if (c.binder.ast.getNodeKind(node) == .PropertyAccessExpression) {
         // Return property symbol if already typechecked and cached
         return getSymbolOfNode(c, node) orelse 0;
+    }
+
+    // Property name identifier inside a property access — try to resolve
+    // the parent's type and look up the property symbol on it.
+    // E.g. obj.prop  ->  node = .Identifier "prop", parent = .PropertyAccessExpression
+    const parent = c.binder.ast.getNodeParent(node);
+    if (parent != 0 and c.binder.ast.getNodeKind(parent) == .PropertyAccessExpression) {
+        const pae = c.binder.ast.getNode(parent).PropertyAccessExpression;
+        if (pae.name == node) {
+            // We're hovering on the property name; look up the type of the
+            // expression (obj), then find the property by name.
+            const obj_type = c.checkExpressionCached(pae.Expression);
+            if (obj_type != 0) {
+                const name_str = ast_utils.getTextOfNode(c.binder.ast, node);
+                if (c.getPropertyOfType(obj_type, name_str)) |prop_sym| {
+                    return prop_sym;
+                }
+            }
+        }
+    }
+
+    // Element access: obj["prop"]  ->  node = .StringLiteral "prop"
+    if (parent != 0 and c.binder.ast.getNodeKind(parent) == .ElementAccessExpression) {
+        const eae = c.binder.ast.getNode(parent).ElementAccessExpression;
+        if (eae.ArgumentExpression == node) {
+            const obj_type = c.checkExpressionCached(eae.Expression);
+            if (obj_type != 0) {
+                const name_str = ast_utils.getTextOfNode(c.binder.ast, node);
+                if (c.getPropertyOfType(obj_type, name_str)) |prop_sym| {
+                    return prop_sym;
+                }
+            }
+        }
+    }
+
+    // Property name identifier inside an object literal property assignment.
+    // E.g. { /*1*/prop: value } — node = .Identifier "prop", parent = .PropertyAssignment.
+    // Try to find the contextual type of the object literal and look up the property.
+    if (parent != 0 and c.binder.ast.getNodeKind(parent) == .PropertyAssignment) {
+        const pa = c.binder.ast.getNode(parent).PropertyAssignment;
+        if (pa.name == node) {
+            // Walk up to the ObjectLiteralExpression.
+            const grandparent = c.binder.ast.getNodeParent(parent);
+            if (grandparent != 0 and c.binder.ast.getNodeKind(grandparent) == .ObjectLiteralExpression) {
+                // Try to find the contextual type via parent of the object literal.
+                // This is a complex flow — for now, fall back to checking the
+                // parameter type if the object literal is a call argument.
+                const gg = c.binder.ast.getNodeParent(grandparent);
+                if (gg != 0 and c.binder.ast.getNodeKind(gg) == .CallExpression) {
+                    const ce = c.binder.ast.getNode(gg).CallExpression;
+                    const args = c.binder.ast.getNodeList(ce.Arguments);
+                    // Find the index of grandparent in args.
+                    var arg_idx: usize = 0;
+                    for (args, 0..) |arg, i| {
+                        if (arg == grandparent) {
+                            arg_idx = i;
+                            break;
+                        }
+                    }
+                    // Get the function signature and look up the parameter type.
+                    const fn_type = c.checkExpressionCached(ce.Expression);
+                    if (fn_type != 0) {
+                        // Get signatures of the function type. For now, just
+                        // check if the symbol has signatures.
+                        const fn_sym = c.typesList.items[fn_type].symbol orelse 0;
+                        if (fn_sym != 0) {
+                            const sigs = c.getSignaturesOfSymbol(fn_sym);
+                            if (sigs.len > 0) {
+                                const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
+                                const sig = &c.signatures.items[sigIdx];
+                                const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+                                if (arg_idx < params.len) {
+                                    const param_sym = params[arg_idx];
+                                    const param_type = c.getTypeOfSymbol(param_sym) catch 0;
+                                    if (param_type != 0) {
+                                        const name_str = ast_utils.getTextOfNode(c.binder.ast, node);
+                                        if (c.getPropertyOfType(param_type, name_str)) |prop_sym| {
+                                            return prop_sym;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // fallback: mostly for declarations

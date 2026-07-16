@@ -16,10 +16,12 @@ const GetTouchingNodeVisitor = struct {
 
         // std.debug.print("  [GetTouchingNodeVisitor] CHECKING {} ({s}) pos={} end={} target={}\n", .{node, @tagName(self.tree.getNodeKind(node)), pos, end, self.position});
 
-        // Use strict inequality on `end` so zero-width tokens (EndOfFile, etc.)
-        // don't match when position == pos == end. This matches TypeScript's
-        // getTouchingPropertyName semantics.
-        if (pos <= self.position and self.position < end) {
+        // Match if position is in [pos, end]. Use `pos <= position and position <= end`
+        // to include the end boundary (cursor at end of identifier matches that
+        // identifier). Skip zero-width tokens (pos == end) to avoid matching
+        // tokens like EndOfFile that span nothing.
+        if (pos == end) return; // zero-width — skip
+        if (pos <= self.position and self.position <= end) {
             // std.debug.print("  [GetTouchingNodeVisitor] Recursing into {} ({s})\n", .{node, @tagName(self.tree.getNodeKind(node))});
             var childVisitor = GetTouchingNodeVisitor{
                 .tree = self.tree,
