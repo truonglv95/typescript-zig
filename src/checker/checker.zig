@@ -3978,7 +3978,27 @@ pub const Checker = struct {
                 defer element_types.deinit(self.allocator);
                 if (ale.Elements != 0) {
                     const elems = self.binder.ast.getNodeList(ale.Elements);
-                    for (elems) |elem| try element_types.append(self.allocator, try self.checkExpressionAdHoc(elem));
+                    for (elems) |elem| {
+                        if (elem == 0) continue;
+                        const elem_type = try self.checkExpressionAdHoc(elem);
+                        // Widen literal types for array elements.
+                        if (elem_type != 0 and elem_type < self.typesList.items.len) {
+                            const f = self.typesList.items[elem_type].flags;
+                            if ((f & types.TypeFlags.NumberLiteral) != 0) {
+                                try element_types.append(self.allocator, try self.getNumberType());
+                                continue;
+                            }
+                            if ((f & types.TypeFlags.StringLiteral) != 0) {
+                                try element_types.append(self.allocator, try self.getStringType());
+                                continue;
+                            }
+                            if ((f & types.TypeFlags.BooleanLiteral) != 0) {
+                                try element_types.append(self.allocator, try self.getBooleanType());
+                                continue;
+                            }
+                        }
+                        try element_types.append(self.allocator, elem_type);
+                    }
                 }
                 const element_type = if (element_types.items.len == 0) try self.getNeverType() else try self.createUnionType(element_types.items);
                 return try self.createType(.{
