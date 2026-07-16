@@ -1212,28 +1212,39 @@ pub const FourslashTest = struct {
                     var out = std.ArrayListUnmanaged(u8).empty;
                     const aa = self.arena.allocator();
                     // Determine if local: walk parent chain from declaration.
+                    // Function expressions and arrow functions are always
+                    // considered local (they don't have a top-level declaration
+                    // scope like FunctionDeclaration does).
                     var is_local_function = false;
                     if (symObj.Declarations.items.len > 0) {
                         const decl_node = symObj.Declarations.items[0];
-                        var cur = p.ast.getNodeParent(decl_node);
-                        while (cur != 0) {
-                            const k = p.ast.getNodeKind(cur);
-                            if (k == .SourceFile) break;
-                            switch (k) {
-                                .FunctionDeclaration, .FunctionExpression, .MethodDeclaration,
-                                .Constructor, .GetAccessor, .SetAccessor, .ArrowFunction,
-                                => {
-                                    is_local_function = true;
-                                    break;
-                                },
-                                else => {},
+                        const decl_kind = p.ast.getNodeKind(decl_node);
+                        if (decl_kind == .FunctionExpression or decl_kind == .ArrowFunction) {
+                            is_local_function = true;
+                        } else {
+                            var cur = p.ast.getNodeParent(decl_node);
+                            while (cur != 0) {
+                                const k = p.ast.getNodeKind(cur);
+                                if (k == .SourceFile) break;
+                                switch (k) {
+                                    .FunctionDeclaration, .FunctionExpression, .MethodDeclaration,
+                                    .Constructor, .GetAccessor, .SetAccessor, .ArrowFunction,
+                                    => {
+                                        is_local_function = true;
+                                        break;
+                                    },
+                                    else => {},
+                                }
+                                cur = p.ast.getNodeParent(cur);
                             }
-                            cur = p.ast.getNodeParent(cur);
                         }
                     }
                     if (is_local_function) {
                         out.appendSlice(aa, "(local function) ") catch {};
-                        // For local functions, TS omits the name.
+                        // Include the function name if it has one.
+                        if (symObj.Name.len > 0 and !std.mem.eql(u8, symObj.Name, "__function")) {
+                            out.appendSlice(aa, symObj.Name) catch {};
+                        }
                     } else {
                         out.appendSlice(aa, "function ") catch {};
                         out.appendSlice(aa, symObj.Name) catch {};

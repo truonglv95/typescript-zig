@@ -3270,7 +3270,8 @@ pub const Checker = struct {
                     .alias = null,
                     .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
                 }),
-                .FunctionDeclaration, .MethodDeclaration, .Constructor => return try self.createType(.{
+                .FunctionDeclaration, .MethodDeclaration, .Constructor,
+                .FunctionExpression, .ArrowFunction => return try self.createType(.{
                     .flags = types.TypeFlags.Object,
                     .objectFlags = types.ObjectFlags.Anonymous,
                     .id = 0,

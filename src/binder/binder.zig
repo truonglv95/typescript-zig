@@ -728,13 +728,24 @@ pub const Binder = struct {
                 if (n.name) |nameIndex| {
                     bindingName = self.getIdentifierName(nameIndex);
                 }
-                _ = try self.bindAnonymousDeclaration(nodeIndex, symbol.SymbolFlags.Function, bindingName);
+                const fn_sym = try self.bindAnonymousDeclaration(nodeIndex, symbol.SymbolFlags.Function, bindingName);
 
                 const saveContainer = self.container;
                 const saveBlockScopeContainer = self.blockScopeContainer;
 
                 self.container = nodeIndex;
                 self.blockScopeContainer = nodeIndex;
+
+                // Add the function's own name to its local scope so it can be
+                // referenced inside the body (function expressions are name-bound
+                // in their own scope, not the enclosing scope).
+                if (n.name != null and bindingName.len > 0) {
+                    var locals = self.nodeLocals.getOrPut(nodeIndex) catch unreachable;
+                    if (!locals.found_existing) {
+                        locals.value_ptr.* = std.StringHashMap(ast_gen.SymbolIndex).init(self.allocator);
+                    }
+                    locals.value_ptr.put(bindingName, fn_sym) catch {};
+                }
 
                 if (n.TypeParameters) |tp| {
                     try self.bindNodeList(tp);
