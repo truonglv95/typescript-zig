@@ -41,6 +41,6 @@ test "TestFindAllRefsRootSymbols" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2", "3");
 }
 

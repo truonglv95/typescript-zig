@@ -15,7 +15,7 @@ test "TestRenameRest" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "parent");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "parent");
 }
 
 test "TestCompletionListInExportClause01" {
@@ -132,7 +132,7 @@ test "TestRenameInheritedProperties5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "propD");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "propD");
 }
 
 test "TestGetOccurrencesReturn3" {
@@ -159,7 +159,7 @@ test "TestGetOccurrencesReturn3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestGoToDefinitionReturn4" {
@@ -169,7 +169,7 @@ test "TestGoToDefinitionReturn4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "start");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "start");
 }
 
 test "TestFunctionIndentation" {
@@ -217,7 +217,7 @@ test "TestFunctionIndentation" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "namespace M {\n" ++ "    export =\n" ++ "        C;\n" ++ "    class C {\n" ++ "        constructor(b\n" ++ "        ) {\n" ++ "        }\n" ++ "        foo(a\n" ++ "            : string) {\n" ++ "            return a\n" ++ "                || true;\n" ++ "        }\n" ++ "        get bar(\n" ++ "        ) {\n" ++ "            return 1;\n" ++ "        }\n" ++ "    }\n" ++ "    function foo(a,\n" ++ "        b?) {\n" ++ "        new M.C(\n" ++ "            \"hello\");\n" ++ "    }\n" ++ "    {\n" ++ "        {\n" ++ "        }\n" ++ "    }\n" ++ "    foo(\n" ++ "        function() {\n" ++ "            \"hello\";\n" ++ "        });\n" ++ "    foo(\n" ++ "        () => {\n" ++ "            \"hello\";\n" ++ "        });\n" ++ "    var t,\n" ++ "        u = 1,\n" ++ "        v;\n" ++ "}");
+    try f.VerifyCurrentFileContent(undefined, "namespace M {\n" ++ "    export =\n" ++ "        C;\n" ++ "    class C {\n" ++ "        constructor(b\n" ++ "        ) {\n" ++ "        }\n" ++ "        foo(a\n" ++ "            : string) {\n" ++ "            return a\n" ++ "                || true;\n" ++ "        }\n" ++ "        get bar(\n" ++ "        ) {\n" ++ "            return 1;\n" ++ "        }\n" ++ "    }\n" ++ "    function foo(a,\n" ++ "        b?) {\n" ++ "        new M.C(\n" ++ "            \"hello\");\n" ++ "    }\n" ++ "    {\n" ++ "        {\n" ++ "        }\n" ++ "    }\n" ++ "    foo(\n" ++ "        function() {\n" ++ "            \"hello\";\n" ++ "        });\n" ++ "    foo(\n" ++ "        () => {\n" ++ "            \"hello\";\n" ++ "        });\n" ++ "    var t,\n" ++ "        u = 1,\n" ++ "        v;\n" ++ "}");
 }
 
 test "TestAssertContextualType" {
@@ -227,7 +227,7 @@ test "TestAssertContextualType" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "(parameter) bb: number", "");
+    try f.VerifyQuickInfoAt(undefined, "", "(parameter) bb: number", "");
 }
 
 test "TestSignatureHelpOnOverloads" {
@@ -240,9 +240,9 @@ test "TestSignatureHelpOnOverloads" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
-    // f.VerifySignatureHelp(undefined, .{.Text = "fn(x: string): any", .ParameterName = "x", .ParameterSpan = "x: string", .OverloadsCount = 2});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "fn(x: string): any", .ParameterName = "x", .ParameterSpan = "x: string", .OverloadsCount = 2});
     _ = f.Insert(undefined, "'',");
-    // f.VerifySignatureHelp(undefined, .{.Text = "fn(x: string, y: number): any", .ParameterName = "y", .ParameterSpan = "y: number", .OverloadsCount = 2});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "fn(x: string, y: number): any", .ParameterName = "y", .ParameterSpan = "y: number", .OverloadsCount = 2});
 }
 
 test "TestQuickInfoForConstTypeReference" {
@@ -252,6 +252,6 @@ test "TestQuickInfoForConstTypeReference" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNotQuickInfoExists(undefined);
+    try f.VerifyNotQuickInfoExists(undefined);
 }
 

@@ -18,7 +18,7 @@ test "TestSignatureHelpForOptionalMethods" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
-    // f.VerifySignatureHelp(undefined, .{.Text = "optionalMethod(current: any): any", .ParameterName = "current", .ParameterSpan = "current: any"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "optionalMethod(current: any): any", .ParameterName = "current", .ParameterSpan = "current: any"});
 }
 
 test "TestIssue57585_2" {
@@ -97,8 +97,8 @@ test "TestIssue57585_2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "const b: number", "");
-    _ = f.VerifyNonSuggestionDiagnostics(undefined, null);
+    try f.VerifyQuickInfoAt(undefined, "1", "const b: number", "");
+    try f.VerifyNonSuggestionDiagnostics(undefined, null);
 }
 
 test "TestIndexerReturnTypes1" {
@@ -167,22 +167,22 @@ test "TestIndexerReturnTypes1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "var r1: Date", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "var r2: Date", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "var r3: RegExp", "");
-    // f.VerifyQuickInfoAt(undefined, "4", "var r4: RegExp", "");
-    // f.VerifyQuickInfoAt(undefined, "5", "var r5: Date", "");
-    // f.VerifyQuickInfoAt(undefined, "6", "var r6: Date", "");
-    // f.VerifyQuickInfoAt(undefined, "7", "var r7: RegExp", "");
-    // f.VerifyQuickInfoAt(undefined, "8", "var r8: RegExp", "");
-    // f.VerifyQuickInfoAt(undefined, "9", "var r9: Date", "");
-    // f.VerifyQuickInfoAt(undefined, "10", "var r10: Date", "");
-    // f.VerifyQuickInfoAt(undefined, "11", "var r11: Date", "");
-    // f.VerifyQuickInfoAt(undefined, "12", "var r12: Date", "");
-    // f.VerifyQuickInfoAt(undefined, "13", "var r13: Ty<Date>", "");
-    // f.VerifyQuickInfoAt(undefined, "14", "var r14: Ty<Date>", "");
-    // f.VerifyQuickInfoAt(undefined, "15", "var r15: {\n    [x: number]: Date;\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "16", "var r16: {\n    [x: number]: Date;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "var r1: Date", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "var r2: Date", "");
+    try f.VerifyQuickInfoAt(undefined, "3", "var r3: RegExp", "");
+    try f.VerifyQuickInfoAt(undefined, "4", "var r4: RegExp", "");
+    try f.VerifyQuickInfoAt(undefined, "5", "var r5: Date", "");
+    try f.VerifyQuickInfoAt(undefined, "6", "var r6: Date", "");
+    try f.VerifyQuickInfoAt(undefined, "7", "var r7: RegExp", "");
+    try f.VerifyQuickInfoAt(undefined, "8", "var r8: RegExp", "");
+    try f.VerifyQuickInfoAt(undefined, "9", "var r9: Date", "");
+    try f.VerifyQuickInfoAt(undefined, "10", "var r10: Date", "");
+    try f.VerifyQuickInfoAt(undefined, "11", "var r11: Date", "");
+    try f.VerifyQuickInfoAt(undefined, "12", "var r12: Date", "");
+    try f.VerifyQuickInfoAt(undefined, "13", "var r13: Ty<Date>", "");
+    try f.VerifyQuickInfoAt(undefined, "14", "var r14: Ty<Date>", "");
+    try f.VerifyQuickInfoAt(undefined, "15", "var r15: {\n    [x: number]: Date;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "16", "var r16: {\n    [x: number]: Date;\n}", "");
 }
 
 test "TestRenameDestructuringAssignmentInFor" {
@@ -204,8 +204,8 @@ test "TestRenameDestructuringAssignmentInFor" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[8], f.Ranges()[3], f.Ranges()[5], f.Ranges()[6]);
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[8], f.Ranges()[3], f.Ranges()[5], f.Ranges()[6]);
 }
 
 test "TestJsDocServices" {
@@ -223,12 +223,12 @@ test "TestJsDocServices" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "use");
-    _ = f.VerifyQuickInfoIs(undefined, "(parameter) foo: I", "I pity the foo");
-    // f.VerifyBaselineFindAllReferences(undefined, "use", "def", "use2");
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[0], f.Ranges()[2], f.Ranges()[3]);
-    // f.VerifyBaselineDocumentHighlights(undefined, null , f.Ranges()[0], f.Ranges()[2], f.Ranges()[3]);
-    // f.VerifyBaselineGoToTypeDefinition(undefined, "use");
-    // f.VerifyBaselineGoToDefinition(undefined, false, "use");
+    try f.VerifyQuickInfoIs(undefined, "(parameter) foo: I", "I pity the foo");
+    // try f.VerifyBaselineFindAllReferences(undefined, "use", "def", "use2");
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[0], f.Ranges()[2], f.Ranges()[3]);
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , f.Ranges()[0], f.Ranges()[2], f.Ranges()[3]);
+    // try f.VerifyBaselineGoToTypeDefinition(undefined, "use");
+    // try f.VerifyBaselineGoToDefinition(undefined, false, "use");
 }
 
 test "TestUnusedFunctionInNamespace4" {
@@ -243,7 +243,7 @@ test "TestUnusedFunctionInNamespace4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "namespace Validation {\n}", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "namespace Validation {\n}", false, 0, 0);
 }
 
 test "TestQuickInfoSignatureOptionalParameterFromUnion1" {
@@ -258,7 +258,7 @@ test "TestQuickInfoSignatureOptionalParameterFromUnion1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "const optionals: (arg0?: {\n    a: true;\n} & {\n    b: true;\n}) => unknown", "");
+    try f.VerifyQuickInfoAt(undefined, "", "const optionals: (arg0?: {\n    a: true;\n} & {\n    b: true;\n}) => unknown", "");
 }
 
 test "TestQuickInfoOnCatchVariable" {
@@ -271,7 +271,7 @@ test "TestQuickInfoOnCatchVariable" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "(local var) e: any", "");
+    try f.VerifyQuickInfoAt(undefined, "", "(local var) e: any", "");
 }
 
 test "TestRenameThis" {
@@ -286,8 +286,8 @@ test "TestRenameThis" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifyRenameFailed(undefined, null );
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[0], f.Ranges()[1], f.Ranges()[3], f.Ranges()[4]);
+    // try f.VerifyRenameFailed(undefined, null );
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[0], f.Ranges()[1], f.Ranges()[3], f.Ranges()[4]);
 }
 
 test "TestCompletionsImport_46332" {
@@ -368,7 +368,7 @@ test "TestCompletionsImport_46332" {
 //             },
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =          "ref",
 //         .Source =        "vue",
 //         .Description =   "Update import from \"vue\"",

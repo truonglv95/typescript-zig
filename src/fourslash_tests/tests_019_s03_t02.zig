@@ -45,7 +45,7 @@ test "TestInlayHintsInteractiveParameterNames" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayParameterNameHints = lsutil.IncludeInlayParameterNameHintsLiterals}});
+    // try f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayParameterNameHints = lsutil.IncludeInlayParameterNameHintsLiterals}});
 }
 
 test "TestGetOutliningSpansForRegionsNoSingleLineFolds" {
@@ -71,7 +71,7 @@ test "TestGetOutliningSpansForRegionsNoSingleLineFolds" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
-    // f.VerifyOutliningSpans(undefined);
+    // try f.VerifyOutliningSpans(undefined);
 }
 
 test "TestCodeFixClassImplementInterfaceProperty" {
@@ -89,7 +89,7 @@ test "TestCodeFixClassImplementInterfaceProperty" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'I'",
         .NewFileContent = "enum E { a,b,c }\ninterface I {\n    x: E;\n    y: E.a\n    z: symbol;\n    w: object;\n}\nclass C implements I {\n    x: E;\n    y: E.a;\n    z: symbol;\n    w: object;\n}",
         .Index = 0,
@@ -122,7 +122,7 @@ test "TestTsxRename8" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null );
+    // try f.VerifyBaselineRename(undefined, null );
 }
 
 test "TestExportInObjectLiteral" {
@@ -135,7 +135,7 @@ test "TestExportInObjectLiteral" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlightsWithOptions(undefined, null , &.{f.Ranges()[0].FileName()}, f.Ranges()[0]);
+    // try f.VerifyBaselineDocumentHighlightsWithOptions(undefined, null , &.{f.Ranges()[0].FileName()}, f.Ranges()[0]);
 }
 
 test "TestMemberListOnThisInClassWithPrivates" {
@@ -189,7 +189,7 @@ test "TestFindAllReferencesJSDocFunctionNew" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1");
 }
 
 test "TestQuickInfoGetterSetter" {
@@ -210,10 +210,10 @@ test "TestQuickInfoGetterSetter" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "getterUse", "(property) C.myValue: Promise<string>", "");
-    // f.VerifyQuickInfoAt(undefined, "getterDef", "(getter) C.myValue: Promise<string>", "");
-    // f.VerifyQuickInfoAt(undefined, "setterUse", "(property) C.myValue: string | Promise<string>", "");
-    // f.VerifyQuickInfoAt(undefined, "setterDef", "(setter) C.myValue: string | Promise<string>", "");
+    try f.VerifyQuickInfoAt(undefined, "getterUse", "(property) C.myValue: Promise<string>", "");
+    try f.VerifyQuickInfoAt(undefined, "getterDef", "(getter) C.myValue: Promise<string>", "");
+    try f.VerifyQuickInfoAt(undefined, "setterUse", "(property) C.myValue: string | Promise<string>", "");
+    try f.VerifyQuickInfoAt(undefined, "setterDef", "(setter) C.myValue: string | Promise<string>", "");
 }
 
 test "TestCallHierarchyCallExpressionByConstNamedFunctionExpression" {
@@ -235,7 +235,7 @@ test "TestCallHierarchyCallExpressionByConstNamedFunctionExpression" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifyBaselineCallHierarchy(undefined);
+    // try f.VerifyBaselineCallHierarchy(undefined);
 }
 
 test "TestCompletionsImport_named_exportEqualsNamespace_merged" {

@@ -56,7 +56,7 @@ test "TestFormatSelectionJsxWithBinaryExpression" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatSelection(undefined, "1", "2");
-    _ = f.VerifyCurrentFileContent(undefined, "function TestWidget() {\n    const test = true;\n    return (\n        <div>\n            {test &&\n                <div>\n                    <div>some text</div>\n                    <div>some text</div>\n                    <div>some text</div>\n                </div>\n            }\n            <div>some text</div>\n        </div>\n    );\n}");
+    try f.VerifyCurrentFileContent(undefined, "function TestWidget() {\n    const test = true;\n    return (\n        <div>\n            {test &&\n                <div>\n                    <div>some text</div>\n                    <div>some text</div>\n                    <div>some text</div>\n                </div>\n            }\n            <div>some text</div>\n        </div>\n    );\n}");
 }
 
 test "TestNavigationBarWellKnownSymbolExpando" {
@@ -67,7 +67,7 @@ test "TestNavigationBarWellKnownSymbolExpando" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestCompletionListInNamespaceImportName01" {
@@ -122,7 +122,7 @@ test "TestRenameCommentsAndStrings2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1]);
 }
 
 test "TestCompletionListAtIdentifierDefinitionLocations_classes" {
@@ -149,8 +149,8 @@ test "TestGoToTypeDefinition4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToTypeDefinition(undefined, "reference");
-    // f.VerifyBaselineGoToDefinition(undefined, true, "reference");
+    // try f.VerifyBaselineGoToTypeDefinition(undefined, "reference");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "reference");
 }
 
 test "TestAmbientVariablesWithSameName" {
@@ -165,7 +165,7 @@ test "TestAmbientVariablesWithSameName" {
     defer f.deinit();
     _ = f.GoToEOF(undefined);
     _ = f.InsertLine(undefined, "");
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyNoErrors(undefined);
 }
 
 test "TestQuickinfoVerbosityInterface1" {
@@ -234,6 +234,6 @@ test "TestQuickinfoVerbosityInterface1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"f1" = .{0, 1}, .@"f2" = .{0, 1}, .@"f3" = .{0, 1, 2, 3}, .@"f4" = .{0, 1, 2}, .@"b1" = .{0, 1}, .@"a" = .{0, 1, 2}, .@"f5" = .{0, 1}});
+    // try f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"f1" = .{0, 1}, .@"f2" = .{0, 1}, .@"f3" = .{0, 1, 2, 3}, .@"f4" = .{0, 1, 2}, .@"b1" = .{0, 1}, .@"a" = .{0, 1, 2}, .@"f5" = .{0, 1}});
 }
 

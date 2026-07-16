@@ -217,7 +217,7 @@ test "TestAutoImportProvider2" {
     _ = f.GoToMarker(undefined, "");
     // f.GetOptions();
     // f.Configure(undefined, opts1155);
-    _ = f.VerifyImportFixAtPosition(undefined, &.{}, null );
+    try f.VerifyImportFixAtPosition(undefined, &.{}, null );
 }
 
 test "TestTsxGoToDefinitionStatelessFunction1" {
@@ -245,7 +245,7 @@ test "TestTsxGoToDefinitionStatelessFunction1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "one", "two", "three", "four", "p1", "p2");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "one", "two", "three", "four", "p1", "p2");
 }
 
 test "TestRenameInheritedProperties6" {
@@ -262,7 +262,7 @@ test "TestRenameInheritedProperties6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "propC");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "propC");
 }
 
 test "TestRenameJSDocNamepath" {
@@ -277,7 +277,7 @@ test "TestRenameJSDocNamepath" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , "0");
+    // try f.VerifyBaselineRename(undefined, null , "0");
 }
 
 test "TestImportNameCodeFixIndentedIdentifier" {
@@ -293,7 +293,7 @@ test "TestImportNameCodeFixIndentedIdentifier" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import * as b from \"./b\";\n{\n    b.x\n}",
         "import * as b from \"./b\";\nimport { x } from \"./b\";\n{\n    x\n}",
     }, null );
@@ -357,12 +357,12 @@ test "TestRenameFromNodeModulesDep3" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "ok");
-    // f.VerifyRenameSucceeded(undefined, &.{.UseAliasesForRename = core.TSTrue});
-    // f.VerifyRenameSucceeded(undefined, &.{.UseAliasesForRename = core.TSFalse});
+    // try f.VerifyRenameSucceeded(undefined, &.{.UseAliasesForRename = core.TSTrue});
+    // try f.VerifyRenameSucceeded(undefined, &.{.UseAliasesForRename = core.TSFalse});
     _ = f.GoToMarker(undefined, "ok2");
-    _ = f.VerifyRenameSucceeded(undefined, null );
+    try f.VerifyRenameSucceeded(undefined, null );
     _ = f.GoToMarker(undefined, "ok3");
-    _ = f.VerifyRenameSucceeded(undefined, null );
+    try f.VerifyRenameSucceeded(undefined, null );
 }
 
 test "TestQuickInfoOnElementAccessInWriteLocation4" {
@@ -378,6 +378,6 @@ test "TestQuickInfoOnElementAccessInWriteLocation4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "(property) Serializer.value: string | number | boolean", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "(property) Serializer.value: string | number | boolean", "");
 }
 

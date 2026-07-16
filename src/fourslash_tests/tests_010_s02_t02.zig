@@ -20,7 +20,7 @@ test "TestSuggestionOfUnusedVariableWithExternalModule" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/app.js");
-    // f.VerifySuggestionDiagnostics(undefined, []*.{
+    // try f.VerifySuggestionDiagnostics(undefined, []*.{
 //         .{
 //             .Code =    &.{.Integer = undefined(int32(80001))},
 //             .Message = .{.String = undefined("File is a CommonJS module; it may be converted to an ES module.")},
@@ -28,7 +28,7 @@ test "TestSuggestionOfUnusedVariableWithExternalModule" {
 //         },
 //     });
     _ = f.GoToFile(undefined, "/mymodule.js");
-    // f.VerifySuggestionDiagnostics(undefined, []*.{
+    // try f.VerifySuggestionDiagnostics(undefined, []*.{
 //         .{
 //             .Message = .{.String = undefined("'root' is declared but its value is never read.")},
 //             .Code =    &.{.Integer = undefined(int32(6133))},
@@ -67,13 +67,13 @@ test "TestQuickInfoMappedSpreadTypes" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "f");
-    _ = f.VerifyQuickInfoIs(undefined, "(property) Foo.bar: number", "Doc");
+    try f.VerifyQuickInfoIs(undefined, "(property) Foo.bar: number", "Doc");
     _ = f.GoToMarker(undefined, "f2");
-    _ = f.VerifyQuickInfoIs(undefined, "(property) bar: string", "Doc");
+    try f.VerifyQuickInfoIs(undefined, "(property) bar: string", "Doc");
     _ = f.GoToMarker(undefined, "f3");
-    _ = f.VerifyQuickInfoIs(undefined, "(property) Foo.bar: number", "Doc");
+    try f.VerifyQuickInfoIs(undefined, "(property) Foo.bar: number", "Doc");
     _ = f.GoToMarker(undefined, "f4");
-    _ = f.VerifyQuickInfoIs(undefined, "(property) bar: string", "Doc");
+    try f.VerifyQuickInfoIs(undefined, "(property) bar: string", "Doc");
 }
 
 test "TestFindAllRefsObjectBindingElementPropertyName03" {
@@ -89,7 +89,7 @@ test "TestFindAllRefsObjectBindingElementPropertyName03" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestCompletionListInUnclosedFunction03" {
@@ -134,7 +134,7 @@ test "TestCodeFixClassImplementInterfaceEmptyMultilineBody" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'I'",
         .NewFileContent = "interface I {\n    x: number;\n    y: number;\n}\nclass C implements I {\n    x: number;\n    y: number;\n}",
         .Index = 0,
@@ -163,17 +163,17 @@ test "TestImportNameCodeFix_reExportDefault" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/user.ts");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import foo from \"./named\";\n\nfoo;",
         "import foo from \"./reExportNamed\";\n\nfoo;",
     }, null );
     _ = f.GoToFile(undefined, "/user2.ts");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import unnamed from \"./unnamed\";\n\nunnamed;",
         "import unnamed from \"./reExportUnnamed\";\n\nunnamed;",
     }, null );
     _ = f.GoToFile(undefined, "/user3.ts");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import reExportUnnamed from \"./reExportUnnamed\";\n\nreExportUnnamed;",
     }, null );
 }
@@ -225,7 +225,7 @@ test "TestGoToImplementationShorthandPropertyAssignment_01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToImplementation(undefined, "reference");
+    // try f.VerifyBaselineGoToImplementation(undefined, "reference");
 }
 
 test "TestReferencesBloomFilters3" {
@@ -238,7 +238,7 @@ test "TestReferencesBloomFilters3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestCodeFixAddMissingFunctionDeclaration20" {
@@ -251,7 +251,7 @@ test "TestCodeFixAddMissingFunctionDeclaration20" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined, "fixMissingFunctionDeclaration");
+    // try f.VerifyCodeFixNotAvailable(undefined, "fixMissingFunctionDeclaration");
 }
 
 test "TestGotoDefinitionSatisfiesTag" {
@@ -271,6 +271,6 @@ test "TestGotoDefinitionSatisfiesTag" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, false, "use");
+    // try f.VerifyBaselineGoToDefinition(undefined, false, "use");
 }
 

@@ -14,7 +14,7 @@ test "TestOrganizeImportsGroup_Newline" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import c from \"C\";\n\nimport a from \"A\"; // not count\nimport b from \"B\";\nimport d from \"D\";\n\nconsole.log(a, b, c, d)",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         null,
@@ -34,7 +34,7 @@ test "TestRenameObjectBindingElementPropertyName01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "property1");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "property1");
 }
 
 test "TestSmartSelection_loneVariableDeclaration" {
@@ -44,7 +44,7 @@ test "TestSmartSelection_loneVariableDeclaration" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineSelectionRanges(undefined);
+    try f.VerifyBaselineSelectionRanges(undefined);
 }
 
 test "TestDeclarationMapsGoToDefinitionSameNameDifferentDirectory" {
@@ -110,7 +110,7 @@ test "TestDeclarationMapsGoToDefinitionSameNameDifferentDirectory" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1", "3");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1", "3");
 }
 
 test "TestGetOccurrencesThis6" {
@@ -294,7 +294,7 @@ test "TestGetOccurrencesThis6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
 }
 
 test "TestFindAllRefsDefaultImport" {
@@ -307,7 +307,7 @@ test "TestFindAllRefsDefaultImport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "1");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "1");
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports60_drops_unneeded_non_trailing_unknown" {
@@ -322,7 +322,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports60_drops_unneeded_non_trailing_un
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add return type 'Foo'",
         .NewFileContent = "\nexport interface Foo<S = string, T = unknown> {}\nexport function f(x: Foo<string, unknown>): Foo { return x; }\n",
         .Index = 0,
@@ -344,7 +344,7 @@ test "TestFormattingObjectLiteralOpenCurlySingleLine" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nlet obj1 =\n    { x: 10 };\n\nlet obj2 =\n    // leading trivia\n    { y: 10 };\n");
+    try f.VerifyCurrentFileContent(undefined, "\nlet obj1 =\n    { x: 10 };\n\nlet obj2 =\n    // leading trivia\n    { y: 10 };\n");
 }
 
 test "TestGoToDefinitionOverriddenMember11" {
@@ -365,7 +365,7 @@ test "TestGoToDefinitionOverriddenMember11" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1", "2", "3", "4", "5");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1", "2", "3", "4", "5");
 }
 
 test "TestGetOccurrencesConst02" {
@@ -383,7 +383,7 @@ test "TestGetOccurrencesConst02" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
 }
 

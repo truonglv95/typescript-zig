@@ -51,7 +51,7 @@ test "TestFindAllRefsPrivateNameProperties" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5");
 }
 
 test "TestJsdocDeprecated_suggestion14" {
@@ -73,7 +73,7 @@ test "TestJsdocDeprecated_suggestion14" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/c.ts");
-    // f.VerifySuggestionDiagnostics(undefined, []*.{
+    // try f.VerifySuggestionDiagnostics(undefined, []*.{
 //         .{
 //             .Code =    &.{.Integer = undefined(int32(6385))},
 //             .Message = .{.String = undefined("'a' is deprecated.")},
@@ -99,7 +99,7 @@ test "TestCodeFixTopLevelAwait_target_noTsConfig" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined);
+    // try f.VerifyCodeFixNotAvailable(undefined);
 }
 
 test "TestGoToDefinitionExternalModuleName6" {
@@ -114,7 +114,7 @@ test "TestGoToDefinitionExternalModuleName6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestSignatureHelpForSignatureWithUnreachableType" {
@@ -135,7 +135,7 @@ test "TestSignatureHelpForSignatureWithUnreachableType" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
-    // f.VerifySignatureHelp(undefined, .{.Text = "func(param: {}): void", .OverloadsCount = 2});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "func(param: {}): void", .OverloadsCount = 2});
 }
 
 test "TestCodeFixTopLevelForAwait_module_compatibleCompilerOptionsInTsConfig" {
@@ -155,7 +155,7 @@ test "TestCodeFixTopLevelForAwait_module_compatibleCompilerOptionsInTsConfig" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined, "fixModuleOption");
+    // try f.VerifyCodeFixNotAvailable(undefined, "fixModuleOption");
 }
 
 test "TestFormatExportAssignment" {
@@ -166,7 +166,7 @@ test "TestFormatExportAssignment" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "export = 'foo';");
+    try f.VerifyCurrentFileContent(undefined, "export = 'foo';");
 }
 
 test "TestCompletionListInObjectLiteral7" {
@@ -215,6 +215,6 @@ test "TestGoToDefinitionDestructuredRequire2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 

@@ -11,7 +11,7 @@ test "TestCodeFixClassImplementInterfaceTypeParamInstantiateDeeply" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'I<number>'",
         .NewFileContent = "interface I<T> {\n    x: { y: T, z: T[] };\n}\nclass C implements I<number> {\n    x: { y: number; z: number[]; };\n}",
         .Index = 0,

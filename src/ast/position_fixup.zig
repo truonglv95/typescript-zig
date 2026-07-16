@@ -10,6 +10,7 @@ const no_position: u32 = std.math.maxInt(u32);
 pub fn fillMissingNodePositions(tree: *ast.Ast, root: ast_gen.NodeIndex) void {
     if (root == 0) return;
     _ = fillNodeStart(tree, root);
+    _ = fillNodeEnd(tree, root);
 }
 
 fn fillNodeStart(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
@@ -23,8 +24,8 @@ fn fillNodeStart(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
 
         pub fn visitNode(self: *@This(), child: ast_gen.NodeIndex) anyerror!void {
             const child_pos = fillNodeStart(self.tree, child);
-            if (child_pos != no_position) {
-                self.min_child_pos.* = @min(self.min_child_pos.*, child_pos);
+            if (child_pos < self.min_child_pos.*) {
+                self.min_child_pos.* = child_pos;
             }
         }
 
@@ -39,13 +40,45 @@ fn fillNodeStart(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
     var visitor = Visitor{ .tree = tree, .min_child_pos = &min_child_pos };
     for_each.forEachChild(tree, node, &visitor) catch {};
 
-    const existing_pos = tree.positions.items[node].pos;
-    if (existing_pos != 0) return existing_pos;
-
-    if (min_child_pos != no_position) {
+    if (tree.positions.items[node].pos == 0 and min_child_pos != no_position) {
         tree.positions.items[node].pos = min_child_pos;
-        return min_child_pos;
     }
 
-    return no_position;
+    return tree.positions.items[node].pos;
+}
+
+fn fillNodeEnd(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
+    if (node == 0 or node >= tree.positions.items.len) return 0;
+
+    var max_child_end: u32 = 0;
+
+    const Visitor = struct {
+        tree: *ast.Ast,
+        max_child_end: *u32,
+
+        pub fn visitNode(self: *@This(), child: ast_gen.NodeIndex) anyerror!void {
+            const child_end = fillNodeEnd(self.tree, child);
+            if (child_end > self.max_child_end.*) {
+                self.max_child_end.* = child_end;
+            }
+        }
+
+        pub fn visitList(self: *@This(), list: u32) anyerror!void {
+            if (list == 0) return;
+            for (self.tree.getNodeList(list)) |child| {
+                try self.visitNode(child);
+            }
+        }
+    };
+
+    var visitor = Visitor{ .tree = tree, .max_child_end = &max_child_end };
+    for_each.forEachChild(tree, node, &visitor) catch {};
+
+    if (tree.positions.items[node].end == 0 and max_child_end != 0) {
+        if (tree.getNodeKind(node) == .FunctionDeclaration) {
+            std.debug.print("FunctionDeclaration max_child_end = {}\n", .{max_child_end});
+        }
+        tree.positions.items[node].end = max_child_end;
+    }
+    return tree.positions.items[node].end;
 }

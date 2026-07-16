@@ -60,7 +60,7 @@ test "TestFormatObjectBindingPattern" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const {\n    x,\n    y,\n} = 0;");
+    try f.VerifyCurrentFileContent(undefined, "const {\n    x,\n    y,\n} = 0;");
 }
 
 test "TestImportNameCodeFix_barrelExport3" {
@@ -86,8 +86,8 @@ test "TestImportNameCodeFix_barrelExport3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "sibling", &.{"./a", "./index", "../index"}, &.{.ImportModuleSpecifierEnding = "index"});
-    // f.VerifyImportFixModuleSpecifiers(undefined, "parent", &.{"../foo/a", "../foo/index", "../index"}, &.{.ImportModuleSpecifierEnding = "index"});
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "sibling", &.{"./a", "./index", "../index"}, &.{.ImportModuleSpecifierEnding = "index"});
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "parent", &.{"../foo/a", "../foo/index", "../index"}, &.{.ImportModuleSpecifierEnding = "index"});
 }
 
 test "TestNavbar_contains_no_duplicates" {
@@ -123,7 +123,7 @@ test "TestNavbar_contains_no_duplicates" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestCodeFixConvertToTypeOnlyImport1" {
@@ -148,7 +148,7 @@ test "TestCodeFixConvertToTypeOnlyImport1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "imports.ts");
-    // f.VerifyCodeFixNotAvailable(undefined);
+    // try f.VerifyCodeFixNotAvailable(undefined);
 }
 
 test "TestQuickInfoInheritDoc" {
@@ -217,7 +217,7 @@ test "TestQuickInfoInheritDoc" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports52_generics_oversimplification" {
@@ -232,7 +232,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports52_generics_oversimplification" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add return type 'Foo<string>'",
         .NewFileContent = "export interface Foo<T, U = T[]> {}\nexport function foo(x: Foo<string, string[]>): Foo<string> {\n    return x;\n}",
         .Index = 0,

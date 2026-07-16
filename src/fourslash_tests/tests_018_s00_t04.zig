@@ -18,7 +18,7 @@ test "TestAddMemberNotInNodeModulesDeclarationFile" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/foo.ts");
-    // f.VerifyCodeFixNotAvailable(undefined);
+    // try f.VerifyCodeFixNotAvailable(undefined);
 }
 
 test "TestImportNameCodeFixNewImportFileDetachedComments" {
@@ -36,7 +36,7 @@ test "TestImportNameCodeFixNewImportFileDetachedComments" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import { f1 } from \"./module\";\n\n/**\n * This is a comment intended to be attached to this interface\n */\nexport interface SomeInterface {\n}\nf1();",
     }, null );
 }
@@ -72,7 +72,7 @@ test "TestFindAllRefsIsDefinition" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6");
 }
 
 test "TestGetOccurrencesThrow4" {
@@ -122,7 +122,7 @@ test "TestGetOccurrencesThrow4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestGoToImplementationTypeAlias_00" {
@@ -136,7 +136,7 @@ test "TestGoToImplementationTypeAlias_00" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToImplementation(undefined, "ref");
+    // try f.VerifyBaselineGoToImplementation(undefined, "ref");
 }
 
 test "TestQuickinfoVerbosityIndexType" {
@@ -158,7 +158,7 @@ test "TestQuickinfoVerbosityIndexType" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"x1" = .{0, 1}, .@"x2" = .{0}, .@"k2" = .{0, 1}, .@"key" = .{0}});
+    // try f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"x1" = .{0, 1}, .@"x2" = .{0}, .@"k2" = .{0, 1}, .@"key" = .{0}});
 }
 
 test "TestCodefixInferFromUsageNullish" {
@@ -173,7 +173,7 @@ test "TestCodefixInferFromUsageNullish" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "b: (arg0: string | number) => void", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "b: (arg0: string | number) => void", false, 0, 0);
 }
 
 test "TestJsdocDeprecated_suggestion4" {
@@ -205,7 +205,7 @@ test "TestJsdocDeprecated_suggestion4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySuggestionDiagnostics(undefined, []*.{
+    // try f.VerifySuggestionDiagnostics(undefined, []*.{
 //         .{
 //             .Message = .{.String = undefined("'f' is deprecated.")},
 //             .Code =    &.{.Integer = undefined(int32(6385))},
@@ -652,18 +652,18 @@ test "TestQuickInfoOnInternalAliases" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "class m1.m2.c", "class comment;");
-    // f.VerifyQuickInfoAt(undefined, "2", "(alias) class internalAlias\nimport internalAlias = m1.m2.c", "This is on import declaration");
-    // f.VerifyQuickInfoAt(undefined, "3", "class m1.m2.c", "class comment;");
-    // f.VerifyQuickInfoAt(undefined, "4", "var newVar: internalAlias", "");
-    // f.VerifyQuickInfoAt(undefined, "5", "(alias) new internalAlias(): internalAlias\nimport internalAlias = m1.m2.c", "This is on import declaration");
-    // f.VerifyQuickInfoAt(undefined, "6", "var anotherAliasVar: typeof internalAlias", "");
-    // f.VerifyQuickInfoAt(undefined, "7", "(alias) class internalAlias\nimport internalAlias = m1.m2.c", "This is on import declaration");
-    // f.VerifyQuickInfoAt(undefined, "8", "(alias) function internalFoo(): void\nimport internalFoo = m1.foo", "");
-    // f.VerifyQuickInfoAt(undefined, "9", "function m1.foo(): void", "");
-    // f.VerifyQuickInfoAt(undefined, "10", "var callVar: void", "");
-    // f.VerifyQuickInfoAt(undefined, "11", "(alias) internalFoo(): void\nimport internalFoo = m1.foo", "");
-    // f.VerifyQuickInfoAt(undefined, "12", "var anotherAliasFoo: () => void", "");
-    // f.VerifyQuickInfoAt(undefined, "13", "(alias) function internalFoo(): void\nimport internalFoo = m1.foo", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "class m1.m2.c", "class comment;");
+    try f.VerifyQuickInfoAt(undefined, "2", "(alias) class internalAlias\nimport internalAlias = m1.m2.c", "This is on import declaration");
+    try f.VerifyQuickInfoAt(undefined, "3", "class m1.m2.c", "class comment;");
+    try f.VerifyQuickInfoAt(undefined, "4", "var newVar: internalAlias", "");
+    try f.VerifyQuickInfoAt(undefined, "5", "(alias) new internalAlias(): internalAlias\nimport internalAlias = m1.m2.c", "This is on import declaration");
+    try f.VerifyQuickInfoAt(undefined, "6", "var anotherAliasVar: typeof internalAlias", "");
+    try f.VerifyQuickInfoAt(undefined, "7", "(alias) class internalAlias\nimport internalAlias = m1.m2.c", "This is on import declaration");
+    try f.VerifyQuickInfoAt(undefined, "8", "(alias) function internalFoo(): void\nimport internalFoo = m1.foo", "");
+    try f.VerifyQuickInfoAt(undefined, "9", "function m1.foo(): void", "");
+    try f.VerifyQuickInfoAt(undefined, "10", "var callVar: void", "");
+    try f.VerifyQuickInfoAt(undefined, "11", "(alias) internalFoo(): void\nimport internalFoo = m1.foo", "");
+    try f.VerifyQuickInfoAt(undefined, "12", "var anotherAliasFoo: () => void", "");
+    try f.VerifyQuickInfoAt(undefined, "13", "(alias) function internalFoo(): void\nimport internalFoo = m1.foo", "");
 }
 

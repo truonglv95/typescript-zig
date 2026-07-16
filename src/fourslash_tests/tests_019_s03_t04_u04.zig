@@ -73,7 +73,7 @@ test "TestCompletionsImport_require_addToExisting" {
 //             },
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =        "x",
 //         .Source =      "./a",
 //         .Description = "Update import from \"./a\"",

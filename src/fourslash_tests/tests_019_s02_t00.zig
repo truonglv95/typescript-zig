@@ -23,8 +23,8 @@ test "TestGoToSource6_sameAsGoToDef2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
-    // f.VerifyBaselineGoToSourceDefinition(undefined, "start");
-    // f.VerifyBaselineGoToDefinition(undefined, true, "start");
+    // try f.VerifyBaselineGoToSourceDefinition(undefined, "start");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "start");
 }
 
 test "TestDerivedTypeIndexerWithGenericConstraints" {
@@ -52,8 +52,8 @@ test "TestDerivedTypeIndexerWithGenericConstraints" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "var r: CollectionItem", "");
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyQuickInfoAt(undefined, "", "var r: CollectionItem", "");
+    try f.VerifyNoErrors(undefined);
 }
 
 test "TestQuickinfoVerbosityIndexSignature" {
@@ -70,7 +70,7 @@ test "TestQuickinfoVerbosityIndexSignature" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"a" = .{0, 1}, .@"f" = .{0, 1, 2}});
+    // try f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"a" = .{0, 1}, .@"f" = .{0, 1, 2}});
 }
 
 test "TestSmartSelection_JSDocTags5" {
@@ -88,7 +88,7 @@ test "TestSmartSelection_JSDocTags5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineSelectionRanges(undefined);
+    try f.VerifyBaselineSelectionRanges(undefined);
 }
 
 test "TestOrganizeImports15" {
@@ -112,7 +112,7 @@ test "TestOrganizeImports15" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/b.ts");
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "/**\n * Module doc comment\n *\n * @module\n */\n\n// comment 1\n\n// comment 2\n\n",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         null,
@@ -211,7 +211,7 @@ test "TestFindAllRefsObjectBindingElementPropertyName02" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestNavigationBarItemsSymbols2" {
@@ -224,7 +224,7 @@ test "TestNavigationBarItemsSymbols2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestFormatTsxClosingAfterJsxText" {
@@ -248,6 +248,6 @@ test "TestFormatTsxClosingAfterJsxText" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nconst a = (\n    <div>\n        text\n    </div>\n)\nconst b = (\n    <div>\n        text\n        twice\n    </div>\n)\n");
+    try f.VerifyCurrentFileContent(undefined, "\nconst a = (\n    <div>\n        text\n    </div>\n)\nconst b = (\n    <div>\n        text\n        twice\n    </div>\n)\n");
 }
 

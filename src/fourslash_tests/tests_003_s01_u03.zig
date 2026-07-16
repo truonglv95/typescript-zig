@@ -18,11 +18,11 @@ test "TestJsdocTypedefTagServices" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "use", "type Product = {\n    title: string;\n}", "Doc comment");
-    // f.VerifyBaselineFindAllReferences(undefined, "use", "def");
-    // f.VerifyBaselineRename(undefined, null , ToAny(f.Ranges()[1:]));
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()[1:]));
-    // f.VerifyBaselineGoToDefinition(undefined, true, "use");
+    try f.VerifyQuickInfoAt(undefined, "use", "type Product = {\n    title: string;\n}", "Doc comment");
+    // try f.VerifyBaselineFindAllReferences(undefined, "use", "def");
+    // try f.VerifyBaselineRename(undefined, null , ToAny(f.Ranges()[1:]));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()[1:]));
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "use");
 }
 
 test "TestRenameNamespace" {
@@ -38,6 +38,6 @@ test "TestRenameNamespace" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , "");
+    // try f.VerifyBaselineRename(undefined, null , "");
 }
 

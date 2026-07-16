@@ -40,7 +40,7 @@ test "TestCodeFixRequireInTs3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined);
+    // try f.VerifyCodeFixNotAvailable(undefined);
 }
 
 test "TestTypeCheckAfterAddingGenericParameter" {
@@ -99,15 +99,15 @@ test "TestQuickInfoOnNarrowedTypeInModule" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "var nonExportedStrOrNum: string | number", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "var nonExportedStrOrNum: number", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "var nonExportedStrOrNum: string", "");
-    // f.VerifyQuickInfoAt(undefined, "4", "var m.exportedStrOrNum: string | number", "");
-    // f.VerifyQuickInfoAt(undefined, "5", "var m.exportedStrOrNum: number", "");
-    // f.VerifyQuickInfoAt(undefined, "6", "var m.exportedStrOrNum: string", "");
-    // f.VerifyQuickInfoAt(undefined, "7", "var m.exportedStrOrNum: string | number", "");
-    // f.VerifyQuickInfoAt(undefined, "8", "var m.exportedStrOrNum: number", "");
-    // f.VerifyQuickInfoAt(undefined, "9", "var m.exportedStrOrNum: string", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "var nonExportedStrOrNum: string | number", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "var nonExportedStrOrNum: number", "");
+    try f.VerifyQuickInfoAt(undefined, "3", "var nonExportedStrOrNum: string", "");
+    try f.VerifyQuickInfoAt(undefined, "4", "var m.exportedStrOrNum: string | number", "");
+    try f.VerifyQuickInfoAt(undefined, "5", "var m.exportedStrOrNum: number", "");
+    try f.VerifyQuickInfoAt(undefined, "6", "var m.exportedStrOrNum: string", "");
+    try f.VerifyQuickInfoAt(undefined, "7", "var m.exportedStrOrNum: string | number", "");
+    try f.VerifyQuickInfoAt(undefined, "8", "var m.exportedStrOrNum: number", "");
+    try f.VerifyQuickInfoAt(undefined, "9", "var m.exportedStrOrNum: string", "");
     // f.VerifyCompletions(undefined, "1", &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
@@ -306,29 +306,29 @@ test "TestFormatMultilineComment" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "/** 1");
+    try f.VerifyCurrentLineContent(undefined, "/** 1");
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, " *2");
+    try f.VerifyCurrentLineContent(undefined, " *2");
     _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, " 3*/");
+    try f.VerifyCurrentLineContent(undefined, " 3*/");
     _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    /**4");
+    try f.VerifyCurrentLineContent(undefined, "    /**4");
     _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "        *5");
+    try f.VerifyCurrentLineContent(undefined, "        *5");
     _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "                    *6");
+    try f.VerifyCurrentLineContent(undefined, "                    *6");
     _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "              7*/");
+    try f.VerifyCurrentLineContent(undefined, "              7*/");
     _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "        /**8");
+    try f.VerifyCurrentLineContent(undefined, "        /**8");
     _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "*9");
+    try f.VerifyCurrentLineContent(undefined, "*9");
     _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "        *10");
+    try f.VerifyCurrentLineContent(undefined, "        *10");
     _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "                   *11");
+    try f.VerifyCurrentLineContent(undefined, "                   *11");
     _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "  12*/");
+    try f.VerifyCurrentLineContent(undefined, "  12*/");
 }
 
 test "TestMemberListOnExplicitThis" {
@@ -457,8 +457,8 @@ test "TestAsConstRefsNoErrors1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "");
-    _ = f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "");
+    try f.VerifyNoErrors(undefined);
 }
 
 test "TestQuickInfoOnPrivateConstructorCall" {
@@ -471,6 +471,6 @@ test "TestQuickInfoOnPrivateConstructorCall" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyNoSignatureHelpForMarkers(undefined, "1");
+    // try f.VerifyNoSignatureHelpForMarkers(undefined, "1");
 }
 

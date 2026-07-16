@@ -14,7 +14,7 @@ test "TestFormattingJsxTexts4" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "function foo() {\n    const a = <ns:foobar x:test1 x:test2=\"string\" x:test3={true ? 1 : 0} />;\n\n    return a;\n}");
+    try f.VerifyCurrentFileContent(undefined, "function foo() {\n    const a = <ns:foobar x:test1 x:test2=\"string\" x:test3={true ? 1 : 0} />;\n\n    return a;\n}");
 }
 
 test "TestRenameLabel3" {
@@ -29,7 +29,7 @@ test "TestRenameLabel3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , "");
+    // try f.VerifyBaselineRename(undefined, null , "");
 }
 
 test "TestFunctionTypes" {
@@ -59,7 +59,7 @@ test "TestFunctionTypes" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyNoErrors(undefined);
     // f.VerifyCompletions(undefined, &.{"1", "2", "3", "4", "5", "6"}, &.{
 //         .IsIncomplete = false,
 //         .ItemDefaults = &.{
@@ -95,7 +95,7 @@ test "TestSmartSelection_function1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineSelectionRanges(undefined);
+    try f.VerifyBaselineSelectionRanges(undefined);
 }
 
 test "TestSemanticClassificationInTemplateExpressions" {
@@ -113,7 +113,7 @@ test "TestSemanticClassificationInTemplateExpressions" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "namespace.declaration", .Text = "M"},
 //         .{.Type = "class.declaration", .Text = "C"},
 //         .{.Type = "property.declaration.static", .Text = "x"},
@@ -139,7 +139,7 @@ test "TestDefinition" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestAutoImportNodeNextJSRequire" {
@@ -161,7 +161,7 @@ test "TestAutoImportNodeNextJSRequire" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/main.js");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "const { variants } = require(\"./matrix\")\n\nexports.dedupeLines = data => {\n  variants\n}",
     }, null );
 }
@@ -176,7 +176,7 @@ test "TestGetJavaScriptQuickInfo5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "function f(a?: {\n    b: number;\n}): void", "");
+    try f.VerifyQuickInfoAt(undefined, "", "function f(a?: {\n    b: number;\n}): void", "");
 }
 
 test "TestGoToDefinitionYield2" {
@@ -191,7 +191,7 @@ test "TestGoToDefinitionYield2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "start");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "start");
 }
 
 test "TestQuickinfoVerbosityTypeof" {
@@ -213,6 +213,6 @@ test "TestQuickinfoVerbosityTypeof" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"b" = .{0, 1}, .@"c" = .{0, 1}});
+    // try f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"b" = .{0, 1}, .@"c" = .{0, 1}});
 }
 

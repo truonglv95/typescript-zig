@@ -24,7 +24,7 @@ test "TestTsxFindAllReferencesUnionElementType1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestCompletionListForGenericInstance1" {

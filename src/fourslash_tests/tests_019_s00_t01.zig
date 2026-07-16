@@ -19,13 +19,13 @@ test "TestAutoImportTypeImport3" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifyImportFixAtPosition(undefined, &.{
+    // try f.VerifyImportFixAtPosition(undefined, &.{
 //         "import { A, D, type B, type C } from './foo';\nconst b: B | C;\nconsole.log(A, D);",
 //     }, &.{.OrganizeImportsTypeOrder = lsutil.OrganizeImportsTypeOrderLast});
-    // f.VerifyImportFixAtPosition(undefined, &.{
+    // try f.VerifyImportFixAtPosition(undefined, &.{
 //         "import { A, type B, type C, D } from './foo';\nconst b: B | C;\nconsole.log(A, D);",
 //     }, &.{.OrganizeImportsTypeOrder = lsutil.OrganizeImportsTypeOrderInline});
-    // f.VerifyImportFixAtPosition(undefined, &.{
+    // try f.VerifyImportFixAtPosition(undefined, &.{
 //         "import { A, type B, type C, D } from './foo';\nconst b: B | C;\nconsole.log(A, D);",
 //     }, &.{.OrganizeImportsTypeOrder = lsutil.OrganizeImportsTypeOrderFirst});
 }
@@ -43,7 +43,7 @@ test "TestQuickInfoJsDocTagsFunctionOverload05" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestPathCompletionsTypesVersionsWildcard1" {
@@ -116,8 +116,8 @@ test "TestGetOccurrencesConst03" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
 }
 
 test "TestRenameAcrossMultipleProjects" {
@@ -134,7 +134,7 @@ test "TestRenameAcrossMultipleProjects" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "x");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "x");
 }
 
 test "TestCompletionListOnAliases3" {
@@ -174,7 +174,7 @@ test "TestSemanticClassificatonTypeAlias" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "type.declaration", .Text = "Alias"},
 //         .{.Type = "variable.declaration", .Text = "x"},
 //         .{.Type = "type", .Text = "Alias"},
@@ -197,9 +197,9 @@ test "TestFormattingConditionalTypes" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "L1");
-    _ = f.VerifyCurrentLineContent(undefined, "type Diff1<T, U> = T extends U ? never : T;");
+    try f.VerifyCurrentLineContent(undefined, "type Diff1<T, U> = T extends U ? never : T;");
     _ = f.GoToMarker(undefined, "L2");
-    _ = f.VerifyCurrentLineContent(undefined, "type Diff2<T, U> = T extends U ? never : T;");
+    try f.VerifyCurrentLineContent(undefined, "type Diff2<T, U> = T extends U ? never : T;");
 }
 
 test "TestFindAllRefsInsideWithBlock" {
@@ -216,7 +216,7 @@ test "TestFindAllRefsInsideWithBlock" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestJsDocPropertyDescription6" {
@@ -227,8 +227,8 @@ test "TestJsDocPropertyDescription6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "literal1", "(index) Literal1Example[`prefix${string}`]: string | number", "");
-    // f.VerifyQuickInfoAt(undefined, "literal2", "any", "");
-    // f.VerifyQuickInfoAt(undefined, "literal3", "(index) Literal1Example[`prefix${string}` | `prefix${number}`]: number", "Something else");
+    try f.VerifyQuickInfoAt(undefined, "literal1", "(index) Literal1Example[`prefix${string}`]: string | number", "");
+    try f.VerifyQuickInfoAt(undefined, "literal2", "any", "");
+    try f.VerifyQuickInfoAt(undefined, "literal3", "(index) Literal1Example[`prefix${string}` | `prefix${number}`]: number", "Something else");
 }
 

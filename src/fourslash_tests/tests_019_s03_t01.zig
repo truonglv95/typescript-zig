@@ -93,7 +93,7 @@ test "TestCompletionsImport_exportEquals_anonymous" {
 //             ),
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined("1"), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined("1"), &.{
 //         .Name =        "fooBar",
 //         .Source =      "./foo-bar",
 //         .Description = "Add import from \"./foo-bar\"",
@@ -196,7 +196,7 @@ test "TestReferencesForNoContext" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestOrganizeImports4" {
@@ -215,7 +215,7 @@ test "TestOrganizeImports4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         null,
@@ -235,7 +235,7 @@ test "TestRenameJsPrototypeProperty01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "x");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "x");
 }
 
 test "TestFormatAsyncClassMethod2" {
@@ -248,7 +248,7 @@ test "TestFormatAsyncClassMethod2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "class Foo {\n    private async foo() { }\n}");
+    try f.VerifyCurrentFileContent(undefined, "class Foo {\n    private async foo() { }\n}");
 }
 
 test "TestCodeFixInferFromUsage_noCrashOnMissingParens" {
@@ -263,7 +263,7 @@ test "TestCodeFixInferFromUsage_noCrashOnMissingParens" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined);
+    // try f.VerifyCodeFixNotAvailable(undefined);
 }
 
 test "TestJsxTagNameCompletionUnderElementClosed" {

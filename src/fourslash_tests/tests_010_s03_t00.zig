@@ -152,7 +152,7 @@ test "TestFindAllRefsJsThisPropertyAssignment" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestRenameDefaultImportDifferentName" {
@@ -170,10 +170,10 @@ test "TestRenameDefaultImportDifferentName" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1]);
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[3], f.Ranges()[4]);
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "1");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[3], f.Ranges()[4]);
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , "1");
 }
 
 test "TestOrganizeImportsAttributes" {
@@ -190,7 +190,7 @@ test "TestOrganizeImportsAttributes" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { A, type B } from \"./file\";\nimport { C, E } from \"./file\" with { type: \"a\" };\nimport { A as D, A as F } from \"./file\" with { type: \"b\" };\n\ntype G = A | B | C | D | E | F;",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         null,
@@ -215,7 +215,7 @@ test "TestGoToImplementationNamespace_05" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToImplementation(undefined, "reference0", "reference1", "reference2", "reference3");
+    // try f.VerifyBaselineGoToImplementation(undefined, "reference0", "reference1", "reference2", "reference3");
 }
 
 test "TestDocumentHighlightAtInheritedProperties3" {
@@ -233,7 +233,7 @@ test "TestDocumentHighlightAtInheritedProperties3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestGoToTypeDefinition2" {
@@ -253,7 +253,7 @@ test "TestGoToTypeDefinition2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToTypeDefinition(undefined, "reference");
+    // try f.VerifyBaselineGoToTypeDefinition(undefined, "reference");
 }
 
 test "TestCompletionListInFatArrow" {
@@ -316,7 +316,7 @@ test "TestSemanticModernClassificationObjectProperties" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "variable.declaration", .Text = "x"},
 //         .{.Type = "variable.declaration", .Text = "y"},
 //         .{.Type = "variable.declaration.readonly", .Text = "a1"},

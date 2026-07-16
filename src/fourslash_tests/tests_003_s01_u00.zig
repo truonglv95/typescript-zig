@@ -13,13 +13,13 @@ test "TestSignatureHelpWithTriggers02" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
     _ = f.Insert(undefined, "(");
-    // f.VerifySignatureHelp(undefined, .{.Text = "bar(x: unknown, y: unknown): unknown"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "bar(x: unknown, y: unknown): unknown"});
     _ = f.Backspace(undefined, 1);
     _ = f.Insert(undefined, "<");
-    // f.VerifySignatureHelp(undefined, .{.Text = "bar<U>(x: U, y: U): U"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "bar<U>(x: U, y: U): U"});
     _ = f.Backspace(undefined, 1);
     _ = f.Insert(undefined, ",");
-    // f.VerifySignatureHelp(undefined, .{.Text = "foo(x: <U>(x: U, y: U) => U, y: <U>(x: U, y: U) => U): <U>(x: U, y: U) => U"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "foo(x: <U>(x: U, y: U) => U, y: <U>(x: U, y: U) => U): <U>(x: U, y: U) => U"});
     _ = f.Backspace(undefined, 1);
 }
 
@@ -46,6 +46,6 @@ test "TestUnusedImports8FS" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "import {Calculator as calc, test as t1} from \"./file1\"", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "import {Calculator as calc, test as t1} from \"./file1\"", false, 0, 0);
 }
 

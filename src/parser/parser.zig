@@ -705,6 +705,8 @@ pub const Parser = struct {
             .CommonJSModuleIndicator = null,
         } });
 
+        self.ast.setNodePosition(sourceFileIndex, 0, @intCast(self.sourceText.len));
+
         var sourceFileNode = self.ast.getNode(sourceFileIndex);
         sourceFileNode.SourceFile.ExternalModuleIndicator = @import("../ast/ast_utils.zig").isFileProbablyExternalModule(&self.ast, sourceFileIndex);
         self.ast.nodes.set(sourceFileIndex, sourceFileNode);

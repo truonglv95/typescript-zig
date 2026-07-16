@@ -33,7 +33,7 @@ test "TestAutoImportProvider_importsMap1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"#is-browser", "./env/browser.js"}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"#is-browser", "./env/browser.js"}, null );
 }
 
 test "TestCompletionsTypeAssertionKeywords" {
@@ -79,7 +79,7 @@ test "TestGoToDefinitionJsxNotSet" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "use");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "use");
 }
 
 test "TestReferencesForClassMembers" {
@@ -100,7 +100,7 @@ test "TestReferencesForClassMembers" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "a1", "a2", "a3", "method1", "method2", "method3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "a1", "a2", "a3", "method1", "method2", "method3");
 }
 
 test "TestDocCommentTemplateFunctionExpression" {
@@ -112,7 +112,7 @@ test "TestDocCommentTemplateFunctionExpression" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkerNames();
-    // f.VerifyJSDocCompletion(undefined, marker, 7, "/**\n * \n * @param p\n */", null);
+    // try f.VerifyJSDocCompletion(undefined, marker, 7, "/**\n * \n * @param p\n */", null);
 }
 
 test "TestGetOutliningForSingleLineComments" {
@@ -205,7 +205,7 @@ test "TestGetOutliningForSingleLineComments" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOutliningSpans(undefined);
+    // try f.VerifyOutliningSpans(undefined);
 }
 
 test "TestNodeModulesFileEditStillAllowsResolutionsToWork" {
@@ -225,8 +225,8 @@ test "TestNodeModulesFileEditStillAllowsResolutionsToWork" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
     _ = f.Insert(undefined, "mod.x");
-    _ = f.VerifyNoErrors(undefined);
-    _ = f.VerifySuggestionDiagnostics(undefined, null);
+    try f.VerifyNoErrors(undefined);
+    try f.VerifySuggestionDiagnostics(undefined, null);
 }
 
 test "TestFindAllRefsInsideTemplates1" {
@@ -237,7 +237,7 @@ test "TestFindAllRefsInsideTemplates1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestQuickInfoJsDocTags8" {
@@ -258,7 +258,7 @@ test "TestQuickInfoJsDocTags8" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestJsdocTypedefTagNamespace" {

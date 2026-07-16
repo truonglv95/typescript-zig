@@ -12,11 +12,11 @@ test "TestFormatAsyncKeyword" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "let x = async () => 1;");
+    try f.VerifyCurrentLineContent(undefined, "let x = async () => 1;");
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "let y = async () => 1;");
+    try f.VerifyCurrentLineContent(undefined, "let y = async () => 1;");
     _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "let z = async function() { return 1; };");
+    try f.VerifyCurrentLineContent(undefined, "let z = async function() { return 1; };");
 }
 
 test "TestFindAllRefsImportEqualsJsonFile" {
@@ -37,7 +37,7 @@ test "TestFindAllRefsImportEqualsJsonFile" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "2", "1", "4", "3", "5", "6");
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "2", "1", "4", "3", "5", "6");
 }
 

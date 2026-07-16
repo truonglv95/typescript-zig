@@ -59,7 +59,7 @@ test "TestCompletionsImport_ambient" {
 //             ),
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =        "Bar",
 //         .Source =      "path2longer",
 //         .Description = "Add import from \"path2longer\"",
@@ -93,6 +93,6 @@ test "TestTsxFindAllReferences5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
 }
 

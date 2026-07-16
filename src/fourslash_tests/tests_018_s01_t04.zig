@@ -20,7 +20,7 @@ test "TestFindAllRefsUnionProperty" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "t0", "t1", "t3", "t4", "t5", "t2", "p0", "p1", "p2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "t0", "t1", "t3", "t4", "t5", "t2", "p0", "p1", "p2");
 }
 
 test "TestTripleSlashRefPathCompletionContext" {
@@ -57,7 +57,7 @@ test "TestNavigationBarJsDocCommentWithNoTags" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestCodeFixAddParameterNames3" {
@@ -68,7 +68,7 @@ test "TestCodeFixAddParameterNames3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "public arg0: string", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "public arg0: string", false, 0, 0);
 }
 
 test "TestCompletionsCombineOverloads_restParameter" {
@@ -135,7 +135,7 @@ test "TestQuickInfoOnMergedInterfaces" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "var r4: number", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "var r4: number", "");
 }
 
 test "TestReferencesForStringLiteralPropertyNames7" {
@@ -151,7 +151,7 @@ test "TestReferencesForStringLiteralPropertyNames7" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestGoToDefinitionPropertyAssignment" {
@@ -166,7 +166,7 @@ test "TestGoToDefinitionPropertyAssignment" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "FunctionClick", "PropertyClick");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "FunctionClick", "PropertyClick");
 }
 
 test "TestFormattingOnConstructorSignature" {
@@ -179,9 +179,9 @@ test "TestFormattingOnConstructorSignature" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
-    // f.VerifyCurrentLineContent(undefined, "interface Gourai { new() { } }");
+    // try f.VerifyCurrentLineContent(undefined, "interface Gourai { new() { } }");
     _ = f.GoToMarker(undefined, "2");
-    // f.VerifyCurrentLineContent(undefined, "type Stylet = { new() { } }");
+    // try f.VerifyCurrentLineContent(undefined, "type Stylet = { new() { } }");
 }
 
 test "TestAutoImportCrossPackage_pathsAndSymlink" {
@@ -223,6 +223,6 @@ test "TestAutoImportCrossPackage_pathsAndSymlink" {
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"@company/common"}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"@company/common"}, null );
 }
 

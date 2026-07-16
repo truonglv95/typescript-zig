@@ -15,7 +15,7 @@ test "TestNavigationBarFunctionLikePropertyAssignments" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestQuickInfoDisplayPartsLiteralLikeNames01" {
@@ -37,6 +37,6 @@ test "TestQuickInfoDisplayPartsLiteralLikeNames01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 

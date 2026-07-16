@@ -13,8 +13,8 @@ test "TestGetOccurrencesConst01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "2");
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , "2");
 }
 
 test "TestCallHierarchyDecorator" {
@@ -35,6 +35,6 @@ test "TestCallHierarchyDecorator" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifyBaselineCallHierarchy(undefined);
+    // try f.VerifyBaselineCallHierarchy(undefined);
 }
 

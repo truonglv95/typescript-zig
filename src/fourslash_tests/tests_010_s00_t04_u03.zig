@@ -43,7 +43,7 @@ test "TestCallHierarchyContainerName" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifyBaselineCallHierarchy(undefined);
+    // try f.VerifyBaselineCallHierarchy(undefined);
 }
 
 test "TestOrganizeImportsType6" {
@@ -55,7 +55,7 @@ test "TestOrganizeImportsType6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { type a, A, b } from \"foo\";\ninterface Use extends A {}\nconsole.log(a, b);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -63,7 +63,7 @@ test "TestOrganizeImportsType6" {
 //         },
 //     );
     _ = f.ReplaceLine(undefined, 0, "import { type a, A, b } from \"foo1\";");
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { type a, A, b } from \"foo1\";\ninterface Use extends A {}\nconsole.log(a, b);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -72,7 +72,7 @@ test "TestOrganizeImportsType6" {
 //         },
 //     );
     _ = f.ReplaceLine(undefined, 0, "import { type a, A, b } from \"foo2\";");
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { type a, A, b } from \"foo2\";\ninterface Use extends A {}\nconsole.log(a, b);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -81,7 +81,7 @@ test "TestOrganizeImportsType6" {
 //         },
 //     );
     _ = f.ReplaceLine(undefined, 0, "import { type a, A, b } from \"foo3\";");
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { A, type a, b } from \"foo3\";\ninterface Use extends A {}\nconsole.log(a, b);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{

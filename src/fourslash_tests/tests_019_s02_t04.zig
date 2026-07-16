@@ -9,7 +9,7 @@ test "TestDocumentHighlightVarianceModifiers" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestQuickInfoForUMDModuleAlias" {
@@ -25,8 +25,8 @@ test "TestQuickInfoForUMDModuleAlias" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "0", "export namespace myLib", "");
-    // f.VerifyQuickInfoAt(undefined, "1", "export namespace myLib", "");
+    try f.VerifyQuickInfoAt(undefined, "0", "export namespace myLib", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "export namespace myLib", "");
 }
 
 test "TestCompletionListInTypeLiteralInTypeParameter17" {
@@ -162,7 +162,7 @@ test "TestGoToDefinitionIndexSignature2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "use");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "use");
 }
 
 test "TestQuickInfoForAliasedGeneric" {
@@ -180,8 +180,8 @@ test "TestQuickInfoForAliasedGeneric" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "var aa: d.C<number>", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "var bb: d.D", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "var aa: d.C<number>", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "var bb: d.D", "");
 }
 
 test "TestGetJavaScriptSyntacticDiagnostics11" {
@@ -193,7 +193,7 @@ test "TestGetJavaScriptSyntacticDiagnostics11" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineNonSuggestionDiagnostics(undefined);
+    // try f.VerifyBaselineNonSuggestionDiagnostics(undefined);
 }
 
 test "TestInvalidRestArgError" {
@@ -203,7 +203,7 @@ test "TestInvalidRestArgError" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyErrorExistsBetweenMarkers(undefined, "1", "2");
+    try f.VerifyErrorExistsBetweenMarkers(undefined, "1", "2");
 }
 
 test "TestReferencesForClassParameter" {
@@ -228,7 +228,7 @@ test "TestReferencesForClassParameter" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestUnusedLabelAfterEdit" {
@@ -243,14 +243,14 @@ test "TestUnusedLabelAfterEdit" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
     // f.GoToMarker(undefined, "marker");
     _ = f.DeleteAtCaret(undefined, 14);
     _ = f.Insert(undefined, "break;");
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
     // f.GoToMarker(undefined, "marker");
     _ = f.DeleteAtCaret(undefined, 6);
     _ = f.Insert(undefined, "break myLabel;");
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
 }
 

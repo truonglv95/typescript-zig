@@ -21,7 +21,7 @@ test "TestQuickInfoOnExpandoLikePropertyWithSetterDeclarationJs2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "(property) obj.a: any", "");
+    try f.VerifyQuickInfoAt(undefined, "", "(property) obj.a: any", "");
 }
 
 test "TestIssue57429" {
@@ -44,8 +44,8 @@ test "TestIssue57429" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "const value: any", "");
-    // f.VerifyNonSuggestionDiagnostics(undefined, []*.{
+    try f.VerifyQuickInfoAt(undefined, "1", "const value: any", "");
+    // try f.VerifyNonSuggestionDiagnostics(undefined, []*.{
 //         .{
 //             .Message = .{.String = undefined("Property 'args' does not exist on type 'IThing'.")},
 //             .Code =    &.{.Integer = undefined(int32(2339))},
@@ -67,7 +67,7 @@ test "TestFindAllRefsOnPrivateParameterProperty1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestRenameLabel5" {
@@ -82,7 +82,7 @@ test "TestRenameLabel5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , "");
+    // try f.VerifyBaselineRename(undefined, null , "");
 }
 
 test "TestCompletionsImport_uriStyleNodeCoreModules1" {
@@ -174,9 +174,9 @@ test "TestQuickInfoJsdocEnum" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyQuickInfoAt(undefined, "type", "type E = number", "Doc");
-    // f.VerifyQuickInfoAt(undefined, "value", "const E: {\n    A: number;\n}", "Doc");
+    try f.VerifyNoErrors(undefined);
+    try f.VerifyQuickInfoAt(undefined, "type", "type E = number", "Doc");
+    try f.VerifyQuickInfoAt(undefined, "value", "const E: {\n    A: number;\n}", "Doc");
 }
 
 test "TestAutoImportFileExcludePatterns11" {
@@ -208,7 +208,7 @@ test "TestAutoImportFileExcludePatterns11" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'Parts'",
         .NewFileContent = "import { Event } from '../event/event';\nimport { Parts } from './parts';\nexport class Extended implements Parts {\n    options: Event;\n}",
         .Index =           0,
@@ -305,8 +305,8 @@ test "TestFormattingOnCommaOperator" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "var v1 = ((1, 2, 3), 4, 5, (6, 7));");
+    try f.VerifyCurrentLineContent(undefined, "var v1 = ((1, 2, 3), 4, 5, (6, 7));");
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    return a, v1, a;");
+    try f.VerifyCurrentLineContent(undefined, "    return a, v1, a;");
 }
 

@@ -45,7 +45,7 @@ test "TestUnusedFunctionInNamespace3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "namespace Validation {\n}", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "namespace Validation {\n}", false, 0, 0);
 }
 
 test "TestCodeFixClassImplementInterfaceWithAmbientSignatures2" {
@@ -58,7 +58,7 @@ test "TestCodeFixClassImplementInterfaceWithAmbientSignatures2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'A'",
         .NewFileContent = "declare class A {\n    method(): void;\n}\nclass B implements A {\n    method(): void {\n        throw new Error(\"Method not implemented.\");\n    }\n}",
         .Index = 0,
@@ -79,7 +79,7 @@ test "TestRenameFunctionParameter1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , "");
+    // try f.VerifyBaselineRename(undefined, null , "");
 }
 
 test "TestCompletionListNewIdentifierVariableDeclaration" {
@@ -104,7 +104,7 @@ test "TestOrganizeImports3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import {\n    Bar,\n    Foo\n} from \"foo\";\n\nconsole.log(Foo, Bar);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         null,
@@ -133,7 +133,7 @@ test "TestFindAllRefsPropertyContextuallyTypedByTypeParam01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1");
 }
 
 test "TestCompletionEntryForShorthandPropertyAssignment" {
@@ -175,7 +175,7 @@ test "TestGetOccurrencesOfDecorators" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "1");
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , "1");
 }
 
 test "TestJsdocLink6" {
@@ -194,6 +194,6 @@ test "TestJsdocLink6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 

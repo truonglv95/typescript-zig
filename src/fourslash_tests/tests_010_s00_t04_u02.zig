@@ -16,7 +16,7 @@ test "TestGetOccurrencesOfAnonymousFunction2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "local", "global");
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , "local", "global");
 }
 
 test "TestGoToDefinitionOverloadsInMultiplePropertyAccesses" {
@@ -33,6 +33,6 @@ test "TestGoToDefinitionOverloadsInMultiplePropertyAccesses" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "2");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "2");
 }
 

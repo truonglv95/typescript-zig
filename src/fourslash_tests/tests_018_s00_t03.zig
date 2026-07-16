@@ -16,7 +16,7 @@ test "TestFormattingAfterMultiLineIfCondition" {
     _ = f.GoToMarker(undefined, "");
     _ = f.Insert(undefined, "}");
     _ = f.GoToMarker(undefined, "comment");
-    _ = f.VerifyCurrentLineContent(undefined, "    // This is a comment");
+    try f.VerifyCurrentLineContent(undefined, "    // This is a comment");
 }
 
 test "TestCompletionListInImportClause04" {
@@ -52,9 +52,9 @@ test "TestCompletionListInImportClause04" {
 //             },
 //         },
 //     });
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyNoErrors(undefined);
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyNoErrors(undefined);
 }
 
 test "TestConstEnumQuickInfoAndCompletionList" {
@@ -84,8 +84,8 @@ test "TestConstEnumQuickInfoAndCompletionList" {
 //             },
 //         },
 //     });
-    // f.VerifyQuickInfoAt(undefined, "1", "const enum e", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "const enum e", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "const enum e", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "const enum e", "");
 }
 
 test "TestDocumentHighlightsTypeParameterInHeritageClause01" {
@@ -98,7 +98,7 @@ test "TestDocumentHighlightsTypeParameterInHeritageClause01" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestImportNameCodeFixInferEndingPreference" {
@@ -120,7 +120,7 @@ test "TestImportNameCodeFixInferEndingPreference" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"./c"}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"./c"}, null );
 }
 
 test "TestUnusedImports10FS" {
@@ -139,7 +139,7 @@ test "TestUnusedImports10FS" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "", false, 0, 0);
 }
 
 test "TestCompletions03" {
@@ -186,7 +186,7 @@ test "TestFindAllRefsMappedType_nonHomomorphic" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestInlayHintsInteractiveMultifileFunctionCalls" {
@@ -208,7 +208,7 @@ test "TestInlayHintsInteractiveMultifileFunctionCalls" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "./aaa.mts");
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayParameterNameHints = lsutil.IncludeInlayParameterNameHintsAll}});
+    // try f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayParameterNameHints = lsutil.IncludeInlayParameterNameHintsAll}});
 }
 
 test "TestModuleMembersOfGenericType" {

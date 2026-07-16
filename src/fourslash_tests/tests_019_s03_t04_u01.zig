@@ -16,7 +16,7 @@ test "TestImportNameCodeFix_jsxOpeningTagImportDefault" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import Component from \"./component\";\n\nexport function Index() {\n    return <Component />;\n}",
     }, null );
 }

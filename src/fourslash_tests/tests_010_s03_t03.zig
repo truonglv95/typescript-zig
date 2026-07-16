@@ -24,7 +24,7 @@ test "TestNavigationBarItemsInsideMethodsAndConstructors" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestCompletionListPrivateMembers" {
@@ -117,7 +117,7 @@ test "TestRenameNumericalIndexSingleQuoted" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, &.{.QuotePreference = lsutil.QuotePreference("single")}, "0");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, &.{.QuotePreference = lsutil.QuotePreference("single")}, "0");
 }
 
 test "TestGetOccurrencesSuper3" {
@@ -138,7 +138,7 @@ test "TestGetOccurrencesSuper3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExportsTypePredicate1" {
@@ -153,7 +153,7 @@ test "TestCodeFixMissingTypeAnnotationOnExportsTypePredicate1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add return type 'value is string'",
         .NewFileContent = "export function isString(value: unknown): value is string {\n  return typeof value === \"string\";\n}",
         .Index = 0,
@@ -173,7 +173,7 @@ test "TestCompletionsImport_fromAmbientModule" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =        "x",
 //         .Source =      "m",
 //         .Description = "Add import from \"m\"",
@@ -235,7 +235,7 @@ test "TestQuickinfoVerbosityNamespace" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"1" = .{0, 1}, .@"2" = .{0, 1, 2}, .@"3" = .{0, 1, 2}, .@"4" = .{0, 1}, .@"5" = .{0, 1}});
+    // try f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"1" = .{0, 1}, .@"2" = .{0, 1, 2}, .@"3" = .{0, 1, 2}, .@"4" = .{0, 1}, .@"5" = .{0, 1}});
 }
 
 test "TestRenameDestructuringAssignmentInForOf" {
@@ -257,8 +257,8 @@ test "TestRenameDestructuringAssignmentInForOf" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[8], f.Ranges()[3], f.Ranges()[5], f.Ranges()[6]);
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[8], f.Ranges()[3], f.Ranges()[5], f.Ranges()[6]);
 }
 
 test "TestImportNameCodeFix_all2" {
@@ -276,7 +276,7 @@ test "TestImportNameCodeFix_all2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/index.ts");
-    _ = f.VerifyCodeFixAll(undefined, .{
+    try f.VerifyCodeFixAll(undefined, .{
         .FixID = "fixMissingImport",
         .NewFileContent = "import { homedir } from \"./os\";\nimport { join } from \"./path\";\n\njoin();\nhomedir();",
     });

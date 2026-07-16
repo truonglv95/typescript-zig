@@ -38,7 +38,7 @@ test "TestQuickinfoVerbosity3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"1" = .{0, 1}, .@"2" = .{0, 1, 2}, .@"3" = .{0, 1}, .@"4" = .{0, 1, 2}, .@"5" = .{0, 1, 2}});
+    // try f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"1" = .{0, 1}, .@"2" = .{0, 1, 2}, .@"3" = .{0, 1}, .@"4" = .{0, 1, 2}, .@"5" = .{0, 1, 2}});
 }
 
 test "TestGetEditsForFileRename_casing" {
@@ -51,7 +51,7 @@ test "TestGetEditsForFileRename_casing" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyWillRenameFilesEdits(undefined, "/dir", "/newDir", .{
+    // try f.VerifyWillRenameFilesEdits(undefined, "/dir", "/newDir", .{
 //         .@"/a.ts" = "import { foo } from \"./newDir/fOo\";",
 //     }, null );
 }

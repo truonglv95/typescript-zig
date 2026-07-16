@@ -19,8 +19,8 @@ test "TestGenericDerivedTypeAcrossModuleBoundary1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "var n2: N.D2<number>", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "var n3: N.D2<unknown>", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "var n2: N.D2<number>", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "var n3: N.D2<unknown>", "");
 }
 
 test "TestFindAllRefsCommonJsRequire3" {
@@ -36,7 +36,7 @@ test "TestFindAllRefsCommonJsRequire3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "");
+    // try f.VerifyBaselineFindAllReferences(undefined, "");
 }
 
 test "TestFindAllRefsExportEquals" {
@@ -50,7 +50,7 @@ test "TestFindAllRefsExportEquals" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2", "3", "4");
 }
 
 test "TestRestArgType" {
@@ -87,25 +87,25 @@ test "TestRestArgType" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "(parameter) restArgs: any[]", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "(parameter) restArgs: any[]", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "(parameter) y: string[]", "");
-    // f.VerifyQuickInfoAt(undefined, "4", "(parameter) y1: string[]", "");
-    // f.VerifyQuickInfoAt(undefined, "5", "(parameter) y2: string", "");
-    // f.VerifyQuickInfoAt(undefined, "t1", "(parameter) f1: [a1: string, a2: string]", "");
-    // f.VerifyQuickInfoAt(undefined, "t2", "(parameter) f1: [a1: string, ...a2: string[]]", "");
-    // f.VerifyQuickInfoAt(undefined, "t31", "(parameter) f1: number", "");
-    // f.VerifyQuickInfoAt(undefined, "t32", "(parameter) f2: [a2: boolean, ...c: string[]]", "");
-    // f.VerifyQuickInfoAt(undefined, "t4", "(parameter) f1: string[]", "");
-    // f.VerifyQuickInfoAt(undefined, "t5", "(parameter) f1: string", "");
-    // f.VerifyQuickInfoAt(undefined, "t61", "(parameter) f1: string", "");
-    // f.VerifyQuickInfoAt(undefined, "t62", "(parameter) f2: string[]", "");
-    // f.VerifyQuickInfoAt(undefined, "t71", "(parameter) f1: string", "");
-    // f.VerifyQuickInfoAt(undefined, "t72", "(parameter) f2: string", "");
-    // f.VerifyQuickInfoAt(undefined, "t73", "(parameter) f3: string", "");
-    // f.VerifyQuickInfoAt(undefined, "t8", "(parameter) f1: number[]", "");
-    // f.VerifyQuickInfoAt(undefined, "t91", "(parameter) f1: string[]", "");
-    // f.VerifyQuickInfoAt(undefined, "t92", "(parameter) f2: string[]", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "(parameter) restArgs: any[]", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "(parameter) restArgs: any[]", "");
+    try f.VerifyQuickInfoAt(undefined, "3", "(parameter) y: string[]", "");
+    try f.VerifyQuickInfoAt(undefined, "4", "(parameter) y1: string[]", "");
+    try f.VerifyQuickInfoAt(undefined, "5", "(parameter) y2: string", "");
+    try f.VerifyQuickInfoAt(undefined, "t1", "(parameter) f1: [a1: string, a2: string]", "");
+    try f.VerifyQuickInfoAt(undefined, "t2", "(parameter) f1: [a1: string, ...a2: string[]]", "");
+    try f.VerifyQuickInfoAt(undefined, "t31", "(parameter) f1: number", "");
+    try f.VerifyQuickInfoAt(undefined, "t32", "(parameter) f2: [a2: boolean, ...c: string[]]", "");
+    try f.VerifyQuickInfoAt(undefined, "t4", "(parameter) f1: string[]", "");
+    try f.VerifyQuickInfoAt(undefined, "t5", "(parameter) f1: string", "");
+    try f.VerifyQuickInfoAt(undefined, "t61", "(parameter) f1: string", "");
+    try f.VerifyQuickInfoAt(undefined, "t62", "(parameter) f2: string[]", "");
+    try f.VerifyQuickInfoAt(undefined, "t71", "(parameter) f1: string", "");
+    try f.VerifyQuickInfoAt(undefined, "t72", "(parameter) f2: string", "");
+    try f.VerifyQuickInfoAt(undefined, "t73", "(parameter) f3: string", "");
+    try f.VerifyQuickInfoAt(undefined, "t8", "(parameter) f1: number[]", "");
+    try f.VerifyQuickInfoAt(undefined, "t91", "(parameter) f1: string[]", "");
+    try f.VerifyQuickInfoAt(undefined, "t92", "(parameter) f2: string[]", "");
 }
 
 test "TestIncrementalParsingTopLevelAwait2" {
@@ -119,12 +119,12 @@ test "TestIncrementalParsingTopLevelAwait2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
     _ = f.GoToMarker(undefined, "1");
     _ = f.Insert(undefined, "await(1);");
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
     _ = f.ReplaceLine(undefined, 1, "");
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 0);
 }
 
 test "TestUnusedImports9FS" {
@@ -148,7 +148,7 @@ test "TestUnusedImports9FS" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "", false, 0, 0);
 }
 
 test "TestCompletionsImport_default_addToNamespaceImport" {
@@ -185,7 +185,7 @@ test "TestCompletionsImport_default_addToNamespaceImport" {
 //             },
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =        "foo",
 //         .Source =      "./a",
 //         .Description = "Update import from \"./a\"",
@@ -258,7 +258,7 @@ test "TestQuickInfoNamedTupleMembers" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "type Segment = [length: number, count: number]", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "type Segment = [length: number, count: number]", "");
 }
 
 test "TestCompletionListInObjectBindingPattern05" {

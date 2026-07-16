@@ -47,8 +47,8 @@ test "TestQuickInfoLinkCodePlain" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyNoErrors(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestCompletionsMergedDeclarations1" {
@@ -159,7 +159,7 @@ test "TestImportNameCodeFix_typeOnly" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import type { A } from \"./types\";\n\nconst a: A",
     }, null );
 }
@@ -180,7 +180,7 @@ test "TestGoToDefinitionOverriddenMember10" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestGetOccurrencesIsDefinitionOfExport" {
@@ -194,7 +194,7 @@ test "TestGetOccurrencesIsDefinitionOfExport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestOrganizeImports20" {
@@ -207,7 +207,7 @@ test "TestOrganizeImports20" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "const a = 1;\nconst b = 1;\nexport { a, b };\n",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         null,
@@ -223,7 +223,7 @@ test "TestFindAllReferencesFilteringMappedTypeProperty" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestFindAllRefsReExportStarAs" {
@@ -239,7 +239,7 @@ test "TestFindAllRefsReExportStarAs" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineFindAllReferences(undefined, "helloDef", "helloUse", "leafDef", "leafImportDef", "leafUse");
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineFindAllReferences(undefined, "helloDef", "helloUse", "leafDef", "leafImportDef", "leafUse");
 }
 

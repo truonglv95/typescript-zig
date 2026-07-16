@@ -18,7 +18,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports43_expando_functions_5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Annotate types of properties expando function in a namespace",
         .NewFileContent = "function foo(): void {}\ndeclare namespace foo {\n    export var y: number;\n}\n// x already exists, so do not generate code for 'x'\nfoo.x = 1;\nfoo.y = 1;\nnamespace foo {\n  export let x = 42;\n}",
         .Index = 0,
@@ -34,7 +34,7 @@ test "TestGoToDefinitionSwitchCase1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "start");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "start");
 }
 
 test "TestQuickInfoJsDocAlias" {
@@ -53,7 +53,7 @@ test "TestQuickInfoJsDocAlias" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestSemanticClassification2" {
@@ -68,7 +68,7 @@ test "TestSemanticClassification2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "interface.declaration", .Text = "Thing"},
 //         .{.Type = "method.declaration", .Text = "toExponential"},
 //         .{.Type = "variable.declaration", .Text = "Thing"},
@@ -89,7 +89,7 @@ test "TestGoToDefinitionJsModuleExports" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "ref", "refFn");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "ref", "refFn");
 }
 
 test "TestFindReferencesAcrossMultipleProjects" {
@@ -106,7 +106,7 @@ test "TestFindReferencesAcrossMultipleProjects" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestSignatureHelpSimpleFunctionCall" {
@@ -121,9 +121,9 @@ test "TestSignatureHelpSimpleFunctionCall" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "functionCall1");
-    // f.VerifySignatureHelp(undefined, .{.Text = "functionCall(str: string, num: number): void", .ParameterName = "str", .ParameterSpan = "str: string"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "functionCall(str: string, num: number): void", .ParameterName = "str", .ParameterSpan = "str: string"});
     _ = f.GoToMarker(undefined, "functionCall2");
-    // f.VerifySignatureHelp(undefined, .{.Text = "functionCall(str: string, num: number): void", .ParameterName = "num", .ParameterSpan = "num: number"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "functionCall(str: string, num: number): void", .ParameterName = "num", .ParameterSpan = "num: number"});
 }
 
 test "TestCompletionListAfterFunction3" {
@@ -177,7 +177,7 @@ test "TestDocumentHighlightsInvalidModifierLocations" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestImportCompletionsPackageJsonExportsSpecifierEndsInTs" {

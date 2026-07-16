@@ -10,9 +10,9 @@ test "TestSignatureHelpInParenthetical" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifySignatureHelp(undefined, .{.ParameterName = "n"});
+    // try f.VerifySignatureHelp(undefined, .{.ParameterName = "n"});
     _ = f.Insert(undefined, "0, ");
-    // f.VerifySignatureHelp(undefined, .{.ParameterName = "y"});
+    // try f.VerifySignatureHelp(undefined, .{.ParameterName = "y"});
 }
 
 test "TestImportNameCodeFix_barrelExport4" {
@@ -39,8 +39,8 @@ test "TestImportNameCodeFix_barrelExport4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "sibling", &.{"./a", ".", ".."}, null );
-    // f.VerifyImportFixModuleSpecifiers(undefined, "parent", &.{"../foo", "../foo/a", ".."}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "sibling", &.{"./a", ".", ".."}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "parent", &.{"../foo", "../foo/a", ".."}, null );
 }
 
 test "TestGoToDefinitionJsDocImportTag5" {
@@ -62,7 +62,7 @@ test "TestGoToDefinitionJsDocImportTag5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestJsdocPropertyTagCompletion" {
@@ -103,7 +103,7 @@ test "TestQuickInfoUnionOfNamespaces" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "(method) f(): void", "");
+    try f.VerifyQuickInfoAt(undefined, "", "(method) f(): void", "");
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports26_fn_in_object_literal" {
@@ -124,7 +124,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports26_fn_in_object_literal" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFixAll(undefined, .{
+    try f.VerifyCodeFixAll(undefined, .{
         .FixID = "fixMissingTypeAnnotationOnExports",
         .NewFileContent = "export const extensions = {\n    /**\n     */\n    fn: <T>(actualValue: T, expectedValue: T): boolean => {\n       return actualValue === expectedValue\n    },\n    fn2: function<T>(actualValue: T, expectedValue: T): boolean  {\n       return actualValue === expectedValue\n    }\n}",
     });
@@ -140,8 +140,8 @@ test "TestQuickInfoForTypeofParameter" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "ref1", "(local var) y1: string", "");
-    // f.VerifyQuickInfoAt(undefined, "ref2", "(local var) y1: string", "");
+    try f.VerifyQuickInfoAt(undefined, "ref1", "(local var) y1: string", "");
+    try f.VerifyQuickInfoAt(undefined, "ref2", "(local var) y1: string", "");
 }
 
 test "TestReferencesForGlobals2" {
@@ -156,7 +156,7 @@ test "TestReferencesForGlobals2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestGoToDefinitionInterfaceAfterImplement" {
@@ -175,7 +175,7 @@ test "TestGoToDefinitionInterfaceAfterImplement" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, false, "interfaceReference");
+    // try f.VerifyBaselineGoToDefinition(undefined, false, "interfaceReference");
 }
 
 test "TestImportTypeCompletions3" {

@@ -11,7 +11,7 @@ test "TestFormatSelectionWithTrivia7" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatSelection(undefined, "begin", "end");
-    _ = f.VerifyCurrentFileContent(undefined, "if (true) {\n    // test comment\n}");
+    try f.VerifyCurrentFileContent(undefined, "if (true) {\n    // test comment\n}");
 }
 
 test "TestInlayHintsInteractiveFunctionParameterTypes5" {
@@ -22,6 +22,6 @@ test "TestInlayHintsInteractiveFunctionParameterTypes5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayFunctionParameterTypeHints = core.TSTrue}});
+    // try f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayFunctionParameterTypeHints = core.TSTrue}});
 }
 

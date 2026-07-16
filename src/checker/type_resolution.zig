@@ -22,6 +22,10 @@ pub fn getTypeFromTypeNodeWorker(c: *Checker, node: NodeIndex) TypeIndex {
     const kind = c.binder.ast.getKind(node);
     switch (kind) {
         .AnyKeyword, .JSDocAllType => return c.getAnyType() catch c.unknownTypeIndex orelse 0,
+        .JSDocTypeExpression => {
+            const typeNode = c.binder.ast.getNode(node).JSDocTypeExpression.Type;
+            return getTypeFromTypeNode(c, typeNode);
+        },
         .JSDocNonNullableType => {
             const typeNode = c.binder.ast.getNode(node).JSDocNonNullableType.Type;
             return getTypeFromTypeNode(c, typeNode);

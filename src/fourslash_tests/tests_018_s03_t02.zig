@@ -13,7 +13,7 @@ test "TestDocCommentTemplateExportAssignmentJS" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyJSDocCompletion(undefined, "", 7, "/**\n * \n * @param {any} a\n */", null);
+    // try f.VerifyJSDocCompletion(undefined, "", 7, "/**\n * \n * @param {any} a\n */", null);
 }
 
 test "TestNodeNextModuleKindCaching1" {
@@ -45,7 +45,7 @@ test "TestNodeNextModuleKindCaching1" {
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
 }
 
 test "TestGoToDefinition_super" {
@@ -72,7 +72,7 @@ test "TestGoToDefinition_super" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "super", "superExpression", "superBroken");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "super", "superExpression", "superBroken");
 }
 
 test "TestQuickInfoJSDocFunctionThis" {
@@ -86,7 +86,7 @@ test "TestQuickInfoJSDocFunctionThis" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyQuickInfoIs(undefined, "var f: (this: string, arg1: string) => string", "");
+    try f.VerifyQuickInfoIs(undefined, "var f: (this: string, arg1: string) => string", "");
 }
 
 test "TestFindAllRefsOnImportAliases" {
@@ -104,7 +104,7 @@ test "TestFindAllRefsOnImportAliases" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2");
 }
 
 test "TestQuickInfoTypeArgumentInferenceWithMethodWithoutBody" {
@@ -125,7 +125,7 @@ test "TestQuickInfoTypeArgumentInferenceWithMethodWithoutBody" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyQuickInfoExists(undefined);
+    try f.VerifyQuickInfoExists(undefined);
 }
 
 test "TestCompletionsNamespaceMergedWithClass" {
@@ -198,7 +198,7 @@ test "TestAutoImportPackageJsonImportsPattern_ts_js" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"#something.ts"}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"#something.ts"}, null );
 }
 
 test "TestGoToDefinitionOverriddenMember15" {
@@ -215,7 +215,7 @@ test "TestGoToDefinitionOverriddenMember15" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestCompletionsWithOptionalPropertiesGenericValidBoolean" {

@@ -10,7 +10,7 @@ test "TestFormattingOnSemiColon" {
     defer f.deinit();
     _ = f.GoToEOF(undefined);
     _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentFileContent(undefined, "var a = b + c ^ d - e * ++f;");
+    try f.VerifyCurrentFileContent(undefined, "var a = b + c ^ d - e * ++f;");
 }
 
 test "TestImportNameCodeFixExportAsDefaultExistingImport" {
@@ -27,7 +27,7 @@ test "TestImportNameCodeFixExportAsDefaultExistingImport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "v4, { v1, v2, v3 }",
     }, null );
 }
@@ -70,9 +70,9 @@ test "TestGenericInterfacesWithConstraints1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "var v1: G<A, C>", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "var v2: G<{\n    a: string;\n}, C>", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "var v3: G<G<A, B>, C>", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "var v1: G<A, C>", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "var v2: G<{\n    a: string;\n}, C>", "");
+    try f.VerifyQuickInfoAt(undefined, "3", "var v3: G<G<A, B>, C>", "");
 }
 
 test "TestCodeFixClassImplementInterfaceMethodThisAndSelfReference" {
@@ -86,7 +86,7 @@ test "TestCodeFixClassImplementInterfaceMethodThisAndSelfReference" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'I'",
         .NewFileContent = "interface I {\n    f(x: number, y: this): I\n}\n\nclass C implements I {\n    f(x: number, y: this): I {\n        throw new Error(\"Method not implemented.\");\n    }\n}",
         .Index = 0,
@@ -111,7 +111,7 @@ test "TestDocumentHighlights02" {
     _ = f.MarkTestAsStradaServer();
     _ = f.GoToFile(undefined, "a.ts");
     _ = f.GoToFile(undefined, "b.ts");
-    // f.VerifyBaselineDocumentHighlightsWithOptions(undefined, null , &.{"a.ts", "b.ts"}, ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlightsWithOptions(undefined, null , &.{"a.ts", "b.ts"}, ToAny(f.Ranges()));
 }
 
 test "TestSmartSelection_function2" {
@@ -123,7 +123,7 @@ test "TestSmartSelection_function2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineSelectionRanges(undefined);
+    try f.VerifyBaselineSelectionRanges(undefined);
 }
 
 test "TestFindAllRefsReExportsUseInImportType" {
@@ -142,13 +142,13 @@ test "TestFindAllRefsReExportsUseInImportType" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineFindAllReferences(undefined, "full0", "full1", "full2", "foo0", "foo1", "foo2", "foo3", "foo4");
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[9], f.Ranges()[11]);
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[3]);
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[5], f.Ranges()[10]);
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[7], f.Ranges()[8]);
-    // f.VerifyBaselineRename(undefined, &.{.UseAliasesForRename = core.TSFalse}, f.Ranges()[7], f.Ranges()[8], f.Ranges()[10], f.Ranges()[3], f.Ranges()[5]);
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineFindAllReferences(undefined, "full0", "full1", "full2", "foo0", "foo1", "foo2", "foo3", "foo4");
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[9], f.Ranges()[11]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[3]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[5], f.Ranges()[10]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[7], f.Ranges()[8]);
+    // try f.VerifyBaselineRename(undefined, &.{.UseAliasesForRename = core.TSFalse}, f.Ranges()[7], f.Ranges()[8], f.Ranges()[10], f.Ranges()[3], f.Ranges()[5]);
 }
 
 test "TestQuickInfoPrivateIdentifierInTypeReferenceNoCrash1" {
@@ -165,7 +165,7 @@ test "TestQuickInfoPrivateIdentifierInTypeReferenceNoCrash1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "", "");
 }
 
 test "TestImportNameCodeFix_shorthandPropertyAssignment2" {
@@ -180,7 +180,7 @@ test "TestImportNameCodeFix_shorthandPropertyAssignment2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/b.ts");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import a from \"./a\";\n\nconst b = { a };",
     }, null );
 }

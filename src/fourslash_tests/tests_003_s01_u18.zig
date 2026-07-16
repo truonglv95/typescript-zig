@@ -97,6 +97,6 @@ test "TestDeduplicateDuplicateMergedBindCheckErrors" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 2);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 2);
 }
 

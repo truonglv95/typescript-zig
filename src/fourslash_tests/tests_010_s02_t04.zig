@@ -9,7 +9,7 @@ test "TestRenameModuleExportsProperties1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, &.{.UseAliasesForRename = core.TSTrue}, f.Ranges()[1], f.Ranges()[2]);
+    // try f.VerifyBaselineRename(undefined, &.{.UseAliasesForRename = core.TSTrue}, f.Ranges()[1], f.Ranges()[2]);
 }
 
 test "TestQuickInfoFunctionKeyword" {
@@ -20,8 +20,8 @@ test "TestQuickInfoFunctionKeyword" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "(local function)(): void", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "function(x: number): number", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "(local function)(): void", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "function(x: number): number", "");
 }
 
 test "TestCompletionListAtEOF2" {
@@ -64,15 +64,15 @@ test "TestFormattingNonNullAssertionOperator" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "'bar'!;");
+    try f.VerifyCurrentLineContent(undefined, "'bar'!;");
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "('bar')!;");
+    try f.VerifyCurrentLineContent(undefined, "('bar')!;");
     _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "'bar'[1]!;");
+    try f.VerifyCurrentLineContent(undefined, "'bar'[1]!;");
     _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "var bar = 'bar'.foo!;");
+    try f.VerifyCurrentLineContent(undefined, "var bar = 'bar'.foo!;");
     _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "var foo = bar!;");
+    try f.VerifyCurrentLineContent(undefined, "var foo = bar!;");
 }
 
 test "TestFindAllReferencesTripleSlash" {
@@ -92,7 +92,7 @@ test "TestFindAllReferencesTripleSlash" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestQuickInfoOnThis3" {
@@ -116,13 +116,13 @@ test "TestQuickInfoOnThis3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "any", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "(parameter) this: void", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "this: void", "");
-    // f.VerifyQuickInfoAt(undefined, "4", "(parameter) this: Restricted", "");
-    // f.VerifyQuickInfoAt(undefined, "5", "this: Restricted", "");
-    // f.VerifyQuickInfoAt(undefined, "6", "(parameter) this: {\n    n: number;\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "7", "this: {\n    n: number;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "any", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "(parameter) this: void", "");
+    try f.VerifyQuickInfoAt(undefined, "3", "this: void", "");
+    try f.VerifyQuickInfoAt(undefined, "4", "(parameter) this: Restricted", "");
+    try f.VerifyQuickInfoAt(undefined, "5", "this: Restricted", "");
+    try f.VerifyQuickInfoAt(undefined, "6", "(parameter) this: {\n    n: number;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "7", "this: {\n    n: number;\n}", "");
 }
 
 test "TestSyntacticClassificationForJSDocTemplateTag" {
@@ -134,7 +134,7 @@ test "TestSyntacticClassificationForJSDocTemplateTag" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "function.declaration", .Text = "ident"},
 //         .{.Type = "typeParameter.declaration", .Text = "T"},
 //         .{.Type = "typeParameter", .Text = "T"},
@@ -209,7 +209,7 @@ test "TestGenericAssignmentCompat" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyErrorExistsBetweenMarkers(undefined, "1", "2");
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
+    try f.VerifyErrorExistsBetweenMarkers(undefined, "1", "2");
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
 }
 

@@ -12,6 +12,6 @@ test "TestStringPropertyNames1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "var x: number", "");
+    try f.VerifyQuickInfoAt(undefined, "", "var x: number", "");
 }
 

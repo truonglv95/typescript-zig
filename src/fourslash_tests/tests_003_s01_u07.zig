@@ -11,7 +11,7 @@ test "TestFindAllRefsInClassExpression" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "1");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "1");
 }
 
 test "TestGoToDefinitionOverriddenMember4" {
@@ -29,6 +29,6 @@ test "TestGoToDefinitionOverriddenMember4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 

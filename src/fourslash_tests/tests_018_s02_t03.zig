@@ -22,8 +22,8 @@ test "TestFindAllRefsOfConstructor_multipleFiles" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineFindAllReferences(undefined, "aCtr");
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineFindAllReferences(undefined, "aCtr");
 }
 
 test "TestIsDefinitionSingleImport" {
@@ -36,7 +36,7 @@ test "TestIsDefinitionSingleImport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestSmartSelection_bindingPatterns" {
@@ -46,7 +46,7 @@ test "TestSmartSelection_bindingPatterns" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineSelectionRanges(undefined);
+    try f.VerifyBaselineSelectionRanges(undefined);
 }
 
 test "TestFindAllRefsForUMDModuleAlias1" {
@@ -62,7 +62,7 @@ test "TestFindAllRefsForUMDModuleAlias1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestRenameForDefaultExport05" {
@@ -82,7 +82,7 @@ test "TestRenameForDefaultExport05" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyRenameSucceeded(undefined, null );
+    try f.VerifyRenameSucceeded(undefined, null );
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports15" {
@@ -98,7 +98,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports15" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Extract binding expressions to variable",
         .NewFileContent = "function foo() {\n    return { x: 1, y: 1 } as const;\n}\nconst dest = foo();\nexport const x: 1 = dest.x;\nconst temp = dest.y;\nexport const y: 0 | 1 = temp === undefined ? 0 : dest.y;",
         .Index = 0,
@@ -117,7 +117,7 @@ test "TestGetEditsForFileRename_tsconfig_include_add" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyWillRenameFilesEdits(undefined, "/src/dir/a.ts", "/src/newDir/b.ts", .{
+    // try f.VerifyWillRenameFilesEdits(undefined, "/src/dir/a.ts", "/src/newDir/b.ts", .{
 //         .@"/src/tsconfig.json" = "{\n    \"include\": [\"dir\", \"newDir/b.ts\"],\n}",
 //     }, null );
 }
@@ -174,8 +174,8 @@ test "TestFailureToImplementClass" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyErrorExistsBetweenMarkers(undefined, "1", "2");
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
+    try f.VerifyErrorExistsBetweenMarkers(undefined, "1", "2");
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
 }
 
 test "TestCompletionListAfterRegularExpressionLiteral02" {

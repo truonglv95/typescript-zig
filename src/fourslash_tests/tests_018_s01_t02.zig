@@ -44,7 +44,7 @@ test "TestFormatTsxMultilineAttributeString" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "(\n    <input\n        value=\"x\n        x\"\n    />\n);");
+    try f.VerifyCurrentFileContent(undefined, "(\n    <input\n        value=\"x\n        x\"\n    />\n);");
 }
 
 test "TestGetEditsForFileRename_keepFileExtensions" {
@@ -64,7 +64,7 @@ test "TestGetEditsForFileRename_keepFileExtensions" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyWillRenameFilesEdits(undefined, "/src/person.ts", "/src/vip.ts", .{
+    // try f.VerifyWillRenameFilesEdits(undefined, "/src/person.ts", "/src/vip.ts", .{
 //         .@"/src/index.ts" = "import {name} from \"./vip.js\";",
 //     }, null );
 }
@@ -287,7 +287,7 @@ test "TestJsdocTypedefTag" {
 //             },
 //         },
 //     });
-    // f.VerifyQuickInfoAt(undefined, "AnimalType", "type Animal = {\n    animalName: string;\n    animalAge: number;\n}", "- think Giraffes");
+    try f.VerifyQuickInfoAt(undefined, "AnimalType", "type Animal = {\n    animalName: string;\n    animalAge: number;\n}", "- think Giraffes");
 }
 
 test "TestAugmentedTypesClass1" {
@@ -372,7 +372,7 @@ test "TestFindAllReferencesOfConstructor" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2");
 }
 
 test "TestFindAllRefs_importType_named" {
@@ -387,7 +387,7 @@ test "TestFindAllRefs_importType_named" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6");
 }
 
 test "TestAutoImportBundlerBlockRelativeNodeModulesPaths" {
@@ -410,7 +410,7 @@ test "TestAutoImportBundlerBlockRelativeNodeModulesPaths" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"dep"}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"dep"}, null );
 }
 
 test "TestOrganizeImports1" {
@@ -434,14 +434,14 @@ test "TestOrganizeImports1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import {\n    a,\n    b,\n    b as B,\n    c,\n    c as C,\n    d, d as D,\n    e,\n    f,\n    f as F,\n    g,\n    g as G,\n    h, h as H\n} from './foo';\n\nconsole.log(a, B, b, c, C, d, D);\nconsole.log(e, f, F, g, G, H, h);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
 //             .OrganizeImportsIgnoreCase = core.TSTrue,
 //         },
 //     );
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import {\n    b as B,\n    c as C,\n    d as D,\n    f as F,\n    g as G,\n    h as H,\n    a,\n    b,\n    c,\n    d,\n    e,\n    f,\n    g,\n    h\n} from './foo';\n\nconsole.log(a, B, b, c, C, d, D);\nconsole.log(e, f, F, g, G, H, h);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -462,6 +462,6 @@ test "TestCodeFixAddOptionalParam14" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined, "addOptionalParam");
+    // try f.VerifyCodeFixNotAvailable(undefined, "addOptionalParam");
 }
 

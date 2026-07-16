@@ -159,7 +159,7 @@ test "TestTsxGoToDefinitionUnionElementType1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "one");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "one");
 }
 
 test "TestCompletionListInUnclosedObjectTypeLiteralInSignature03" {
@@ -207,7 +207,7 @@ test "TestReferencesForStringLiteralPropertyNames3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5");
 }
 
 test "TestQuickInfoJsDocThisTag" {
@@ -222,7 +222,7 @@ test "TestQuickInfoJsDocThisTag" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestImportNameCodeFixExistingImport3" {
@@ -237,7 +237,7 @@ test "TestImportNameCodeFixExistingImport3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import d, * as ns from \"./module\"   ;\nns.f1();",
         "import d, * as ns from \"./module\"   ;\nimport { f1 } from \"./module\";\nf1();",
     }, null );
@@ -312,7 +312,7 @@ test "TestCodeFixTopLevelAwait_module_blankCompilerOptionsInTsConfig" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined, "fixModuleOption");
+    // try f.VerifyCodeFixNotAvailable(undefined, "fixModuleOption");
 }
 
 test "TestFindAllRefsJsDocImportTag" {
@@ -334,7 +334,7 @@ test "TestFindAllRefsJsDocImportTag" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "");
+    // try f.VerifyBaselineFindAllReferences(undefined, "");
 }
 
 test "TestOptionalPropertyFormatting" {
@@ -348,6 +348,6 @@ test "TestOptionalPropertyFormatting" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "export class C extends Error {\n    message: string;\n    data? = {};\n}");
+    try f.VerifyCurrentFileContent(undefined, "export class C extends Error {\n    message: string;\n    data? = {};\n}");
 }
 

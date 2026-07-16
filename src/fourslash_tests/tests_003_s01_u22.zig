@@ -57,7 +57,7 @@ test "TestCodeFixClassImplementDefaultClass" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'I'",
         .NewFileContent = "interface I { x: number; }\nexport default class implements I {\n    x: number;\n}",
         .Index = 0,

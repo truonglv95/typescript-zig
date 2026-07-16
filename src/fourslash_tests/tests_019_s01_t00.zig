@@ -10,10 +10,10 @@ test "TestGenericArityEnforcementAfterEdit" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
     _ = f.GoToMarker(undefined, "");
     _ = f.Insert(undefined, " ");
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
 }
 
 test "TestErrorsAfterResolvingVariableDeclOfMergedVariableAndClassDecl" {
@@ -30,12 +30,12 @@ test "TestErrorsAfterResolvingVariableDeclOfMergedVariableAndClassDecl" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyNoErrors(undefined);
     _ = f.GoToMarker(undefined, "1");
     _ = f.Backspace(undefined, 1);
     _ = f.Insert(undefined, " ");
-    _ = f.VerifyQuickInfoIs(undefined, "var M.C.C: typeof M.C", "");
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyQuickInfoIs(undefined, "var M.C.C: typeof M.C", "");
+    try f.VerifyNoErrors(undefined);
 }
 
 test "TestFindAllReferencesJsRequireDestructuring1" {
@@ -51,7 +51,7 @@ test "TestFindAllReferencesJsRequireDestructuring1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1");
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports43_expando_functions_2" {
@@ -67,7 +67,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports43_expando_functions_2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add annotation of type '{ (): void; a: string; b: string; }'",
         .NewFileContent = "const foo: {\n    (): void;\n    a: string;\n    b: string;\n} = () => {}\nfoo[\"a\"] = \"A\";\nfoo[\"b\"] = \"C\"",
         .Index = 1,
@@ -89,7 +89,7 @@ test "TestImportNameCodeFixNewImportBaseUrl0" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import { f1 } from \"b\";\n\nf1();",
     }, null );
 }
@@ -107,12 +107,12 @@ test "TestCodeFixMissingTypeAnnotationOnExports32_inline_short_hand" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add satisfies and an inline type assertion with 'number'",
         .NewFileContent = "const x = 1;\nexport default {\n  x: x as number\n};",
         .Index = 1,
     });
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add satisfies and an inline type assertion with 'typeof x'",
         .NewFileContent = "const x = 1;\nexport default {\n  x: x as typeof x\n};",
         .Index = 2,
@@ -227,7 +227,7 @@ test "TestGetOccurrencesAsyncAwait3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "");
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , "");
 }
 
 test "TestFindAllRefsWithLeadingUnderscoreNames9" {
@@ -239,7 +239,7 @@ test "TestFindAllRefsWithLeadingUnderscoreNames9" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestCodeFixInferFromPrimitiveUsage" {
@@ -252,6 +252,6 @@ test "TestCodeFixInferFromPrimitiveUsage" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "s: string | string[]", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "s: string | string[]", false, 0, 0);
 }
 

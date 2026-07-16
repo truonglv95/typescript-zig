@@ -35,7 +35,7 @@ test "TestTsxFindAllReferences10" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1");
 }
 
 test "TestCodeFixClassImplementInterfaceMethodTypePredicate" {
@@ -50,7 +50,7 @@ test "TestCodeFixClassImplementInterfaceMethodTypePredicate" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'I'",
         .NewFileContent = "interface I {\n    f(i: any): i is I;\n    f(): this is I;\n}\n\nclass C implements I {\n    f(i: any): i is I;\n    f(): this is I;\n    f(i?: unknown): boolean {\n        throw new Error(\"Method not implemented.\");\n    }\n}",
         .Index = 0,

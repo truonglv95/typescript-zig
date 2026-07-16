@@ -54,12 +54,22 @@ pub fn parseTestData(allocator: std.mem.Allocator, content: []const u8) !*Parsed
                 const end = std.mem.indexOf(u8, rawContent[i+2..], "*/");
                 if (end) |endIdx| {
                     const markerName = std.mem.trim(u8, rawContent[i+2 .. i+2+endIdx], " \t\r\n");
-                    var marker = try aa.create(Marker);
-                    marker.name = markerName;
-                    marker.position = cleanContent.items.len;
-                    try result.markerPositions.put(markerName, marker);
-                    i += 2 + endIdx + 2;
-                    continue;
+                    // Check if it's a valid Fourslash marker (alphanumeric/underscore or empty)
+                    var isValid = true;
+                    for (markerName) |c| {
+                        if (!std.ascii.isAlphanumeric(c) and c != '_') {
+                            isValid = false;
+                            break;
+                        }
+                    }
+                    if (isValid) {
+                        var marker = try aa.create(Marker);
+                        marker.name = markerName;
+                        marker.position = cleanContent.items.len;
+                        try result.markerPositions.put(markerName, marker);
+                        i += 2 + endIdx + 2;
+                        continue;
+                    }
                 }
             } else if (i + 1 < rawContent.len and rawContent[i] == '[' and rawContent[i+1] == '|') {
                 try openRanges.append(aa, cleanContent.items.len);

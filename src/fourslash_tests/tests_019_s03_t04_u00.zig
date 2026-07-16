@@ -47,6 +47,6 @@ test "TestSignatureHelpTaggedTemplatesNegatives4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyNoSignatureHelpForMarkers(undefined, f.MarkerNames());
+    // try f.VerifyNoSignatureHelpForMarkers(undefined, f.MarkerNames());
 }
 

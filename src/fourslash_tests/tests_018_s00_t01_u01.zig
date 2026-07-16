@@ -12,7 +12,7 @@ test "TestImportNameCodeFixDefaultExport3" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/b.ts");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import fooBar from \"./foo-bar\";\n\nfooBar",
     }, null );
 }

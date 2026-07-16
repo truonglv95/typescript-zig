@@ -34,6 +34,6 @@ test "TestSyntacticClassificationsMergeConflictMarker1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{});
+    // try f.VerifySemanticTokens(undefined, &.{});
 }
 

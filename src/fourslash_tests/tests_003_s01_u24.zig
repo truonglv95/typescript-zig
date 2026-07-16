@@ -38,6 +38,6 @@ test "TestCodeFixSpellingCaseSensitive3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "node", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "node", false, 0, 0);
 }
 

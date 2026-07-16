@@ -11,7 +11,7 @@ test "TestSignatureHelpTaggedTemplatesNegatives1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyNoSignatureHelpForMarkers(undefined, f.MarkerNames());
+    // try f.VerifyNoSignatureHelpForMarkers(undefined, f.MarkerNames());
 }
 
 test "TestImportNameCodeFix_jsExtension" {
@@ -35,7 +35,7 @@ test "TestImportNameCodeFix_jsExtension" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/c.ts");
-    _ = f.VerifyCodeFixAll(undefined, .{
+    try f.VerifyCodeFixAll(undefined, .{
         .FixID = "fixMissingImport",
         .NewFileContent = "import * as g from \"global\"; // Global imports skipped\nimport { a } from \"./a.js\";\nimport { a as a2 } from \"./a\"; // null, only the first relative import is considered\nimport { b } from \"./b.js\";\nimport { c } from \"./c.jsx\";\nb; c;",
     });
@@ -129,7 +129,7 @@ test "TestGoToDefinitionTypeOnlyImport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "2");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "2");
 }
 
 test "TestImportNameCodeFix_require" {
@@ -154,7 +154,7 @@ test "TestImportNameCodeFix_require" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "index.js");
-    _ = f.VerifyCodeFixAll(undefined, .{
+    try f.VerifyCodeFixAll(undefined, .{
         .FixID = "fixMissingImport",
         .NewFileContent = "const { default: Blah } = require(\"./blah\");\nconst foo = require(\"./foo\");\nconst { util1, util2 } = require(\"./utils\");\n\nfoo();\nutil1();\nutil2();\nnew Blah;",
     });
@@ -177,7 +177,7 @@ test "TestAutoImportRootDirs" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"./types"}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"./types"}, null );
 }
 
 test "TestJsdocLink2" {
@@ -200,7 +200,7 @@ test "TestJsdocLink2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestRenameModuleToVar" {
@@ -221,7 +221,7 @@ test "TestRenameModuleToVar" {
     _ = f.GoToMarker(undefined, "");
     _ = f.Backspace(undefined, 6);
     _ = f.Insert(undefined, "var");
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyNoErrors(undefined);
 }
 
 test "TestImportNameCodeFix_typeUsedAsValue" {
@@ -235,7 +235,7 @@ test "TestImportNameCodeFix_typeUsedAsValue" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/b.ts");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import { ReadonlyArray } from \"./a\";\n\nnew ReadonlyArray<string>();",
     }, null );
 }
@@ -251,7 +251,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports50_generics_with_default" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add annotation of type 'Iterator<number>'",
         .NewFileContent = "let x: Iterator<number>;\nexport const y: Iterator<number> = x;",
         .Index = 0,

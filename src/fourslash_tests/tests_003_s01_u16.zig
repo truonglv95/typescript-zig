@@ -16,9 +16,9 @@ test "TestCodeFixCannotFindModule_suggestion_falsePositive" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyNoErrors(undefined);
     _ = f.GoToFile(undefined, "/a.ts");
-    _ = f.VerifySuggestionDiagnostics(undefined, null);
+    try f.VerifySuggestionDiagnostics(undefined, null);
 }
 
 test "TestCompletionPropertyShorthandForObjectLiteral2" {

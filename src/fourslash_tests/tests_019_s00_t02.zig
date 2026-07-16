@@ -12,7 +12,7 @@ test "TestFormatOnSemiColonAfterBreak" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
     _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "    break;");
+    try f.VerifyCurrentLineContent(undefined, "    break;");
 }
 
 test "TestGoToDefinitionImportedNames8" {
@@ -29,7 +29,7 @@ test "TestGoToDefinitionImportedNames8" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "classAliasDefinition");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "classAliasDefinition");
 }
 
 test "TestCallSignatureHelp" {
@@ -44,7 +44,7 @@ test "TestCallSignatureHelp" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifySignatureHelp(undefined, .{.Text = "c(): number"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "c(): number"});
 }
 
 test "TestCallHierarchyConstNamedClassExpression" {
@@ -66,7 +66,7 @@ test "TestCallHierarchyConstNamedClassExpression" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    // f.VerifyBaselineCallHierarchy(undefined);
+    // try f.VerifyBaselineCallHierarchy(undefined);
 }
 
 test "TestRenameModuleExportsProperties2" {
@@ -77,7 +77,7 @@ test "TestRenameModuleExportsProperties2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[2]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[2]);
 }
 
 test "TestReferencesForMergedDeclarations" {
@@ -99,7 +99,7 @@ test "TestReferencesForMergedDeclarations" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6", "7", "8", "9");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4", "5", "6", "7", "8", "9");
 }
 
 test "TestGoToDefinitionShorthandProperty05" {
@@ -115,7 +115,7 @@ test "TestGoToDefinitionShorthandProperty05" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestCompletionsImport_umdModules3_script" {
@@ -166,7 +166,7 @@ test "TestGetJavaScriptQuickInfo6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "number", "");
+    try f.VerifyQuickInfoAt(undefined, "", "number", "");
 }
 
 test "TestGoToTypeDefinitionPrimitives" {
@@ -185,6 +185,6 @@ test "TestGoToTypeDefinitionPrimitives" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToTypeDefinition(undefined, "reference1", "reference2", "reference3", "reference4");
+    // try f.VerifyBaselineGoToTypeDefinition(undefined, "reference1", "reference2", "reference3", "reference4");
 }
 

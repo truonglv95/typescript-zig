@@ -63,12 +63,12 @@ test "TestQuickInfoInOptionalChain" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "(property) A.arr: string[]", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "(property) Foo.bar: {\n    baz: string;\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "(property) baz: string | undefined", "");
-    // f.VerifyQuickInfoAt(undefined, "4", "(property) Foo2.bar?: {\n    baz: {\n        qwe: string;\n    };\n} | undefined", "");
-    // f.VerifyQuickInfoAt(undefined, "5", "(property) baz: {\n    qwe: string;\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "6", "(property) qwe: string | undefined", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "(property) A.arr: string[]", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "(property) Foo.bar: {\n    baz: string;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "3", "(property) baz: string | undefined", "");
+    try f.VerifyQuickInfoAt(undefined, "4", "(property) Foo2.bar?: {\n    baz: {\n        qwe: string;\n    };\n} | undefined", "");
+    try f.VerifyQuickInfoAt(undefined, "5", "(property) baz: {\n    qwe: string;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "6", "(property) qwe: string | undefined", "");
 }
 
 test "TestCodeFixConvertToTypeOnlyImport3" {
@@ -98,7 +98,7 @@ test "TestCodeFixConvertToTypeOnlyImport3" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "imports.ts");
-    // f.VerifyCodeFixNotAvailable(undefined);
+    // try f.VerifyCodeFixNotAvailable(undefined);
 }
 
 test "TestGoToTypeDefinition" {
@@ -114,7 +114,7 @@ test "TestGoToTypeDefinition" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToTypeDefinition(undefined, "reference");
+    // try f.VerifyBaselineGoToTypeDefinition(undefined, "reference");
 }
 
 test "TestJsdocDeprecated_suggestion9" {
@@ -129,8 +129,8 @@ test "TestJsdocDeprecated_suggestion9" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "second.ts");
-    _ = f.VerifyNoErrors(undefined);
-    _ = f.VerifySuggestionDiagnostics(undefined, null);
+    try f.VerifyNoErrors(undefined);
+    try f.VerifySuggestionDiagnostics(undefined, null);
 }
 
 test "TestReferencesForInheritedProperties" {
@@ -159,7 +159,7 @@ test "TestReferencesForInheritedProperties" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestRenamePrivateFields1" {
@@ -175,7 +175,7 @@ test "TestRenamePrivateFields1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "#foo");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "#foo");
 }
 
 test "TestPathCompletionsPackageJsonImportsOnlyFromClosestScope1" {
@@ -243,8 +243,8 @@ test "TestRenameImportOfExportEquals2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineFindAllReferences(undefined, "N", "O", "P", "Q");
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "N", "O", "P", "Q");
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineFindAllReferences(undefined, "N", "O", "P", "Q");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "N", "O", "P", "Q");
 }
 

@@ -14,7 +14,7 @@ test "TestRenameStringLiteralTypes4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , "");
+    // try f.VerifyBaselineRename(undefined, null , "");
 }
 
 test "TestDocCommentTemplateInterfacesEnumsAndTypeAliases" {
@@ -46,13 +46,13 @@ test "TestDocCommentTemplateInterfacesEnumsAndTypeAliases" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyJSDocCompletion(undefined, "interfaceFoo", 3, "/** */", null);
-    // f.VerifyJSDocCompletion(undefined, "propertybar", 3, "/** */", null);
-    // f.VerifyJSDocCompletion(undefined, "methodbaz", 11, "/**\n     * \n     * @param message\n     */", null);
-    // f.VerifyJSDocCompletion(undefined, "methodUnit", 3, "/** */", null);
-    // f.VerifyJSDocCompletion(undefined, "enumStatus", 3, "/** */", null);
-    // f.VerifyJSDocCompletion(undefined, "memberOpen", 3, "/** */", null);
-    // f.VerifyJSDocCompletion(undefined, "memberClosed", 3, "/** */", null);
+    // try f.VerifyJSDocCompletion(undefined, "interfaceFoo", 3, "/** */", null);
+    // try f.VerifyJSDocCompletion(undefined, "propertybar", 3, "/** */", null);
+    // try f.VerifyJSDocCompletion(undefined, "methodbaz", 11, "/**\n     * \n     * @param message\n     */", null);
+    // try f.VerifyJSDocCompletion(undefined, "methodUnit", 3, "/** */", null);
+    // try f.VerifyJSDocCompletion(undefined, "enumStatus", 3, "/** */", null);
+    // try f.VerifyJSDocCompletion(undefined, "memberOpen", 3, "/** */", null);
+    // try f.VerifyJSDocCompletion(undefined, "memberClosed", 3, "/** */", null);
 }
 
 test "TestFindAllRefsForDefaultExport_reExport" {
@@ -68,7 +68,7 @@ test "TestFindAllRefsForDefaultExport_reExport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "1", "2", "3");
 }
 
 test "TestCodeFixInferFromUsageMember" {
@@ -84,7 +84,7 @@ test "TestCodeFixInferFromUsageMember" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "p: number[];", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "p: number[];", false, 0, 0);
 }
 
 test "TestCompletionsImportPathsConflict" {
@@ -131,7 +131,7 @@ test "TestCompletionsImportPathsConflict" {
 //             },
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =   "configureStore",
 //         .Source = "@reduxjs/toolkit",
 //         .AutoImportFix = &.{
@@ -151,7 +151,7 @@ test "TestJsDocPropertyDescription3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "literal", "any", "");
+    try f.VerifyQuickInfoAt(undefined, "literal", "any", "");
 }
 
 test "TestGetOccurrencesThis" {
@@ -299,7 +299,7 @@ test "TestGetOccurrencesThis" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestGoToImplementation_inDifferentFiles" {
@@ -324,7 +324,7 @@ test "TestGoToImplementation_inDifferentFiles" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
-    // f.VerifyBaselineGoToImplementation(undefined, "");
+    // try f.VerifyBaselineGoToImplementation(undefined, "");
 }
 
 test "TestReferencesForIndexProperty2" {
@@ -335,7 +335,7 @@ test "TestReferencesForIndexProperty2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1");
 }
 
 test "TestJsdocDeprecated_suggestion22" {
@@ -354,6 +354,6 @@ test "TestJsdocDeprecated_suggestion22" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifySuggestionDiagnostics(undefined, null);
+    try f.VerifySuggestionDiagnostics(undefined, null);
 }
 

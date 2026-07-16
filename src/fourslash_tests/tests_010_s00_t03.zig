@@ -44,7 +44,7 @@ test "TestInlayHintsInteractiveJsDocParameterNames" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/a.js");
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayParameterNameHints = lsutil.IncludeInlayParameterNameHintsLiterals}});
+    // try f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayParameterNameHints = lsutil.IncludeInlayParameterNameHintsLiterals}});
 }
 
 test "TestNavigationBarItemsItems" {
@@ -91,7 +91,7 @@ test "TestNavigationBarItemsItems" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestLinkedEditingJsxTag11" {
@@ -113,7 +113,7 @@ test "TestLinkedEditingJsxTag11" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineLinkedEditing(undefined);
+    try f.VerifyBaselineLinkedEditing(undefined);
 }
 
 test "TestGoToImplementationInterfaceMethod_04" {
@@ -141,7 +141,7 @@ test "TestGoToImplementationInterfaceMethod_04" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToImplementation(undefined, "function_call");
+    // try f.VerifyBaselineGoToImplementation(undefined, "function_call");
 }
 
 test "TestReferencesForLabel4" {
@@ -155,7 +155,7 @@ test "TestReferencesForLabel4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestGoToDefinitionLabels" {
@@ -172,7 +172,7 @@ test "TestGoToDefinitionLabels" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1", "2", "3", "4");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1", "2", "3", "4");
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports25_heritage_formatting_3" {
@@ -190,8 +190,8 @@ test "TestCodeFixMissingTypeAnnotationOnExports25_heritage_formatting_3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFixAvailable(undefined, &.{"Extract base class to variable"});
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFixAvailable(undefined, &.{"Extract base class to variable"});
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Extract base class to variable",
         .NewFileContent = "function mixin<T extends new (...a: any) => any>(ctor: T): T {\n    return ctor;\n}\nclass Point2D { x = 0; y = 0; }\nconst Point3D3Base: typeof Point2D = mixin(Point2D) /* DD*/;\nexport class Point3D3 extends Point3D3Base {\n    z = 0;\n}",
         .Index = 0,

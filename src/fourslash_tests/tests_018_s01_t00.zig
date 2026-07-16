@@ -10,7 +10,7 @@ test "TestSyntacticClassificationsTemplates1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "variable.declaration", .Text = "v"},
 //         .{.Type = "variable.declaration", .Text = "x"},
 //         .{.Type = "property.declaration", .Text = "p1"},
@@ -163,7 +163,7 @@ test "TestGetOccurrencesThis3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestImportStatementCompletions_semicolons" {
@@ -270,7 +270,7 @@ test "TestRenameContextuallyTypedProperties2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "prop2");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "prop2");
 }
 
 test "TestCodeFixClassImplementInterface_quotePreferenceSingle" {
@@ -287,7 +287,7 @@ test "TestCodeFixClassImplementInterface_quotePreferenceSingle" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFix(undefined, .{
+    // try f.VerifyCodeFix(undefined, .{
 //         .Description = "Implement interface 'I'",
 //         .NewFileContent = "interface I {\n    a(): void;\n    b(x: 'x', y: 'a' | 'b'): 'b';\n\n    c: 'c';\n    d: { e: 'e'; };\n}\nclass Foo implements I {\n    a(): void {\n        throw new Error('Method not implemented.');\n    }\n    b(x: 'x', y: 'a' | 'b'): 'b' {\n        throw new Error('Method not implemented.');\n    }\n    c: 'c';\n    d: { e: 'e'; };\n}",
 //         .Index =           0,
@@ -393,7 +393,7 @@ test "TestGoToSource7_conditionallyMinified" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
-    // f.VerifyBaselineGoToSourceDefinition(undefined, "start");
+    // try f.VerifyBaselineGoToSourceDefinition(undefined, "start");
 }
 
 test "TestQuickInfoJsDocTags6" {
@@ -426,7 +426,7 @@ test "TestQuickInfoJsDocTags6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestDefinitionNameOnEnumMember" {
@@ -441,7 +441,7 @@ test "TestDefinitionNameOnEnumMember" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, false, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, false, "1");
 }
 
 test "TestCodeFixInferFromFunctionThisUsageObjectPropertyParameter" {
@@ -466,6 +466,6 @@ test "TestCodeFixInferFromFunctionThisUsageObjectPropertyParameter" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "this: Container, ", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "this: Container, ", false, 0, 0);
 }
 

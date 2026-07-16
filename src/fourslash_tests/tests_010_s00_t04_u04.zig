@@ -18,7 +18,7 @@ test "TestImportNameCodeFix_trailingComma" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import {\n  T2,\n  T1,\n  T3,\n} from \"./types\";\n\nconst x: T3",
     }, null );
 }
@@ -48,11 +48,11 @@ test "TestAutoImportTypeOnlyPreferred2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import type { ComponentType } from \"react\";\nimport { useEffect, useState } from \"react\";\n\nexport function Component({ prop } : { prop: ComponentType }) {\n    const codeIsUnimportant = useState(1);\n    useEffect(() => {}, []);\n}",
     }, null );
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import { useState } from \"react\";\nimport type { ComponentProps, ComponentType } from \"react\";\n\ntype _ = ComponentProps;",
     }, null );
 }

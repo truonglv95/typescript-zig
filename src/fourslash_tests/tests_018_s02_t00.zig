@@ -59,7 +59,7 @@ test "TestGetOccurrencesExport1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestCompletionsOverridingMethod17" {
@@ -116,7 +116,7 @@ test "TestImportNameCodeFix_HeaderComment1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/c.ts");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "/*--------------------\n *  Copyright Header\n *--------------------*/\n\nimport { foo } from \"./a\";\nimport { bar } from \"./b\";\nfoo;",
     }, null );
 }
@@ -136,7 +136,7 @@ test "TestImportNameCodeFix_importType8" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import { SomePig, type SomeInterface } from \"./exports.js\";\nnew SomePig",
     }, null );
 }
@@ -211,7 +211,7 @@ test "TestQuickInfoOnMethodOfImportEquals" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "(method) C<number>.m(): void", "");
+    try f.VerifyQuickInfoAt(undefined, "", "(method) C<number>.m(): void", "");
 }
 
 test "TestAddInterfaceToNotSatisfyConstraint" {
@@ -280,7 +280,7 @@ test "TestImportNameCodeFix_jsx2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/a.tsx");
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add import from \"react-native\"",
         .NewFileContent = "import React from \"react\";\nimport { Text } from \"react-native\";\n<Text></Text>;",
         .Index = 0,
@@ -313,7 +313,7 @@ test "TestImportNameCodeFixUMDGlobalReact1" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/a.tsx");
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import * as React from \"react\";\nimport { Component } from \"react\";\nexport class MyMap extends Component { }\n<MyMap></MyMap>;",
     }, null );
 }

@@ -23,8 +23,8 @@ test "TestFindAllRefsOfConstructor2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineFindAllReferences(undefined, "a", "b", "c");
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineFindAllReferences(undefined, "a", "b", "c");
 }
 
 test "TestFindAllRefsForDefaultExport01" {
@@ -39,7 +39,7 @@ test "TestFindAllRefsForDefaultExport01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestDocCommentTemplateConstructor01" {
@@ -60,8 +60,8 @@ test "TestDocCommentTemplateConstructor01" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyJSDocCompletion(undefined, "0", 11, "/**\n     * \n     * @param a\n     * @param b\n     * @param c\n     * @param d\n     */", null);
-    // f.VerifyJSDocCompletion(undefined, "1", 11, "/**\n     * \n     * @param a\n     * @param b\n     * @param c\n     * @param d\n     * @param e\n     */", null);
+    // try f.VerifyJSDocCompletion(undefined, "0", 11, "/**\n     * \n     * @param a\n     * @param b\n     * @param c\n     * @param d\n     */", null);
+    // try f.VerifyJSDocCompletion(undefined, "1", 11, "/**\n     * \n     * @param a\n     * @param b\n     * @param c\n     * @param d\n     * @param e\n     */", null);
 }
 
 test "TestGoToDefinitionOverriddenMember22" {
@@ -80,7 +80,7 @@ test "TestGoToDefinitionOverriddenMember22" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestImportCompletions_importsMap2" {
@@ -163,7 +163,7 @@ test "TestSemanticModernClassificationCallableVariables2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "variable.declaration", .Text = "fs"},
 //         .{.Type = "interface.declaration", .Text = "LanguageMode"},
 //         .{.Type = "method.declaration", .Text = "getFoldingRanges"},
@@ -191,7 +191,7 @@ test "TestCodeFixClassImplementInterfaceTypeParamMethod" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'I'",
         .NewFileContent = "interface I {\n    f<T extends number>(x: T): T;\n}\nclass C implements I {\n    f<T extends number>(x: T): T {\n        throw new Error(\"Method not implemented.\");\n    }\n}",
         .Index = 0,
@@ -215,7 +215,7 @@ test "TestAutoImportPackageJsonImportsLength1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"./something"}, null );
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "", &.{"./something"}, null );
 }
 
 test "TestFormattingForIn" {
@@ -227,6 +227,6 @@ test "TestFormattingForIn" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "for (var i in []) { }");
+    try f.VerifyCurrentLineContent(undefined, "for (var i in []) { }");
 }
 

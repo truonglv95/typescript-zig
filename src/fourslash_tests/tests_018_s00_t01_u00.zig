@@ -23,7 +23,7 @@ test "TestJsDocExtends" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyQuickInfoIs(undefined, "(local var) x: string", "");
+    try f.VerifyQuickInfoIs(undefined, "(local var) x: string", "");
 }
 
 test "TestCodeFixInferFromFunctionThisUsageObjectPropertyShorthandParameter" {
@@ -48,6 +48,6 @@ test "TestCodeFixInferFromFunctionThisUsageObjectPropertyShorthandParameter" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "this: Container, ", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "this: Container, ", false, 0, 0);
 }
 

@@ -19,7 +19,7 @@ test "TestCodeFixClassImplementInterface_quotePreferenceAuto2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "b.ts");
-    // f.VerifyCodeFix(undefined, .{
+    // try f.VerifyCodeFix(undefined, .{
 //         .Description = "Implement interface 'I'",
 //         .NewFileContent = "import { I } from './a';\nclass Foo implements I {\n    a(): void {\n        throw new Error('Method not implemented.');\n    }\n    b(x: 'x', y: 'a' | 'b'): 'b' {\n        throw new Error('Method not implemented.');\n    }\n    c: 'c';\n    d: { e: 'e'; };\n}",
 //         .Index =           0,
@@ -42,7 +42,7 @@ test "TestRenameStringLiteralTypes1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRenameAtRangesWithText(undefined, null , "ease-in-out");
+    // try f.VerifyBaselineRenameAtRangesWithText(undefined, null , "ease-in-out");
 }
 
 test "TestQuickInfoForConstDeclaration" {
@@ -52,7 +52,7 @@ test "TestQuickInfoForConstDeclaration" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "const c: 0", "");
+    try f.VerifyQuickInfoAt(undefined, "", "const c: 0", "");
 }
 
 test "TestCodeFixRemoveUnnecessaryAwait_notAvailableOnReturn" {
@@ -65,7 +65,7 @@ test "TestCodeFixRemoveUnnecessaryAwait_notAvailableOnReturn" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifySuggestionDiagnostics(undefined, null);
+    try f.VerifySuggestionDiagnostics(undefined, null);
 }
 
 test "TestOrganizeImportsGroup_MultiNewlines" {
@@ -82,7 +82,7 @@ test "TestOrganizeImportsGroup_MultiNewlines" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import c from \"C\";\n\n\nimport a from \"A\";\nimport b from \"B\";\nimport d from \"D\";\n\nconsole.log(a, b, c, d)",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         null,
@@ -106,8 +106,8 @@ test "TestQuickInfoLink3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyNoErrors(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestGoToDefinitionReturn6" {
@@ -121,7 +121,7 @@ test "TestGoToDefinitionReturn6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "start");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "start");
 }
 
 test "TestDocumentHighlightInTypeExport" {
@@ -141,7 +141,7 @@ test "TestDocumentHighlightInTypeExport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Ranges()));
 }
 
 test "TestFormattingJsxTexts2" {
@@ -188,7 +188,7 @@ test "TestFormattingJsxTexts2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "const a = (\n    <div>\n        foo\n    </div>\n);\n\nconst b = (\n    <div>\n        {foo}\n    </div>\n);\n\nconst c = (\n    <div>\n        foo\n        {foobar}\n        bar\n    </div>\n);\n\nconst d =\n    <div>\n        foo\n    </div>;\n\nconst e =\n    <div>\n        {foo}\n    </div>\n\nconst f =\n    <div>\n        foo\n        {foobar}\n        bar\n    </div>");
+    try f.VerifyCurrentFileContent(undefined, "const a = (\n    <div>\n        foo\n    </div>\n);\n\nconst b = (\n    <div>\n        {foo}\n    </div>\n);\n\nconst c = (\n    <div>\n        foo\n        {foobar}\n        bar\n    </div>\n);\n\nconst d =\n    <div>\n        foo\n    </div>;\n\nconst e =\n    <div>\n        {foo}\n    </div>\n\nconst f =\n    <div>\n        foo\n        {foobar}\n        bar\n    </div>");
 }
 
 test "TestImportNameCodeFixNewImportPaths0" {
@@ -209,7 +209,7 @@ test "TestImportNameCodeFixNewImportPaths0" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import { foo } from \"a\";\n\nfoo();",
     }, null );
 }

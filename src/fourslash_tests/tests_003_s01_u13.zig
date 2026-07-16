@@ -10,7 +10,7 @@ test "TestQuickInfoOnGenericClass" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "class Container<T>", "");
+    try f.VerifyQuickInfoAt(undefined, "", "class Container<T>", "");
 }
 
 test "TestUnclosedStringLiteralAutoformating" {
@@ -24,6 +24,6 @@ test "TestUnclosedStringLiteralAutoformating" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
     _ = f.Insert(undefined, "}");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
+    try f.VerifyCurrentLineContent(undefined, "}");
 }
 

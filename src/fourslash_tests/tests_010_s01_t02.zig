@@ -28,7 +28,7 @@ test "TestRenameJsPropertyAssignment4" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/a.js");
-    // f.VerifyBaselineRename(undefined, null , "1", "2");
+    // try f.VerifyBaselineRename(undefined, null , "1", "2");
 }
 
 test "TestQuickInfoDisplayPartsExternalModuleAlias" {
@@ -47,7 +47,7 @@ test "TestQuickInfoDisplayPartsExternalModuleAlias" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestQuickInfoFromContextualUnionType1" {
@@ -69,7 +69,7 @@ test "TestQuickInfoFromContextualUnionType1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "(property) someProp: string", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "(property) someProp: string", "");
 }
 
 test "TestFindAllRefsImportDefault" {
@@ -86,8 +86,8 @@ test "TestFindAllRefsImportDefault" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineFindAllReferences(undefined, "start");
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineFindAllReferences(undefined, "start");
 }
 
 test "TestJsdocLink1" {
@@ -108,7 +108,7 @@ test "TestJsdocLink1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestWhiteSpaceTrimming4" {
@@ -120,7 +120,7 @@ test "TestWhiteSpaceTrimming4" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
     _ = f.Insert(undefined, "\n");
-    _ = f.VerifyCurrentFileContent(undefined, "var re = /\\w+\n    /;");
+    try f.VerifyCurrentFileContent(undefined, "var re = /\\w+\n    /;");
 }
 
 test "TestCompletionsUniqueSymbol1" {
@@ -176,7 +176,7 @@ test "TestReferencesForStringLiteralPropertyNames6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2");
 }
 
 test "TestCompletionAutoInsertQuestionDot" {

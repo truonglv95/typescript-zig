@@ -12,11 +12,11 @@ test "TestFormattingOnModuleIndentation" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToBOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "namespace Foo {");
+    try f.VerifyCurrentLineContent(undefined, "namespace Foo {");
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyCurrentLineContent(undefined, "    export namespace A.B.C { }");
+    try f.VerifyCurrentLineContent(undefined, "    export namespace A.B.C { }");
     _ = f.GoToEOF(undefined);
-    _ = f.VerifyCurrentLineContent(undefined, "}");
+    try f.VerifyCurrentLineContent(undefined, "}");
 }
 
 test "TestFormattingMultilineCommentsWithTabs1" {
@@ -42,15 +42,15 @@ test "TestFormattingMultilineCommentsWithTabs1" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "            /* when current checkbox has focus, Firefox has changed check state already");
+    try f.VerifyCurrentLineContent(undefined, "            /* when current checkbox has focus, Firefox has changed check state already");
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "            on SPACE bar press only");
+    try f.VerifyCurrentLineContent(undefined, "            on SPACE bar press only");
     _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "            IE does not have issue, use the CSS class");
+    try f.VerifyCurrentLineContent(undefined, "            IE does not have issue, use the CSS class");
     _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "            input:focus[type=checkbox] (z-index = 31290)");
+    try f.VerifyCurrentLineContent(undefined, "            input:focus[type=checkbox] (z-index = 31290)");
     _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "            to determine whether checkbox has focus or not");
+    try f.VerifyCurrentLineContent(undefined, "            to determine whether checkbox has focus or not");
 }
 
 test "TestGetOutliningForObjectDestructuring" {
@@ -93,7 +93,7 @@ test "TestGetOutliningForObjectDestructuring" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOutliningSpans(undefined);
+    // try f.VerifyOutliningSpans(undefined);
 }
 
 test "TestCodeFixInferFromUsageVariable3JS" {
@@ -111,7 +111,7 @@ test "TestCodeFixInferFromUsageVariable3JS" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "/** \n * @param {number} foo\n */\nfunction f(foo) {\n    foo += 2\n    return foo\n}\n", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "/** \n * @param {number} foo\n */\nfunction f(foo) {\n    foo += 2\n    return foo\n}\n", false, 0, 0);
 }
 
 test "TestSemanticClassificationAlias" {
@@ -127,7 +127,7 @@ test "TestSemanticClassificationAlias" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/b.ts");
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "variable.declaration.readonly", .Text = "v"},
 //         .{.Type = "type", .Text = "x"},
 //         .{.Type = "class", .Text = "y"},
@@ -142,7 +142,7 @@ test "TestFindAllRefsImportEquals" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "");
+    // try f.VerifyBaselineFindAllReferences(undefined, "");
 }
 
 test "TestAutoImportVerbatimTypeOnly1" {
@@ -159,7 +159,7 @@ test "TestAutoImportVerbatimTypeOnly1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =        "I",
 //         .Source =      "./mod",
 //         .Description = "Add import from \"./mod.js\"",
@@ -169,7 +169,7 @@ test "TestAutoImportVerbatimTypeOnly1" {
 //         .NewFileContent = undefined("import type { I } from \"./mod.js\";\n\nconst x: "),
 //     });
     _ = f.Insert(undefined, "I = new C");
-    // f.VerifyApplyCodeActionFromCompletion(undefined, null, &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, null, &.{
 //         .Name =        "C",
 //         .Source =      "./mod",
 //         .Description = "Update import from \"./mod.js\"",
@@ -228,7 +228,7 @@ test "TestQuickInfoJsDocNonDiscriminatedUnionSharedProp" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "(property) Entries.output?: string", "Output info...");
+    try f.VerifyQuickInfoAt(undefined, "1", "(property) Entries.output?: string", "Output info...");
 }
 
 test "TestCompletionListInObjectBindingPattern11" {

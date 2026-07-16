@@ -12,8 +12,8 @@ test "TestSignatureHelpInCallback" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
-    // f.VerifySignatureHelp(undefined, .{.Text = "forEach(f: () => void): any"});
-    // f.VerifyNoSignatureHelpForMarkers(undefined, "2");
+    // try f.VerifySignatureHelp(undefined, .{.Text = "forEach(f: () => void): any"});
+    // try f.VerifyNoSignatureHelpForMarkers(undefined, "2");
 }
 
 test "TestCompletionsImport_default_addToNamedImports" {
@@ -51,7 +51,7 @@ test "TestCompletionsImport_default_addToNamedImports" {
 //             },
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =        "foo",
 //         .Source =      "./a",
 //         .Description = "Update import from \"./a\"",
@@ -78,7 +78,7 @@ test "TestProcessInvalidSyntax1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , "");
+    // try f.VerifyBaselineRename(undefined, null , "");
 }
 
 test "TestCompletionsWithOverride2" {
@@ -285,7 +285,7 @@ test "TestGetOccurrencesLoopBreakContinueNegatives" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
 }
 
 test "TestCompletionListInTypeParameterOfTypeAlias1" {
@@ -336,7 +336,7 @@ test "TestGetOutliningSpansForTemplateLiteral" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOutliningSpans(undefined);
+    // try f.VerifyOutliningSpans(undefined);
 }
 
 test "TestRenameImportOfReExport" {
@@ -356,10 +356,10 @@ test "TestRenameImportOfReExport" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNoErrors(undefined);
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1]);
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[3]);
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[5], f.Ranges()[6]);
+    try f.VerifyNoErrors(undefined);
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[3]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[5], f.Ranges()[6]);
 }
 

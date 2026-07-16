@@ -14,11 +14,11 @@ test "TestSpaceAfterReturn" {
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "    return 1;");
+    try f.VerifyCurrentLineContent(undefined, "    return 1;");
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    return [1];");
+    try f.VerifyCurrentLineContent(undefined, "    return [1];");
     _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    return;");
+    try f.VerifyCurrentLineContent(undefined, "    return;");
 }
 
 test "TestJsconfig" {
@@ -38,7 +38,7 @@ test "TestJsconfig" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/a.js");
-    _ = f.VerifyErrorExistsAfterMarker(undefined, "");
+    try f.VerifyErrorExistsAfterMarker(undefined, "");
 }
 
 test "TestTsxCompletion7" {
@@ -121,59 +121,59 @@ test "TestFormattingOnClosingBracket" {
     // f.Configure(undefined, opts874);
     _ = f.FormatDocument(undefined, "");
     _ = f.GoToMarker(undefined, "1");
-    _ = f.VerifyCurrentLineContent(undefined, "function f() {");
+    try f.VerifyCurrentLineContent(undefined, "function f() {");
     _ = f.GoToMarker(undefined, "2");
-    _ = f.VerifyCurrentLineContent(undefined, "    var x = 3;");
+    try f.VerifyCurrentLineContent(undefined, "    var x = 3;");
     _ = f.GoToMarker(undefined, "3");
-    _ = f.VerifyCurrentLineContent(undefined, "    var z = 2;");
+    try f.VerifyCurrentLineContent(undefined, "    var z = 2;");
     _ = f.GoToMarker(undefined, "4");
-    _ = f.VerifyCurrentLineContent(undefined, "    a = z++ - 2 * x;");
+    try f.VerifyCurrentLineContent(undefined, "    a = z++ - 2 * x;");
     _ = f.GoToMarker(undefined, "5");
-    _ = f.VerifyCurrentLineContent(undefined, "    for (; ;) {");
+    try f.VerifyCurrentLineContent(undefined, "    for (; ;) {");
     _ = f.GoToMarker(undefined, "6");
-    _ = f.VerifyCurrentLineContent(undefined, "        a += (g + g) * a % t;");
+    try f.VerifyCurrentLineContent(undefined, "        a += (g + g) * a % t;");
     _ = f.GoToMarker(undefined, "7");
-    _ = f.VerifyCurrentLineContent(undefined, "        b--;");
+    try f.VerifyCurrentLineContent(undefined, "        b--;");
     _ = f.GoToMarker(undefined, "8");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
+    try f.VerifyCurrentLineContent(undefined, "    }");
     _ = f.GoToMarker(undefined, "9");
-    _ = f.VerifyCurrentLineContent(undefined, "    switch (a) {");
+    try f.VerifyCurrentLineContent(undefined, "    switch (a) {");
     _ = f.GoToMarker(undefined, "10");
-    _ = f.VerifyCurrentLineContent(undefined, "        case 1: {");
+    try f.VerifyCurrentLineContent(undefined, "        case 1: {");
     _ = f.GoToMarker(undefined, "11");
-    _ = f.VerifyCurrentLineContent(undefined, "            a++;");
+    try f.VerifyCurrentLineContent(undefined, "            a++;");
     _ = f.GoToMarker(undefined, "12");
-    _ = f.VerifyCurrentLineContent(undefined, "            b--;");
+    try f.VerifyCurrentLineContent(undefined, "            b--;");
     _ = f.GoToMarker(undefined, "13");
-    _ = f.VerifyCurrentLineContent(undefined, "            if (a === a)");
+    try f.VerifyCurrentLineContent(undefined, "            if (a === a)");
     _ = f.GoToMarker(undefined, "14");
-    _ = f.VerifyCurrentLineContent(undefined, "                return;");
+    try f.VerifyCurrentLineContent(undefined, "                return;");
     _ = f.GoToMarker(undefined, "15");
-    _ = f.VerifyCurrentLineContent(undefined, "            else {");
+    try f.VerifyCurrentLineContent(undefined, "            else {");
     _ = f.GoToMarker(undefined, "16");
-    _ = f.VerifyCurrentLineContent(undefined, "                for (a in b)");
+    try f.VerifyCurrentLineContent(undefined, "                for (a in b)");
     _ = f.GoToMarker(undefined, "17");
-    _ = f.VerifyCurrentLineContent(undefined, "                    if (a != a) {");
+    try f.VerifyCurrentLineContent(undefined, "                    if (a != a) {");
     _ = f.GoToMarker(undefined, "18");
-    _ = f.VerifyCurrentLineContent(undefined, "                        for (a in b) {");
+    try f.VerifyCurrentLineContent(undefined, "                        for (a in b) {");
     _ = f.GoToMarker(undefined, "19");
-    _ = f.VerifyCurrentLineContent(undefined, "                            a++;");
+    try f.VerifyCurrentLineContent(undefined, "                            a++;");
     _ = f.GoToMarker(undefined, "20");
-    _ = f.VerifyCurrentLineContent(undefined, "                        }");
+    try f.VerifyCurrentLineContent(undefined, "                        }");
     _ = f.GoToMarker(undefined, "21");
-    _ = f.VerifyCurrentLineContent(undefined, "                    }");
+    try f.VerifyCurrentLineContent(undefined, "                    }");
     _ = f.GoToMarker(undefined, "22");
-    _ = f.VerifyCurrentLineContent(undefined, "            }");
+    try f.VerifyCurrentLineContent(undefined, "            }");
     _ = f.GoToMarker(undefined, "23");
-    _ = f.VerifyCurrentLineContent(undefined, "        }");
+    try f.VerifyCurrentLineContent(undefined, "        }");
     _ = f.GoToMarker(undefined, "24");
-    _ = f.VerifyCurrentLineContent(undefined, "        default:");
+    try f.VerifyCurrentLineContent(undefined, "        default:");
     _ = f.GoToMarker(undefined, "25");
-    _ = f.VerifyCurrentLineContent(undefined, "            break;");
+    try f.VerifyCurrentLineContent(undefined, "            break;");
     _ = f.GoToMarker(undefined, "26");
-    _ = f.VerifyCurrentLineContent(undefined, "    }");
+    try f.VerifyCurrentLineContent(undefined, "    }");
     _ = f.GoToMarker(undefined, "27");
-    _ = f.VerifyCurrentLineContent(undefined, "}");
+    try f.VerifyCurrentLineContent(undefined, "}");
 }
 
 test "TestGoToImplementationNamespace_02" {
@@ -187,7 +187,7 @@ test "TestGoToImplementationNamespace_02" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToImplementation(undefined, "reference");
+    // try f.VerifyBaselineGoToImplementation(undefined, "reference");
 }
 
 test "TestNavigationItemsExportDefaultExpression2" {
@@ -225,7 +225,7 @@ test "TestNavigationItemsExportDefaultExpression2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestTypeReferenceOnServer" {
@@ -263,7 +263,7 @@ test "TestSignatureHelpTaggedTemplatesNegatives2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyNoSignatureHelpForMarkers(undefined, f.MarkerNames());
+    // try f.VerifyNoSignatureHelpForMarkers(undefined, f.MarkerNames());
 }
 
 test "TestCompletionInfoWithExplicitTypeArguments" {
@@ -339,6 +339,6 @@ test "TestFindAllRefsForDefaultExport04" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0", "2", "1", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0", "2", "1", "3", "4");
 }
 

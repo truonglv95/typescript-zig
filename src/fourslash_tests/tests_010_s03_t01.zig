@@ -19,7 +19,7 @@ test "TestImportNameCodeFixNewImportRootDirs1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import { foo } from \"./b\";\n\nfoo();",
     }, null );
 }
@@ -33,13 +33,13 @@ test "TestOrganizeImports16" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { a, A, b } from \"foo\";\ninterface Use extends A {}\nconsole.log(a, b);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         null,
 //     );
     _ = f.ReplaceLine(undefined, 0, "import { a, A, b } from \"foo1\";");
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { a, A, b } from \"foo1\";\ninterface Use extends A {}\nconsole.log(a, b);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -47,7 +47,7 @@ test "TestOrganizeImports16" {
 //         },
 //     );
     _ = f.ReplaceLine(undefined, 0, "import { a, A, b } from \"foo2\";");
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { a, A, b } from \"foo2\";\ninterface Use extends A {}\nconsole.log(a, b);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -55,7 +55,7 @@ test "TestOrganizeImports16" {
 //         },
 //     );
     _ = f.ReplaceLine(undefined, 0, "import { a, A, b } from \"foo3\";");
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import { A, a, b } from \"foo3\";\ninterface Use extends A {}\nconsole.log(a, b);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -80,7 +80,7 @@ test "TestImportTypesDeclarationDiagnosticsNoServerError" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFileNumber(undefined, 1);
-    _ = f.VerifyNonSuggestionDiagnostics(undefined, null);
+    try f.VerifyNonSuggestionDiagnostics(undefined, null);
 }
 
 test "TestSignatureHelpOnSuperWhenMembersAreNotResolved" {
@@ -98,7 +98,7 @@ test "TestSignatureHelpOnSuperWhenMembersAreNotResolved" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
     _ = f.Insert(undefined, "super(");
-    // f.VerifySignatureHelp(undefined, .{.Text = "B(x: string): B"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "B(x: string): B"});
 }
 
 test "TestGetOutliningForBlockComments" {
@@ -438,7 +438,7 @@ test "TestGetOutliningForBlockComments" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOutliningSpans(undefined);
+    // try f.VerifyOutliningSpans(undefined);
 }
 
 test "TestCompletionListOutsideOfClosedArrowFunction02" {
@@ -547,10 +547,10 @@ test "TestQuickInfoOfStringPropertyNames1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "var r: string", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "var r2: number", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "var r4: string", "");
-    // f.VerifyQuickInfoAt(undefined, "4", "var r5: string", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "var r: string", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "var r2: number", "");
+    try f.VerifyQuickInfoAt(undefined, "3", "var r4: string", "");
+    try f.VerifyQuickInfoAt(undefined, "4", "var r5: string", "");
 }
 
 test "TestCodeFixClassImplementInterfaceMappedType1" {
@@ -563,7 +563,7 @@ test "TestCodeFixClassImplementInterfaceMappedType1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Implement interface 'I<Y>'",
         .NewFileContent = "interface I<X> {\n    x: { readonly [K in keyof X]: X[K] };\n}\nclass C<Y> implements I<Y> {\n    x: { readonly [K in keyof Y]: Y[K]; };\n}",
         .Index = 0,

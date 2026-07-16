@@ -2112,6 +2112,38 @@ pub fn forEachChild(tree: *Ast, nodeIndex: ast_gen.NodeIndex, visitor: anytype) 
                 if (n.Qualifier) |child| try visitor.visitNode(child);
             }
         },
+        .Parameter => |n| {
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.DotDotDotToken) == u32) {
+                if (n.DotDotDotToken != 0) try visitor.visitNode(n.DotDotDotToken);
+            } else {
+                if (n.DotDotDotToken) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.name) == u32) {
+                if (n.name != 0) try visitor.visitNode(n.name);
+            } else {
+                if (n.name) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.QuestionToken) == u32) {
+                if (n.QuestionToken != 0) try visitor.visitNode(n.QuestionToken);
+            } else {
+                if (n.QuestionToken) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Initializer) == u32) {
+                if (n.Initializer != 0) try visitor.visitNode(n.Initializer);
+            } else {
+                if (n.Initializer) |child| try visitor.visitNode(child);
+            }
+        },
         else => {},
     }
 }

@@ -26,7 +26,7 @@ test "TestGoToImplementationInterface_00" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToImplementation(undefined, "interface_definition");
+    // try f.VerifyBaselineGoToImplementation(undefined, "interface_definition");
 }
 
 test "TestCompletionListInTypeParameterOfClassExpression1" {
@@ -70,7 +70,7 @@ test "TestOrganizeImportsPathsUnicode4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import * as _Ab from \"./_Ab\";\nimport * as _aB from \"./_aB\";\nimport * as Ab from \"./Ab\";\nimport * as aB from \"./aB\";\n\nconsole.log(_aB, _Ab, aB, Ab);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -79,7 +79,7 @@ test "TestOrganizeImportsPathsUnicode4" {
 //             .OrganizeImportsCaseFirst =  lsutil.OrganizeImportsCaseFirstUpper,
 //         },
 //     );
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import * as _aB from \"./_aB\";\nimport * as _Ab from \"./_Ab\";\nimport * as aB from \"./aB\";\nimport * as Ab from \"./Ab\";\n\nconsole.log(_aB, _Ab, aB, Ab);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -117,8 +117,8 @@ test "TestImportNameCodeFix_barrelExport2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyImportFixModuleSpecifiers(undefined, "sibling", &.{"proj/foo/a", "proj/src/utils", "proj", "proj/foo"}, &.{.ImportModuleSpecifierPreference = "non-relative"});
-    // f.VerifyImportFixModuleSpecifiers(undefined, "parent", &.{"proj/foo", "proj/foo/a", "proj/src/utils", "proj"}, &.{.ImportModuleSpecifierPreference = "non-relative"});
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "sibling", &.{"proj/foo/a", "proj/src/utils", "proj", "proj/foo"}, &.{.ImportModuleSpecifierPreference = "non-relative"});
+    // try f.VerifyImportFixModuleSpecifiers(undefined, "parent", &.{"proj/foo", "proj/foo/a", "proj/src/utils", "proj"}, &.{.ImportModuleSpecifierPreference = "non-relative"});
 }
 
 test "TestQuickInfoOnPropDeclaredUsingIndexSignatureOnInterfaceWithBase" {
@@ -133,7 +133,7 @@ test "TestQuickInfoOnPropDeclaredUsingIndexSignatureOnInterfaceWithBase" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "(index) B[string]: number", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "(index) B[string]: number", "");
 }
 
 test "TestGoToDefinitionJsModuleNameAtImportName" {
@@ -155,7 +155,7 @@ test "TestGoToDefinitionJsModuleNameAtImportName" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "importDef", "importUsage", "importDefTs", "importUsageTs");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "importDef", "importUsage", "importDefTs", "importUsageTs");
 }
 
 test "TestImportStatementCompletions_js" {
@@ -227,7 +227,7 @@ test "TestGetOccurrencesTryCatchFinally" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , ToAny(f.Markers()));
 }
 
 test "TestInlayHintsPropertyDeclarations" {
@@ -250,7 +250,7 @@ test "TestInlayHintsPropertyDeclarations" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayPropertyDeclarationTypeHints = core.TSTrue}});
+    // try f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayPropertyDeclarationTypeHints = core.TSTrue}});
 }
 
 test "TestGoToDefinitionImport3" {
@@ -263,7 +263,7 @@ test "TestGoToDefinitionImport3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestFormattingTemplates" {
@@ -275,10 +275,10 @@ test "TestFormattingTemplates" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
     _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "String.call`${123}`;");
+    try f.VerifyCurrentLineContent(undefined, "String.call`${123}`;");
     _ = f.GoToMarker(undefined, "2");
     _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "String.call`${123} ${456}`;");
+    try f.VerifyCurrentLineContent(undefined, "String.call`${123} ${456}`;");
 }
 
 test "TestFindAllReferencesOfJsonModule" {
@@ -295,7 +295,7 @@ test "TestFindAllReferencesOfJsonModule" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
 test "TestRemoveParameterBetweenCommentAndParameter" {
@@ -324,7 +324,7 @@ test "TestCompletionsImport_typeOnly" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/b.ts");
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =        "B",
 //         .Source =      "./a",
 //         .Description = "Update import from \"./a\"",
@@ -344,8 +344,8 @@ test "TestFunduleWithRecursiveReference" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "var M.C.C: typeof M.C", "");
-    _ = f.VerifyNoErrors(undefined);
+    try f.VerifyQuickInfoAt(undefined, "", "var M.C.C: typeof M.C", "");
+    try f.VerifyNoErrors(undefined);
 }
 
 test "TestQuickInfoForObjectBindingElementName04" {
@@ -370,7 +370,7 @@ test "TestQuickInfoForObjectBindingElementName04" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestTsxSignatureHelp2" {
@@ -402,9 +402,9 @@ test "TestTsxSignatureHelp2" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
-    // f.VerifySignatureHelp(undefined, .{.Text = "MainButton(buttonProps: ButtonProps): JSX.Element", .ParameterSpan = "buttonProps: ButtonProps", .OverloadsCount = 2});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "MainButton(buttonProps: ButtonProps): JSX.Element", .ParameterSpan = "buttonProps: ButtonProps", .OverloadsCount = 2});
     _ = f.GoToMarker(undefined, "2");
-    // f.VerifySignatureHelp(undefined, .{.Text = "MainButton(buttonProps: ButtonProps): JSX.Element", .ParameterSpan = "buttonProps: ButtonProps", .OverloadsCount = 2});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "MainButton(buttonProps: ButtonProps): JSX.Element", .ParameterSpan = "buttonProps: ButtonProps", .OverloadsCount = 2});
 }
 
 test "TestQuickInfoJSDocTags" {
@@ -471,7 +471,7 @@ test "TestQuickInfoJSDocTags" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestUnusedImports6FS" {
@@ -493,7 +493,7 @@ test "TestUnusedImports6FS" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyRangeAfterCodeFix(undefined, "", false, 0, 0);
+    try f.VerifyRangeAfterCodeFix(undefined, "", false, 0, 0);
 }
 
 test "TestFindAllReferencesJSDocFunctionThis" {
@@ -506,7 +506,7 @@ test "TestFindAllReferencesJSDocFunctionThis" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "0");
+    // try f.VerifyBaselineFindAllReferences(undefined, "0");
 }
 
 test "TestQuickInfoInFunctionTypeReference2" {
@@ -521,10 +521,10 @@ test "TestQuickInfoInFunctionTypeReference2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "(parameter) k: string", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "(parameter) value: T", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "(parameter) k: string", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "(parameter) value: T", "");
     _ = f.GoToMarker(undefined, "3");
-    // f.VerifySignatureHelp(undefined, .{.Text = "map(fn: (k: string, value: number, context: any) => void, context: any): void"});
+    // try f.VerifySignatureHelp(undefined, .{.Text = "map(fn: (k: string, value: number, context: any) => void, context: any): void"});
 }
 
 test "TestAutoImportModuleNone2" {
@@ -562,7 +562,7 @@ test "TestAutoImportModuleNone2" {
 //         },
 //     });
     _ = f.ReplaceLine(undefined, 0, "import { x } from 'dep'; x;");
-    _ = f.VerifyNonSuggestionDiagnostics(undefined, null);
+    try f.VerifyNonSuggestionDiagnostics(undefined, null);
 }
 
 test "TestQuickInfoUnion_discriminated" {
@@ -596,10 +596,10 @@ test "TestQuickInfoUnion_discriminated" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "uKind", "(property) A.kind: \"a\"", "Kind A");
-    // f.VerifyQuickInfoAt(undefined, "uProp", "(property) A.prop: number", "Prop A");
-    // f.VerifyQuickInfoAt(undefined, "u2Kind", "(property) kind: \"bogus\"", "");
-    // f.VerifyQuickInfoAt(undefined, "u2Prop", "(property) prop: number", "");
+    try f.VerifyQuickInfoAt(undefined, "uKind", "(property) A.kind: \"a\"", "Kind A");
+    try f.VerifyQuickInfoAt(undefined, "uProp", "(property) A.prop: number", "Prop A");
+    try f.VerifyQuickInfoAt(undefined, "u2Kind", "(property) kind: \"bogus\"", "");
+    try f.VerifyQuickInfoAt(undefined, "u2Prop", "(property) prop: number", "");
 }
 
 test "TestCodeFixCorrectReturnValue5" {
@@ -611,7 +611,7 @@ test "TestCodeFixCorrectReturnValue5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyCodeFixNotAvailable(undefined);
+    // try f.VerifyCodeFixNotAvailable(undefined);
 }
 
 test "TestQuickinfoVerbosityTuple" {
@@ -638,7 +638,7 @@ test "TestQuickinfoVerbosityTuple" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"T" = .{0, 1, 2}, .@"f" = .{0, 1, 2, 3}, .@"f2" = .{0, 1, 2}, .@"m" = .{0, 1, 2}, .@"mf" = .{0, 1, 2, 3}});
+    // try f.VerifyBaselineHoverWithVerbosity(undefined, .{.@"T" = .{0, 1, 2}, .@"f" = .{0, 1, 2, 3}, .@"f2" = .{0, 1, 2}, .@"m" = .{0, 1, 2}, .@"mf" = .{0, 1, 2, 3}});
 }
 
 test "TestNavigationBarAnonymousClassAndFunctionExpressions" {
@@ -666,7 +666,7 @@ test "TestNavigationBarAnonymousClassAndFunctionExpressions" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineDocumentSymbol(undefined);
+    try f.VerifyBaselineDocumentSymbol(undefined);
 }
 
 test "TestQuickInfoDisplayPartsClassAccessors" {
@@ -710,7 +710,7 @@ test "TestQuickInfoDisplayPartsClassAccessors" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyBaselineHover(undefined);
+    try f.VerifyBaselineHover(undefined);
 }
 
 test "TestAutoImportTypeOnlyPreferred1" {
@@ -768,7 +768,7 @@ test "TestRenameObjectSpreadAssignment" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[4], f.Ranges()[3], f.Ranges()[5]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[4], f.Ranges()[3], f.Ranges()[5]);
 }
 
 test "TestQuickInfoMappedTypeRecursiveInference" {
@@ -793,16 +793,16 @@ test "TestQuickInfoMappedTypeRecursiveInference" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "1", "const out: {\n    a: {\n        a: ...;\n    };\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "2", "function foo<{\n    a: {\n        a: ...;\n    };\n}>(deep: Deep<{\n    a: {\n        a: ...;\n    };\n}>): {\n    a: {\n        a: ...;\n    };\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "3", "(property) a: {\n    a: {\n        a: ...;\n    };\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "4", "(property) a: {\n    a: {\n        a: ...;\n    };\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "5", "(property) a: {\n    a: {\n        a: ...;\n    };\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "6", "const oub: {\n    [x: string]: ...;\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "7", "function foo<{\n    [x: string]: ...;\n}>(deep: Deep<{\n    [x: string]: ...;\n}>): {\n    [x: string]: ...;\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "8", "{\n    [x: string]: ...;\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "9", "{\n    [x: string]: ...;\n}", "");
-    // f.VerifyQuickInfoAt(undefined, "10", "{\n    [x: string]: ...;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "1", "const out: {\n    a: {\n        a: ...;\n    };\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "2", "function foo<{\n    a: {\n        a: ...;\n    };\n}>(deep: Deep<{\n    a: {\n        a: ...;\n    };\n}>): {\n    a: {\n        a: ...;\n    };\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "3", "(property) a: {\n    a: {\n        a: ...;\n    };\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "4", "(property) a: {\n    a: {\n        a: ...;\n    };\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "5", "(property) a: {\n    a: {\n        a: ...;\n    };\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "6", "const oub: {\n    [x: string]: ...;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "7", "function foo<{\n    [x: string]: ...;\n}>(deep: Deep<{\n    [x: string]: ...;\n}>): {\n    [x: string]: ...;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "8", "{\n    [x: string]: ...;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "9", "{\n    [x: string]: ...;\n}", "");
+    try f.VerifyQuickInfoAt(undefined, "10", "{\n    [x: string]: ...;\n}", "");
 }
 
 test "TestGetJavaScriptSyntacticDiagnostics9" {
@@ -814,7 +814,7 @@ test "TestGetJavaScriptSyntacticDiagnostics9" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineNonSuggestionDiagnostics(undefined);
+    // try f.VerifyBaselineNonSuggestionDiagnostics(undefined);
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports43_expando_functions_3" {
@@ -830,7 +830,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports43_expando_functions_3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Annotate types of properties expando function in a namespace",
         .NewFileContent = "function foo(): void {}\ndeclare namespace foo {\n    export var x: number;\n    export var y: number;\n}\nfoo.x = 1;\nfoo.y = 1;",
         .Index = 0,
@@ -845,7 +845,7 @@ test "TestSyntacticClassificationsTemplates2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifySemanticTokens(undefined, &.{
+    // try f.VerifySemanticTokens(undefined, &.{
 //         .{.Type = "variable.declaration", .Text = "tiredOfCanonicalExamples"},
 //     });
 }
@@ -859,7 +859,7 @@ test "TestFormattingKeywordAsIdentifier" {
     defer f.deinit();
     _ = f.GoToMarker(undefined, "1");
     _ = f.Insert(undefined, ";");
-    _ = f.VerifyCurrentLineContent(undefined, "declare var module;");
+    try f.VerifyCurrentLineContent(undefined, "declare var module;");
 }
 
 test "TestJsDocAugmentsAndExtends" {
@@ -887,8 +887,8 @@ test "TestJsDocAugmentsAndExtends" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToMarker(undefined, "");
-    _ = f.VerifyQuickInfoIs(undefined, "(local var) x: number", "");
-    // f.VerifyNonSuggestionDiagnostics(undefined, []*.{
+    try f.VerifyQuickInfoIs(undefined, "(local var) x: number", "");
+    // try f.VerifyNonSuggestionDiagnostics(undefined, []*.{
 //         .{
 //             .Message = .{.String = undefined("Class declarations cannot have more than one '@augments' or '@extends' tag.")},
 //             .Code =    &.{.Integer = undefined(int32(8025))},
@@ -903,7 +903,7 @@ test "TestErrorInIncompleteMethodInObjectLiteral" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
+    try f.VerifyNumberOfErrorsInCurrentFile(undefined, 1);
 }
 
 test "TestGoToTypeDefinitionImportMeta" {
@@ -920,7 +920,7 @@ test "TestGoToTypeDefinitionImportMeta" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToTypeDefinition(undefined, "reference");
+    // try f.VerifyBaselineGoToTypeDefinition(undefined, "reference");
 }
 
 test "TestCodeFixMissingTypeAnnotationOnExports44_default_export" {
@@ -934,7 +934,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports44_default_export" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Extract default export to variable",
         .NewFileContent = "const _default_1: number = 1 + 1;\nexport default _default_1;",
         .Index = 0,
@@ -980,7 +980,7 @@ test "TestRenameBindingElementInitializerProperty" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[2], f.Ranges()[5], f.Ranges()[4], f.Ranges()[7]);
+    // try f.VerifyBaselineRename(undefined, null , f.Ranges()[1], f.Ranges()[2], f.Ranges()[5], f.Ranges()[4], f.Ranges()[7]);
 }
 
 test "TestCompletionsImport_addToNamedWithDifferentCacheValue" {
@@ -1032,7 +1032,7 @@ test "TestCompletionsImport_addToNamedWithDifferentCacheValue" {
 //             },
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined("1"), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined("1"), &.{
 //         .Name =          "MyClass",
 //         .Source =        "../packages/mylib",
 //         .Description =   "Add import from \"../packages/mylib\"",
@@ -1094,7 +1094,7 @@ test "TestGoToSource12_callbackParam" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
-    // f.VerifyBaselineGoToSourceDefinition(undefined, "start");
+    // try f.VerifyBaselineGoToSourceDefinition(undefined, "start");
 }
 
 test "TestReferencesForDeclarationKeywords" {
@@ -1122,7 +1122,7 @@ test "TestReferencesForDeclarationKeywords" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "classDecl1_classKeyword", "classDecl1_extendsKeyword", "classDecl1_implementsKeyword", "classDecl2_implementsKeyword", "getDecl_getKeyword", "setDecl_setKeyword", "interfaceDecl1_interfaceKeyword", "interfaceDecl1_extendsKeyword", "interfaceDecl2_extendsKeyword", "typeDecl_typeKeyword", "enumDecl_enumKeyword", "namespaceDecl_namespaceKeyword", "moduleDecl_moduleKeyword", "functionDecl_functionKeyword", "varDecl_varKeyword", "letDecl_letKeyword", "constDecl_constKeyword");
+    // try f.VerifyBaselineFindAllReferences(undefined, "classDecl1_classKeyword", "classDecl1_extendsKeyword", "classDecl1_implementsKeyword", "classDecl2_implementsKeyword", "getDecl_getKeyword", "setDecl_setKeyword", "interfaceDecl1_interfaceKeyword", "interfaceDecl1_extendsKeyword", "interfaceDecl2_extendsKeyword", "typeDecl_typeKeyword", "enumDecl_enumKeyword", "namespaceDecl_namespaceKeyword", "moduleDecl_moduleKeyword", "functionDecl_functionKeyword", "varDecl_varKeyword", "letDecl_letKeyword", "constDecl_constKeyword");
 }
 
 test "TestCompletionListInstanceProtectedMembers4" {
@@ -1182,7 +1182,7 @@ test "TestLinkedEditingJsxTag8" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyLinkedEditing(undefined, .{
+    // try f.VerifyLinkedEditing(undefined, .{
 //         .@"8" = null,
 //     });
 }
@@ -1249,7 +1249,7 @@ test "TestImportNameCodeFix_require_addToExisting" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "index.js");
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Update import from \"./blah\"",
         .NewFileContent = "var path = require('path')\n  , { promisify } = require('util')\n  , { Named1, default: Blah } = require('./blah')\n\nnew Blah",
         .Index = 0,
@@ -1266,7 +1266,7 @@ test "TestReferencesForLabel6" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3", "4");
 }
 
 test "TestCompletionForStringLiteral2" {
@@ -1372,6 +1372,6 @@ test "TestInlayHintsFunctionParameterTypes5" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayFunctionParameterTypeHints = core.TSTrue}});
+    // try f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayFunctionParameterTypeHints = core.TSTrue}});
 }
 

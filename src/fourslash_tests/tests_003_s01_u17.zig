@@ -49,6 +49,6 @@ test "TestGoToDefinitionImports" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "aUse", "fUse", "xUse", "bUse");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "aUse", "fUse", "xUse", "bUse");
 }
 

@@ -42,7 +42,7 @@ test "TestRewriteRelativeImportExtensionsProjectReferences3" {
     defer f.deinit();
     _ = f.MarkTestAsStradaServer();
     _ = f.GoToFile(undefined, "/src/services/services.ts");
-    // f.VerifyBaselineNonSuggestionDiagnostics(undefined);
+    // try f.VerifyBaselineNonSuggestionDiagnostics(undefined);
 }
 
 test "TestCompletionsNamespaceName" {
@@ -108,7 +108,7 @@ test "TestCodeFixMissingTypeAnnotationOnExports3" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add annotation of type 'number'",
         .NewFileContent = "const a = 42;\nconst b = 42;\nexport class C {\n  //making sure comments are not changed\n  property: number =a+b; // comment should stay here\n}",
         .Index = 0,
@@ -130,7 +130,7 @@ test "TestImportNameCodeFix_types_classic" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/a.ts");
-    _ = f.VerifyCodeFixAll(undefined, .{
+    try f.VerifyCodeFixAll(undefined, .{
         .FixID = "fixMissingImport",
         .NewFileContent = "import { xyz } from \"foo\";\nimport { qrs } from \"./node_modules/bar/index\";\n\nxyz;\nqrs;",
     });
@@ -159,12 +159,12 @@ test "TestImportNameCodeFix_jsx6" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.GoToFile(undefined, "/a.tsx");
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Add import from \"react-native\"",
         .NewFileContent = "import { Text } from \"react-native\";\n\n<Text></Text>;",
         .Index = 0,
     });
-    _ = f.VerifyCodeFix(undefined, .{
+    try f.VerifyCodeFix(undefined, .{
         .Description = "Import 'React' from \"react\"",
         .NewFileContent = "import React from \"react\";\n\n<Text></Text>;",
         .Index = 1,
@@ -190,7 +190,7 @@ test "TestGetOccurrencesOfUndefinedSymbol" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineDocumentHighlights(undefined, null , "");
+    // try f.VerifyBaselineDocumentHighlights(undefined, null , "");
 }
 
 test "TestCompletionsTypeKeywords" {
@@ -253,7 +253,7 @@ test "TestCompletionsImport_named_addToNamedImports" {
 //             },
 //         },
 //     });
-    // f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
+    // try f.VerifyApplyCodeActionFromCompletion(undefined, undefined(""), &.{
 //         .Name =        "foo",
 //         .Source =      "./a",
 //         .Description = "Update import from \"./a\"",
@@ -271,7 +271,7 @@ test "TestRefactorConvertToEsModule_notInCommonjsProject" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifySuggestionDiagnostics(undefined, null);
+    try f.VerifySuggestionDiagnostics(undefined, null);
 }
 
 test "TestImportNameCodeFixNewImportFileQuoteStyleMixed0" {
@@ -290,7 +290,7 @@ test "TestImportNameCodeFixNewImportFileQuoteStyleMixed0" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    _ = f.VerifyImportFixAtPosition(undefined, &.{
+    try f.VerifyImportFixAtPosition(undefined, &.{
         "import { f1 } from \"./module1\";\nimport { v2 } from \"./module2\";\nimport { v3 } from './module3';\n\nf1();",
     }, null );
 }

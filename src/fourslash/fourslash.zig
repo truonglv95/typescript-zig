@@ -10,6 +10,7 @@ const ast_utils = @import("../ast/ast_utils.zig");
 const astnav = @import("../astnav/tokens.zig");
 const diagnostics = @import("../diagnostics/diagnostics.zig");
 const diagnostics_gen = @import("../diagnostics/diagnostics_generated.zig");
+const symbol = @import("../ast/symbol.zig");
 
 const testing = struct {
     pub const T = struct {};
@@ -523,7 +524,7 @@ pub const FourslashTest = struct {
         _ = endMarkerName;
     }
 
-    pub fn VerifyCurrentFileContent(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) void {
+    pub fn VerifyCurrentFileContent(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) !void {
         _ = t;
         if (self.parsedData.files.get(self.currentFile)) |actualContent| {
             const actual_trimmed = std.mem.trimEnd(u8, actualContent, " \n\r\t");
@@ -534,7 +535,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyCurrentLineContent(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) void {
+    pub fn VerifyCurrentLineContent(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) !void {
         _ = t;
         if (self.parsedData.files.get(self.currentFile)) |fileContent| {
             // Find the line at cursorPos
@@ -553,7 +554,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyIndentation(self: *FourslashTest, t: *testing.T, numSpaces: i32) void {
+    pub fn VerifyIndentation(self: *FourslashTest, t: *testing.T, numSpaces: i32) !void {
         _ = self;
         _ = t;
         _ = numSpaces;
@@ -627,13 +628,13 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
-    pub fn VerifyCodeFix(self: *FourslashTest, t: *testing.T, options: anytype) void {
+    pub fn VerifyCodeFix(self: *FourslashTest, t: *testing.T, options: anytype) !void {
         _ = self;
         _ = t;
         _ = options;
     }
 
-    pub fn VerifyRangeAfterCodeFix(self: *FourslashTest, t: *testing.T, expectedText: []const u8, includeWhitespace: bool, errorCode: i32, index: i32) void {
+    pub fn VerifyRangeAfterCodeFix(self: *FourslashTest, t: *testing.T, expectedText: []const u8, includeWhitespace: bool, errorCode: i32, index: i32) !void {
         _ = self;
         _ = t;
         _ = expectedText;
@@ -649,31 +650,31 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
-    pub fn VerifyCodeFixAvailable(self: *FourslashTest, t: *testing.T, expectedDescriptions: anytype) void {
+    pub fn VerifyCodeFixAvailable(self: *FourslashTest, t: *testing.T, expectedDescriptions: anytype) !void {
         _ = self;
         _ = t;
         _ = expectedDescriptions;
     }
 
-    pub fn VerifyCodeFixNotAvailable(self: *FourslashTest, t: *testing.T, expected: anytype) void {
+    pub fn VerifyCodeFixNotAvailable(self: *FourslashTest, t: *testing.T, expected: anytype) !void {
         _ = self;
         _ = t;
         _ = expected;
     }
 
-    pub fn VerifyCodeFixAvailableExact(self: *FourslashTest, t: *testing.T, expectedDescriptions: anytype) void {
+    pub fn VerifyCodeFixAvailableExact(self: *FourslashTest, t: *testing.T, expectedDescriptions: anytype) !void {
         _ = self;
         _ = t;
         _ = expectedDescriptions;
     }
 
-    pub fn VerifyCodeFixAll(self: *FourslashTest, t: *testing.T, options: anytype) void {
+    pub fn VerifyCodeFixAll(self: *FourslashTest, t: *testing.T, options: anytype) !void {
         _ = self;
         _ = t;
         _ = options;
     }
 
-    pub fn VerifySourceFixAll(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) void {
+    pub fn VerifySourceFixAll(self: *FourslashTest, t: *testing.T, expectedContent: []const u8) !void {
         _ = self;
         _ = t;
         _ = expectedContent;
@@ -707,7 +708,7 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
-    pub fn VerifyOrganizeImports(self: *FourslashTest, t: *testing.T, expectedContent: []const u8, codeActionKind: lsproto.CodeActionKind, preferences: ?*lsutil.UserPreferences) void {
+    pub fn VerifyOrganizeImports(self: *FourslashTest, t: *testing.T, expectedContent: []const u8, codeActionKind: lsproto.CodeActionKind, preferences: ?*lsutil.UserPreferences) !void {
         _ = self;
         _ = t;
         _ = expectedContent;
@@ -715,21 +716,21 @@ pub const FourslashTest = struct {
         _ = preferences;
     }
 
-    pub fn VerifyApplyCodeActionFromCompletion(self: *FourslashTest, t: *testing.T, markerName: ?*[]const u8, options: ?*ApplyCodeActionFromCompletionOptions) void {
+    pub fn VerifyApplyCodeActionFromCompletion(self: *FourslashTest, t: *testing.T, markerName: ?*[]const u8, options: ?*ApplyCodeActionFromCompletionOptions) !void {
         _ = self;
         _ = t;
         _ = markerName;
         _ = options;
     }
 
-    pub fn VerifyImportFixAtPosition(self: *FourslashTest, t: *testing.T, expectedTexts: anytype, preferences: ?*lsutil.UserPreferences) void {
+    pub fn VerifyImportFixAtPosition(self: *FourslashTest, t: *testing.T, expectedTexts: anytype, preferences: ?*lsutil.UserPreferences) !void {
         _ = self;
         _ = t;
         _ = expectedTexts;
         _ = preferences;
     }
 
-    pub fn VerifyBaselineCodeLens(self: *FourslashTest, t: *testing.T, preferences: ?*lsutil.UserPreferences) void {
+    pub fn VerifyBaselineCodeLens(self: *FourslashTest, t: *testing.T, preferences: ?*lsutil.UserPreferences) !void {
         _ = self;
         _ = t;
         _ = preferences;
@@ -739,46 +740,46 @@ pub const FourslashTest = struct {
         _ = self;
     }
 
-    pub fn VerifyBaselineWorkspaceSymbol(self: *FourslashTest, t: *testing.T, query: []const u8) void {
+    pub fn VerifyBaselineWorkspaceSymbol(self: *FourslashTest, t: *testing.T, query: []const u8) !void {
         _ = self;
         _ = t;
         _ = query;
     }
 
-    pub fn VerifyOutliningSpans(self: *FourslashTest, t: *testing.T, foldingRangeKind: anytype) void {
+    pub fn VerifyOutliningSpans(self: *FourslashTest, t: *testing.T, foldingRangeKind: anytype) !void {
         _ = self;
         _ = t;
         _ = foldingRangeKind;
     }
 
-    pub fn VerifyFoldingRangeLines(self: *FourslashTest, t: *testing.T, expected: anytype) void {
+    pub fn VerifyFoldingRangeLines(self: *FourslashTest, t: *testing.T, expected: anytype) !void {
         _ = self;
         _ = t;
         _ = expected;
     }
 
-    pub fn VerifyBaselineHover(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyBaselineHover(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
 
-    pub fn VerifyBaselineHoverWithVerbosity(self: *FourslashTest, t: *testing.T, verbosityLevels: anytype) void {
+    pub fn VerifyBaselineHoverWithVerbosity(self: *FourslashTest, t: *testing.T, verbosityLevels: anytype) !void {
         _ = self;
         _ = t;
         _ = verbosityLevels;
     }
 
-    pub fn VerifyBaselineSignatureHelp(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyBaselineSignatureHelp(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
 
-    pub fn VerifyBaselineSelectionRanges(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyBaselineSelectionRanges(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
 
-    pub fn VerifyBaselineCallHierarchy(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyBaselineCallHierarchy(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
@@ -933,43 +934,146 @@ pub const FourslashTest = struct {
         const p = self.parser orelse return "";
         
         // Find the node at cursor position.
-        const node = astnav.getTouchingPropertyName(sf, &p.ast, @intCast(self.cursorPos));
+        const cursorPos = @as(u32, @intCast(self.cursorPos));
+        const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
         if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return "";
         
         // Get the symbol at this location.
         const sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) return "";
         
+        const symObj = c.binder.symbols.items[sym];
+        
         // Format the symbol's type.
         const sym_type = c.getTypeOfSymbol(sym) catch return "";
         if (sym_type == 0) return "";
         
-        // Use typeToString to get the display string.
-        const type_str = c.typeToString(sym_type, 0, 0, null);
+        const typeStr = c.typeToString(sym_type, 0, 0, null);
+        if (std.mem.eql(u8, typeStr, "{}")) {
+            // WORKAROUND: nodebuilder doesn't support functions yet, so typeToString returns {}.
+            // Extract the function signature manually using checker APIs
+            if ((symObj.Flags & symbol.SymbolFlags.Function) != 0) {
+                const sigs = c.getSignaturesOfSymbol(sym);
+                if (sigs.len > 0) {
+                    var out = std.ArrayListUnmanaged(u8).empty;
+                    const aa = self.arena.allocator();
+                    out.appendSlice(aa, "function ") catch {};
+                    out.appendSlice(aa, symObj.Name) catch {};
+                    out.appendSlice(aa, "(") catch {};
+                    
+                    const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
+                    const sig = &c.signatures.items[sigIdx];
+                    
+                    const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+                    for (params, 0..) |paramSym, i| {
+                        if (i > 0) out.appendSlice(aa, ", ") catch {};
+                        const paramObj = c.binder.symbols.items[paramSym];
+                        const paramType = c.getTypeOfSymbol(paramSym) catch |err| blk: {
+                            std.debug.print("getTypeOfSymbol error for {s}: {}\n", .{paramObj.Name, err});
+                            break :blk 0;
+                        };
+                        const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
+                        
+                        const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+                        out.appendSlice(aa, pStr) catch {};
+                    }
+                    
+                    out.appendSlice(aa, "): ") catch {};
+                    
+                    const retType = c.getReturnTypeOfSignature(sig);
+                    const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+                    out.appendSlice(aa, retTypeStr) catch {};
+                    
+                    return out.toOwnedSlice(aa) catch "";
+                }
+            }
+        }
         
-        // Also get symbol name.
-        const sym_name = c.symbolToString(sym);
+        if ((symObj.Flags & symbol.SymbolFlags.FunctionScopedVariable) != 0) {
+            var is_param = false;
+            if (symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                if (p.ast.getNodeKind(decl_node) == .Parameter) {
+                    is_param = true;
+                }
+            }
+            if (is_param) {
+                var out = std.ArrayListUnmanaged(u8).empty;
+                const aa = self.arena.allocator();
+                out.appendSlice(aa, "(parameter) ") catch {};
+                out.appendSlice(aa, symObj.Name) catch {};
+                out.appendSlice(aa, ": ") catch {};
+                out.appendSlice(aa, typeStr) catch {};
+                return out.toOwnedSlice(aa) catch "";
+            }
+        }
         
-        // Format: "symbol_name: type_str" or just type_str for types.
-        const aa = self.arena.allocator();
-        return std.fmt.allocPrint(aa, "const {s}: {s}", .{ sym_name, type_str }) catch type_str;
+        return typeStr;
     }
 
-    pub fn VerifyQuickInfoAt(self: *FourslashTest, t: *testing.T, marker: []const u8, expectedText: []const u8, expectedDocumentation: []const u8) void {
+    pub fn VerifyQuickInfoAt(self: *FourslashTest, t: *testing.T, marker: []const u8, expectedText: []const u8, expectedDocumentation: []const u8) !void {
         _ = t;
         _ = expectedDocumentation;
-        // Go to marker position.
         self.GoToMarker(undefined, marker);
-        // Get quick info at current position.
         const actual = self.getQuickInfoStringAtCursor();
+        std.debug.print("sourceText length: {}, text: '{s}'\n", .{self.parser.?.ast.sourceText.len, self.parser.?.ast.sourceText});
+        
+        // For flexibility during porting, we can check if it contains the substring,
+        // or just strictly check it. Since we want to fail, let's use a strict check
+        // or at least fail if substring is not found.
         if (actual.len == 0 and expectedText.len > 0) {
-            std.log.warn("Expected quick info '{s}' but got empty at marker '{s}'", .{ expectedText, marker });
-            return;
+            std.debug.print("\nFAIL: Expected quick info '{s}' but got empty at marker '{s}'\n", .{ expectedText, marker });
+            // Add a dump of what was found at the cursor
+            if (self.sourceFile) |sf| {
+                if (self.parser) |p| {
+                    const cursorPos = @as(u32, @intCast(self.cursorPos));
+                    std.debug.print("  Cursor Pos: {}\n", .{cursorPos});
+                    std.debug.print("  SourceFile bounds: {} - {}\n", .{p.ast.getNodePos(sf), p.ast.getNodeEnd(sf)});
+                    
+                    const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+                    std.debug.print("  Node at cursor: {}\n", .{p.ast.getNodeKind(node)});
+                    
+                    if (self.checker) |c| {
+                        const sym = checker_module.getSymbolAtLocation(c, node);
+                        std.debug.print("  Symbol at location: {}\n", .{sym});
+                        if (sym != 0) {
+                            if (c.getTypeOfSymbol(sym)) |sym_type| {
+                                std.debug.print("  Type of symbol: {}\n", .{sym_type});
+                            } else |err| {
+                                std.debug.print("  getTypeOfSymbol error: {}\n", .{err});
+                            }
+                        }
+                    }
+                }
+            }
+            return error.TestExpectedEqual;
         }
         if (actual.len > 0 and expectedText.len > 0) {
-            // Check if actual contains expected text (substring match for flexibility).
             if (std.mem.indexOf(u8, actual, expectedText) == null) {
-                std.log.warn("Quick info mismatch at marker '{s}': expected '{s}', got '{s}'", .{ marker, expectedText, actual });
+                std.debug.print("\nFAIL: Quick info mismatch at marker '{s}': expected '{s}', got '{s}'\n", .{ marker, expectedText, actual });
+                // Also print symbol info
+                if (self.sourceFile) |sf| {
+                    if (self.parser) |p| {
+                        const cursorPos = @as(u32, @intCast(self.cursorPos));
+                        const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+                        if (self.checker) |c| {
+                            const sym = checker_module.getSymbolAtLocation(c, node);
+                            std.debug.print("  Symbol ID: {}\n", .{sym});
+                            if (sym != 0) {
+                                const symbolObj = c.binder.symbols.items[sym];
+                                std.debug.print("  Symbol Name: {s}\n", .{symbolObj.Name});
+                                std.debug.print("  Symbol Decls count: {}\n", .{symbolObj.Declarations.items.len});
+                                if (c.getTypeOfSymbol(sym)) |sym_type| {
+                                    std.debug.print("  Type ID: {}\n", .{sym_type});
+                                    std.debug.print("  Type String: {s}\n", .{c.typeToString(sym_type, 0, 0, null)});
+                                } else |err| {
+                                    std.debug.print("  getTypeOfSymbol error: {}\n", .{err});
+                                }
+                            }
+                        }
+                    }
+                }
+                return error.TestExpectedEqual;
             }
         }
     }
@@ -983,7 +1087,7 @@ pub const FourslashTest = struct {
         return null;
     }
 
-    pub fn VerifyQuickInfoExists(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyQuickInfoExists(self: *FourslashTest, t: *testing.T) !void {
         _ = t;
         const actual = self.getQuickInfoStringAtCursor();
         if (actual.len == 0) {
@@ -991,7 +1095,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyNotQuickInfoExists(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyNotQuickInfoExists(self: *FourslashTest, t: *testing.T) !void {
         _ = t;
         const actual = self.getQuickInfoStringAtCursor();
         if (actual.len > 0) {
@@ -1007,7 +1111,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyQuickInfoIs(self: *FourslashTest, t: *testing.T, expectedText: []const u8, expectedDocumentation: []const u8) void {
+    pub fn VerifyQuickInfoIs(self: *FourslashTest, t: *testing.T, expectedText: []const u8, expectedDocumentation: []const u8) !void {
         _ = t;
         _ = expectedDocumentation;
         const actual = self.getQuickInfoStringAtCursor();
@@ -1022,61 +1126,61 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyJsxClosingTag(self: *FourslashTest, t: *testing.T, markersToNewText: std.StringHashMap(?[]const u8)) void {
+    pub fn VerifyJsxClosingTag(self: *FourslashTest, t: *testing.T, markersToNewText: std.StringHashMap(?[]const u8)) !void {
         _ = self;
         _ = t;
         _ = markersToNewText;
     }
 
-    pub fn VerifyBaselineClosingTags(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyBaselineClosingTags(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
 
-    pub fn VerifySignatureHelp(self: *FourslashTest, t: *testing.T, expected: VerifySignatureHelpOptions) void {
+    pub fn VerifySignatureHelp(self: *FourslashTest, t: *testing.T, expected: VerifySignatureHelpOptions) !void {
         _ = self;
         _ = t;
         _ = expected;
     }
 
-    pub fn VerifyNoSignatureHelp(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyNoSignatureHelp(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
 
-    pub fn VerifyNoSignatureHelpWithContext(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext) void {
-        _ = self;
-        _ = t;
-        _ = context;
-    }
-
-    pub fn VerifyNoSignatureHelpForMarkersWithContext(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext, markers: anytype) void {
-        _ = self;
-        _ = t;
-        _ = context;
-        _ = markers;
-    }
-
-    pub fn VerifySignatureHelpPresent(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext) void {
+    pub fn VerifyNoSignatureHelpWithContext(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext) !void {
         _ = self;
         _ = t;
         _ = context;
     }
 
-    pub fn VerifySignatureHelpPresentForMarkers(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext, markers: anytype) void {
+    pub fn VerifyNoSignatureHelpForMarkersWithContext(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext, markers: anytype) !void {
         _ = self;
         _ = t;
         _ = context;
         _ = markers;
     }
 
-    pub fn VerifyNoSignatureHelpForMarkers(self: *FourslashTest, t: *testing.T, markers: anytype) void {
+    pub fn VerifySignatureHelpPresent(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext) !void {
+        _ = self;
+        _ = t;
+        _ = context;
+    }
+
+    pub fn VerifySignatureHelpPresentForMarkers(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext, markers: anytype) !void {
+        _ = self;
+        _ = t;
+        _ = context;
+        _ = markers;
+    }
+
+    pub fn VerifyNoSignatureHelpForMarkers(self: *FourslashTest, t: *testing.T, markers: anytype) !void {
         _ = self;
         _ = t;
         _ = markers;
     }
 
-    pub fn VerifySignatureHelpWithCases(self: *FourslashTest, t: *testing.T, signatureHelpCases: anytype) void {
+    pub fn VerifySignatureHelpWithCases(self: *FourslashTest, t: *testing.T, signatureHelpCases: anytype) !void {
         _ = self;
         _ = t;
         _ = signatureHelpCases;
@@ -1093,7 +1197,7 @@ pub const FourslashTest = struct {
         _ = markerNames;
     }
 
-    pub fn VerifyRenameSucceeded(self: *FourslashTest, t: *testing.T, preferences: ?*lsutil.UserPreferences) void {
+    pub fn VerifyRenameSucceeded(self: *FourslashTest, t: *testing.T, preferences: ?*lsutil.UserPreferences) !void {
         _ = self;
         _ = t;
         _ = preferences;
@@ -1119,7 +1223,7 @@ pub const FourslashTest = struct {
         _ = files;
     }
 
-    pub fn VerifyRename(self: *FourslashTest, t: *testing.T, markerName: []const u8, newName: []const u8, expectedFileContents: anytype) void {
+    pub fn VerifyRename(self: *FourslashTest, t: *testing.T, markerName: []const u8, newName: []const u8, expectedFileContents: anytype) !void {
         _ = self;
         _ = t;
         _ = markerName;
@@ -1127,7 +1231,7 @@ pub const FourslashTest = struct {
         _ = expectedFileContents;
     }
 
-    pub fn VerifyWillRenameFilesEdits(self: *FourslashTest, t: *testing.T, oldPath: []const u8, newPath: []const u8, expectedFileContents: anytype, preferences: ?*lsutil.UserPreferences) void {
+    pub fn VerifyWillRenameFilesEdits(self: *FourslashTest, t: *testing.T, oldPath: []const u8, newPath: []const u8, expectedFileContents: anytype, preferences: ?*lsutil.UserPreferences) !void {
         _ = self;
         _ = t;
         _ = oldPath;
@@ -1150,7 +1254,7 @@ pub const FourslashTest = struct {
         _ = newPath;
     }
 
-    pub fn VerifyRenameFailed(self: *FourslashTest, t: *testing.T, preferences: ?*lsutil.UserPreferences) void {
+    pub fn VerifyRenameFailed(self: *FourslashTest, t: *testing.T, preferences: ?*lsutil.UserPreferences) !void {
         _ = self;
         _ = t;
         _ = preferences;
@@ -1173,18 +1277,18 @@ pub const FourslashTest = struct {
         _ = testPath;
     }
 
-    pub fn VerifyBaselineLinkedEditing(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyBaselineLinkedEditing(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
 
-    pub fn VerifyLinkedEditing(self: *FourslashTest, t: *testing.T, markerNamesToExpected: std.StringHashMap([]const lsproto.Range)) void {
+    pub fn VerifyLinkedEditing(self: *FourslashTest, t: *testing.T, markerNamesToExpected: std.StringHashMap([]const lsproto.Range)) !void {
         _ = self;
         _ = t;
         _ = markerNamesToExpected;
     }
 
-    pub fn VerifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
+    pub fn VerifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) !void {
         _ = t;
         const actual_count = self.getDiagnosticCount();
         // Count expected diagnostics — handle slices and arrays.
@@ -1201,11 +1305,11 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
-        self.VerifyDiagnostics(t, expected);
+    pub fn VerifyNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) !void {
+        try self.VerifyDiagnostics(t, expected);
     }
 
-    pub fn VerifySuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
+    pub fn VerifySuggestionDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) !void {
         _ = t;
         _ = expected;
         _ = self;
@@ -1257,7 +1361,7 @@ pub const FourslashTest = struct {
         return &[_]?*lsproto.Diagnostic{};
     }
 
-    pub fn VerifyBaselineNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyBaselineNonSuggestionDiagnostics(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
@@ -1269,24 +1373,24 @@ pub const FourslashTest = struct {
         return null;
     }
 
-    pub fn VerifyBaselineGoToImplementation(self: *FourslashTest, t: *testing.T, markerNames: anytype) void {
+    pub fn VerifyBaselineGoToImplementation(self: *FourslashTest, t: *testing.T, markerNames: anytype) !void {
         _ = self;
         _ = t;
         _ = markerNames;
     }
 
-    pub fn VerifyWorkspaceSymbol(self: *FourslashTest, t: *testing.T, cases: []?*VerifyWorkspaceSymbolCase) void {
+    pub fn VerifyWorkspaceSymbol(self: *FourslashTest, t: *testing.T, cases: []?*VerifyWorkspaceSymbolCase) !void {
         _ = self;
         _ = t;
         _ = cases;
     }
 
-    pub fn VerifyBaselineDocumentSymbol(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyBaselineDocumentSymbol(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
     }
 
-    pub fn VerifyNumberOfErrorsInCurrentFile(self: *FourslashTest, t: *testing.T, expectedCount: i32) void {
+    pub fn VerifyNumberOfErrorsInCurrentFile(self: *FourslashTest, t: *testing.T, expectedCount: i32) !void {
         _ = t;
         const count = self.getDiagnosticCount();
         if (count != @as(usize, @intCast(expectedCount))) {
@@ -1294,7 +1398,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyNoErrors(self: *FourslashTest, t: *testing.T) void {
+    pub fn VerifyNoErrors(self: *FourslashTest, t: *testing.T) !void {
         _ = t;
         const count = self.getDiagnosticCount();
         if (count > 0) {
@@ -1312,7 +1416,7 @@ pub const FourslashTest = struct {
         return 0;
     }
 
-    pub fn VerifyErrorExistsAtRange(self: *FourslashTest, t: *testing.T, rangeMarker: ?*RangeMarker, code: i32, message: []const u8) void {
+    pub fn VerifyErrorExistsAtRange(self: *FourslashTest, t: *testing.T, rangeMarker: ?*RangeMarker, code: i32, message: []const u8) !void {
         _ = t;
         _ = code;
         _ = message;
@@ -1342,7 +1446,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyErrorExistsBetweenMarkers(self: *FourslashTest, t: *testing.T, startMarkerName: []const u8, endMarkerName: []const u8) void {
+    pub fn VerifyErrorExistsBetweenMarkers(self: *FourslashTest, t: *testing.T, startMarkerName: []const u8, endMarkerName: []const u8) !void {
         _ = t;
         const startMarker = self.parsedData.markerPositions.get(startMarkerName) orelse {
             std.debug.panic("Start marker '{s}' not found", .{startMarkerName});
@@ -1376,7 +1480,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyErrorExistsAfterMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) void {
+    pub fn VerifyErrorExistsAfterMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) !void {
         _ = t;
         const marker = self.parsedData.markerPositions.get(markerName) orelse {
             std.debug.panic("Marker '{s}' not found", .{markerName});
@@ -1407,7 +1511,7 @@ pub const FourslashTest = struct {
         }
     }
 
-    pub fn VerifyErrorExistsBeforeMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) void {
+    pub fn VerifyErrorExistsBeforeMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) !void {
         _ = t;
         const marker = self.parsedData.markerPositions.get(markerName) orelse {
             std.debug.panic("Marker '{s}' not found", .{markerName});
@@ -1474,6 +1578,13 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
         
         var p = aa.create(parser_module.Parser) catch unreachable;
         p.* = parser_module.Parser.init(aa, first.value_ptr.*);
+        if (std.mem.endsWith(u8, f.currentFile, ".js")) {
+            p.setScriptKind(.JS);
+        } else if (std.mem.endsWith(u8, f.currentFile, ".jsx")) {
+            p.setScriptKind(.JSX);
+        } else if (std.mem.endsWith(u8, f.currentFile, ".tsx")) {
+            p.setScriptKind(.TSX);
+        }
         f.sourceFile = p.parseSourceFile() catch unreachable;
         f.parser = p;
         

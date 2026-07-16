@@ -860,13 +860,24 @@ pub const Checker = struct {
     pub fn resolveAnonymousTypeMembers(c: *Checker, t: types.TypeIndex, members: *types.StructuredTypeMembers) void {
         const typeData = &c.typesList.items[t];
         const sym = typeData.symbol;
-        if (sym != 0) {
-            // Analogous to:
-            // members := c.getMembersOfSymbol(symbol)
-            // ...
-            // which in Zig is basically what resolveDeclaredMembers handles for object types!
-            const declMembers = c.resolveDeclaredMembers(t);
-            members.* = declMembers;
+        if (sym != null and sym.? != 0) {
+            const sym_val = sym.?;
+            const sym_flags = c.binder.symbols.items[sym_val].Flags;
+            
+            // SymbolFlags.TypeLiteral is 1 << 11
+            if (sym_flags & (1 << 11) != 0) {
+                const declMembers = c.resolveDeclaredMembers(t);
+                members.* = declMembers;
+                return;
+            }
+
+            // Function, Class, Enum, Module...
+            // Currently omitting exports/members collection, just doing signatures.
+            const callSigs = c.getSignaturesOfSymbol(sym_val);
+            members.callSignaturesStart = callSigs.start;
+            members.callSignaturesLen = callSigs.len;
+            
+            // TODO: constructSignatures, indexInfos
         }
     }
 
@@ -3219,6 +3230,14 @@ pub const Checker = struct {
                     .alias = null,
                     .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
                 }),
+                .FunctionDeclaration, .MethodDeclaration, .Constructor => return try self.createType(.{
+                    .flags = types.TypeFlags.Object,
+                    .objectFlags = types.ObjectFlags.Anonymous,
+                    .id = 0,
+                    .symbol = symIndex,
+                    .alias = null,
+                    .data = .{ .Object = std.mem.zeroes(types.ObjectTypeData) },
+                }),
                 else => null,
             };
             if (declaration_type) |type_index| {
@@ -3243,6 +3262,32 @@ pub const Checker = struct {
             .Parameter => |p| {
                 if (p.Type) |typeNodeIndex| {
                     return try self.getTypeOfNode(typeNodeIndex);
+                }
+
+                const parent_node = self.binder.ast.getNodeParent(nodeIndex);
+                if (parent_node != 0) {
+                    const jsdoc_nodes = ast_utils.getJSDoc(self.binder.ast, parent_node);
+                    for (jsdoc_nodes) |jsdoc_index| {
+                        const jsdoc_node = self.binder.ast.getNode(jsdoc_index).JSDoc;
+                        if (jsdoc_node.Tags) |tags_list| {
+                            for (self.binder.ast.getNodeList(tags_list)) |tag_index| {
+                                if (self.binder.ast.getNodeKind(tag_index) == .JSDocParameterTag) {
+                                    const param_tag = self.binder.ast.getNode(tag_index).JSDocParameterTag;
+                                    const param_name_pos = self.binder.ast.positions.items[p.name];
+                                    const tag_name_pos = self.binder.ast.positions.items[param_tag.name];
+                                    if (param_name_pos.pos != param_name_pos.end and tag_name_pos.pos != tag_name_pos.end) {
+                                        const param_text = self.binder.ast.sourceText[param_name_pos.pos..param_name_pos.end];
+                                        const tag_text = self.binder.ast.sourceText[tag_name_pos.pos..tag_name_pos.end];
+                                        if (std.mem.eql(u8, param_text, tag_text)) {
+                                            if (param_tag.TypeExpression) |type_expr| {
+                                                return self.getTypeFromTypeNode(type_expr);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 return try self.getAnyType();
             },
@@ -3300,18 +3345,18 @@ pub const Checker = struct {
                     paramCount = @intCast(params.len);
                 }
 
-                return try self.createType(.{
+                const sym = getSymbolOfNode(self, nodeIndex);
+                const t = try self.createType(.{
                     .flags = types.TypeFlags.Object,
                     .objectFlags = types.ObjectFlags.Anonymous,
                     .id = 0,
-                    .symbol = null,
+                    .symbol = sym,
                     .alias = null,
-                    .data = .{ .Function = .{
-                        .declarationNode = nodeIndex,
-                        .returnType = retType,
-                        .parameterCount = paramCount,
+                    .data = .{ .Object = .{
+                        .Symbol = sym,
                     } },
                 });
+                return t;
             },
             .ArrayType => |array| {
                 const element_type = try self.getTypeOfNode(array.ElementType);
@@ -3334,14 +3379,39 @@ pub const Checker = struct {
             .TupleType => |tuple| {
                 const element_nodes = self.binder.ast.getNodeList(tuple.Elements);
                 const start: u32 = @intCast(self.tupleTypesPool.items.len);
-                for (element_nodes) |element| try self.tupleTypesPool.append(self.allocator, try self.getTypeOfNode(element));
+                const infosStart: u32 = @intCast(self.tupleElementInfos.items.len);
+                for (element_nodes) |element| {
+                    try self.tupleTypesPool.append(self.allocator, try self.getTypeOfNode(element));
+                    var flags: u32 = 0;
+                    const elNode = self.binder.ast.getNode(element);
+                    if (std.meta.activeTag(elNode) == .OptionalType) {
+                        flags |= types.ElementFlags.Optional;
+                    } else if (std.meta.activeTag(elNode) == .RestType) {
+                        flags |= types.ElementFlags.Rest;
+                    } else if (std.meta.activeTag(elNode) == .NamedTupleMember) {
+                        const ntm = elNode.NamedTupleMember;
+                        if (ntm.QuestionToken != 0) {
+                            flags |= types.ElementFlags.Optional;
+                        } else if (ntm.DotDotDotToken != 0) {
+                            flags |= types.ElementFlags.Rest;
+                        } else {
+                            flags |= types.ElementFlags.Required;
+                        }
+                    } else {
+                        flags |= types.ElementFlags.Required;
+                    }
+                    try self.tupleElementInfos.append(self.allocator, .{
+                        .flags = flags,
+                        .labeledDeclaration = null,
+                    });
+                }
                 return try self.createType(.{
                     .flags = types.TypeFlags.Object,
                     .objectFlags = types.ObjectFlags.Reference | types.ObjectFlags.Tuple,
                     .id = 0,
                     .symbol = null,
                     .alias = null,
-                    .data = .{ .Tuple = .{ .typesStart = start, .typesLen = @intCast(element_nodes.len) } },
+                    .data = .{ .Tuple = .{ .typesStart = start, .typesLen = @intCast(element_nodes.len), .elementInfosStart = infosStart } },
                 });
             },
             .TypeLiteral => |tl| {
@@ -22485,11 +22555,19 @@ pub fn checkClassDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const cd = c.binder.ast.nodes.get(node_idx).ClassDeclaration;
 
     if (cd.TypeParameters) |tps| {
-        if (tps != 0) checkSourceElement(c, tps); // Type parameters might be a list, or maybe we just check the wrapper node. In AST, TypeParameters is often a list. If it is, we should iterate it. But wait, in Go, checkTypeParameters iterates over it. Let's just pass the TypeParameter list node to checkSourceElement if it exists.
+        if (tps != 0) {
+            for (c.binder.ast.getNodeList(tps)) |tp| {
+                if (tp != 0) checkSourceElement(c, tp);
+            }
+        }
     }
 
     if (cd.HeritageClauses) |hc| {
-        if (hc != 0) checkSourceElement(c, hc);
+        if (hc != 0) {
+            for (c.binder.ast.getNodeList(hc)) |clause| {
+                if (clause != 0) checkSourceElement(c, clause);
+            }
+        }
     }
 
     if (cd.Members != 0) {
@@ -22702,7 +22780,11 @@ pub fn checkInterfaceDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void 
         checkTypeParameters(c, tps);
     }
     if (node.HeritageClauses) |hc| {
-        if (hc != 0) checkSourceElement(c, hc);
+        if (hc != 0) {
+            for (c.binder.ast.getNodeList(hc)) |clause| {
+                if (clause != 0) checkSourceElement(c, clause);
+            }
+        }
     }
     const members = c.binder.ast.getNodeList(node.Members);
     for (members) |mem_idx| {
@@ -23693,7 +23775,8 @@ pub fn checkIdentifier(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: Chec
         );
     }
     if (c.resolver.resolve(node_idx, name, symbol.SymbolFlags.Value, null, false, false)) |symIndex| {
-        return c.getTypeOfSymbol(symIndex) catch c.anyTypeIndex orelse 0;
+        const t = c.getTypeOfSymbol(symIndex) catch c.anyTypeIndex orelse 0;
+        return t;
     }
     return c.anyTypeIndex orelse 0;
 }

@@ -19,7 +19,7 @@ test "TestGotoDefinitionConstructorFunction" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "start");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "start");
 }
 
 test "TestCompletionListAtEndOfWordInArrowFunction02" {
@@ -67,7 +67,7 @@ test "TestSyntheticImportFromBabelGeneratedFile1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyQuickInfoAt(undefined, "", "(alias) function f(t: string): void\nimport f", "Run this function");
+    try f.VerifyQuickInfoAt(undefined, "", "(alias) function f(t: string): void\nimport f", "Run this function");
 }
 
 test "TestGoToDefinitionTypeReferenceDirective" {
@@ -82,7 +82,7 @@ test "TestGoToDefinitionTypeReferenceDirective" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineGoToDefinition(undefined, true, "1");
+    // try f.VerifyBaselineGoToDefinition(undefined, true, "1");
 }
 
 test "TestFormatTemplateStringOnPaste" {
@@ -93,7 +93,7 @@ test "TestFormatTemplateStringOnPaste" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatSelection(undefined, "0", "1");
-    _ = f.VerifyCurrentFileContent(undefined, "const x = `${0}abc`;");
+    try f.VerifyCurrentFileContent(undefined, "const x = `${0}abc`;");
 }
 
 test "TestFormatMultipleFunctionArguments" {
@@ -123,7 +123,7 @@ test "TestFormatMultipleFunctionArguments" {
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
     _ = f.FormatDocument(undefined, "");
-    _ = f.VerifyCurrentFileContent(undefined, "\nsomeRandomFunction({\n    prop1: 1,\n    prop2: 2\n}, {\n    prop3: 3,\n    prop4: 4\n}, {\n    prop5: 5,\n    prop6: 6\n});\n\nsomeRandomFunction(\n    { prop7: 1, prop8: 2 },\n    { prop9: 3, prop10: 4 },\n    {\n        prop11: 5,\n        prop2: 6\n    }\n);");
+    try f.VerifyCurrentFileContent(undefined, "\nsomeRandomFunction({\n    prop1: 1,\n    prop2: 2\n}, {\n    prop3: 3,\n    prop4: 4\n}, {\n    prop5: 5,\n    prop6: 6\n});\n\nsomeRandomFunction(\n    { prop7: 1, prop8: 2 },\n    { prop9: 3, prop10: 4 },\n    {\n        prop11: 5,\n        prop2: 6\n    }\n);");
 }
 
 test "TestInlayHintsVariableTypes2" {
@@ -142,7 +142,7 @@ test "TestInlayHintsVariableTypes2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayVariableTypeHints = core.TSTrue}});
+    // try f.VerifyBaselineInlayHints(undefined, null , &.{.InlayHints = .{.IncludeInlayVariableTypeHints = core.TSTrue}});
 }
 
 test "TestCompletionsInExport_invalid" {
@@ -188,7 +188,7 @@ test "TestOrganizeImportsUnicode4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import {\n    _Ab,\n    _aB,\n    Ab,\n    aB,\n} from './foo';\n\nconsole.log(_aB, _Ab, aB, Ab);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -197,7 +197,7 @@ test "TestOrganizeImportsUnicode4" {
 //             .OrganizeImportsCaseFirst =  lsutil.OrganizeImportsCaseFirstUpper,
 //         },
 //     );
-    // f.VerifyOrganizeImports(undefined,
+    // try f.VerifyOrganizeImports(undefined,
 //         "import {\n    _aB,\n    _Ab,\n    aB,\n    Ab,\n} from './foo';\n\nconsole.log(_aB, _Ab, aB, Ab);",
 //         lsproto.CodeActionKindSourceOrganizeImports,
 //         &.{
@@ -222,6 +222,6 @@ test "TestFindAllRefsTypedef_importType" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    // f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
+    // try f.VerifyBaselineFindAllReferences(undefined, "1", "2", "3");
 }
 
