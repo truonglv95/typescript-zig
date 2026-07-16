@@ -1686,7 +1686,29 @@ pub const Checker = struct {
                 if (self.getObjectFlags(t) & types.ObjectFlags.Reference != 0) {
                     const sym = self.getSymbolOfType(t);
                     if (sym != 0) {
-                        return self.allocator.dupe(u8, self.binder.symbols.items[sym].Name) catch "Object";
+                        const name = self.binder.symbols.items[sym].Name;
+                        // Check for type arguments.
+                        if (typeData.data == .Object) {
+                            const ta_start = typeData.data.Object.typeArgumentsStart;
+                            const ta_len = typeData.data.Object.typeArgumentsLen;
+                            if (ta_len > 0 and ta_start + ta_len <= self.typesList.items.len) {
+                                // Build "Name<arg1, arg2, ...>".
+                                var buf = std.ArrayListUnmanaged(u8).empty;
+                                buf.appendSlice(self.allocator, name) catch return self.allocator.dupe(u8, name) catch "Object";
+                                buf.appendSlice(self.allocator, "<") catch {};
+                                for (0..ta_len) |i| {
+                                    if (i > 0) buf.appendSlice(self.allocator, ", ") catch {};
+                                    const arg_type = self.typeArgumentsPool.items[ta_start + i];
+                                    const arg_str = self.typeToString(arg_type, 0, 0, null);
+                                    buf.appendSlice(self.allocator, arg_str) catch {};
+                                }
+                                buf.appendSlice(self.allocator, ">") catch {};
+                                const result = buf.toOwnedSlice(self.allocator) catch return self.allocator.dupe(u8, name) catch "Object";
+                                self.ownedStrings.append(self.allocator, result) catch {};
+                                return result;
+                            }
+                        }
+                        return self.allocator.dupe(u8, name) catch "Object";
                     }
                 }
                 // For non-Reference Object types (anonymous), fall through to
@@ -1701,8 +1723,53 @@ pub const Checker = struct {
                 }
                 return "Object";
             }
-            if (typeData.flags & types.TypeFlags.Union != 0) return "Union";
-            if (typeData.flags & types.TypeFlags.Intersection != 0) return "Intersection";
+            // Array<T> -> "T[]"
+            if (typeData.data == .Array) {
+                const elem_str = self.typeToString(typeData.data.Array.elementType, 0, 0, null);
+                const result = std.fmt.allocPrint(self.allocator, "{s}[]", .{elem_str}) catch return "any[]";
+                self.ownedStrings.append(self.allocator, result) catch {};
+                return result;
+            }
+            if (typeData.flags & types.TypeFlags.Union != 0) {
+                // Build "type1 | type2 | ..." from the union's constituent types.
+                if (typeData.data == .Union) {
+                    const ts_start = typeData.data.Union.typesStart;
+                    const ts_len = typeData.data.Union.typesLen;
+                    if (ts_len > 0 and ts_start + ts_len <= self.unionTypesPool.items.len) {
+                        var buf = std.ArrayListUnmanaged(u8).empty;
+                        for (0..ts_len) |i| {
+                            if (i > 0) buf.appendSlice(self.allocator, " | ") catch {};
+                            const constituent = self.unionTypesPool.items[ts_start + i];
+                            const str = self.typeToString(constituent, 0, 0, null);
+                            buf.appendSlice(self.allocator, str) catch {};
+                        }
+                        const result = buf.toOwnedSlice(self.allocator) catch return "Union";
+                        self.ownedStrings.append(self.allocator, result) catch {};
+                        return result;
+                    }
+                }
+                return "Union";
+            }
+            if (typeData.flags & types.TypeFlags.Intersection != 0) {
+                // Build "type1 & type2 & ..." from the intersection's constituent types.
+                if (typeData.data == .Intersection) {
+                    const ts_start = typeData.data.Intersection.typesStart;
+                    const ts_len = typeData.data.Intersection.typesLen;
+                    if (ts_len > 0 and ts_start + ts_len <= self.unionTypesPool.items.len) {
+                        var buf = std.ArrayListUnmanaged(u8).empty;
+                        for (0..ts_len) |i| {
+                            if (i > 0) buf.appendSlice(self.allocator, " & ") catch {};
+                            const constituent = self.unionTypesPool.items[ts_start + i];
+                            const str = self.typeToString(constituent, 0, 0, null);
+                            buf.appendSlice(self.allocator, str) catch {};
+                        }
+                        const result = buf.toOwnedSlice(self.allocator) catch return "Intersection";
+                        self.ownedStrings.append(self.allocator, result) catch {};
+                        return result;
+                    }
+                }
+                return "Intersection";
+            }
             if (typeData.flags & types.TypeFlags.TypeParameter != 0) {
                 // Return the type parameter's symbol name (e.g., "T").
                 if (typeData.symbol) |sym| {
@@ -3587,11 +3654,43 @@ pub const Checker = struct {
             .FalseKeyword => return try self.getFalseType(),
             .ParenthesizedType => |parenthesized| return self.getTypeOfNode(parenthesized.Type),
             .TypeReference => |reference| {
-                if (self.binder.ast.getNode(reference.TypeName) == .Identifier) {
-                    const name = ast_utils.getText(self.binder.ast, reference.TypeName);
-                    if (self.resolver.resolve(reference.TypeName, name, symbol.SymbolFlags.Type, null, false, false)) |sym_index| {
-                        return try self.getTypeOfSymbol(sym_index);
+                // Handle both simple identifiers (Foo) and qualified names (A.B.Foo).
+                const type_name_node = reference.TypeName;
+                const name = ast_utils.getTextOfNode(self.binder.ast, type_name_node);
+                if (self.resolver.resolve(type_name_node, name, symbol.SymbolFlags.Type, null, false, false)) |sym_index| {
+                    const target_type = try self.getTypeOfSymbol(sym_index);
+                    // If there are type arguments, create a Reference type.
+                    if (reference.TypeArguments) |type_args_list| {
+                        if (type_args_list != 0) {
+                            const type_arg_nodes = self.binder.ast.getNodeList(type_args_list);
+                            if (type_arg_nodes.len > 0) {
+                                // Resolve each type argument.
+                                const ta_start: u32 = @intCast(self.typeArgumentsPool.items.len);
+                                for (type_arg_nodes) |ta_node| {
+                                    if (ta_node != 0) {
+                                        const ta_type = try self.getTypeOfNode(ta_node);
+                                        self.typeArgumentsPool.append(self.allocator, ta_type) catch {};
+                                    }
+                                }
+                                const ta_len: u32 = @intCast(self.typeArgumentsPool.items.len - ta_start);
+                                // Create a Reference type wrapping the target.
+                                return try self.createType(.{
+                                    .flags = types.TypeFlags.Object,
+                                    .objectFlags = types.ObjectFlags.Reference,
+                                    .id = 0,
+                                    .symbol = sym_index,
+                                    .alias = null,
+                                    .data = .{ .Object = .{
+                                        .Symbol = sym_index,
+                                        .target = target_type,
+                                        .typeArgumentsStart = ta_start,
+                                        .typeArgumentsLen = ta_len,
+                                    } },
+                                });
+                            }
+                        }
                     }
+                    return target_type;
                 }
                 return try self.getAnyType();
             },
