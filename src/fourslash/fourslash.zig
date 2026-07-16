@@ -1293,7 +1293,7 @@ pub const FourslashTest = struct {
         }
         
         if (!found) {
-            std.log.warn("Expected error after marker but found none", );
+            std.log.warn("Expected error after marker but found none", .{});
         }
     }
 
@@ -1324,7 +1324,7 @@ pub const FourslashTest = struct {
         }
         
         if (!found) {
-            std.log.warn("Expected error before marker but found none", );
+            std.log.warn("Expected error before marker but found none", .{});
         }
     }
 
