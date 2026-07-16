@@ -142,10 +142,51 @@ pub const Checker = struct {
             if (c.typesList.items[t].data == .Array) {
                 return c.typesList.items[t].data.Array.elementType;
             }
-            // Reference type — get target's element type.
+            // Reference type — get target's element type, then substitute
+            // type parameters with the reference's type arguments.
             const target = c.getTargetType(t);
             if (target != 0 and target < c.typesList.items.len and c.typesList.items[target].data == .Array) {
-                return c.typesList.items[target].data.Array.elementType;
+                const elem_type = c.typesList.items[target].data.Array.elementType;
+                // If the reference has type arguments, substitute.
+                if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Reference) != 0) {
+                    const ta = c.getTypeArguments(t);
+                    if (ta.len > 0) {
+                        // Build substitution map from target's type parameter symbols
+                        // to the reference's type arguments.
+                        const target_sym = c.getSymbolOfType(target);
+                        if (target_sym != 0 and target_sym < c.binder.symbols.items.len) {
+                            const sym_obj = c.binder.symbols.items[target_sym];
+                            if (sym_obj.Declarations.items.len > 0) {
+                                const decl = sym_obj.Declarations.items[0];
+                                const decl_data = c.binder.ast.getNode(decl);
+                                const tp_list: ?u32 = switch (decl_data) {
+                                    .InterfaceDeclaration => |id| id.TypeParameters,
+                                    .ClassDeclaration => |cd| cd.TypeParameters,
+                                    else => null,
+                                };
+                                if (tp_list) |tpl| {
+                                    if (tpl != 0) {
+                                        const tp_nodes = c.binder.ast.getNodeList(tpl);
+                                        if (tp_nodes.len == ta.len) {
+                                            var subst = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(c.allocator);
+                                            defer subst.deinit();
+                                            for (tp_nodes, 0..) |tp_node, i| {
+                                                if (tp_node != 0) {
+                                                    const tp_sym = c.binder.ast.getNodeSymbol(tp_node) orelse 0;
+                                                    if (tp_sym != 0) {
+                                                        subst.put(tp_sym, ta[i]) catch {};
+                                                    }
+                                                }
+                                            }
+                                            return c.substituteTypeParams(elem_type, &subst) catch elem_type;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return elem_type;
             }
         }
         return 0;
@@ -2619,6 +2660,13 @@ pub const Checker = struct {
             return c.getUnionTypeFromArray(prop_types.items);
         }
         // Common case: single index type.
+        // First, check if this is a numeric index on an array type.
+        if ((index_flags & (types.TypeFlags.NumberLiteral | types.TypeFlags.Number | types.TypeFlags.UniqueESSymbol)) != 0) {
+            if (c.isArrayType(reduced_obj)) {
+                const elem = c.getElementTypeOfArrayType(reduced_obj);
+                if (elem != 0) return elem;
+            }
+        }
         const apparent = c.getApparentType(reduced_obj);
         const result = c.getPropertyTypeForIndexType(reduced_obj, apparent, indexType, indexType, 0, accessFlags);
         if (result != 0) return result;
