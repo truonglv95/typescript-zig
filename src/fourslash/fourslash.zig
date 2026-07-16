@@ -1379,6 +1379,36 @@ pub const FourslashTest = struct {
                 out.appendSlice(aa, "?") catch {};
             }
             out.appendSlice(aa, ": ") catch {};
+            // If the typeStr is "{}" (function type that nodebuilder can't render),
+            // try formatting as a function signature: (params) => retType
+            if (std.mem.eql(u8, typeStr, "{}")) {
+                // First try the symbol's signatures (works for Function/Method symbols).
+                var sigs = c.getSignaturesOfSymbol(sym);
+                // If the symbol has no signatures (e.g. a Property whose value is a
+                // function expression), look up signatures on the type itself.
+                if (sigs.len == 0) {
+                    sigs = c.getSignaturesOfType(sym_type, .Call);
+                }
+                if (sigs.len > 0) {
+                    out.appendSlice(aa, "(") catch {};
+                    const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
+                    const sig = &c.signatures.items[sigIdx];
+                    const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+                    for (params, 0..) |paramSym, i| {
+                        if (i > 0) out.appendSlice(aa, ", ") catch {};
+                        const paramObj = c.binder.symbols.items[paramSym];
+                        const paramType = c.getTypeOfSymbol(paramSym) catch 0;
+                        const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
+                        const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+                        out.appendSlice(aa, pStr) catch {};
+                    }
+                    out.appendSlice(aa, ") => ") catch {};
+                    const retType = c.getReturnTypeOfSignature(sig);
+                    const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+                    out.appendSlice(aa, retTypeStr) catch {};
+                    return out.toOwnedSlice(aa) catch "";
+                }
+            }
             out.appendSlice(aa, typeStr) catch {};
             return out.toOwnedSlice(aa) catch "";
         }
