@@ -139,7 +139,14 @@ pub const Checker = struct {
 
     pub fn getElementTypeOfArrayType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         if (c.isArrayType(t)) {
-            return c.typesList.items[t].data.Array.elementType;
+            if (c.typesList.items[t].data == .Array) {
+                return c.typesList.items[t].data.Array.elementType;
+            }
+            // Reference type — get target's element type.
+            const target = c.getTargetType(t);
+            if (target != 0 and target < c.typesList.items.len and c.typesList.items[target].data == .Array) {
+                return c.typesList.items[target].data.Array.elementType;
+            }
         }
         return 0;
     }
@@ -3351,6 +3358,24 @@ pub const Checker = struct {
                 },
                 .TypeAliasDeclaration => |declaration| try self.getTypeOfNode(declaration.Type),
                 .JSTypeAliasDeclaration => |declaration| try self.getTypeOfNode(declaration.Type),
+                .GetAccessor => |ga| {
+                    if (ga.Type) |t| {
+                        if (t != 0) return try self.getTypeOfNode(t);
+                    }
+                    return try self.getAnyType();
+                },
+                .SetAccessor => |sa| {
+                    if (sa.Parameters != 0) {
+                        const params = self.binder.ast.getNodeList(sa.Parameters);
+                        if (params.len > 0 and params[0] != 0) {
+                            const param = self.binder.ast.getNode(params[0]).Parameter;
+                            if (param.Type) |pt| {
+                                if (pt != 0) return try self.getTypeOfNode(pt);
+                            }
+                        }
+                    }
+                    return try self.getAnyType();
+                },
                 .TypeParameter => return try self.createType(.{
                     .flags = types.TypeFlags.TypeParameter,
                     .objectFlags = types.ObjectFlags.Anonymous,
@@ -8673,7 +8698,15 @@ pub const Checker = struct {
     }
 
     pub fn isArrayType(c: *Checker, t: types.TypeIndex) bool {
-        return t < c.typesList.items.len and c.typesList.items[t].data == .Array;
+        if (t >= c.typesList.items.len) return false;
+        if (c.typesList.items[t].data == .Array) return true;
+        if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Reference) != 0) {
+            const target = c.getTargetType(t);
+            if (target != 0 and target < c.typesList.items.len) {
+                return c.typesList.items[target].data == .Array;
+            }
+        }
+        return false;
     }
 
     pub fn isReadonlyArrayType(c: *Checker, t: types.TypeIndex) bool {

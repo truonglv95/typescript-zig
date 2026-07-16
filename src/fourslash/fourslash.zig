@@ -1364,7 +1364,7 @@ pub const FourslashTest = struct {
         // Property declarations: format as "(property) name: type" or
         // "(property) ClassName.name: type" if the parent is a class/interface.
         // Optional properties: "(property) name?: type"
-        if ((symObj.Flags & symbol.SymbolFlags.Property) != 0) {
+        if ((symObj.Flags & (symbol.SymbolFlags.Property | symbol.SymbolFlags.GetAccessor | symbol.SymbolFlags.SetAccessor | symbol.SymbolFlags.Accessor)) != 0) {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
             out.appendSlice(aa, "(property) ") catch {};
