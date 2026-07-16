@@ -1353,12 +1353,26 @@ pub const FourslashTest = struct {
             return out.toOwnedSlice(aa) catch "";
         }
 
-        // Property declarations: format as "(property) name: type"
+        // Property declarations: format as "(property) name: type" or
+        // "(property) ClassName.name: type" if the parent is a class/interface.
         // Optional properties: "(property) name?: type"
         if ((symObj.Flags & symbol.SymbolFlags.Property) != 0) {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
             out.appendSlice(aa, "(property) ") catch {};
+            // Try to find the parent symbol's name. Only prefix when the parent
+            // is a class/interface/enum — NOT for object literals (whose synthetic
+            // symbol has a generated name like "__object").
+            if (symObj.Parent) |parent_sym| {
+                if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
+                    const parent_obj = c.binder.symbols.items[parent_sym];
+                    const is_named_type = (parent_obj.Flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface | symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum)) != 0;
+                    if (is_named_type and parent_obj.Name.len > 0) {
+                        out.appendSlice(aa, parent_obj.Name) catch {};
+                        out.appendSlice(aa, ".") catch {};
+                    }
+                }
+            }
             out.appendSlice(aa, symObj.Name) catch {};
             // Check optional (SymbolFlags.Optional)
             if ((symObj.Flags & symbol.SymbolFlags.Optional) != 0) {
@@ -1369,13 +1383,26 @@ pub const FourslashTest = struct {
             return out.toOwnedSlice(aa) catch "";
         }
 
-        // Method declarations: format as "(method) name(params): retType"
+        // Method declarations: format as "(method) name(params): retType" or
+        // "(method) ClassName.name(params): retType" if parent is a class/interface.
         if ((symObj.Flags & symbol.SymbolFlags.Method) != 0) {
             const sigs = c.getSignaturesOfSymbol(sym);
             if (sigs.len > 0) {
                 var out = std.ArrayListUnmanaged(u8).empty;
                 const aa = self.arena.allocator();
                 out.appendSlice(aa, "(method) ") catch {};
+                // Try to find the parent symbol's name. Only prefix when the parent
+                // is a class/interface/enum — NOT for object literals.
+                if (symObj.Parent) |parent_sym| {
+                    if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
+                        const parent_obj = c.binder.symbols.items[parent_sym];
+                        const is_named_type = (parent_obj.Flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface | symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum)) != 0;
+                        if (is_named_type and parent_obj.Name.len > 0) {
+                            out.appendSlice(aa, parent_obj.Name) catch {};
+                            out.appendSlice(aa, ".") catch {};
+                        }
+                    }
+                }
                 out.appendSlice(aa, symObj.Name) catch {};
                 out.appendSlice(aa, "(") catch {};
                 const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
