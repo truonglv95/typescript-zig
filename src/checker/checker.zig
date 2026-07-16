@@ -679,6 +679,7 @@ pub const Checker = struct {
     }
 
     pub fn resolveStructuredTypeMembers(c: *Checker, t: types.TypeIndex) types.StructuredTypeMembers {
+        if (t == 0 or t >= c.typesList.items.len) return types.StructuredTypeMembers{};
         if (c.resolvedStructuredTypeMembers.get(t)) |members| {
             return members;
         }
@@ -845,6 +846,10 @@ pub const Checker = struct {
         // Get the tuple's target type (the Array<T> base type).
         const target = c.getTargetType(t);
         if (target == 0 or target >= c.typesList.items.len) return;
+        // Guard: don't recurse if target is the same as t (circular).
+        if (target == t) return;
+        // Guard: don't recurse if target is also a Tuple.
+        if (c.typesList.items[target].data == .Tuple) return;
         // Resolve the base Array type's members and copy them into outMembers.
         const base_members = c.resolveStructuredTypeMembers(target);
         outMembers.* = base_members;
@@ -2473,7 +2478,8 @@ pub const Checker = struct {
         if (t == 0 or t >= c.typesList.items.len) return t;
         const type_node = c.typesList.items[t];
         if (type_node.flags & types.TypeFlags.Object != 0 and type_node.objectFlags & types.ObjectFlags.Reference != 0) {
-            if (std.meta.activeTag(type_node.data) == .Object) {
+            // Guard: only access .Object if the active tag is .Object.
+            if (@as(std.meta.Tag(@TypeOf(type_node.data)), type_node.data) == .Object) {
                 return type_node.data.Object.target orelse t;
             }
         }
@@ -5653,7 +5659,16 @@ pub const Checker = struct {
         if ((type_data.flags & types.TypeFlags.TypeParameter) != 0) {
             if (type_data.symbol) |sym| {
                 if (inferred.get(sym)) |inferred_t| {
-                    if (inferred_t != 0) return inferred_t;
+                    if (inferred_t != 0) {
+                        // Recursively substitute in case the inferred type
+                        // itself contains type parameters (with a depth guard).
+                        if (inferred_t < self.typesList.items.len and
+                            (self.typesList.items[inferred_t].flags & types.TypeFlags.TypeParameter) != 0)
+                        {
+                            return inferred_t; // Already a type param — don't recurse.
+                        }
+                        return inferred_t;
+                    }
                 }
             }
             return try self.getAnyType();
@@ -5670,6 +5685,33 @@ pub const Checker = struct {
                 .alias = null,
                 .data = .{ .Array = .{ .elementType = new_elem } },
             });
+        }
+
+        // Reference type with type arguments: substitute each type argument.
+        if (type_data.data == .Object and (type_data.objectFlags & types.ObjectFlags.Reference) != 0) {
+            const ta_start = type_data.data.Object.typeArgumentsStart;
+            const ta_len = type_data.data.Object.typeArgumentsLen;
+            if (ta_len > 0 and ta_start + ta_len <= self.typeArgumentsPool.items.len) {
+                const new_ta_start: u32 = @intCast(self.typeArgumentsPool.items.len);
+                for (0..ta_len) |i| {
+                    const ta = self.typeArgumentsPool.items[ta_start + i];
+                    const new_ta = try self.substituteTypeParams(ta, inferred);
+                    self.typeArgumentsPool.append(self.allocator, new_ta) catch {};
+                }
+                return try self.createType(.{
+                    .flags = type_data.flags,
+                    .objectFlags = type_data.objectFlags,
+                    .id = 0,
+                    .symbol = type_data.symbol,
+                    .alias = null,
+                    .data = .{ .Object = .{
+                        .Symbol = type_data.data.Object.Symbol,
+                        .target = type_data.data.Object.target,
+                        .typeArgumentsStart = new_ta_start,
+                        .typeArgumentsLen = ta_len,
+                    } },
+                });
+            }
         }
 
         // Other types: return as-is (no substitution).
@@ -13427,10 +13469,11 @@ pub const Checker = struct {
             }
 
             const rightName = c.binder.ast.nodes.get(right).Identifier.Text;
-            _ = rightName;
-            _ = rightName;
-            _ = rightName;
-            prop = 0;
+            prop = c.getPropertyOfType(apparentType, rightName);
+            if (prop == null) {
+                // Try looking up on the non-apparent type too.
+                prop = c.getPropertyOfType(leftType, rightName);
+            }
         }
 
         // c.markLinkedReferences(node, 0, prop, leftType);
@@ -13502,6 +13545,51 @@ pub const Checker = struct {
                 propType = c.getWriteTypeOfSymbol(prop.?);
             } else {
                 propType = c.getTypeOfSymbol(prop.?) catch (c.anyTypeIndex orelse 0);
+                // If the left type is a Reference (generic instantiation),
+                // substitute type parameters in the property type.
+                if (propType != null and propType.? != 0 and leftType < c.typesList.items.len) {
+                    const lt = c.typesList.items[leftType];
+                    if ((lt.objectFlags & types.ObjectFlags.Reference) != 0 and lt.data == .Object) {
+                        const ta = c.getTypeArguments(leftType);
+                        if (ta.len > 0) {
+                            // Get the target's type parameters.
+                            const target = c.getTargetType(leftType);
+                            if (target != 0 and target < c.typesList.items.len) {
+                                const target_sym = c.getSymbolOfType(target);
+                                if (target_sym != 0 and target_sym < c.binder.symbols.items.len) {
+                                    const sym_obj = c.binder.symbols.items[target_sym];
+                                    if (sym_obj.Declarations.items.len > 0) {
+                                        const decl = sym_obj.Declarations.items[0];
+                                        const decl_data = c.binder.ast.getNode(decl);
+                                        const tp_list: ?u32 = switch (decl_data) {
+                                            .InterfaceDeclaration => |id| id.TypeParameters,
+                                            .ClassDeclaration => |cd| cd.TypeParameters,
+                                            else => null,
+                                        };
+                                        if (tp_list) |tpl| {
+                                            if (tpl != 0) {
+                                                const tp_nodes = c.binder.ast.getNodeList(tpl);
+                                                if (tp_nodes.len == ta.len) {
+                                                    var subst = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(c.allocator);
+                                                    defer subst.deinit();
+                                                    for (tp_nodes, 0..) |tp_node, i| {
+                                                        if (tp_node != 0) {
+                                                            const tp_sym = c.binder.ast.getNodeSymbol(tp_node) orelse 0;
+                                                            if (tp_sym != 0) {
+                                                                subst.put(tp_sym, ta[i]) catch {};
+                                                            }
+                                                        }
+                                                    }
+                                                    propType = c.substituteTypeParams(propType.?, &subst) catch propType;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
