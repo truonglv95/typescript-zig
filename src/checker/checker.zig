@@ -1685,11 +1685,32 @@ pub const Checker = struct {
                         return self.allocator.dupe(u8, self.binder.symbols.items[sym].Name) catch "Object";
                     }
                 }
+                // For non-Reference Object types (anonymous), fall through to
+                // the symbol name if one exists.
+                if (typeData.symbol) |sym| {
+                    if (sym != 0 and sym < self.binder.symbols.items.len) {
+                        const name = self.binder.symbols.items[sym].Name;
+                        if (name.len > 0) {
+                            return self.allocator.dupe(u8, name) catch "Object";
+                        }
+                    }
+                }
                 return "Object";
             }
             if (typeData.flags & types.TypeFlags.Union != 0) return "Union";
             if (typeData.flags & types.TypeFlags.Intersection != 0) return "Intersection";
-            if (typeData.flags & types.TypeFlags.TypeParameter != 0) return "TypeParameter";
+            if (typeData.flags & types.TypeFlags.TypeParameter != 0) {
+                // Return the type parameter's symbol name (e.g., "T").
+                if (typeData.symbol) |sym| {
+                    if (sym != 0 and sym < self.binder.symbols.items.len) {
+                        const name = self.binder.symbols.items[sym].Name;
+                        if (name.len > 0) {
+                            return self.allocator.dupe(u8, name) catch "TypeParameter";
+                        }
+                    }
+                }
+                return "TypeParameter";
+            }
             return "type";
         }
 
@@ -3225,6 +3246,14 @@ pub const Checker = struct {
                 },
                 .TypeAliasDeclaration => |declaration| try self.getTypeOfNode(declaration.Type),
                 .JSTypeAliasDeclaration => |declaration| try self.getTypeOfNode(declaration.Type),
+                .TypeParameter => return try self.createType(.{
+                    .flags = types.TypeFlags.TypeParameter,
+                    .objectFlags = types.ObjectFlags.Anonymous,
+                    .id = 0,
+                    .symbol = symIndex,
+                    .alias = null,
+                    .data = .{ .TypeParameter = .{} },
+                }),
                 .InterfaceDeclaration => return try self.createType(.{
                     .flags = types.TypeFlags.Object,
                     .objectFlags = types.ObjectFlags.Interface,
