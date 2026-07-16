@@ -11565,7 +11565,6 @@ pub const Checker = struct {
     }
 
     pub fn resolveCallExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.SignatureIndex {
-        std.debug.print("resolveCallExpression for node {d}\n", .{node});
         const callNodeKind = std.meta.activeTag(c.binder.ast.getNode(node));
         var targetExpr: ast_gen.NodeIndex = 0;
         if (callNodeKind == .CallExpression) {
@@ -11581,7 +11580,6 @@ pub const Checker = struct {
         const targetType = c.checkExpressionAdHoc(targetExpr) catch return 0;
         const sigKind: types.SignatureKind = if (callNodeKind == .NewExpression) .Construct else .Call;
         const candidatesSlice = c.getSignaturesOfType(targetType, sigKind);
-        std.debug.print("targetExpr={d}, targetType={d}, candidatesSlice.len={d}\n", .{targetExpr, targetType, candidatesSlice.len});
         
         const signatures = c.allocator.alloc(types.SignatureIndex, candidatesSlice.len) catch unreachable;
         defer c.allocator.free(signatures);
@@ -11678,7 +11676,6 @@ pub const Checker = struct {
     }
 
     pub fn resolveCall(c: *Checker, node: ast_gen.NodeIndex, signatures: []const types.SignatureIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode, callChainFlags: u32, headMessage: ast_gen.NodeIndex) types.SignatureIndex {
-        std.debug.print("resolveCall for node {d}, signatures.len={d}\n", .{node, signatures.len});
         _ = candidatesOutArray;
         _ = checkMode;
         _ = callChainFlags;

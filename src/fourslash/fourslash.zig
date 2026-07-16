@@ -1163,12 +1163,14 @@ pub const FourslashTest = struct {
     pub fn VerifyDiagnostics(self: *FourslashTest, t: *testing.T, expected: anytype) void {
         _ = t;
         const actual_count = self.getDiagnosticCount();
-        const expected_count = blk: {
-            const T = @TypeOf(expected);
-            if (@typeInfo(T) == .Struct and @hasField(T, "len")) {
-                break :blk expected.len;
+        // Count expected diagnostics — handle slices and arrays.
+        const expected_count: usize = blk: {
+            const info = @typeInfo(@TypeOf(expected));
+            switch (info) {
+                .pointer => break :blk expected.len,
+                .array => break :blk expected.len,
+                else => break :blk @as(usize, 0),
             }
-            break :blk @as(usize, 0);
         };
         if (actual_count != expected_count) {
             std.log.warn("Expected {d} diagnostics, but found {d}", .{ expected_count, actual_count });
