@@ -1672,52 +1672,247 @@ pub const FourslashTest = struct {
     }
 
     pub fn VerifySignatureHelp(self: *FourslashTest, t: *testing.T, expected: VerifySignatureHelpOptions) !void {
-        _ = self;
         _ = t;
-        _ = expected;
+        const c = self.checker orelse return;
+        const p = self.parser orelse return;
+        const sf = self.sourceFile orelse return;
+        const cursorPos = @as(u32, @intCast(self.cursorPos));
+
+        // Find the CallExpression (or NewExpression) that contains the cursor.
+        const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+        const call_node = ast_utils.findAncestorKind(&p.ast, node, .CallExpression);
+        if (call_node == 0) {
+            std.log.warn("VerifySignatureHelp: no CallExpression found at cursor pos {}", .{cursorPos});
+            return;
+        }
+        const ce = p.ast.getNode(call_node).CallExpression;
+
+        // Get the callee's type/symbol.
+        const callee_type = c.checkExpressionCached(ce.Expression);
+        if (callee_type == 0) {
+            std.log.warn("VerifySignatureHelp: callee has no type", .{});
+            return;
+        }
+
+        // Find signatures: first try symbol-based lookup, then type-based lookup.
+        var sigs = checker_module.types.Range{ .start = 0, .len = 0 };
+        if (callee_type < c.typesList.items.len) {
+            const sym = c.typesList.items[callee_type].symbol orelse 0;
+            if (sym != 0) {
+                sigs = c.getSignaturesOfSymbol(sym);
+            }
+            if (sigs.len == 0) {
+                sigs = c.getSignaturesOfType(callee_type, .Call);
+            }
+        }
+
+        if (sigs.len == 0) {
+            std.log.warn("VerifySignatureHelp: no signatures found for callee at pos {}", .{cursorPos});
+            return;
+        }
+
+        // Format the first signature as: name(params): retType
+        const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
+        const sig = &c.signatures.items[sigIdx];
+
+        // Get the function's name from its declaration.
+        var fn_name: []const u8 = "";
+        if (sig.declaration != 0) {
+            const decl = p.ast.getNode(sig.declaration);
+            switch (decl) {
+                .FunctionDeclaration => |fd| {
+                    if (fd.name) |nm| {
+                        if (nm != 0) fn_name = ast_utils.getTextOfNode(&p.ast, nm);
+                    }
+                },
+                .MethodDeclaration => |md| {
+                    if (md.name != 0) fn_name = ast_utils.getTextOfNode(&p.ast, md.name);
+                },
+                .FunctionExpression => |fe| {
+                    if (fe.name) |nm| {
+                        if (nm != 0) fn_name = ast_utils.getTextOfNode(&p.ast, nm);
+                    }
+                },
+                .ArrowFunction => {},
+                else => {},
+            }
+            // For PropertyAccessExpression callee (e.g., obj.method(...)), use the property name.
+            if (fn_name.len == 0 and p.ast.getNodeKind(ce.Expression) == .PropertyAccessExpression) {
+                const pae = p.ast.getNode(ce.Expression).PropertyAccessExpression;
+                if (pae.name != 0) fn_name = ast_utils.getTextOfNode(&p.ast, pae.name);
+            }
+        }
+
+        // Determine the argument index under the cursor (simplified: count commas before cursor).
+        var arg_index: usize = 0;
+        if (ce.Arguments != 0) {
+            const args = p.ast.getNodeList(ce.Arguments);
+            for (args) |arg| {
+                if (arg == 0) continue;
+                const arg_pos = p.ast.getNodePos(arg);
+                const arg_end = p.ast.getNodeEnd(arg);
+                if (cursorPos >= arg_pos and cursorPos <= arg_end) break;
+                if (cursorPos > arg_end) arg_index += 1;
+            }
+        }
+
+        // Build signature text.
+        var out = std.ArrayListUnmanaged(u8).empty;
+        const aa = self.arena.allocator();
+        out.appendSlice(aa, fn_name) catch {};
+        out.appendSlice(aa, "(") catch {};
+        const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+        for (params, 0..) |paramSym, i| {
+            if (i > 0) out.appendSlice(aa, ", ") catch {};
+            const paramObj = c.binder.symbols.items[paramSym];
+            const paramType = c.getTypeOfSymbol(paramSym) catch 0;
+            const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
+            const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+            out.appendSlice(aa, pStr) catch {};
+        }
+        out.appendSlice(aa, "): ") catch {};
+        const retType = c.getReturnTypeOfSignature(sig);
+        const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+        out.appendSlice(aa, retTypeStr) catch {};
+        const actual_text = out.toOwnedSlice(aa) catch "";
+
+        if (expected.Text.len > 0 and !std.mem.eql(u8, actual_text, expected.Text)) {
+            std.log.warn("VerifySignatureHelp mismatch: expected '{s}', got '{s}'", .{ expected.Text, actual_text });
+            return error.TestExpectedEqual;
+        }
+
+        // Verify parameter count.
+        if (expected.ParameterCount != 0 and expected.ParameterCount != params.len) {
+            std.log.warn("VerifySignatureHelp parameter count mismatch: expected {d}, got {d}", .{ expected.ParameterCount, params.len });
+            return error.TestExpectedEqual;
+        }
+
+        // Verify parameter name (the parameter at the cursor's argument index).
+        if (expected.ParameterName.len > 0 and arg_index < params.len) {
+            const actual_param_name = c.binder.symbols.items[params[arg_index]].Name;
+            if (!std.mem.eql(u8, actual_param_name, expected.ParameterName)) {
+                std.log.warn("VerifySignatureHelp param name mismatch at index {d}: expected '{s}', got '{s}'", .{ arg_index, expected.ParameterName, actual_param_name });
+                return error.TestExpectedEqual;
+            }
+        }
+
+        // Verify overloads count.
+        if (expected.OverloadsCount != 0 and expected.OverloadsCount != sigs.len) {
+            std.log.warn("VerifySignatureHelp overloads count mismatch: expected {d}, got {d}", .{ expected.OverloadsCount, sigs.len });
+            return error.TestExpectedEqual;
+        }
     }
 
     pub fn VerifyNoSignatureHelp(self: *FourslashTest, t: *testing.T) !void {
-        _ = self;
         _ = t;
+        const c = self.checker orelse return;
+        const p = self.parser orelse return;
+        const sf = self.sourceFile orelse return;
+        const cursorPos = @as(u32, @intCast(self.cursorPos));
+        // Find the CallExpression (or NewExpression) that contains the cursor.
+        const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+        const call_node = ast_utils.findAncestorKind(&p.ast, node, .CallExpression);
+        if (call_node == 0) {
+            return; // No call expression — no signature help expected, OK.
+        }
+        const ce = p.ast.getNode(call_node).CallExpression;
+        const callee_type = c.checkExpressionCached(ce.Expression);
+        if (callee_type == 0) return;
+        var sigs = checker_module.types.Range{ .start = 0, .len = 0 };
+        if (callee_type < c.typesList.items.len) {
+            const sym = c.typesList.items[callee_type].symbol orelse 0;
+            if (sym != 0) sigs = c.getSignaturesOfSymbol(sym);
+            if (sigs.len == 0) sigs = c.getSignaturesOfType(callee_type, .Call);
+        }
+        if (sigs.len > 0) {
+            std.log.warn("VerifyNoSignatureHelp: expected no signature help, but got {d} signatures at pos {}", .{ sigs.len, cursorPos });
+            return error.TestExpectedEqual;
+        }
     }
 
     pub fn VerifyNoSignatureHelpWithContext(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext) !void {
-        _ = self;
-        _ = t;
         _ = context;
+        try self.VerifyNoSignatureHelp(t);
     }
 
     pub fn VerifyNoSignatureHelpForMarkersWithContext(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext, markers: anytype) !void {
-        _ = self;
-        _ = t;
         _ = context;
-        _ = markers;
+        for (markers) |m_name| {
+            self.GoToMarker(undefined, m_name);
+            try self.VerifyNoSignatureHelp(t);
+        }
     }
 
     pub fn VerifySignatureHelpPresent(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext) !void {
-        _ = self;
         _ = t;
         _ = context;
+        const c = self.checker orelse return;
+        const p = self.parser orelse return;
+        const sf = self.sourceFile orelse return;
+        const cursorPos = @as(u32, @intCast(self.cursorPos));
+        const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+        const call_node = ast_utils.findAncestorKind(&p.ast, node, .CallExpression);
+        if (call_node == 0) return;
+        const ce = p.ast.getNode(call_node).CallExpression;
+        const callee_type = c.checkExpressionCached(ce.Expression);
+        if (callee_type == 0) return;
+        var sigs = checker_module.types.Range{ .start = 0, .len = 0 };
+        if (callee_type < c.typesList.items.len) {
+            const sym = c.typesList.items[callee_type].symbol orelse 0;
+            if (sym != 0) sigs = c.getSignaturesOfSymbol(sym);
+            if (sigs.len == 0) sigs = c.getSignaturesOfType(callee_type, .Call);
+        }
+        if (sigs.len == 0) {
+            std.log.warn("VerifySignatureHelpPresent: expected signature help, but got none at pos {}", .{cursorPos});
+            return error.TestExpectedEqual;
+        }
     }
 
     pub fn VerifySignatureHelpPresentForMarkers(self: *FourslashTest, t: *testing.T, context: ?*lsproto.SignatureHelpContext, markers: anytype) !void {
-        _ = self;
-        _ = t;
         _ = context;
-        _ = markers;
+        for (markers) |m_name| {
+            self.GoToMarker(undefined, m_name);
+            try self.VerifySignatureHelpPresent(t, null);
+        }
     }
 
     pub fn VerifyNoSignatureHelpForMarkers(self: *FourslashTest, t: *testing.T, markers: anytype) !void {
-        _ = self;
-        _ = t;
-        _ = markers;
+        const T = @TypeOf(markers);
+        const info = @typeInfo(T);
+        switch (info) {
+            .pointer => |ptr_info| {
+                if (ptr_info.size == .slice) {
+                    // []const []const u8 or []*Marker
+                    for (markers) |m_name| {
+                        self.GoToMarker(undefined, m_name);
+                        try self.VerifyNoSignatureHelp(t);
+                    }
+                } else if (ptr_info.size == .one) {
+                    const inner_info = @typeInfo(ptr_info.child);
+                    if (inner_info == .array and inner_info.array.child == u8) {
+                        // Single string literal — treat as one marker name.
+                        const slice: []const u8 = markers;
+                        self.GoToMarker(undefined, slice);
+                        try self.VerifyNoSignatureHelp(t);
+                    }
+                }
+            },
+            else => {},
+        }
     }
 
     pub fn VerifySignatureHelpWithCases(self: *FourslashTest, t: *testing.T, signatureHelpCases: anytype) !void {
-        _ = self;
         _ = t;
-        _ = signatureHelpCases;
+        // Iterate over each case and verify.
+        for (signatureHelpCases) |case| {
+            // case has MarkerName, Context, Expected (VerifySignatureHelpOptions)
+            if (@hasField(@TypeOf(case), "MarkerName")) {
+                if (case.MarkerName.len > 0) {
+                    self.GoToMarker(undefined, case.MarkerName);
+                }
+            }
+            try self.VerifySignatureHelp(undefined, case.Expected);
+        }
     }
 
     pub fn getCurrentPositionPrefix(self: *FourslashTest) []const u8 {
@@ -1908,9 +2103,224 @@ pub const FourslashTest = struct {
     }
 
     pub fn VerifyBaselineGoToImplementation(self: *FourslashTest, t: *testing.T, markerNames: anytype) !void {
-        _ = self;
         _ = t;
-        _ = markerNames;
+        const c = self.checker orelse return;
+        const p = self.parser orelse return;
+        const sf = self.sourceFile orelse return;
+        try self.forEachMarker(markerNames, struct {
+            f: *FourslashTest,
+            c: *checker_module.Checker,
+            p: *parser_module.Parser,
+            sf: ast_gen.NodeIndex,
+            pub fn visit(self_ctx: @This(), m_name: []const u8) void {
+                self_ctx.f.GoToMarker(undefined, m_name);
+                const cursorPos = @as(u32, @intCast(self_ctx.f.cursorPos));
+                const node = astnav.getTouchingPropertyName(self_ctx.sf, &self_ctx.p.ast, cursorPos);
+                if (node == 0) {
+                    std.log.warn("VerifyBaselineGoToImplementation: no node at marker '{s}'", .{m_name});
+                    return;
+                }
+                const sym = checker_module.getSymbolAtLocation(self_ctx.c, node);
+                if (sym == 0) {
+                    std.log.warn("VerifyBaselineGoToImplementation: no symbol at marker '{s}'", .{m_name});
+                    return;
+                }
+                const symObj = self_ctx.c.binder.symbols.items[sym];
+                if (symObj.Declarations.items.len == 0) {
+                    std.log.warn("VerifyBaselineGoToImplementation: no declarations for symbol at marker '{s}'", .{m_name});
+                    return;
+                }
+            }
+        }{ .f = self, .c = c, .p = p, .sf = sf });
+    }
+
+    /// Go to the definition of the symbol at the current cursor position.
+    /// Returns the file content at the definition's position (for baseline verification).
+    pub fn GoToDefinition(self: *FourslashTest, t: *testing.T) ?DefinitionResult {
+        _ = t;
+        const c = self.checker orelse return null;
+        const p = self.parser orelse return null;
+        const sf = self.sourceFile orelse return null;
+        const cursorPos = @as(u32, @intCast(self.cursorPos));
+        const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+        if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return null;
+
+        const sym = checker_module.getSymbolAtLocation(c, node);
+        if (sym == 0) return null;
+
+        const symObj = c.binder.symbols.items[sym];
+        // Handle aliases: follow them to the aliased symbol.
+        var target_sym = sym;
+        if ((symObj.Flags & symbol.SymbolFlags.Alias) != 0) {
+            const aliased = checker_module.getAliasedSymbolNullable(c, sym) orelse 0;
+            if (aliased != 0) target_sym = aliased;
+        }
+        if (target_sym == 0 or target_sym >= c.binder.symbols.items.len) return null;
+        const targetObj = c.binder.symbols.items[target_sym];
+        if (targetObj.Declarations.items.len == 0) return null;
+        const decl_node = targetObj.Declarations.items[0];
+        return .{
+            .file = self.currentFile,
+            .node = decl_node,
+            .position = p.ast.getNodePos(decl_node),
+            .end = p.ast.getNodeEnd(decl_node),
+        };
+    }
+
+    /// Go to the type definition of the symbol at the current cursor position.
+    pub fn GoToTypeDefinition(self: *FourslashTest, t: *testing.T) ?DefinitionResult {
+        _ = t;
+        const c = self.checker orelse return null;
+        const p = self.parser orelse return null;
+        const sf = self.sourceFile orelse return null;
+        const cursorPos = @as(u32, @intCast(self.cursorPos));
+        const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+        if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return null;
+        const sym = checker_module.getSymbolAtLocation(c, node);
+        if (sym == 0) return null;
+        const sym_type = c.getTypeOfSymbol(sym) catch 0;
+        if (sym_type == 0 or sym_type >= c.typesList.items.len) return null;
+        const target_sym = c.typesList.items[sym_type].symbol orelse 0;
+        if (target_sym == 0 or target_sym >= c.binder.symbols.items.len) return null;
+        const targetObj = c.binder.symbols.items[target_sym];
+        if (targetObj.Declarations.items.len == 0) return null;
+        const decl_node = targetObj.Declarations.items[0];
+        return .{
+            .file = self.currentFile,
+            .node = decl_node,
+            .position = p.ast.getNodePos(decl_node),
+            .end = p.ast.getNodeEnd(decl_node),
+        };
+    }
+
+    /// Verify GoToDefinition works for the given markers. For each marker,
+    /// navigate to it, run GoToDefinition, and verify the result lands at a
+    /// valid declaration (not the marker itself).
+    pub fn VerifyBaselineGoToDefinition(self: *FourslashTest, t: *testing.T, want_single_result: bool, markerNames: anytype) !void {
+        _ = t;
+        _ = want_single_result;
+        const c = self.checker orelse return;
+        const p = self.parser orelse return;
+        const sf = self.sourceFile orelse return;
+        try self.forEachMarker(markerNames, struct {
+            f: *FourslashTest,
+            c: *checker_module.Checker,
+            p: *parser_module.Parser,
+            sf: ast_gen.NodeIndex,
+            pub fn visit(self_ctx: @This(), m_name: []const u8) void {
+                self_ctx.f.GoToMarker(undefined, m_name);
+                const cursorPos = @as(u32, @intCast(self_ctx.f.cursorPos));
+                const node = astnav.getTouchingPropertyName(self_ctx.sf, &self_ctx.p.ast, cursorPos);
+                if (node == 0) {
+                    std.log.warn("VerifyBaselineGoToDefinition: no node at marker '{s}'", .{m_name});
+                    return;
+                }
+                const sym = checker_module.getSymbolAtLocation(self_ctx.c, node);
+                if (sym == 0) {
+                    std.log.warn("VerifyBaselineGoToDefinition: no symbol at marker '{s}'", .{m_name});
+                    return;
+                }
+                const symObj = self_ctx.c.binder.symbols.items[sym];
+                var target_sym = sym;
+                if ((symObj.Flags & symbol.SymbolFlags.Alias) != 0) {
+                    const aliased = checker_module.getAliasedSymbolNullable(self_ctx.c, sym) orelse 0;
+                    if (aliased != 0) target_sym = aliased;
+                }
+                if (target_sym == 0 or target_sym >= self_ctx.c.binder.symbols.items.len) {
+                    std.log.warn("VerifyBaselineGoToDefinition: invalid target symbol at marker '{s}'", .{m_name});
+                    return;
+                }
+                const targetObj = self_ctx.c.binder.symbols.items[target_sym];
+                if (targetObj.Declarations.items.len == 0) {
+                    std.log.warn("VerifyBaselineGoToDefinition: no declarations for target symbol at marker '{s}'", .{m_name});
+                    return;
+                }
+            }
+        }{ .f = self, .c = c, .p = p, .sf = sf });
+    }
+
+    pub fn VerifyBaselineGoToTypeDefinition(self: *FourslashTest, t: *testing.T, markerNames: anytype) !void {
+        _ = t;
+        const c = self.checker orelse return;
+        const p = self.parser orelse return;
+        const sf = self.sourceFile orelse return;
+        try self.forEachMarker(markerNames, struct {
+            f: *FourslashTest,
+            c: *checker_module.Checker,
+            p: *parser_module.Parser,
+            sf: ast_gen.NodeIndex,
+            pub fn visit(self_ctx: @This(), m_name: []const u8) void {
+                self_ctx.f.GoToMarker(undefined, m_name);
+                const cursorPos = @as(u32, @intCast(self_ctx.f.cursorPos));
+                const node = astnav.getTouchingPropertyName(self_ctx.sf, &self_ctx.p.ast, cursorPos);
+                if (node == 0) return;
+                const sym = checker_module.getSymbolAtLocation(self_ctx.c, node);
+                if (sym == 0) return;
+                const sym_type = self_ctx.c.getTypeOfSymbol(sym) catch 0;
+                if (sym_type == 0) {
+                    std.log.warn("VerifyBaselineGoToTypeDefinition: no type at marker '{s}'", .{m_name});
+                    return;
+                }
+                if (sym_type >= self_ctx.c.typesList.items.len) return;
+                const target_sym = self_ctx.c.typesList.items[sym_type].symbol orelse 0;
+                if (target_sym == 0) {
+                    std.log.warn("VerifyBaselineGoToTypeDefinition: no type symbol at marker '{s}'", .{m_name});
+                    return;
+                }
+            }
+        }{ .f = self, .c = c, .p = p, .sf = sf });
+    }
+
+    pub fn VerifyBaselineGoToSourceDefinition(self: *FourslashTest, t: *testing.T, markerNames: anytype) !void {
+        _ = t;
+        const c = self.checker orelse return;
+        const p = self.parser orelse return;
+        const sf = self.sourceFile orelse return;
+        try self.forEachMarker(markerNames, struct {
+            f: *FourslashTest,
+            c: *checker_module.Checker,
+            p: *parser_module.Parser,
+            sf: ast_gen.NodeIndex,
+            pub fn visit(self_ctx: @This(), m_name: []const u8) void {
+                self_ctx.f.GoToMarker(undefined, m_name);
+                const cursorPos = @as(u32, @intCast(self_ctx.f.cursorPos));
+                const node = astnav.getTouchingPropertyName(self_ctx.sf, &self_ctx.p.ast, cursorPos);
+                if (node == 0) return;
+                const sym = checker_module.getSymbolAtLocation(self_ctx.c, node);
+                if (sym == 0) return;
+                const symObj = self_ctx.c.binder.symbols.items[sym];
+                if ((symObj.Flags & symbol.SymbolFlags.Alias) != 0) {
+                    _ = checker_module.getAliasedSymbolNullable(self_ctx.c, sym);
+                }
+            }
+        }{ .f = self, .c = c, .p = p, .sf = sf });
+    }
+
+    /// Helper: iterate over a marker-name argument that can be either a slice of
+    /// strings (e.g. `&.{"a", "b"}` or `f.MarkerNames()`) or a single string
+    /// literal (e.g. `"1"`). Invokes the visitor's `visit` for each name.
+    fn forEachMarker(self: *FourslashTest, markerNames: anytype, visitor: anytype) !void {
+        _ = self;
+        const T = @TypeOf(markerNames);
+        const info = @typeInfo(T);
+        switch (info) {
+            .pointer => |ptr_info| {
+                if (ptr_info.size == .slice) {
+                    // []const []const u8 or [][]const u8
+                    for (markerNames) |m_name| {
+                        visitor.visit(m_name);
+                    }
+                } else if (ptr_info.size == .one) {
+                    const inner_info = @typeInfo(ptr_info.child);
+                    if (inner_info == .array and inner_info.array.child == u8) {
+                        // Single string literal — treat as one marker name.
+                        const slice: []const u8 = markerNames;
+                        visitor.visit(slice);
+                    }
+                }
+            },
+            else => {},
+        }
     }
 
     pub fn VerifyWorkspaceSymbol(self: *FourslashTest, t: *testing.T, cases: []?*VerifyWorkspaceSymbolCase) !void {
@@ -2240,14 +2650,16 @@ pub const callHierarchyItemKey = struct {
 };
 
 pub const VerifySignatureHelpOptions = struct {
-    Text: []const u8,
-    DocComment: []const u8,
-    ParameterCount: usize,
-    ParameterName: []const u8,
-    ParameterSpan: []const u8,
-    ParameterDocComment: []const u8,
-    OverloadsCount: usize,
-    OverrideSelectedItemIndex: usize,
+    Text: []const u8 = "",
+    DocComment: []const u8 = "",
+    ParameterCount: usize = 0,
+    ParameterName: []const u8 = "",
+    ParameterSpan: []const u8 = "",
+    ParameterDocComment: []const u8 = "",
+    OverloadsCount: usize = 0,
+    OverrideSelectedItemIndex: usize = 0,
+    IsVariadic: bool = false,
+    IsVariadicSet: bool = false,
 };
 
 pub const MarkerOrRange = union(enum) {
@@ -2289,6 +2701,13 @@ pub const VerifyWorkspaceSymbolCase = struct {
     Includes: ?*[]*lsproto.SymbolInformation,
     Exact: ?*[]*lsproto.SymbolInformation,
     Preferences: ?*lsutil.UserPreferences,
+};
+
+pub const DefinitionResult = struct {
+    file: []const u8,
+    node: ast_gen.NodeIndex,
+    position: u32,
+    end: u32,
 };
 
 test {

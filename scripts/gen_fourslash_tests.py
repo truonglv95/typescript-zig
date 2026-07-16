@@ -17,6 +17,9 @@ ERROR_RETURNING_FNS = {
     "VerifyBaselineCodeLens",
     "VerifyBaselineDocumentSymbol",
     "VerifyBaselineGoToImplementation",
+    "VerifyBaselineGoToDefinition",
+    "VerifyBaselineGoToTypeDefinition",
+    "VerifyBaselineGoToSourceDefinition",
     "VerifyBaselineHover",
     "VerifyBaselineHoverWithVerbosity",
     "VerifyBaselineLinkedEditing",
@@ -200,9 +203,130 @@ def transform_go_to_zig(call_str):
             # Go string concat uses `+`. In Zig it's `++`.
             # Since Fourslash calls rarely do math, we blindly replace `+` with ` ++ `
             text = text.replace('+', ' ++ ')
-            
+
             result += text
-            
+
+    # Post-process: wrap varargs marker calls (Go-style positional) into Zig slices.
+    # Functions where after `undefined,` and possibly `bool,` all remaining args are
+    # marker names (string literals or f.MarkerNames() / f.Markers()).
+    # Examples:
+    #   f.VerifyNoSignatureHelpForMarkers(undefined, "a", "b", "c")
+    #     -> f.VerifyNoSignatureHelpForMarkers(undefined, &.{"a", "b", "c"})
+    #   f.VerifyBaselineGoToDefinition(undefined, true, "1")
+    #     -> f.VerifyBaselineGoToDefinition(undefined, true, &.{"1"})
+    #   f.VerifyBaselineGoToDefinition(undefined, true, f.MarkerNames())
+    #     -> unchanged (already a slice)
+    vararg_fns = {
+        "VerifyNoSignatureHelpForMarkers",
+        "VerifyNoSignatureHelpForMarkersWithContext",
+        "VerifySignatureHelpPresentForMarkers",
+        "VerifyBaselineGoToDefinition",
+        "VerifyBaselineGoToTypeDefinition",
+        "VerifyBaselineGoToSourceDefinition",
+        "VerifyBaselineGoToImplementation",
+    }
+    for fn_name in vararg_fns:
+        # Match: f.NAME(  args...  )
+        # Strategy: find `f.NAME(` then find matching close paren, then split args.
+        pattern = re.compile(r"f\." + re.escape(fn_name) + r"\(")
+        pos = 0
+        while True:
+            m = pattern.search(result, pos)
+            if not m:
+                break
+            open_paren = m.end() - 1  # the '(' position
+            depth = 1
+            i = open_paren + 1
+            in_str = False
+            in_raw = False
+            escape = False
+            while i < len(result) and depth > 0:
+                c = result[i]
+                if in_str:
+                    if escape:
+                        escape = False
+                    elif c == '\\':
+                        escape = True
+                    elif c == '"':
+                        in_str = False
+                elif in_raw:
+                    if c == '"':
+                        in_raw = False
+                else:
+                    if c == '"':
+                        in_str = True
+                    elif c == '(':
+                        depth += 1
+                    elif c == ')':
+                        depth -= 1
+                        if depth == 0:
+                            break
+                i += 1
+            if depth != 0:
+                pos = m.end()
+                continue
+            close_paren = i
+            inner = result[open_paren + 1 : close_paren]
+            # Split top-level args by commas.
+            args = []
+            cur_arg = ""
+            d = 0
+            in_s = False
+            in_r = False
+            esc = False
+            for ch in inner:
+                if in_s:
+                    cur_arg += ch
+                    if esc:
+                        esc = False
+                    elif ch == '\\':
+                        esc = True
+                    elif ch == '"':
+                        in_s = False
+                elif in_r:
+                    cur_arg += ch
+                    if ch == '"':
+                        in_r = False
+                else:
+                    if ch == '"':
+                        in_s = True
+                        cur_arg += ch
+                    elif ch == '(':
+                        d += 1
+                        cur_arg += ch
+                    elif ch == ')':
+                        d -= 1
+                        cur_arg += ch
+                    elif ch == ',' and d == 0:
+                        args.append(cur_arg.strip())
+                        cur_arg = ""
+                    else:
+                        cur_arg += ch
+            if cur_arg.strip():
+                args.append(cur_arg.strip())
+            # First arg is `undefined`. For VerifyBaselineGoToDefinition, second
+            # arg is the bool `want_single_result`. Remaining args are markers.
+            start_marker_idx = 1
+            if fn_name == "VerifyBaselineGoToDefinition":
+                start_marker_idx = 2
+            # If there are no marker args to wrap, skip.
+            if start_marker_idx >= len(args):
+                pos = close_paren + 1
+                continue
+            marker_args = args[start_marker_idx:]
+            # Check if already wrapped (only one arg that's a slice like `f.MarkerNames()` or `f.Markers()`).
+            if len(marker_args) == 1 and (
+                "MarkerNames()" in marker_args[0] or "Markers()" in marker_args[0]
+            ):
+                pos = close_paren + 1
+                continue
+            # Wrap into &.{...}
+            new_marker_str = "&.{" + ", ".join(marker_args) + "}"
+            args = args[:start_marker_idx] + [new_marker_str]
+            new_inner = ", ".join(args)
+            result = result[: open_paren + 1] + new_inner + result[close_paren:]
+            pos = open_paren + 1 + len(new_inner) + 1
+
     return result
 
 def parse_go_test(filepath):
@@ -256,19 +380,14 @@ def main():
             for call in test["calls"]:
                 call_zig = transform_go_to_zig(call)
                 # If call contains inline Go function or variadic methods we haven't stubbed, comment it out
-                if ('func(' in call_zig or 'func (' in call_zig or 
-                    'VerifyBaselineGoToSourceDefinition' in call_zig or 
-                    'VerifyOutliningSpans' in call_zig or 
+                if ('func(' in call_zig or 'func (' in call_zig or
+                    'VerifyOutliningSpans' in call_zig or
                     'f.Replace(' in call_zig or
                     'VerifyBaselineFindAllReferences' in call_zig or
                     'VerifyBaselineDocumentHighlights' in call_zig or
                     'VerifySemanticTokens' in call_zig or
-                    'VerifyNoSignatureHelpForMarkers' in call_zig or
                     'VerifyBaselineVSFindAllReferences' in call_zig or
-                    'VerifyBaselineGoToDefinition' in call_zig or
-                    'VerifyBaselineGoToTypeDefinition' in call_zig or
                     'VerifyImportFixModuleSpecifiers' in call_zig or
-                    'VerifySignatureHelp(' in call_zig or
                     'VerifySignatureHelpPresence' in call_zig or
                     'VerifyBaselineRename' in call_zig or
                     'VerifyBaselineCallHierarchy' in call_zig or
@@ -276,7 +395,6 @@ def main():
                     'VerifyQuickInfoAt' in call_zig or
                     'VerifyBaselineNonSuggestionDiagnostics' in call_zig or
                     'VerifyBaselineClosingTags' in call_zig or
-                    'VerifyNoSignatureHelp' in call_zig or
                     'Configure' in call_zig or
                     'GetCompletions' in call_zig or
                     'VerifyBaselineInlayHints' in call_zig or

@@ -22102,6 +22102,57 @@ pub const Checker = struct {
         _ = symbol_;
         return 0;
     }
+
+    /// Like getAliasedSymbol but returns null (not 0) when there is no alias.
+    /// Implemented by walking the symbol's Declarations to find ImportSpecifier /
+    /// ImportClause / NamespaceImport / ImportEqualsDeclaration, then resolving
+    /// the imported name's symbol.
+    pub fn getAliasedSymbolNullable(c: *Checker, symIdx: ast_gen.SymbolIndex) ?ast_gen.SymbolIndex {
+        if (symIdx == 0 or symIdx >= c.binder.symbols.items.len) return null;
+        const sym = c.binder.symbols.items[symIdx];
+        if ((sym.Flags & symbol.SymbolFlags.Alias) == 0) return null;
+        if (sym.Declarations.items.len == 0) return null;
+        const decl = sym.Declarations.items[0];
+        const node = c.binder.ast.getNode(decl);
+        switch (node) {
+            .ImportSpecifier => |is| {
+                // The imported symbol name is `is.PropertyName or is.name`.
+                const name_node = is.PropertyName orelse is.name;
+                if (name_node == 0) return null;
+                const name = ast_utils.getTextOfNode(c.binder.ast, name_node);
+                // Look up the name in the module's exports via the parent ImportDeclaration's module specifier.
+                // Simplified: try resolving the name globally first.
+                const resolved = resolveName(c, decl, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, null, false, false);
+                if (resolved != 0 and resolved != c.unknownSymbol) return resolved;
+                return null;
+            },
+            .ImportClause => |ic| {
+                if (ic.Name != 0) {
+                    const name = ast_utils.getTextOfNode(c.binder.ast, ic.Name);
+                    const resolved = resolveName(c, decl, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, null, false, false);
+                    if (resolved != 0 and resolved != c.unknownSymbol) return resolved;
+                }
+                return null;
+            },
+            .NamespaceImport => |ni| {
+                if (ni.Name != 0) {
+                    const name = ast_utils.getTextOfNode(c.binder.ast, ni.Name);
+                    const resolved = resolveName(c, decl, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, null, false, false);
+                    if (resolved != 0 and resolved != c.unknownSymbol) return resolved;
+                }
+                return null;
+            },
+            .ImportEqualsDeclaration => |ie| {
+                if (ie.ModuleReference != 0) {
+                    const name = ast_utils.getTextOfNode(c.binder.ast, ie.ModuleReference);
+                    const resolved = resolveName(c, decl, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, null, false, false);
+                    if (resolved != 0 and resolved != c.unknownSymbol) return resolved;
+                }
+                return null;
+            },
+            else => return null,
+        }
+    }
 };
 
 fn containsTypeIndex(items: []const types.TypeIndex, needle: types.TypeIndex) bool {
@@ -22258,6 +22309,56 @@ pub fn getResolvedSymbolOrNil(c: *Checker, node: ast_gen.NodeIndex) ast_gen.Symb
         return links.resolvedSymbol;
     }
     return 0;
+}
+
+/// Standalone helper: like getAliasedSymbol (a Checker method) but returns
+/// null instead of 0 when the symbol isn't an alias or has no aliased target.
+/// Walks the symbol's declarations to find ImportSpecifier / ImportClause /
+/// NamespaceImport / ImportEqualsDeclaration, then resolves the imported name.
+pub fn getAliasedSymbolNullable(c: *Checker, symIdx: ast_gen.SymbolIndex) ?ast_gen.SymbolIndex {
+    if (symIdx == 0 or symIdx >= c.binder.symbols.items.len) return null;
+    const sym = c.binder.symbols.items[symIdx];
+    if ((sym.Flags & symbol.SymbolFlags.Alias) == 0) return null;
+    if (sym.Declarations.items.len == 0) return null;
+    const decl = sym.Declarations.items[0];
+    const node = c.binder.ast.getNode(decl);
+    switch (node) {
+        .ImportSpecifier => |is| {
+            const name_node = is.PropertyName orelse is.name;
+            if (name_node == 0) return null;
+            const name = ast_utils.getTextOfNode(c.binder.ast, name_node);
+            const resolved = resolveName(c, decl, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, null, false, false);
+            if (resolved != 0 and resolved != c.unknownSymbol) return resolved;
+            return null;
+        },
+        .ImportClause => |ic| {
+            if (ic.name) |nm| {
+                if (nm != 0) {
+                    const name = ast_utils.getTextOfNode(c.binder.ast, nm);
+                    const resolved = resolveName(c, decl, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, null, false, false);
+                    if (resolved != 0 and resolved != c.unknownSymbol) return resolved;
+                }
+            }
+            return null;
+        },
+        .NamespaceImport => |ni| {
+            if (ni.name != 0) {
+                const name = ast_utils.getTextOfNode(c.binder.ast, ni.name);
+                const resolved = resolveName(c, decl, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, null, false, false);
+                if (resolved != 0 and resolved != c.unknownSymbol) return resolved;
+            }
+            return null;
+        },
+        .ImportEqualsDeclaration => |ie| {
+            if (ie.ModuleReference != 0) {
+                const name = ast_utils.getTextOfNode(c.binder.ast, ie.ModuleReference);
+                const resolved = resolveName(c, decl, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.Namespace, null, false, false);
+                if (resolved != 0 and resolved != c.unknownSymbol) return resolved;
+            }
+            return null;
+        },
+        else => return null,
+    }
 }
 
 pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
