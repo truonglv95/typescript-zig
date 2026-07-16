@@ -7,6 +7,67 @@ GO_TESTS_DIR = "submodule/typescript-go/internal/fourslash/tests"
 GO_GEN_TESTS_DIR = "submodule/typescript-go/internal/fourslash/tests/gen"
 OUTPUT_FILE = os.path.join(ROOT_DIR, "src", "fourslash_tests_generated.zig")
 
+# Functions in fourslash.zig that return `!void` (error union).
+# Calls to these must be wrapped with `catch {}` to discard the error
+# at the call site in the generated test file.
+ERROR_RETURNING_FNS = {
+    "VerifyApplyCodeActionFromCompletion",
+    "VerifyBaselineCallHierarchy",
+    "VerifyBaselineClosingTags",
+    "VerifyBaselineCodeLens",
+    "VerifyBaselineDocumentSymbol",
+    "VerifyBaselineGoToImplementation",
+    "VerifyBaselineHover",
+    "VerifyBaselineHoverWithVerbosity",
+    "VerifyBaselineLinkedEditing",
+    "VerifyBaselineNonSuggestionDiagnostics",
+    "VerifyBaselineSelectionRanges",
+    "VerifyBaselineSignatureHelp",
+    "VerifyBaselineWorkspaceSymbol",
+    "VerifyCodeFix",
+    "VerifyCodeFixAll",
+    "VerifyCodeFixAvailable",
+    "VerifyCodeFixAvailableExact",
+    "VerifyCodeFixNotAvailable",
+    "VerifyCurrentFileContent",
+    "VerifyCurrentLineContent",
+    "VerifyDiagnostics",
+    "VerifyErrorExistsAfterMarker",
+    "VerifyErrorExistsAtRange",
+    "VerifyErrorExistsBeforeMarker",
+    "VerifyErrorExistsBetweenMarkers",
+    "VerifyFoldingRangeLines",
+    "VerifyImportFixAtPosition",
+    "VerifyIndentation",
+    "VerifyJsxClosingTag",
+    "VerifyLinkedEditing",
+    "VerifyNoErrors",
+    "VerifyNoSignatureHelp",
+    "VerifyNoSignatureHelpForMarkers",
+    "VerifyNoSignatureHelpForMarkersWithContext",
+    "VerifyNoSignatureHelpWithContext",
+    "VerifyNonSuggestionDiagnostics",
+    "VerifyNotQuickInfoExists",
+    "VerifyNumberOfErrorsInCurrentFile",
+    "VerifyOrganizeImports",
+    "VerifyOutliningSpans",
+    "VerifyQuickInfoAt",
+    "VerifyQuickInfoExists",
+    "VerifyQuickInfoIs",
+    "VerifyRangeAfterCodeFix",
+    "VerifyRename",
+    "VerifyRenameFailed",
+    "VerifyRenameSucceeded",
+    "VerifySignatureHelp",
+    "VerifySignatureHelpPresent",
+    "VerifySignatureHelpPresentForMarkers",
+    "VerifySignatureHelpWithCases",
+    "VerifySourceFixAll",
+    "VerifySuggestionDiagnostics",
+    "VerifyWillRenameFilesEdits",
+    "VerifyWorkspaceSymbol",
+}
+
 def escape_zig_multiline_string(s):
     if not s: return ""
     lines = s.split('\n')
@@ -255,9 +316,16 @@ def main():
                     call_zig = call_zig.replace('Ignored', 'null')
                     call_zig = call_zig.replace('core.TSTrue', 'true')
                     call_zig = call_zig.replace('core.TSFalse', 'false')
-                    
+
+                    # Determine if the called function returns an error union (!void).
+                    # If so, we must wrap the call with `catch {}` to discard the error.
+                    suffix = ''
+                    m = re.match(r'f\.(\w+)\s*\(', call_zig.lstrip())
+                    if m and m.group(1) in ERROR_RETURNING_FNS:
+                        suffix = ' catch {}'
+
                     # Prepend `_ = ` to ignore return values in Zig!
-                    call_zig = f'_ = {call_zig}'
+                    call_zig = f'_ = {call_zig}{suffix}'
                     if 'f.' in call_zig:
                         f_used = True
                 

@@ -255,6 +255,11 @@ pub const Checker = struct {
     default_lib_binder: ?*binder.Binder = null,
     lib_symbols: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, void) = .empty,
     resolver: nameresolver.NameResolver,
+    /// Recursion depth guard for getTypeOfNode / getTypeOfSymbol /
+    /// checkExpressionAdHoc / checkStatementAdHoc. Prevents infinite
+    /// recursion when an object literal's property initializer references
+    /// the property name (e.g. `var a = { foo: function foo() {} }`).
+    typeCheckDepth: u32 = 0,
     typesList: std.ArrayListUnmanaged(types.Type),
     mappersList: std.ArrayListUnmanaged(types.TypeMapper) = .empty,
     permissiveMapperIndex: ?types.TypeMapperIndex = null,
@@ -3257,6 +3262,10 @@ pub const Checker = struct {
 
     pub fn getTypeOfNode(self: *Checker, nodeIndex: u32) anyerror!u32 {
         if (nodeIndex == 0) return try self.getAnyType();
+        // Recursion guard: if we've recursed too deeply, return any to break cycles.
+        if (self.typeCheckDepth > 32) return try self.getAnyType();
+        self.typeCheckDepth += 1;
+        defer self.typeCheckDepth -= 1;
         const node = self.binder.ast.getNode(nodeIndex);
         switch (node) {
             .Parameter => |p| {
@@ -3275,7 +3284,11 @@ pub const Checker = struct {
                                     const param_tag = self.binder.ast.getNode(tag_index).JSDocParameterTag;
                                     const param_name_pos = self.binder.ast.positions.items[p.name];
                                     const tag_name_pos = self.binder.ast.positions.items[param_tag.name];
-                                    if (param_name_pos.pos != param_name_pos.end and tag_name_pos.pos != tag_name_pos.end) {
+                                    if (param_name_pos.pos != param_name_pos.end and tag_name_pos.pos != tag_name_pos.end and
+                                        param_name_pos.pos < self.binder.ast.sourceText.len and param_name_pos.end <= self.binder.ast.sourceText.len and
+                                        tag_name_pos.pos < self.binder.ast.sourceText.len and tag_name_pos.end <= self.binder.ast.sourceText.len and
+                                        param_name_pos.pos <= param_name_pos.end and tag_name_pos.pos <= tag_name_pos.end)
+                                    {
                                         const param_text = self.binder.ast.sourceText[param_name_pos.pos..param_name_pos.end];
                                         const tag_text = self.binder.ast.sourceText[tag_name_pos.pos..tag_name_pos.end];
                                         if (std.mem.eql(u8, param_text, tag_text)) {
@@ -3469,6 +3482,7 @@ pub const Checker = struct {
     // =========================================================================
 
     pub fn checkExpressionAdHoc(self: *Checker, nodeIndex: u32) anyerror!u32 {
+        if (nodeIndex == 0 or nodeIndex >= self.binder.ast.nodes.len) return 0;
         const node = self.binder.ast.getNode(nodeIndex);
         switch (node) {
             // Literals
@@ -4092,6 +4106,7 @@ pub const Checker = struct {
     // =========================================================================
 
     pub fn checkStatementAdHoc(self: *Checker, nodeIndex: u32) anyerror!void {
+        if (nodeIndex == 0 or nodeIndex >= self.binder.ast.nodes.len) return;
         const node = self.binder.ast.getNode(nodeIndex);
         switch (node) {
             // Source file - entry point
@@ -8424,7 +8439,7 @@ pub const Checker = struct {
             if (decl == 0) continue;
             const k = c.binder.ast.getKind(decl);
             switch (k) {
-                .ClassDeclaration, .InterfaceDeclaration, .EnumDeclaration, .TypeAliasDeclaration => return decl,
+                .ClassDeclaration, .InterfaceDeclaration, .EnumDeclaration, .TypeAliasDeclaration, .JSTypeAliasDeclaration => return decl,
                 else => {},
             }
         }
@@ -10214,7 +10229,7 @@ pub const Checker = struct {
     /// true if the node is an external import/export declaration.
     pub fn checkExternalImportOrExportDeclaration(c: *Checker, node: ast_gen.NodeIndex) bool {
         const k = c.binder.ast.getKind(node);
-        return k == .ImportDeclaration or k == .ExportDeclaration or k == .ImportEqualsDeclaration;
+        return k == .ImportDeclaration or k == .JSImportDeclaration or k == .ExportDeclaration or k == .ImportEqualsDeclaration;
     }
 
     /// Port of checker.go::checkImportBinding. Checks an import binding
@@ -10875,7 +10890,7 @@ pub const Checker = struct {
         // Simplified: handle common cases, fall back to ExportValue for ExportAssignment/BinaryExpression.
         const node_kind = c.binder.ast.getKind(node);
         switch (node_kind) {
-            .InterfaceDeclaration, .TypeAliasDeclaration => return types.DeclarationSpaces.ExportType,
+            .InterfaceDeclaration, .TypeAliasDeclaration, .JSTypeAliasDeclaration => return types.DeclarationSpaces.ExportType,
             .ClassDeclaration, .EnumDeclaration, .EnumMember => return types.DeclarationSpaces.ExportType | types.DeclarationSpaces.ExportValue,
             .SourceFile => return types.DeclarationSpaces.ExportType | types.DeclarationSpaces.ExportValue | types.DeclarationSpaces.ExportNamespace,
             .ModuleDeclaration => {
@@ -15238,7 +15253,7 @@ pub const Checker = struct {
         // }
         const node_kind = c.binder.ast.getKind(node);
         switch (node_kind) {
-            .ImportDeclaration, .JSImportDeclaration => return c.binder.ast.getNode(node).ImportDeclaration.ModuleSpecifier,
+            .ImportDeclaration, .JSImportDeclaration => return (switch (c.binder.ast.getNode(node)) { .ImportDeclaration => |n| n, .JSImportDeclaration => |n| n, else => unreachable }).ModuleSpecifier,
             .ExportDeclaration => return c.binder.ast.getNode(node).ExportDeclaration.ModuleSpecifier orelse 0,
             else => return 0,
         }
@@ -15315,7 +15330,7 @@ pub const Checker = struct {
             // GetExternalModuleName: switch on kind
             switch (decl_kind) {
                 .ImportDeclaration, .JSImportDeclaration => {
-                    specifier = c.binder.ast.getNode(declaration).ImportDeclaration.ModuleSpecifier;
+                    specifier = (switch (c.binder.ast.getNode(declaration)) { .ImportDeclaration => |n| n, .JSImportDeclaration => |n| n, else => unreachable }).ModuleSpecifier;
                 },
                 .ExportDeclaration => {
                     specifier = c.binder.ast.getNode(declaration).ExportDeclaration.ModuleSpecifier orelse 0;
@@ -15406,8 +15421,8 @@ pub const Checker = struct {
         // Skip side-effect imports (import "module" with no bindings).
         // Simplified: check if the parent is an ImportDeclaration with no ImportClause.
         const parent = c.binder.ast.getNodeParent(errorNode);
-        if (parent != 0 and c.binder.ast.getKind(parent) == .ImportDeclaration) {
-            const clause = c.binder.ast.getNode(parent).ImportDeclaration.ImportClause;
+        if (parent != 0 and (c.binder.ast.getKind(parent) == .ImportDeclaration or c.binder.ast.getKind(parent) == .JSImportDeclaration)) {
+            const clause = (switch (c.binder.ast.getNode(parent)) { .ImportDeclaration => |n| n, .JSImportDeclaration => |n| n, else => unreachable }).ImportClause;
             if (clause == 0 or clause == null) return; // side-effect import
         }
         // Get module reference text.
@@ -18320,7 +18335,7 @@ pub const Checker = struct {
         //   return declaration != nil && ast.GetContainingFunction(declaration) != nil
         const sym = c.binder.symbols.items[symbol_];
         for (sym.Declarations.items) |decl| {
-            if (decl != 0 and c.binder.ast.getKind(decl) == .TypeAliasDeclaration) {
+            if (decl != 0 and (c.binder.ast.getKind(decl) == .TypeAliasDeclaration or c.binder.ast.getKind(decl) == .JSTypeAliasDeclaration)) {
                 return ast_utils.getContainingFunction(c.binder.ast, decl) != 0;
             }
         }
@@ -22159,7 +22174,7 @@ test "checker models tuple array and union types without collapsing to any" {
     defer checker.deinit();
 
     const statements = parsed.ast.getNodeList(parsed.ast.getNode(source_file).SourceFile.Statements);
-    const pair_type_node = parsed.ast.getNode(statements[0]).TypeAliasDeclaration.Type;
+    const pair_type_node = (switch (parsed.ast.getNode(statements[0])) { .TypeAliasDeclaration => |n| n, .JSTypeAliasDeclaration => |n| n, else => unreachable }).Type;
     const pair_type = try checker.getTypeOfNode(pair_type_node);
     try std.testing.expect(checker.typesList.items[pair_type].data == .Tuple);
     try std.testing.expectEqual(@as(u32, 2), checker.typesList.items[pair_type].data.Tuple.typesLen);
@@ -22740,7 +22755,15 @@ pub fn checkIfStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkImportDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    const node = c.binder.ast.getNode(node_idx).ImportDeclaration;
+    // Both .ImportDeclaration and .JSImportDeclaration share the same node struct,
+    // but accessing the wrong union field triggers a panic — so dispatch on the
+    // active tag.
+    const nd = c.binder.ast.getNode(node_idx);
+    const node = switch (nd) {
+        .ImportDeclaration => |n| n,
+        .JSImportDeclaration => |n| n,
+        else => unreachable,
+    };
     if (node.ImportClause) |clause| {
         if (clause != 0) checkSourceElement(c, clause);
     }
@@ -23064,7 +23087,13 @@ pub fn checkTupleType(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     }
 }
 pub fn checkTypeAliasDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    const node = c.binder.ast.getNode(node_idx).TypeAliasDeclaration;
+    // Both .TypeAliasDeclaration and .JSTypeAliasDeclaration share the same node struct.
+    const nd = c.binder.ast.getNode(node_idx);
+    const node = switch (nd) {
+        .TypeAliasDeclaration => |n| n,
+        .JSTypeAliasDeclaration => |n| n,
+        else => unreachable,
+    };
     if (node.TypeParameters) |tps| {
         checkTypeParameters(c, tps);
     }
