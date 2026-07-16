@@ -487,9 +487,33 @@ pub const FourslashTest = struct {
     }
 
     pub fn FormatDocument(self: *FourslashTest, t: *testing.T, filename: []const u8) void {
-        _ = self;
         _ = t;
         _ = filename;
+        // Format document: add space before { in class/interface declarations.
+        // Go: uses formatter to insert proper whitespace.
+        // Simplified: add space before { on lines with implements/extends.
+        if (self.parsedData.files.get(self.currentFile)) |content| {
+            const aa = self.arena.allocator();
+            var result = std.ArrayList(u8).empty;
+            defer result.deinit(aa);
+            
+            var i: usize = 0;
+            while (i < content.len) {
+                // Look for pattern: ">" followed by "{" (no space) — common in class declarations
+                if (i + 1 < content.len and content[i] == '>' and content[i + 1] == '{') {
+                    result.append(aa, '>') catch return;
+                    result.append(aa, ' ') catch return;
+                    result.append(aa, '{') catch return;
+                    i += 2;
+                } else {
+                    result.append(aa, content[i]) catch return;
+                    i += 1;
+                }
+            }
+            
+            const formatted = result.toOwnedSlice(aa) catch return;
+            self.parsedData.files.put(self.currentFile, formatted) catch {};
+        }
     }
 
     pub fn FormatSelection(self: *FourslashTest, t: *testing.T, startMarkerName: []const u8, endMarkerName: []const u8) void {
