@@ -3998,7 +3998,8 @@ pub const Checker = struct {
                 if (std.meta.activeTag(propNodeData) == .Identifier) {
                     const propName = propNodeData.Identifier.Text;
                     if (self.getPropertyOfType(objTypeIdx, propName)) |p| {
-                        return try self.getTypeOfSymbol(p);
+                        const propType = try self.getTypeOfSymbol(p);
+                        return self.substituteTypeParamsForReference(objTypeIdx, propType);
                     }
 
                     if (!self.isTypeAny(objTypeIdx)) {
@@ -4048,7 +4049,9 @@ pub const Checker = struct {
                     if (argType.flags & types.TypeFlags.StringLiteral != 0) {
                         const propName = argType.data.StringLiteral.text;
                         if (self.getPropertyOfType(objTypeIdx, propName)) |propSym| {
-                            return try self.getTypeOfSymbol(propSym);
+                            const propType = try self.getTypeOfSymbol(propSym);
+                            // Substitute type parameters if objType is a Reference.
+                            return self.substituteTypeParamsForReference(objTypeIdx, propType);
                         }
                     }
                     // Numeric index access on array types -> return element type.
@@ -5721,6 +5724,47 @@ pub const Checker = struct {
     pub fn getErasedSignature(c: *Checker, signature: *types.Signature) *types.Signature {
         _ = c;
         return signature; // Skipped
+    }
+
+    /// Helper: if `objType` is a Reference type with type arguments, substitute
+    /// type parameters in `propType` with the corresponding type arguments.
+    /// Otherwise returns `propType` unchanged.
+    pub fn substituteTypeParamsForReference(self: *Checker, objType: types.TypeIndex, propType: types.TypeIndex) types.TypeIndex {
+        if (propType == 0 or objType == 0 or objType >= self.typesList.items.len) return propType;
+        const lt = self.typesList.items[objType];
+        if ((lt.objectFlags & types.ObjectFlags.Reference) == 0) return propType;
+        if (lt.data != .Object) return propType;
+        const ta = self.getTypeArguments(objType);
+        if (ta.len == 0) return propType;
+        const target = self.getTargetType(objType);
+        if (target == 0 or target >= self.typesList.items.len) return propType;
+        const target_sym = self.getSymbolOfType(target);
+        if (target_sym == 0 or target_sym >= self.binder.symbols.items.len) return propType;
+        const sym_obj = self.binder.symbols.items[target_sym];
+        if (sym_obj.Declarations.items.len == 0) return propType;
+        const decl = sym_obj.Declarations.items[0];
+        const decl_data = self.binder.ast.getNode(decl);
+        const tp_list: ?u32 = switch (decl_data) {
+            .InterfaceDeclaration => |id| id.TypeParameters,
+            .ClassDeclaration => |cd| cd.TypeParameters,
+            else => null,
+        };
+        if (tp_list == null) return propType;
+        const tpl = tp_list.?;
+        if (tpl == 0) return propType;
+        const tp_nodes = self.binder.ast.getNodeList(tpl);
+        if (tp_nodes.len != ta.len) return propType;
+        var subst = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(self.allocator);
+        defer subst.deinit();
+        for (tp_nodes, 0..) |tp_node, i| {
+            if (tp_node != 0) {
+                const tp_sym = self.binder.ast.getNodeSymbol(tp_node) orelse 0;
+                if (tp_sym != 0) {
+                    subst.put(tp_sym, ta[i]) catch {};
+                }
+            }
+        }
+        return self.substituteTypeParams(propType, &subst) catch propType;
     }
 
     pub fn compareSignaturesRelated(c: *Checker, source: *types.Signature, target: *types.Signature, checkMode: types.SignatureCheckMode, reportErrors: bool, reportErrCtx: anytype, comptime reportErrFn: fn (ctx: @TypeOf(reportErrCtx), msg: types.DiagnosticMessage) void, isRelatedCtx: anytype, comptime isRelatedFn: fn (ctx: @TypeOf(isRelatedCtx), source: types.TypeIndex, target: types.TypeIndex, reportErrors: bool) types.Ternary, reportUnreliableCtx: anytype, comptime reportUnreliableFn: fn (ctx: @TypeOf(reportUnreliableCtx)) void) types.Ternary {
