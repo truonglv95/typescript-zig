@@ -1737,6 +1737,13 @@ pub const Checker = struct {
 
         if (typeNode == 0) {
             // Primitive fallback if NodeBuilder stubbed
+            // Check Array first (Array types also have Object flag).
+            if (typeData.data == .Array) {
+                const elem_str = self.typeToString(typeData.data.Array.elementType, 0, 0, null);
+                const result = std.fmt.allocPrint(self.allocator, "{s}[]", .{elem_str}) catch return "any[]";
+                self.ownedStrings.append(self.allocator, result) catch {};
+                return result;
+            }
             if (typeData.flags & types.TypeFlags.Object != 0) {
                 if (self.getObjectFlags(t) & types.ObjectFlags.Reference != 0) {
                     const sym = self.getSymbolOfType(t);
