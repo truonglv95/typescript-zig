@@ -1711,10 +1711,41 @@ pub const Checker = struct {
                         return self.allocator.dupe(u8, name) catch "Object";
                     }
                 }
-                // For non-Reference Object types (anonymous), fall through to
-                // the symbol name if one exists.
+                // For non-Reference Object types (anonymous), try to render
+                // members as an object literal type: { x: number; y: string; }
                 if (typeData.symbol) |sym| {
                     if (sym != 0 and sym < self.binder.symbols.items.len) {
+                        // If the symbol is an anonymous type literal or object literal,
+                        // render its members.
+                        const sym_flags = self.binder.symbols.items[sym].Flags;
+                        const is_anon = (sym_flags & (symbol.SymbolFlags.TypeLiteral | symbol.SymbolFlags.ObjectLiteral)) != 0;
+                        if (is_anon) {
+                            // Resolve members.
+                            const resolved = self.resolveStructuredTypeMembers(t);
+                            if (resolved.propertiesLen > 0) {
+                                var buf = std.ArrayListUnmanaged(u8).empty;
+                                buf.appendSlice(self.allocator, "{ ") catch {};
+                                const props = self.resolvedPropertiesPool.items[resolved.propertiesStart .. resolved.propertiesStart + resolved.propertiesLen];
+                                for (props, 0..) |prop_sym, i| {
+                                    if (i > 0) buf.appendSlice(self.allocator, "; ") catch {};
+                                    const prop_obj = self.binder.symbols.items[prop_sym];
+                                    buf.appendSlice(self.allocator, prop_obj.Name) catch {};
+                                    // Check optional
+                                    if ((prop_obj.Flags & symbol.SymbolFlags.Optional) != 0) {
+                                        buf.appendSlice(self.allocator, "?") catch {};
+                                    }
+                                    buf.appendSlice(self.allocator, ": ") catch {};
+                                    const prop_type = self.getTypeOfSymbol(prop_sym) catch 0;
+                                    const prop_type_str = if (prop_type != 0) self.typeToString(prop_type, 0, 0, null) else "any";
+                                    buf.appendSlice(self.allocator, prop_type_str) catch {};
+                                }
+                                buf.appendSlice(self.allocator, " }") catch {};
+                                const result = buf.toOwnedSlice(self.allocator) catch return "Object";
+                                self.ownedStrings.append(self.allocator, result) catch {};
+                                return result;
+                            }
+                        }
+                        // If not anonymous or no members, use the symbol name.
                         const name = self.binder.symbols.items[sym].Name;
                         if (name.len > 0) {
                             return self.allocator.dupe(u8, name) catch "Object";
