@@ -4238,13 +4238,53 @@ pub const Checker = struct {
 
             // new expr(args)
             .NewExpression => |ne| {
-                _ = try self.checkExpressionAdHoc(ne.Expression);
+                // Get the constructor's class type.
+                const ctor_type = try self.checkExpressionAdHoc(ne.Expression);
+                // Check arguments.
                 if (ne.Arguments) |argsIdx| {
                     if (argsIdx != 0) {
                         const args = self.binder.ast.getNodeList(argsIdx);
                         for (args) |arg| {
                             _ = try self.checkExpressionAdHoc(arg);
                         }
+                    }
+                }
+                // If the constructor type has a symbol (class), return an
+                // instance type (the class type itself, since our type system
+                // uses the class symbol for both constructor and instance).
+                if (ctor_type != 0 and ctor_type < self.typesList.items.len) {
+                    const td = self.typesList.items[ctor_type];
+                    if (td.symbol != null) {
+                        // If there are type arguments, create a Reference type.
+                        if (ne.TypeArguments) |type_args_list| {
+                            if (type_args_list != 0) {
+                                const type_arg_nodes = self.binder.ast.getNodeList(type_args_list);
+                                if (type_arg_nodes.len > 0) {
+                                    const ta_start: u32 = @intCast(self.typeArgumentsPool.items.len);
+                                    for (type_arg_nodes) |ta_node| {
+                                        if (ta_node != 0) {
+                                            const ta_type = try self.getTypeOfNode(ta_node);
+                                            self.typeArgumentsPool.append(self.allocator, ta_type) catch {};
+                                        }
+                                    }
+                                    const ta_len: u32 = @intCast(self.typeArgumentsPool.items.len - ta_start);
+                                    return try self.createType(.{
+                                        .flags = types.TypeFlags.Object,
+                                        .objectFlags = types.ObjectFlags.Reference,
+                                        .id = 0,
+                                        .symbol = td.symbol,
+                                        .alias = null,
+                                        .data = .{ .Object = .{
+                                            .Symbol = td.symbol,
+                                            .target = ctor_type,
+                                            .typeArgumentsStart = ta_start,
+                                            .typeArgumentsLen = ta_len,
+                                        } },
+                                    });
+                                }
+                            }
+                        }
+                        return ctor_type;
                     }
                 }
                 return try self.getObjectType();
