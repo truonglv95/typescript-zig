@@ -1288,11 +1288,14 @@ pub const FourslashTest = struct {
         }
 
         // Variable declarations: format as "var name: type", "let name: type", "const name: type"
-        // If the variable is local to a function/method (not at module top-level),
-        // prepend "(local var) ".
+        // If the variable is a function-scoped var inside a function (not at module
+        // top-level), prepend "(local var) ". Block-scoped let/const do NOT get
+        // this prefix even when local — they stay as "let x" / "const x".
         if ((symObj.Flags & (symbol.SymbolFlags.FunctionScopedVariable | symbol.SymbolFlags.BlockScopedVariable)) != 0) {
             var prefix: []const u8 = "var";
+            var is_block_scoped = false;
             if ((symObj.Flags & symbol.SymbolFlags.BlockScopedVariable) != 0) {
+                is_block_scoped = true;
                 // Distinguish let vs const by inspecting the declaration list kind.
                 prefix = "let";
                 if (symObj.Declarations.items.len > 0) {
@@ -1310,33 +1313,26 @@ pub const FourslashTest = struct {
             }
             // Determine if local: walk parent chain from the declaration; if we hit
             // a function-like node before SourceFile, it's a local variable.
+            // (local var) prefix is ONLY applied to function-scoped var declarations.
             var is_local = false;
-            if (symObj.Declarations.items.len > 0) {
-                const decl_node = symObj.Declarations.items[0];
-                var cur = p.ast.getNodeParent(decl_node);
-                while (cur != 0) {
-                    const k = p.ast.getNodeKind(cur);
-                    if (k == .SourceFile) break;
-                    switch (k) {
-                        .FunctionDeclaration, .FunctionExpression, .MethodDeclaration,
-                        .Constructor, .GetAccessor, .SetAccessor, .ArrowFunction,
-                        .Block, .ForStatement, .ForInStatement, .ForOfStatement,
-                        .IfStatement, .WhileStatement, .DoStatement, .TryStatement,
-                        .CatchClause, .SwitchStatement, .CaseClause, .DefaultClause,
-                        => {
-                            // For Block and other statement containers, keep walking —
-                            // a Block could be a function body.
-                            if (k == .FunctionDeclaration or k == .FunctionExpression or
-                                k == .MethodDeclaration or k == .Constructor or
-                                k == .GetAccessor or k == .SetAccessor or k == .ArrowFunction)
-                            {
+            if (!is_block_scoped) {
+                if (symObj.Declarations.items.len > 0) {
+                    const decl_node = symObj.Declarations.items[0];
+                    var cur = p.ast.getNodeParent(decl_node);
+                    while (cur != 0) {
+                        const k = p.ast.getNodeKind(cur);
+                        if (k == .SourceFile) break;
+                        switch (k) {
+                            .FunctionDeclaration, .FunctionExpression, .MethodDeclaration,
+                            .Constructor, .GetAccessor, .SetAccessor, .ArrowFunction,
+                            => {
                                 is_local = true;
                                 break;
-                            }
-                        },
-                        else => {},
+                            },
+                            else => {},
+                        }
+                        cur = p.ast.getNodeParent(cur);
                     }
-                    cur = p.ast.getNodeParent(cur);
                 }
             }
             var out = std.ArrayListUnmanaged(u8).empty;
@@ -1478,6 +1474,35 @@ pub const FourslashTest = struct {
             const aa = self.arena.allocator();
             out.appendSlice(aa, "enum ") catch {};
             out.appendSlice(aa, symObj.Name) catch {};
+            return out.toOwnedSlice(aa) catch "";
+        }
+
+        // Namespace/Module: format as "namespace Name"
+        if ((symObj.Flags & (symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule)) != 0) {
+            var out = std.ArrayListUnmanaged(u8).empty;
+            const aa = self.arena.allocator();
+            // If this is an alias, prefix with "(alias) ".
+            if ((symObj.Flags & symbol.SymbolFlags.Alias) != 0) {
+                out.appendSlice(aa, "(alias) namespace ") catch {};
+            } else {
+                out.appendSlice(aa, "namespace ") catch {};
+            }
+            out.appendSlice(aa, symObj.Name) catch {};
+            return out.toOwnedSlice(aa) catch "";
+        }
+
+        // Import aliases: prefix with "(alias) " and show the alias target.
+        if ((symObj.Flags & symbol.SymbolFlags.Alias) != 0) {
+            var out = std.ArrayListUnmanaged(u8).empty;
+            const aa = self.arena.allocator();
+            // Format as "(alias) name: target" or "(alias) function name(...): ret"
+            // For simplicity, just show "(alias) name" with type info if available.
+            out.appendSlice(aa, "(alias) ") catch {};
+            out.appendSlice(aa, symObj.Name) catch {};
+            if (typeStr.len > 0 and !std.mem.eql(u8, typeStr, "any") and !std.mem.eql(u8, typeStr, "{}")) {
+                out.appendSlice(aa, ": ") catch {};
+                out.appendSlice(aa, typeStr) catch {};
+            }
             return out.toOwnedSlice(aa) catch "";
         }
 
