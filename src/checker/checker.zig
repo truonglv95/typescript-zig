@@ -3318,7 +3318,21 @@ pub const Checker = struct {
 
             .VariableDeclaration => |decl| {
                 if (decl.Type) |typeNode| return try self.getTypeOfNode(typeNode);
-                if (decl.Initializer) |initExpr| return try self.checkExpressionAdHoc(initExpr);
+                if (decl.Initializer) |initExpr| {
+                    const initType = try self.checkExpressionAdHoc(initExpr);
+                    // Widen literal types for variable declarations:
+                    //   var x = 123   -> number (not 123-literal)
+                    //   var x = "abc" -> string (not "abc"-literal)
+                    //   var x = true  -> boolean (not true-literal)
+                    // This matches TypeScript's default widening behavior.
+                    if (initType != 0 and initType < self.typesList.items.len) {
+                        const f = self.typesList.items[initType].flags;
+                        if ((f & types.TypeFlags.NumberLiteral) != 0) return try self.getNumberType();
+                        if ((f & types.TypeFlags.StringLiteral) != 0) return try self.getStringType();
+                        if ((f & types.TypeFlags.BooleanLiteral) != 0) return try self.getBooleanType();
+                    }
+                    return initType;
+                }
                 return try self.getAnyType();
             },
             .PropertyDeclaration => |p| {

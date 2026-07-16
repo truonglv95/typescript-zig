@@ -1007,7 +1007,36 @@ pub const FourslashTest = struct {
                 return out.toOwnedSlice(aa) catch "";
             }
         }
-        
+
+        // Variable declarations: format as "var name: type", "let name: type", "const name: type"
+        if ((symObj.Flags & (symbol.SymbolFlags.FunctionScopedVariable | symbol.SymbolFlags.BlockScopedVariable)) != 0) {
+            var prefix: []const u8 = "var";
+            if ((symObj.Flags & symbol.SymbolFlags.BlockScopedVariable) != 0) {
+                // Distinguish let vs const by inspecting the declaration list kind.
+                prefix = "let";
+                if (symObj.Declarations.items.len > 0) {
+                    const decl_node = symObj.Declarations.items[0];
+                    const parent = p.ast.getNodeParent(decl_node);
+                    if (parent != 0) {
+                        const pk = p.ast.getNodeKind(parent);
+                        if (pk == .VariableDeclarationList) {
+                            const vdl = p.ast.getNode(parent).VariableDeclarationList;
+                            // NodeFlag.Const = 1 << 1 (see ast/core.zig NodeFlag)
+                            if ((vdl.Flags & 0x2) != 0) prefix = "const";
+                        }
+                    }
+                }
+            }
+            var out = std.ArrayListUnmanaged(u8).empty;
+            const aa = self.arena.allocator();
+            out.appendSlice(aa, prefix) catch {};
+            out.appendSlice(aa, " ") catch {};
+            out.appendSlice(aa, symObj.Name) catch {};
+            out.appendSlice(aa, ": ") catch {};
+            out.appendSlice(aa, typeStr) catch {};
+            return out.toOwnedSlice(aa) catch "";
+        }
+
         return typeStr;
     }
 
