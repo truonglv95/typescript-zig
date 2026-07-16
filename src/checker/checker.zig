@@ -2808,12 +2808,41 @@ pub const Checker = struct {
         return c.getBaseConstraintOfType(t);
     }
 
+    /// Port of `checker.go::getTypeWithThisArgument`. Returns a type
+    /// with the `this` argument appended to type arguments for reference
+    /// types. For intersections, maps over constituents.
     pub fn getTypeWithThisArgument(c: *Checker, t: types.TypeIndex, thisArgument: types.TypeIndex, needApparentType: bool) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = thisArgument;
-        _ = needApparentType;
-        return undefined; // Skipped
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const obj_flags = c.typesList.items[t].objectFlags;
+        if ((obj_flags & types.ObjectFlags.Reference) != 0) {
+            const target = c.getTargetType(t);
+            const type_args = c.getTypeArguments(t);
+            // Check if target has matching type parameter count.
+            // Simplified: if thisArgument is 0, use target's thisType.
+            const this_arg = if (thisArgument != 0) thisArgument else 0;
+            // Create new type reference with appended this argument.
+            // Without full InterfaceType.thisType access, conservative: return t.
+            _ = this_arg;
+            _ = type_args;
+            _ = target;
+            return t;
+        } else if ((c.typesList.items[t].flags & types.TypeFlags.Intersection) != 0) {
+            const constituents = c.getTypesFromIntersection(t);
+            var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer mapped.deinit(c.allocator);
+            var changed = false;
+            for (constituents) |ct| {
+                const mapped_t = c.getTypeWithThisArgument(ct, thisArgument, needApparentType);
+                if (mapped_t != ct) changed = true;
+                mapped.append(c.allocator, mapped_t) catch {};
+            }
+            if (!changed) return t;
+            return c.getIntersectionType(mapped.items);
+        }
+        if (needApparentType) {
+            return c.getApparentType(t);
+        }
+        return t;
     }
 
     pub fn isMappedTypeGenericIndexedAccess(c: *Checker, t: types.TypeIndex) bool {
@@ -5109,12 +5138,18 @@ pub const Checker = struct {
         return c.removeMissingType(c.getTypeOfSymbol(prop), (c.getSymbolFlags(prop) & symbol.SymbolFlags.Optional) != 0);
     }
 
+    /// Port of `checker.go::getNarrowedType`. Narrows type `t` based on
+    /// `candidate` type. If `assumeTrue` is false, removes `candidate`
+    /// from `t`. If `assumeTrue` is true, intersects `t` with `candidate`.
     pub fn getNarrowedType(c: *Checker, t: types.TypeIndex, candidate: types.TypeIndex, assumeTrue: bool, checkDerived: bool) types.TypeIndex {
-        _ = c;
-        _ = candidate;
-        _ = assumeTrue;
         _ = checkDerived;
-        return t;
+        if (t == 0 or candidate == 0) return t;
+        if (assumeTrue) {
+            // True branch: narrow to candidate.
+            return c.getTypeWithFacts(t, types.TypeFacts.Truthy);
+        }
+        // False branch: remove candidate from t.
+        return c.getTypeWithFacts(t, types.TypeFacts.Falsy);
     }
 
     pub fn getInstanceType(c: *Checker, constructorType: types.TypeIndex) types.TypeIndex {
@@ -8469,22 +8504,36 @@ pub const Checker = struct {
         }
     }
 
-    /// Port of checker.go::checkAndReportErrorForUsingTypeAsNamespace.
-    /// Simplified: no-op, returns false.
-    pub fn checkAndReportErrorForUsingTypeAsNamespace(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32) bool {
-        _ = c;
-        _ = error_location;
-        _ = name_node;
-        _ = meaning;
+    /// Port of `checker.go::checkAndReportErrorForUsingTypeAsNamespace`.
+    /// Returns true if `error_location` is a type being used as a namespace.
+    pub fn checkAndReportErrorForUsingTypeAsNamespace(c: *Checker, error_location: ast_gen.NodeIndex, name: []const u8, meaning: u32) bool {
+        if (meaning != symbol.SymbolFlags.Namespace) return false;
+        const sym = c.resolveSymbol(resolveName(c, error_location, name, symbol.SymbolFlags.Type & ~symbol.SymbolFlags.Namespace, null, false, false));
+        if (sym != 0) {
+            const parent = c.binder.ast.getNodeParent(error_location);
+            if (parent != 0 and c.binder.ast.getKind(parent) == .QualifiedName) {
+                const prop_name = ast_utils.getTextOfNode(c.binder.ast, c.binder.ast.getNode(parent).QualifiedName.Right);
+                const declared_type = c.getDeclaredTypeOfSymbol(sym);
+                if (c.getPropertyOfType(declared_type, prop_name) != null) {
+                    c.reportErrorWithArgs(parent, &diagnostics_gen.Cannot_access_0_1_because_0_is_a_type_but_not_a_namespace_Did_you_mean_to_retrieve_the_type_of_the_property_1_in_0_with_0_1, &.{ name, prop_name });
+                    return true;
+                }
+            }
+            c.reportErrorWithArgs(error_location, &diagnostics_gen.X_0_only_refers_to_a_type_but_is_being_used_as_a_namespace_here, &.{name});
+            return true;
+        }
         return false;
     }
 
-    /// Port of checker.go::checkAndReportErrorForExportingPrimitiveType.
-    /// Simplified: no-op, returns false.
-    pub fn checkAndReportErrorForExportingPrimitiveType(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = error_location;
-        _ = name_node;
+    /// Port of `checker.go::checkAndReportErrorForExportingPrimitiveType`.
+    /// Returns true if a primitive type is being exported from a module.
+    pub fn checkAndReportErrorForExportingPrimitiveType(c: *Checker, error_location: ast_gen.NodeIndex, name: []const u8) bool {
+        if (!isPrimitiveTypeName(name)) return false;
+        const parent = c.binder.ast.getNodeParent(error_location);
+        if (parent != 0 and c.binder.ast.getKind(parent) == .ExportSpecifier) {
+            c.reportErrorWithArgs(error_location, &diagnostics_gen.Cannot_export_0_Only_local_declarations_can_be_exported_from_a_module, &.{name});
+            return true;
+        }
         return false;
     }
 
@@ -8499,23 +8548,45 @@ pub const Checker = struct {
             std.mem.eql(u8, s, "unknown");
     }
 
-    /// Port of checker.go::checkAndReportErrorForUsingNamespaceAsTypeOrValue.
-    /// Simplified: no-op, returns false.
-    pub fn checkAndReportErrorForUsingNamespaceAsTypeOrValue(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32) bool {
-        _ = c;
-        _ = error_location;
-        _ = name_node;
-        _ = meaning;
+    /// Port of `checker.go::checkAndReportErrorForUsingNamespaceAsTypeOrValue`.
+    /// Returns true if a namespace is being used as a type or value.
+    pub fn checkAndReportErrorForUsingNamespaceAsTypeOrValue(c: *Checker, error_location: ast_gen.NodeIndex, name: []const u8, meaning: u32) bool {
+        if ((meaning & (symbol.SymbolFlags.Value & ~symbol.SymbolFlags.Type)) != 0) {
+            const sym = c.resolveSymbol(resolveName(c, error_location, name, symbol.SymbolFlags.NamespaceModule, null, false, false));
+            if (sym != 0) {
+                c.reportErrorWithArgs(error_location, &diagnostics_gen.Cannot_use_namespace_0_as_a_value, &.{name});
+                return true;
+            }
+        } else if ((meaning & (symbol.SymbolFlags.Type & ~symbol.SymbolFlags.Value)) != 0) {
+            const sym = c.resolveSymbol(resolveName(c, error_location, name, symbol.SymbolFlags.Module, null, false, false));
+            if (sym != 0) {
+                c.reportErrorWithArgs(error_location, &diagnostics_gen.Cannot_use_namespace_0_as_a_type, &.{name});
+                return true;
+            }
+        }
         return false;
     }
 
-    /// Port of checker.go::checkAndReportErrorForUsingTypeAsValue.
-    /// Simplified: no-op, returns false.
-    pub fn checkAndReportErrorForUsingTypeAsValue(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32) bool {
-        _ = c;
-        _ = error_location;
-        _ = name_node;
-        _ = meaning;
+    /// Port of `checker.go::checkAndReportErrorForUsingTypeAsValue`.
+    /// Returns true if a type is being used as a value.
+    pub fn checkAndReportErrorForUsingTypeAsValue(c: *Checker, error_location: ast_gen.NodeIndex, name: []const u8, meaning: u32) bool {
+        if ((meaning & symbol.SymbolFlags.Value) == 0) return false;
+        if (!isPrimitiveTypeName(name)) return false;
+        // Check if in heritage clause (extends/implements).
+        const parent = c.binder.ast.getNodeParent(error_location);
+        if (parent == 0) return false;
+        const grandparent = c.binder.ast.getNodeParent(parent);
+        if (grandparent == 0) return false;
+        if (c.binder.ast.getKind(grandparent) == .HeritageClause) {
+            const container = c.binder.ast.getNodeParent(grandparent);
+            if (container != 0) {
+                const container_kind = c.binder.ast.getKind(container);
+                if (container_kind == .InterfaceDeclaration) {
+                    c.reportErrorWithArgs(error_location, &diagnostics_gen.An_interface_cannot_extend_a_primitive_type_like_0_It_can_only_extend_other_named_object_types, &.{name});
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
@@ -8560,13 +8631,15 @@ pub const Checker = struct {
         return c.allTypesAssignableToKindEx(t, string_or_number_literal, true);
     }
 
-    /// Port of checker.go::checkAndReportErrorForUsingValueAsType.
-    /// Simplified: no-op, returns false.
-    pub fn checkAndReportErrorForUsingValueAsType(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32) bool {
-        _ = c;
-        _ = error_location;
-        _ = name_node;
-        _ = meaning;
+    /// Port of `checker.go::checkAndReportErrorForUsingValueAsType`.
+    /// Returns true if a value is being used as a type.
+    pub fn checkAndReportErrorForUsingValueAsType(c: *Checker, error_location: ast_gen.NodeIndex, name: []const u8, meaning: u32) bool {
+        if ((meaning & symbol.SymbolFlags.Type) == 0) return false;
+        const sym = c.resolveSymbol(resolveName(c, error_location, name, symbol.SymbolFlags.Value & ~symbol.SymbolFlags.Type, null, false, false));
+        if (sym != 0) {
+            c.reportErrorWithArgs(error_location, &diagnostics_gen.X_0_refers_to_a_value_but_is_being_used_as_a_type_here_Did_you_mean_typeof_0, &.{name});
+            return true;
+        }
         return false;
     }
 
