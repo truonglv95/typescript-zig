@@ -796,13 +796,21 @@ pub const Checker = struct {
 
     pub fn resolveTypeReferenceMembers(c: *Checker, t: types.TypeIndex, outMembers: *types.StructuredTypeMembers) void {
         const source = c.getTargetType(t);
-        const sourceObj = c.typesList.items[source].data.Object;
+        // Guard: source must have Object data variant.
+        if (source >= c.typesList.items.len) return;
+        const source_data = c.typesList.items[source].data;
+        if (source_data != .Object) return;
+        const sourceObj = source_data.Object;
 
         const typeParametersStart = sourceObj.typeArgumentsStart;
         const typeParametersLen = sourceObj.typeArgumentsLen;
 
-        const typeArgsStart = c.typesList.items[t].data.Object.typeArgumentsStart;
-        const typeArgsLen = c.typesList.items[t].data.Object.typeArgumentsLen;
+        // Guard: t must also have Object data variant.
+        if (t >= c.typesList.items.len) return;
+        const t_data = c.typesList.items[t].data;
+        if (t_data != .Object) return;
+        const typeArgsStart = t_data.Object.typeArgumentsStart;
+        const typeArgsLen = t_data.Object.typeArgumentsLen;
 
         // Go logic:
         // if len(typeArguments) == len(typeParameters)-1 {
@@ -2409,8 +2417,11 @@ pub const Checker = struct {
     }
 
     pub fn getConstraintOfTypeParameter(c: *Checker, t: types.TypeIndex) ?types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return null;
         if (c.typesList.items[t].flags & types.TypeFlags.TypeParameter != 0) {
-            const tp = &c.getTargetTypeData(t).TypeParameter;
+            const target_data = c.getTargetTypeData(t);
+            if (target_data != .TypeParameter) return null;
+            const tp = &target_data.TypeParameter;
             if (!tp.isTypeParameterConstraintResolved) {
                 resolveTypeParameterConstraint(c, t);
             }
@@ -11533,7 +11544,7 @@ pub const Checker = struct {
         var left = c.binder.ast.getNode(node).CallExpression.Expression;
         if (left != 0 and c.binder.ast.getKind(left) == .PropertyAccessExpression) {
             const name_node = c.binder.ast.getNode(left).PropertyAccessExpression.name;
-            if (name_node != 0) {
+            if (name_node != 0 and c.binder.ast.getKind(name_node) == .Identifier) {
                 const name_text = c.binder.ast.getNode(name_node).Identifier.Text;
                 if (std.mem.eql(u8, name_text, "for")) {
                     left = c.binder.ast.getNode(left).PropertyAccessExpression.Expression;
