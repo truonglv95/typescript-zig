@@ -1187,22 +1187,47 @@ pub const FourslashTest = struct {
         const c = self.checker orelse return "";
         const sf = self.sourceFile orelse return "";
         const p = self.parser orelse return "";
-        
+
         // Find the node at cursor position.
         const cursorPos = @as(u32, @intCast(self.cursorPos));
         const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
         if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return "";
-        
+
         // Get the symbol at this location.
         const sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) return "";
-        
+
         const symObj = c.binder.symbols.items[sym];
-        
+
         // Format the symbol's type.
         const sym_type = c.getTypeOfSymbol(sym) catch return "";
         if (sym_type == 0) return "";
-        
+
+        // Find the specific declaration the user is hovering on (if any).
+        // For overloaded functions, hovering on a specific overload should
+        // show that overload's signature, not just the first one.
+        var hovered_decl: ast_gen.NodeIndex = 0;
+        {
+            // Walk up from the cursor node to find a function-like declaration.
+            var cur: ast_gen.NodeIndex = node;
+            while (cur != 0) {
+                const k = p.ast.getNodeKind(cur);
+                switch (k) {
+                    .FunctionDeclaration, .MethodDeclaration, .Constructor,
+                    .FunctionExpression, .ArrowFunction, .GetAccessor, .SetAccessor,
+                    .CallSignature, .ConstructSignature,
+                    => {
+                        hovered_decl = cur;
+                        break;
+                    },
+                    else => {},
+                }
+                const parent = p.ast.getNodeParent(cur);
+                if (parent == cur or parent == 0) break;
+                cur = parent;
+            }
+        }
+
         const typeStr = c.typeToString(sym_type, 0, 0, null);
         if (std.mem.eql(u8, typeStr, "{}")) {
             // WORKAROUND: nodebuilder doesn't support functions yet, so typeToString returns {}.
@@ -1252,8 +1277,74 @@ pub const FourslashTest = struct {
                     }
                     out.appendSlice(aa, "(") catch {};
 
-                    const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
-                    const sig = &c.signatures.items[sigIdx];
+                    // Count visible signatures (excluding implementation signatures).
+                    // An implementation signature is one whose declaration has a body
+                    // AND the symbol has multiple declarations (overloads).
+                    var visible_count: usize = 0;
+                    var first_visible_sig_idx: checker_module.types.SignatureIndex = 0;
+                    var found_first = false;
+                    var hovered_sig_idx: checker_module.types.SignatureIndex = 0;
+                    var found_hovered = false;
+                    var hovered_is_implementation = false;
+                    for (0..sigs.len) |i| {
+                        const sigIdx = c.resolvedSignaturesPool.items[sigs.start + i];
+                        const sig = &c.signatures.items[sigIdx];
+                        const decl = sig.declaration;
+                        var is_implementation = false;
+                        if (decl != 0 and sigs.len > 1) {
+                            const body = ast_utils.getBodyOfNode(&p.ast, decl);
+                            if (body != 0) {
+                                // This signature has a body — it's an implementation.
+                                // Check if the previous declaration is an overload
+                                // (no body) with the same parent and kind.
+                                const decl_data = p.ast.getNode(decl);
+                                const decl_parent = p.ast.getNodeParent(decl);
+                                var prev_idx: ?usize = null;
+                                for (symObj.Declarations.items, 0..) |d, j| {
+                                    if (d == decl) {
+                                        prev_idx = j;
+                                        break;
+                                    }
+                                }
+                                if (prev_idx) |pi| {
+                                    if (pi > 0) {
+                                        const prev_decl = symObj.Declarations.items[pi - 1];
+                                        const prev_data = p.ast.getNode(prev_decl);
+                                        const prev_parent = p.ast.getNodeParent(prev_decl);
+                                        const prev_body = ast_utils.getBodyOfNode(&p.ast, prev_decl);
+                                        if (prev_parent == decl_parent and
+                                            std.meta.activeTag(prev_data) == std.meta.activeTag(decl_data) and
+                                            prev_body == 0)
+                                        {
+                                            is_implementation = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // If this signature's declaration matches the hovered
+                        // declaration, prefer it (unless it's the implementation).
+                        if (hovered_decl != 0 and decl == hovered_decl) {
+                            hovered_sig_idx = sigIdx;
+                            found_hovered = true;
+                            hovered_is_implementation = is_implementation;
+                        }
+                        if (!is_implementation) {
+                            visible_count += 1;
+                            if (!found_first) {
+                                first_visible_sig_idx = sigIdx;
+                                found_first = true;
+                            }
+                        }
+                    }
+                    if (!found_first) {
+                        first_visible_sig_idx = c.resolvedSignaturesPool.items[sigs.start];
+                        visible_count = sigs.len;
+                    }
+                    // Use the hovered signature if found AND it's not the
+                    // implementation; otherwise use the first visible overload.
+                    const display_sig_idx = if (found_hovered and !hovered_is_implementation) hovered_sig_idx else first_visible_sig_idx;
+                    const sig = &c.signatures.items[display_sig_idx];
 
                     const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
                     for (params, 0..) |paramSym, i| {
@@ -1274,6 +1365,13 @@ pub const FourslashTest = struct {
                     const retType = c.getReturnTypeOfSignature(sig);
                     const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
                     out.appendSlice(aa, retTypeStr) catch {};
+
+                    // Append "(+N overload)" if there are additional visible signatures.
+                    // Go's quickinfo displays the count of overloads beyond the first.
+                    if (visible_count > 1) {
+                        const overloads_str = std.fmt.allocPrint(aa, " (+{d} overload{s})", .{ visible_count - 1, if (visible_count - 1 == 1) "" else "s" }) catch "";
+                        out.appendSlice(aa, overloads_str) catch {};
+                    }
 
                     return out.toOwnedSlice(aa) catch "";
                 }

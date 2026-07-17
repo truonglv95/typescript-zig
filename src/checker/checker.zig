@@ -3820,16 +3820,27 @@ pub const Checker = struct {
                 }
                 if (decl.Initializer) |initExpr| {
                     const initType = try self.checkExpressionAdHoc(initExpr);
-                    // Widen literal types for variable declarations:
-                    //   var x = 123   -> number (not 123-literal)
-                    //   var x = "abc" -> string (not "abc"-literal)
-                    //   var x = true  -> boolean (not true-literal)
-                    // This matches TypeScript's default widening behavior.
-                    if (initType != 0 and initType < self.typesList.items.len) {
-                        const f = self.typesList.items[initType].flags;
-                        if ((f & types.TypeFlags.NumberLiteral) != 0) return try self.getNumberType();
-                        if ((f & types.TypeFlags.StringLiteral) != 0) return try self.getStringType();
-                        if ((f & types.TypeFlags.BooleanLiteral) != 0) return try self.getBooleanType();
+                    // Determine if this is a const declaration. Const declarations
+                    // preserve literal types (no widening). Var/let widen literals.
+                    var is_const = false;
+                    const parent_vdl = self.binder.ast.getNodeParent(nodeIndex);
+                    if (parent_vdl != 0 and self.binder.ast.getNodeKind(parent_vdl) == .VariableDeclarationList) {
+                        const vdl = self.binder.ast.getNode(parent_vdl).VariableDeclarationList;
+                        // NodeFlag.Const = 1 << 1 (see ast/core.zig NodeFlag)
+                        if ((vdl.Flags & 0x2) != 0) is_const = true;
+                    }
+                    if (!is_const) {
+                        // Widen literal types for var/let declarations:
+                        //   var x = 123   -> number (not 123-literal)
+                        //   var x = "abc" -> string (not "abc"-literal)
+                        //   var x = true  -> boolean (not true-literal)
+                        // This matches TypeScript's default widening behavior.
+                        if (initType != 0 and initType < self.typesList.items.len) {
+                            const f = self.typesList.items[initType].flags;
+                            if ((f & types.TypeFlags.NumberLiteral) != 0) return try self.getNumberType();
+                            if ((f & types.TypeFlags.StringLiteral) != 0) return try self.getStringType();
+                            if ((f & types.TypeFlags.BooleanLiteral) != 0) return try self.getBooleanType();
+                        }
                     }
                     return initType;
                 }
@@ -4197,10 +4208,36 @@ pub const Checker = struct {
             .ArrowFunction => |af| {
                 var retType: u32 = 0;
                 if (af.Type) |t| {
-                    retType = try self.getTypeOfNode(t);
-                } else {
-                    retType = try self.getAnyType();
+                    if (t != 0) retType = try self.getTypeOfNode(t);
                 }
+                // If no explicit return type annotation, infer from the body.
+                if (retType == 0) {
+                    if (af.Body) |body| {
+                        if (body != 0) {
+                            const body_kind = self.binder.ast.getNodeKind(body);
+                            if (body_kind != .Block) {
+                                // Expression body: check the expression to get its type.
+                                const t_inferred = self.checkExpressionAdHoc(body) catch 0;
+                                if (t_inferred != 0) {
+                                    // Widen literal types.
+                                    var widened = t_inferred;
+                                    if (t_inferred < self.typesList.items.len) {
+                                        const f = self.typesList.items[t_inferred].flags;
+                                        if ((f & types.TypeFlags.NumberLiteral) != 0) {
+                                            widened = self.getNumberType() catch widened;
+                                        } else if ((f & types.TypeFlags.StringLiteral) != 0) {
+                                            widened = self.getStringType() catch widened;
+                                        } else if ((f & types.TypeFlags.BooleanLiteral) != 0) {
+                                            widened = self.getBooleanType() catch widened;
+                                        }
+                                    }
+                                    retType = widened;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (retType == 0) retType = try self.getAnyType();
 
                 var paramCount: u32 = 0;
                 if (af.Parameters != 0) {
@@ -6135,6 +6172,14 @@ pub const Checker = struct {
                 }
             }
         }
+
+        // Case 4: param and arg are both Function types — recurse on return types.
+        // This handles cases like: param: (value: T) => U, arg: (s: string) => number
+        // We unify U with number to infer U = number.
+        if (p.data == .Function and a.data == .Function) {
+            try self.unifyTypes(p.data.Function.returnType, a.data.Function.returnType, inferred);
+            return;
+        }
     }
 
     /// Substitute type parameters in a type with their inferred types.
@@ -6146,7 +6191,9 @@ pub const Checker = struct {
         if (t == 0 or t >= self.typesList.items.len) return t;
         const type_data = self.typesList.items[t];
 
-        // TypeParameter: replace with inferred type (or any if not inferred).
+        // TypeParameter: replace with inferred type. If not in the inferred
+        // map, leave the type parameter unchanged (it's a different type
+        // parameter that's not being substituted).
         if ((type_data.flags & types.TypeFlags.TypeParameter) != 0) {
             if (type_data.symbol) |sym| {
                 if (inferred.get(sym)) |inferred_t| {
@@ -6174,6 +6221,8 @@ pub const Checker = struct {
                         }
                     }
                 }
+                // Not in inferred map: leave unchanged.
+                return t;
             }
             return try self.getAnyType();
         }
@@ -25252,14 +25301,61 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
 
     const returnType = c.getReturnTypeOfSignature(&c.signatures.items[signature]);
 
-    if (c.getTypeFlags(returnType) & types.TypeFlags.ESSymbolLike != 0 and c.isSymbolOrSymbolForCall(node_idx)) {
+    // Generic type inference: if the signature's declaration has type
+    // parameters (e.g., `function map<T, U>(arr: T[], fn: (x: T) => U): U[]`),
+    // infer T (and other type params) from the argument types, then
+    // substitute them into the return type. This is the same logic as
+    // `inferAndSubstituteGenericTypes` but called from the worker path.
+    const sig_decl = c.signatures.items[signature].declaration;
+    var finalReturnType = returnType;
+    if (sig_decl != 0 and !isNew) {
+        const decl_data = c.binder.ast.getNode(sig_decl);
+        const tp_list_id: u32 = switch (decl_data) {
+            .FunctionDeclaration => |f| f.TypeParameters orelse 0,
+            .FunctionExpression => |f| f.TypeParameters orelse 0,
+            .ArrowFunction => |f| f.TypeParameters orelse 0,
+            .MethodDeclaration => |m| m.TypeParameters orelse 0,
+            .CallSignature => |cs| cs.TypeParameters orelse 0,
+            .ConstructSignature => |cs| cs.TypeParameters orelse 0,
+            else => 0,
+        };
+        if (tp_list_id != 0) {
+            const tp_nodes = c.binder.ast.getNodeList(tp_list_id);
+            if (tp_nodes.len > 0) {
+                // Build params list.
+                var params_id: u32 = 0;
+                switch (decl_data) {
+                    .FunctionDeclaration => |f| params_id = f.Parameters,
+                    .FunctionExpression => |f| params_id = f.Parameters,
+                    .ArrowFunction => |f| params_id = f.Parameters,
+                    .MethodDeclaration => |m| params_id = m.Parameters,
+                    .CallSignature => |cs| params_id = cs.Parameters,
+                    .ConstructSignature => |cs| params_id = cs.Parameters,
+                    else => {},
+                }
+                const params = if (params_id != 0) c.binder.ast.getNodeList(params_id) else &[_]u32{};
+                const argumentsList = if (isNew) c.binder.ast.getNode(node_idx).NewExpression.Arguments else c.binder.ast.getNode(node_idx).CallExpression.Arguments;
+                const args = if ((argumentsList orelse 0) != 0) c.binder.ast.getNodeList(argumentsList.?) else &[_]u32{};
+                // Build arg_types.
+                var arg_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                defer arg_types.deinit(c.allocator);
+                for (args) |arg| {
+                    const arg_t = c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0);
+                    arg_types.append(c.allocator, arg_t) catch {};
+                }
+                finalReturnType = c.inferAndSubstituteGenericTypes(sig_decl, params, args, arg_types.items, returnType) catch returnType;
+            }
+        }
+    }
+
+    if (c.getTypeFlags(finalReturnType) & types.TypeFlags.ESSymbolLike != 0 and c.isSymbolOrSymbolForCall(node_idx)) {
         return c.anyTypeIndex orelse 0;
     }
 
     if (!isNew) {
         const questionDotToken = c.binder.ast.getNode(node_idx).CallExpression.QuestionDotToken;
         const parent: u32 = 0;
-        if (questionDotToken == 0 and c.binder.ast.getKind(parent) == .ExpressionStatement and c.getTypeFlags(returnType) & types.TypeFlags.Void != 0 and relater.getTypePredicateOfSignature(c, signature) != null) {
+        if (questionDotToken == 0 and c.binder.ast.getKind(parent) == .ExpressionStatement and c.getTypeFlags(finalReturnType) & types.TypeFlags.Void != 0 and relater.getTypePredicateOfSignature(c, signature) != null) {
             if (!false) {
                 c.reportError(expression, &diagnostics_gen.Assertions_require_the_call_target_to_be_an_identifier_or_qualified_name);
             } else if (flow.getEffectsSignature(c, node_idx) == null) {
@@ -25269,7 +25365,7 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
         }
     }
 
-    return returnType;
+    return finalReturnType;
 }
 pub fn checkClassExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
     // Port of checker.go::checkClassExpression.
