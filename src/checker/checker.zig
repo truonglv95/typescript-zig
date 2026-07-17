@@ -1228,6 +1228,21 @@ pub const Checker = struct {
             return .{ .start = 0, .len = 0 };
         }
 
+        // Fast path: for Function types, synthesize a signature from the
+        // function's declaration node directly. This avoids the slow path
+        // through resolveStructuredTypeMembers for anonymous function types.
+        if (sigKind == .Call and typeData.data == .Function) {
+            const fn_decl = typeData.data.Function.declarationNode;
+            if (fn_decl != 0) {
+                const sig_idx = c.getSignatureFromDeclaration(fn_decl);
+                if (sig_idx != 0) {
+                    const start = c.resolvedSignaturesPool.items.len;
+                    c.resolvedSignaturesPool.append(c.allocator, sig_idx) catch {};
+                    return .{ .start = @intCast(start), .len = 1 };
+                }
+            }
+        }
+
         const resolved = c.resolveStructuredTypeMembers(apparent);
         if (sigKind == .Call) {
             if (resolved.callSignaturesLen > 0) {

@@ -1231,7 +1231,9 @@ pub const FourslashTest = struct {
         const typeStr = c.typeToString(sym_type, 0, 0, null);
         if (std.mem.eql(u8, typeStr, "{}")) {
             // WORKAROUND: nodebuilder doesn't support functions yet, so typeToString returns {}.
-            // Extract the function signature manually using checker APIs
+            // Extract the function signature manually using checker APIs.
+            // Only apply to Function symbols — Property symbols are handled
+            // by the property display path below.
             if ((symObj.Flags & symbol.SymbolFlags.Function) != 0) {
                 const sigs = c.getSignaturesOfSymbol(sym);
                 if (sigs.len > 0) {
