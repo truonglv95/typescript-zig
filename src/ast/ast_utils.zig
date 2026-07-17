@@ -1786,10 +1786,23 @@ pub fn subtreeFacts(a: anytype) u32 {
     return 0;
 }
 
-pub fn getTypeOfNode(a: anytype, b: anytype) ast.NodeIndex {
-    _ = a;
-    _ = b;
-    return 0;
+pub fn getTypeOfNode(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast.NodeIndex {
+    // Returns the Type child of a function-like node (return type annotation).
+    // Go: node.Type() — returns the return type node for function declarations,
+    // method declarations, call signatures, etc.
+    const node = tree.getNode(nodeIndex);
+    switch (node) {
+        .FunctionDeclaration => |n| return n.Type orelse 0,
+        .FunctionExpression => |n| return n.Type orelse 0,
+        .MethodDeclaration => |n| return n.Type orelse 0,
+        .ArrowFunction => |n| return n.Type orelse 0,
+        .CallSignature => |n| return n.Type orelse 0,
+        .ConstructSignature => |n| return n.Type orelse 0,
+        .GetAccessor => |n| return n.Type orelse 0,
+        .SetAccessor => |n| return n.Type orelse 0,
+        .Constructor => |n| return n.Type orelse 0,
+        else => return 0,
+    }
 }
 
 pub fn getBodyOfNode(tree: *ast.Ast, nodeIndex: ast_gen.NodeIndex) ast.NodeIndex {
