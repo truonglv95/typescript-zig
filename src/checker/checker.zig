@@ -974,10 +974,33 @@ pub const Checker = struct {
             return members;
         };
 
-        const membersMap = c.binder.symbolMembers.get(symIdx) orelse return members;
+        // Try the symbol's own members.
+        const membersMap = c.binder.symbolMembers.getPtr(symIdx);
+        if (membersMap == null) {
+            // Symbol has no members map. Try symbol 0 (fallback for
+            // containers that didn't have a symbol at binding time).
+            const fallback = c.binder.symbolMembers.getPtr(0);
+            if (fallback != null) {
+                // Only pick up __call/__new/__index from fallback, not
+                // regular properties (which could belong to other types).
+                const fb = fallback.?;
+                if (fb.get("__call")) |call_sym| {
+                    const range = c.getSignaturesOfSymbol(call_sym);
+                    members.callSignaturesStart = range.start;
+                    members.callSignaturesLen = range.len;
+                }
+                if (fb.get("__new")) |new_sym| {
+                    const range = c.getSignaturesOfSymbol(new_sym);
+                    members.constructSignaturesStart = range.start;
+                    members.constructSignaturesLen = range.len;
+                }
+            }
+            c.resolvedDeclaredMembers.put(c.allocator, t, members) catch {};
+            return members;
+        }
 
         const startProperties = c.resolvedPropertiesPool.items.len;
-        var it = membersMap.iterator();
+        var it = membersMap.?.iterator();
 
         var callSymbol: ?ast_gen.SymbolIndex = null;
         var constructSymbol: ?ast_gen.SymbolIndex = null;
