@@ -2011,6 +2011,18 @@ pub const Checker = struct {
         }
     }
 
+    /// Dupe a string using the checker allocator, tracking the allocation
+    /// in `ownedStrings` so it is freed on `deinit`. Returns `fallback` on
+    /// allocation failure.
+    pub fn dupeTracked(self: *Checker, src: []const u8, fallback: []const u8) []const u8 {
+        const dup = self.allocator.dupe(u8, src) catch return fallback;
+        self.ownedStrings.append(self.allocator, dup) catch {
+            self.allocator.free(dup);
+            return fallback;
+        };
+        return dup;
+    }
+
     pub fn TypeToStringEx(self: *Checker, t: types.TypeIndex, enclosingDeclaration: ast_gen.NodeIndex, formatFlags: u32, tracer: ?*nodebuilder.VerbosityContext) []const u8 {
         if (t == 0) return "any";
         const typeData = &self.typesList.items[t];
@@ -2024,7 +2036,6 @@ pub const Checker = struct {
         if (typeData.flags & types.TypeFlags.Unknown != 0) return "unknown";
         if (typeData.flags & types.TypeFlags.Never != 0) return "never";
         if (typeData.flags & types.TypeFlags.BigInt != 0) return "bigint";
-
         if (typeData.flags & types.TypeFlags.StringLiteral != 0) {
             const str = std.fmt.allocPrint(self.allocator, "\"{s}\"", .{typeData.data.StringLiteral.text}) catch return "string";
             self.ownedStrings.append(self.allocator, str) catch {};
@@ -2051,6 +2062,7 @@ pub const Checker = struct {
             newLine = "\n";
         }
         var text_writer = textwriter_pkg.TextWriter.init(self.allocator, newLine, 4);
+        defer text_writer.deinit();
         var emit_writer = text_writer.getEmitTextWriter();
 
         var noTruncation = false;
@@ -2174,7 +2186,7 @@ pub const Checker = struct {
                             if (ta_len > 0 and ta_start + ta_len <= self.typesList.items.len) {
                                 // Build "Name<arg1, arg2, ...>".
                                 var buf = std.ArrayListUnmanaged(u8).empty;
-                                buf.appendSlice(self.allocator, name) catch return self.allocator.dupe(u8, name) catch "Object";
+                                buf.appendSlice(self.allocator, name) catch return self.dupeTracked(name, "Object");
                                 buf.appendSlice(self.allocator, "<") catch {};
                                 for (0..ta_len) |i| {
                                     if (i > 0) buf.appendSlice(self.allocator, ", ") catch {};
@@ -2183,12 +2195,12 @@ pub const Checker = struct {
                                     buf.appendSlice(self.allocator, arg_str) catch {};
                                 }
                                 buf.appendSlice(self.allocator, ">") catch {};
-                                const result = buf.toOwnedSlice(self.allocator) catch return self.allocator.dupe(u8, name) catch "Object";
+                                const result = buf.toOwnedSlice(self.allocator) catch return self.dupeTracked(name, "Object");
                                 self.ownedStrings.append(self.allocator, result) catch {};
                                 return result;
                             }
                         }
-                        return self.allocator.dupe(u8, name) catch "Object";
+                        return self.dupeTracked(name, "Object");
                     }
                 }
                 // For non-Reference Object types (anonymous), try to render
@@ -2228,7 +2240,7 @@ pub const Checker = struct {
                         // If not anonymous or no members, use the symbol name.
                         const name = self.binder.symbols.items[sym].Name;
                         if (name.len > 0) {
-                            return self.allocator.dupe(u8, name) catch "Object";
+                            return self.dupeTracked(name, "Object");
                         }
                     }
                 }
@@ -2301,7 +2313,7 @@ pub const Checker = struct {
                     if (sym != 0 and sym < self.binder.symbols.items.len) {
                         const name = self.binder.symbols.items[sym].Name;
                         if (name.len > 0) {
-                            return self.allocator.dupe(u8, name) catch "TypeParameter";
+                            return self.dupeTracked(name, "TypeParameter");
                         }
                     }
                 }
@@ -2311,6 +2323,7 @@ pub const Checker = struct {
         }
 
         var factory = @import("../printer/factory.zig").NodeFactory.init(self.allocator, self.binder.ast);
+        factory.ownedStringsTracker = &self.ownedStrings;
         defer factory.deinit();
         var emitContext = emitcontext_pkg.EmitContext.init(self.allocator, self.binder.ast, &factory);
         defer emitContext.deinit();
@@ -2319,7 +2332,7 @@ pub const Checker = struct {
         var p = printer_pkg.Printer.init(self.binder.ast, &emitContext, &emit_writer);
         p.printNode(typeNode) catch return "type"; // Note: printNode might have a different signature
 
-        return self.allocator.dupe(u8, text_writer.string()) catch "type";
+        return self.dupeTracked(text_writer.string(), "type");
     }
 
     pub fn TypeToString(self: *Checker, t: types.TypeIndex) []const u8 {

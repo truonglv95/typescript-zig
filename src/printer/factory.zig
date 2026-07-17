@@ -388,6 +388,7 @@ pub const NodeFactory = struct {
     }
     pub fn newIdentifier(self: *NodeFactory, text: []const u8) ast_gen.NodeIndex {
         const owned_text = self.allocator.dupe(u8, text) catch unreachable;
+        if (self.ownedStringsTracker) |t| t.append(self.allocator, owned_text) catch unreachable;
         return self.tree.pushNode(.{
             .Identifier = .{
                 .Text = owned_text,
@@ -397,6 +398,7 @@ pub const NodeFactory = struct {
     }
     pub fn newPrivateIdentifier(self: *NodeFactory, text: []const u8) ast_gen.NodeIndex {
         const owned_text = self.allocator.dupe(u8, text) catch unreachable;
+        if (self.ownedStringsTracker) |t| t.append(self.allocator, owned_text) catch unreachable;
         return self.tree.pushNode(.{
             .PrivateIdentifier = .{
                 .Text = owned_text,
@@ -865,6 +867,14 @@ pub const NodeFactory = struct {
     allocator: std.mem.Allocator,
     tree: *ast.Ast,
     nextAutoGenerateId: u32,
+    /// Optional tracker (owned by a longer-lived owner such as the checker)
+    /// that takes ownership of strings allocated by `newIdentifier` /
+    /// `newPrivateIdentifier`. When `null`, the strings are still allocated
+    /// (so they outlive the factory) but nobody frees them — matching the
+    /// pre-existing leak behavior. When set, the strings are appended to
+    /// this list and freed when the owner (e.g. `Checker.deinit`) is
+    /// destroyed.
+    ownedStringsTracker: ?*std.ArrayListUnmanaged([]const u8) = null,
 
     pub fn init(allocator: std.mem.Allocator, tree: *ast.Ast) NodeFactory {
         return .{

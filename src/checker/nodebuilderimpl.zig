@@ -420,7 +420,13 @@ pub const NodeBuilderImpl = struct {
     }
 
     fn factory(b: *NodeBuilderImpl) factory_pkg.NodeFactory {
-        return factory_pkg.NodeFactory.init(b.c.allocator, b.c.binder.ast);
+        var f = factory_pkg.NodeFactory.init(b.c.allocator, b.c.binder.ast);
+        // Strings allocated by the factory (e.g. by `newIdentifier`) are
+        // stored in AST nodes whose lifetime is tied to the binder/checker.
+        // Track those allocations on the checker so they are freed when the
+        // checker is destroyed — the factory itself is short-lived.
+        f.ownedStringsTracker = &b.c.ownedStrings;
+        return f;
     }
 
     fn createKeywordTypeNode(b: *NodeBuilderImpl, kind: ast_gen.NodeData) ast_gen.NodeIndex {
