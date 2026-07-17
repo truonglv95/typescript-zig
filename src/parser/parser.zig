@@ -1125,6 +1125,20 @@ pub const Parser = struct {
             .DefaultType = defaultType,
         } });
         self.setNodeStartPos(param, start_pos);
+        if (param != 0 and param < self.ast.positions.items.len) {
+            var end_pos = self.ast.getNodeEnd(name);
+            if (constraint) |c_node| {
+                if (c_node != 0) {
+                    end_pos = self.ast.getNodeEnd(c_node);
+                }
+            }
+            if (defaultType) |d_node| {
+                if (d_node != 0) {
+                    end_pos = self.ast.getNodeEnd(d_node);
+                }
+            }
+            self.ast.positions.items[param].end = @intCast(end_pos);
+        }
         return param;
     }
 
@@ -3161,20 +3175,26 @@ pub const Parser = struct {
     }
 
     pub fn parseEntityName(self: *Parser) anyerror!ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
+        const end_pos = self.scanner.getTokenEnd();
         const text = self.scanner.state.tokenValue;
         var entity = try self.ast.pushNode(.{ .Identifier = .{
             .Flags = 0,
             .Text = text,
         } });
+        self.ast.positions.items[entity] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
         self.nextToken();
 
         while (self.token == kind.Kind.DotToken) {
             self.nextToken(); // consume dot
+            const right_start = self.scanner.state.tokenStart;
+            const right_end = self.scanner.getTokenEnd();
             const rightText = self.scanner.state.tokenValue;
             const right = try self.ast.pushNode(.{ .Identifier = .{
                 .Flags = 0,
                 .Text = rightText,
             } });
+            self.ast.positions.items[right] = .{ .pos = @intCast(right_start), .end = @intCast(right_end) };
             self.nextToken(); // consume identifier
 
             entity = try self.ast.pushNode(.{ .QualifiedName = .{
@@ -3182,38 +3202,40 @@ pub const Parser = struct {
                 .Left = entity,
                 .Right = right,
             } });
+            self.ast.positions.items[entity] = .{ .pos = @intCast(start_pos), .end = @intCast(right_end) };
         }
         return entity;
     }
 
+    pub fn pushKeywordNode(self: *Parser, nodeData: ast_gen.NodeData) !ast_gen.NodeIndex {
+        const start_pos = self.scanner.state.tokenStart;
+        const end_pos = self.scanner.getTokenEnd();
+        const node = try self.ast.pushNode(nodeData);
+        self.setNodeStartPos(node, start_pos);
+        self.ast.positions.items[node].end = @intCast(end_pos);
+        self.nextToken();
+        return node;
+    }
+
     pub fn parsePrimaryType(self: *Parser) anyerror!ast_gen.NodeIndex {
         if (self.token == kind.Kind.NumberKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .NumberKeyword = void{} });
+            return try self.pushKeywordNode(.{ .NumberKeyword = void{} });
         } else if (self.token == kind.Kind.StringKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .StringKeyword = void{} });
+            return try self.pushKeywordNode(.{ .StringKeyword = void{} });
         } else if (self.token == kind.Kind.BooleanKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .BooleanKeyword = void{} });
+            return try self.pushKeywordNode(.{ .BooleanKeyword = void{} });
         } else if (self.token == kind.Kind.AnyKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .AnyKeyword = void{} });
+            return try self.pushKeywordNode(.{ .AnyKeyword = void{} });
         } else if (self.token == kind.Kind.UnknownKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .UnknownKeyword = void{} });
+            return try self.pushKeywordNode(.{ .UnknownKeyword = void{} });
         } else if (self.token == kind.Kind.NeverKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .NeverKeyword = void{} });
+            return try self.pushKeywordNode(.{ .NeverKeyword = void{} });
         } else if (self.token == kind.Kind.VoidKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .VoidKeyword = void{} });
+            return try self.pushKeywordNode(.{ .VoidKeyword = void{} });
         } else if (self.token == kind.Kind.UndefinedKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .UndefinedKeyword = void{} });
+            return try self.pushKeywordNode(.{ .UndefinedKeyword = void{} });
         } else if (self.token == kind.Kind.SymbolKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .SymbolKeyword = void{} });
+            return try self.pushKeywordNode(.{ .SymbolKeyword = void{} });
         } else if (self.token == kind.Kind.ThisKeyword) {
             const this_start = self.scanner.state.tokenStart;
             self.nextToken();
@@ -3224,14 +3246,11 @@ pub const Parser = struct {
             }
             return node;
         } else if (self.token == kind.Kind.ObjectKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .ObjectKeyword = void{} });
+            return try self.pushKeywordNode(.{ .ObjectKeyword = void{} });
         } else if (self.token == kind.Kind.BigIntKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .BigIntKeyword = void{} });
+            return try self.pushKeywordNode(.{ .BigIntKeyword = void{} });
         } else if (self.token == kind.Kind.IntrinsicKeyword) {
-            self.nextToken();
-            return try self.ast.pushNode(.{ .IntrinsicKeyword = void{} });
+            return try self.pushKeywordNode(.{ .IntrinsicKeyword = void{} });
         } else if (self.token == kind.Kind.NoSubstitutionTemplateLiteral or self.token == kind.Kind.StringLiteral or self.token == kind.Kind.NumericLiteral or self.token == kind.Kind.BigIntLiteral) {
             const tokenKind = self.token;
             const text = self.scanner.state.tokenValue;

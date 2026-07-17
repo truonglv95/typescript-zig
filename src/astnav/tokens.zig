@@ -14,15 +14,8 @@ const GetTouchingNodeVisitor = struct {
         const pos = self.tree.getNodePos(node);
         const end = self.tree.getNodeEnd(node);
 
-        // std.debug.print("  [GetTouchingNodeVisitor] CHECKING {} ({s}) pos={} end={} target={}\n", .{node, @tagName(self.tree.getNodeKind(node)), pos, end, self.position});
-
-        // Match if position is in [pos, end]. Use `pos <= position and position <= end`
-        // to include the end boundary (cursor at end of identifier matches that
-        // identifier). Skip zero-width tokens (pos == end) to avoid matching
-        // tokens like EndOfFile that span nothing.
         if (pos == end) return; // zero-width — skip
         if (pos <= self.position and self.position <= end) {
-            // std.debug.print("  [GetTouchingNodeVisitor] Recursing into {} ({s})\n", .{node, @tagName(self.tree.getNodeKind(node))});
             var childVisitor = GetTouchingNodeVisitor{
                 .tree = self.tree,
                 .position = self.position,
@@ -34,6 +27,7 @@ const GetTouchingNodeVisitor = struct {
             } else {
                 self.found = node;
             }
+        } else {
         }
     }
 

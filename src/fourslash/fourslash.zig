@@ -3998,6 +3998,19 @@ pub const FourslashTest = struct {
                                     const tp = p.ast.getNode(tp_node).TypeParameter;
                                     const tp_name = ast_utils.getTextOfNode(&p.ast, tp.name);
                                     out.appendSlice(aa, tp_name) catch {};
+                                    // Print constraint if any
+                                    if (tp.Constraint) |constraint_node| {
+                                        if (constraint_node != 0) {
+                                            out.appendSlice(aa, " extends ") catch {};
+                                            const constraint_t = c.getTypeFromTypeNode(constraint_node);
+                                            if (constraint_t != 0) {
+                                                const constraint_str = c.typeToString(constraint_t, 0, 0, null);
+                                                out.appendSlice(aa, constraint_str) catch {};
+                                            } else {
+                                                out.appendSlice(aa, ast_utils.getTextOfNode(&p.ast, constraint_node)) catch {};
+                                            }
+                                        }
+                                    }
                                     // Default type: T = string
                                     if (tp.DefaultType) |default_node| {
                                         if (default_node != 0) {
@@ -4103,6 +4116,19 @@ pub const FourslashTest = struct {
                                             const tp_data = p.ast.getNode(tp_node).TypeParameter;
                                             const tp_name = ast_utils.getTextOfNode(&p.ast, tp_data.name);
                                             out.appendSlice(aa, tp_name) catch {};
+                                            // Print constraint if any
+                                            if (tp_data.Constraint) |constraint_node| {
+                                                if (constraint_node != 0) {
+                                                    out.appendSlice(aa, " extends ") catch {};
+                                                    const constraint_t = c.getTypeFromTypeNode(constraint_node);
+                                                    if (constraint_t != 0) {
+                                                        const constraint_str = c.typeToString(constraint_t, 0, 0, null);
+                                                        out.appendSlice(aa, constraint_str) catch {};
+                                                    } else {
+                                                        out.appendSlice(aa, ast_utils.getTextOfNode(&p.ast, constraint_node)) catch {};
+                                                    }
+                                                }
+                                            }
                                             // Append default type if present: `T = string`
                                             if (tp_data.DefaultType) |dt| {
                                                 if (dt != 0) {
