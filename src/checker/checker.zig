@@ -23680,6 +23680,13 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
         if (sym != 0 and sym != c.unknownSymbol) {
             return sym;
         }
+        // If value resolution failed, try Type meaning. This is needed for
+        // type references like `T` in `type X = T` where T is a type parameter.
+        const name = ast_utils.getTextOfNode(c.binder.ast, node);
+        const type_sym = resolveName(c, node, name, symbol.SymbolFlags.Type, null, false, false);
+        if (type_sym != 0 and type_sym != c.unknownSymbol) {
+            return type_sym;
+        }
     }
 
     if (c.binder.ast.getNodeKind(node) == .PropertyAccessExpression) {

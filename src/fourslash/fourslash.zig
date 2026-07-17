@@ -1767,8 +1767,131 @@ pub const FourslashTest = struct {
             const aa = self.arena.allocator();
             out.appendSlice(aa, "type ") catch {};
             out.appendSlice(aa, symObj.Name) catch {};
+            // Append type parameters with optional default values.
+            if (symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                const decl_data = p.ast.getNode(decl_node);
+                const tp_list: ?u32 = switch (decl_data) {
+                    .TypeAliasDeclaration => |tad| tad.TypeParameters,
+                    else => null,
+                };
+                if (tp_list) |tpl| {
+                    if (tpl != 0) {
+                        const tp_nodes = p.ast.getNodeList(tpl);
+                        if (tp_nodes.len > 0) {
+                            out.appendSlice(aa, "<") catch {};
+                            for (tp_nodes, 0..) |tp_node, i| {
+                                if (i > 0) out.appendSlice(aa, ", ") catch {};
+                                if (tp_node != 0) {
+                                    const tp = p.ast.getNode(tp_node).TypeParameter;
+                                    const tp_name = ast_utils.getTextOfNode(&p.ast, tp.name);
+                                    out.appendSlice(aa, tp_name) catch {};
+                                    // Default type: T = string
+                                    if (tp.DefaultType) |default_node| {
+                                        if (default_node != 0) {
+                                            // Try to get the type from the type node and stringify.
+                                            const default_type = c.getTypeFromTypeNode(default_node);
+                                            if (default_type != 0) {
+                                                const default_str = c.typeToString(default_type, 0, 0, null);
+                                                if (default_str.len > 0) {
+                                                    out.appendSlice(aa, " = ") catch {};
+                                                    out.appendSlice(aa, default_str) catch {};
+                                                }
+                                            } else {
+                                                // Fallback: get text from source.
+                                                const dn_pos = p.ast.getNodePos(default_node);
+                                                const dn_end = p.ast.getNodeEnd(default_node);
+                                                if (dn_pos > 0 and dn_end > dn_pos and dn_end <= p.ast.sourceText.len) {
+                                                    out.appendSlice(aa, " = ") catch {};
+                                                    out.appendSlice(aa, p.ast.sourceText[dn_pos..dn_end]) catch {};
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            out.appendSlice(aa, ">") catch {};
+                        }
+                    }
+                }
+            }
             out.appendSlice(aa, " = ") catch {};
             out.appendSlice(aa, typeStr) catch {};
+            return out.toOwnedSlice(aa) catch "";
+        }
+
+        // TypeParameter: format as "(type parameter) Name in type ContainerName<...>"
+        if ((symObj.Flags & symbol.SymbolFlags.TypeParameter) != 0) {
+            var out = std.ArrayListUnmanaged(u8).empty;
+            const aa = self.arena.allocator();
+            out.appendSlice(aa, "(type parameter) ") catch {};
+            out.appendSlice(aa, symObj.Name) catch {};
+            // Find the parent type declaration (TypeAlias, Class, Interface, Function).
+            // TypeParameter symbols declared as Locals don't have Parent set,
+            // so walk up the AST from the declaration to find the parent.
+            var parent_sym: ast_gen.SymbolIndex = if (symObj.Parent) |ps| ps else 0;
+            if (parent_sym == 0 or parent_sym >= c.binder.symbols.items.len) {
+                if (symObj.Declarations.items.len > 0) {
+                    const tp_decl = symObj.Declarations.items[0];
+                    var cur = p.ast.getNodeParent(tp_decl);
+                    while (cur != 0) {
+                        const k = p.ast.getNodeKind(cur);
+                        switch (k) {
+                            .TypeAliasDeclaration, .ClassDeclaration, .ClassExpression,
+                            .InterfaceDeclaration, .FunctionDeclaration, .MethodDeclaration,
+                            .FunctionExpression, .ArrowFunction, .Constructor,
+                            => {
+                                const cur_sym = p.ast.getNodeSymbol(cur) orelse 0;
+                                if (cur_sym != 0 and cur_sym < c.binder.symbols.items.len) {
+                                    parent_sym = cur_sym;
+                                }
+                                break;
+                            },
+                            else => {},
+                        }
+                        cur = p.ast.getNodeParent(cur);
+                    }
+                }
+            }
+            if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
+                const parent_obj = c.binder.symbols.items[parent_sym];
+                if (parent_obj.Name.len > 0) {
+                    out.appendSlice(aa, " in type ") catch {};
+                    out.appendSlice(aa, parent_obj.Name) catch {};
+                    // Append parent's type parameters.
+                    if (parent_obj.Declarations.items.len > 0) {
+                        const parent_decl = parent_obj.Declarations.items[0];
+                        const parent_decl_data = p.ast.getNode(parent_decl);
+                        const tp_list: ?u32 = switch (parent_decl_data) {
+                            .TypeAliasDeclaration => |tad| tad.TypeParameters,
+                            .ClassDeclaration => |cd| cd.TypeParameters,
+                            .ClassExpression => |ce| ce.TypeParameters,
+                            .InterfaceDeclaration => |id| id.TypeParameters,
+                            .FunctionDeclaration => |f| f.TypeParameters,
+                            .MethodDeclaration => |m| m.TypeParameters,
+                            .FunctionExpression => |fe| fe.TypeParameters,
+                            .ArrowFunction => |af| af.TypeParameters,
+                            else => null,
+                        };
+                        if (tp_list) |tpl| {
+                            if (tpl != 0) {
+                                const tp_nodes = p.ast.getNodeList(tpl);
+                                if (tp_nodes.len > 0) {
+                                    out.appendSlice(aa, "<") catch {};
+                                    for (tp_nodes, 0..) |tp_node, i| {
+                                        if (i > 0) out.appendSlice(aa, ", ") catch {};
+                                        if (tp_node != 0) {
+                                            const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
+                                            out.appendSlice(aa, tp_name) catch {};
+                                        }
+                                    }
+                                    out.appendSlice(aa, ">") catch {};
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             return out.toOwnedSlice(aa) catch "";
         }
 
