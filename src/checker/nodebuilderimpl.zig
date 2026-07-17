@@ -530,6 +530,32 @@ pub const NodeBuilderImpl = struct {
         if (constituents.len == 0) return 0;
         if (constituents.len == 1) return b.typeToTypeNode(constituents[0]);
 
+        // For unions, sort constituents by their typeToString representation
+        // to match Go's deterministic output (alphabetical for primitives).
+        if (isUnion and constituents.len > 1) {
+            var sorted = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer sorted.deinit(b.c.allocator);
+            for (constituents) |c| sorted.append(b.c.allocator, c) catch {};
+            std.mem.sort(types.TypeIndex, sorted.items, b.c, struct {
+                fn lt(ctx: *Checker, a: types.TypeIndex, b2: types.TypeIndex) bool {
+                    const sa = ctx.typeToString(a, 0, 0, null);
+                    const sb = ctx.typeToString(b2, 0, 0, null);
+                    return std.mem.lessThan(u8, sa, sb);
+                }
+            }.lt);
+            var type_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+            defer type_nodes.deinit(b.c.allocator);
+            for (sorted.items) |constituent| {
+                const type_node = b.typeToTypeNode(constituent);
+                if (type_node == 0) return 0;
+                type_nodes.append(b.c.allocator, type_node) catch return 0;
+            }
+            const list = b.c.binder.ast.pushNodeList(type_nodes.items) catch return 0;
+            return b.c.binder.ast.pushNode(.{
+                .UnionType = .{ .Flags = synthesizedFlags(), .Types = list },
+            }) catch 0;
+        }
+
         var type_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         defer type_nodes.deinit(b.c.allocator);
         for (constituents) |constituent| {
