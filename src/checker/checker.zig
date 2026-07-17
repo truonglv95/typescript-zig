@@ -12430,11 +12430,17 @@ pub const Checker = struct {
             c.typeNodeLinks.put(c.allocator, node_idx, .{}) catch {};
             linksPtr = c.typeNodeLinks.getPtr(node_idx);
         }
-        if (linksPtr.?.resolvedType == 0) {
+        // Retry if cached as 0 or any — the adhoc fallback may have been
+        // unavailable during the first resolve attempt.
+        if (linksPtr.?.resolvedType == 0 or linksPtr.?.resolvedType == (c.anyTypeIndex orelse 0)) {
             const saveFlowLoopStack = c.flowLoopStack;
             c.flowLoopStack = .empty;
-            linksPtr.?.resolvedType = checkExpressionEx(c, node_idx, checkMode);
+            const new_type = checkExpressionEx(c, node_idx, checkMode);
             c.flowLoopStack = saveFlowLoopStack;
+            // Only cache if we found a better type than 0 or any.
+            if (new_type != 0 and new_type != (c.anyTypeIndex orelse 0)) {
+                linksPtr.?.resolvedType = new_type;
+            }
         }
         return linksPtr.?.resolvedType;
     }
@@ -24678,7 +24684,16 @@ pub fn checkExpressionEx(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: Ch
     c.currentNode = node_idx;
     c.instantiationCount = 0;
     const uninstantiatedType = checkExpressionWorker(c, node_idx, checkMode);
-    const t = instantiateTypeWithSingleGenericCallSignature(c, node_idx, uninstantiatedType, checkMode);
+    var t = instantiateTypeWithSingleGenericCallSignature(c, node_idx, uninstantiatedType, checkMode);
+
+    // If checkExpressionWorker returned 0 or any, try the adhoc path
+    // which has better resolution for certain patterns (e.g., generic calls).
+    if (t == 0 or t == (c.anyTypeIndex orelse 0)) {
+        const adhoc_t = c.checkExpressionAdHoc(node_idx) catch 0;
+        if (adhoc_t != 0 and adhoc_t != (c.anyTypeIndex orelse 0)) {
+            t = adhoc_t;
+        }
+    }
 
     // In Go: if isConstEnumObjectType(t) { c.checkConstEnumAccess(node, t) }
     // As stub, we do nothing or just pass it to checkConstEnumAccess
@@ -25237,8 +25252,22 @@ pub fn checkIdentifier(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: Chec
         );
     }
     if (c.resolver.resolve(node_idx, name, symbol.SymbolFlags.Value, null, false, false)) |symIndex| {
-        const t = c.getTypeOfSymbol(symIndex) catch c.anyTypeIndex orelse 0;
-        return t;
+        if (symIndex != 0 and symIndex != c.unknownSymbol) {
+            const t = c.getTypeOfSymbol(symIndex) catch c.anyTypeIndex orelse 0;
+            return t;
+        }
+    }
+    // Fallback: search SourceFile locals directly.
+    const source_file = ast_utils.getSourceFileOfNode(c.binder.ast, node_idx);
+    if (source_file != 0) {
+        if (c.binder.nodeLocals.getPtr(source_file)) |sf_locals| {
+            if (sf_locals.get(name)) |sf_sym| {
+                if ((c.binder.symbols.items[sf_sym].Flags & symbol.SymbolFlags.Value) != 0) {
+                    const t = c.getTypeOfSymbol(sf_sym) catch c.anyTypeIndex orelse 0;
+                    return t;
+                }
+            }
+        }
     }
     return c.anyTypeIndex orelse 0;
 }
