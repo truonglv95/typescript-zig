@@ -421,6 +421,22 @@ fn getTypeReferenceType(c: *Checker, node: NodeIndex, symbol: ast_gen.SymbolInde
     }
 
     const flags = c.getSymbolFlags(symbol);
+
+    // TypeParameter: return the declared type of the type parameter.
+    if ((flags & @import("../ast/symbol.zig").SymbolFlags.TypeParameter) != 0) {
+        const res = tryGetDeclaredTypeOfSymbol(c, symbol);
+        if (res != 0) return res;
+        // Fallback: create a TypeParameter type with the symbol.
+        return c.createType(.{
+            .flags = @import("types.zig").TypeFlags.TypeParameter,
+            .objectFlags = @import("types.zig").ObjectFlags.Anonymous,
+            .id = 0,
+            .symbol = symbol,
+            .alias = null,
+            .data = .{ .TypeParameter = .{} },
+        }) catch c.errorTypeIndex orelse 0;
+    }
+
     if ((flags & (@import("../ast/symbol.zig").SymbolFlags.Class | @import("../ast/symbol.zig").SymbolFlags.Interface)) != 0) {
         return getTypeFromClassOrInterfaceReference(c, node, symbol);
     }
@@ -798,8 +814,16 @@ fn getWidenedType(c: *Checker, t: TypeIndex) TypeIndex {
     return 0;
 }
 fn getArrayOrTupleTargetType(c: *Checker, node: NodeIndex) TypeIndex {
-    _ = c;
-    _ = node;
+    const kind = c.binder.ast.getKind(node);
+    if (kind == .ArrayType) {
+        const arr = c.binder.ast.getNode(node).ArrayType;
+        const elem_type = getTypeFromTypeNode(c, arr.ElementType);
+        if (elem_type == 0) return 0;
+        return c.createArrayType(elem_type);
+    }
+    if (kind == .TupleType) {
+        return c.createArrayType(c.anyTypeIndex orelse 0);
+    }
     return 0;
 }
 fn coreSomeVariadic(c: *Checker, node: NodeIndex) bool {
