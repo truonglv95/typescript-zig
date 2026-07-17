@@ -1341,9 +1341,43 @@ pub const FourslashTest = struct {
                         first_visible_sig_idx = c.resolvedSignaturesPool.items[sigs.start];
                         visible_count = sigs.len;
                     }
-                    // Use the hovered signature if found AND it's not the
-                    // implementation; otherwise use the first visible overload.
-                    const display_sig_idx = if (found_hovered and !hovered_is_implementation) hovered_sig_idx else first_visible_sig_idx;
+                    // Determine which signature to display:
+                    // 1. If we're hovering on a specific overload declaration, use that.
+                    // 2. Otherwise (e.g., at a call site), try the resolved signature
+                    //    for the call expression.
+                    // 3. Fall back to the first visible overload.
+                    var display_sig_idx = first_visible_sig_idx;
+                    if (found_hovered and !hovered_is_implementation) {
+                        display_sig_idx = hovered_sig_idx;
+                    } else {
+                        // Check if the cursor is inside a CallExpression.
+                        // If so, get the resolved signature.
+                        var cur_node: ast_gen.NodeIndex = node;
+                        while (cur_node != 0) {
+                            const k = p.ast.getNodeKind(cur_node);
+                            if (k == .CallExpression or k == .NewExpression) {
+                                const resolved_sig = c.getResolvedSignature(cur_node, null, .Normal);
+                                if (resolved_sig != 0 and resolved_sig < c.signatures.items.len) {
+                                    // Verify this signature is one of the visible ones.
+                                    var is_visible = false;
+                                    for (0..sigs.len) |i| {
+                                        if (c.resolvedSignaturesPool.items[sigs.start + i] == resolved_sig) {
+                                            is_visible = true;
+                                            break;
+        }
+                                    }
+                                    if (is_visible) {
+                                        display_sig_idx = resolved_sig;
+                                    }
+                                }
+                                break;
+                            }
+                            if (k == .SourceFile) break;
+                            const parent = p.ast.getNodeParent(cur_node);
+                            if (parent == cur_node or parent == 0) break;
+                            cur_node = parent;
+                        }
+                    }
                     const sig = &c.signatures.items[display_sig_idx];
 
                     const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
