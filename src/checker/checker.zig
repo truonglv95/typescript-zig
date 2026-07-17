@@ -3994,6 +3994,21 @@ pub const Checker = struct {
                 }
                 if (sym_index) |si| {
                     if (si != 0 and si != self.unknownSymbol) {
+                    // If the symbol is a TypeParameter, return a TypeParameter
+                    // type with the SAME symbol. This is critical for generic
+                    // inference: the return type's T and the inferred map's T
+                    // must use the same symbol.
+                    const sym_flags = self.binder.symbols.items[si].Flags;
+                    if ((sym_flags & symbol.SymbolFlags.TypeParameter) != 0) {
+                        return try self.createType(.{
+                            .flags = types.TypeFlags.TypeParameter,
+                            .objectFlags = types.ObjectFlags.Anonymous,
+                            .id = 0,
+                            .symbol = si,
+                            .alias = null,
+                            .data = .{ .TypeParameter = .{} },
+                        });
+                    }
                     const target_type = try self.getTypeOfSymbol(si);
                     // If there are type arguments, create a Reference type.
                     if (reference.TypeArguments) |type_args_list| {
