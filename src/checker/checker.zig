@@ -330,6 +330,66 @@ pub const Checker = struct {
                 }
                 return elem_type;
             }
+            // Not directly Array — check base types (e.g., interface Foo<T> extends Array<T>).
+            if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Reference) != 0) {
+                if (target != 0 and target < c.typesList.items.len and
+                    (c.typesList.items[target].objectFlags & types.ObjectFlags.ClassOrInterface) != 0)
+                {
+                    for (c.getBaseTypes(target)) |bt| {
+                        if (c.isArrayType(bt)) {
+                            // Found Array base type. Get its element type, then
+                            // substitute the target's type parameters with the
+                            // reference's type arguments.
+                            const elem_type = c.getElementTypeOfArrayType(bt);
+                            if (elem_type != 0) {
+                                const ta = c.getTypeArguments(t);
+                                if (ta.len > 0) {
+                                    const target_sym = c.getSymbolOfType(target);
+                                    if (target_sym != 0 and target_sym < c.binder.symbols.items.len) {
+                                        const sym_obj = c.binder.symbols.items[target_sym];
+                                        if (sym_obj.Declarations.items.len > 0) {
+                                            const decl = sym_obj.Declarations.items[0];
+                                            const decl_data = c.binder.ast.getNode(decl);
+                                            const tp_list: ?u32 = switch (decl_data) {
+                                                .InterfaceDeclaration => |id| id.TypeParameters,
+                                                .ClassDeclaration => |cd| cd.TypeParameters,
+                                                else => null,
+                                            };
+                                            if (tp_list) |tpl| {
+                                                if (tpl != 0) {
+                                                    const tp_nodes = c.binder.ast.getNodeList(tpl);
+                                                    if (tp_nodes.len == ta.len) {
+                                                        var subst = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(c.allocator);
+                                                        defer subst.deinit();
+                                                        for (tp_nodes, 0..) |tp_node, i| {
+                                                            if (tp_node != 0) {
+                                                                const tp_sym = c.binder.ast.getNodeSymbol(tp_node) orelse 0;
+                                                                if (tp_sym != 0) {
+                                                                    subst.put(tp_sym, ta[i]) catch {};
+                                                                }
+                                                            }
+                                                        }
+                                                        return c.substituteTypeParams(elem_type, &subst) catch elem_type;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                return elem_type;
+                            }
+                        }
+                    }
+                }
+            }
+            // Direct ClassOrInterface — check base types.
+            if ((c.typesList.items[t].objectFlags & types.ObjectFlags.ClassOrInterface) != 0) {
+                for (c.getBaseTypes(t)) |bt| {
+                    if (c.isArrayType(bt)) {
+                        return c.getElementTypeOfArrayType(bt);
+                    }
+                }
+            }
         }
         return 0;
     }
@@ -596,6 +656,7 @@ pub const Checker = struct {
     useUnknownInCatchVariables: bool = false,
     /// Synthetic symbol index for RegExp (used when lib.d.ts is not loaded).
     regExpSymbolIndex: ?ast_gen.SymbolIndex = null,
+    arraySymbolIndex: ?ast_gen.SymbolIndex = null,
     erasableSyntaxOnly: bool = false,
     moduleKind: core.ModuleKind = .ESNext,
     exactOptionalPropertyTypes: bool = false,
@@ -9602,7 +9663,19 @@ pub const Checker = struct {
         if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Reference) != 0) {
             const target = c.getTargetType(t);
             if (target != 0 and target < c.typesList.items.len) {
-                return c.typesList.items[target].data == .Array;
+                if (c.typesList.items[target].data == .Array) return true;
+                // Check target's base types (e.g., interface Foo<T> extends Array<T>).
+                if ((c.typesList.items[target].objectFlags & types.ObjectFlags.ClassOrInterface) != 0) {
+                    for (c.getBaseTypes(target)) |bt| {
+                        if (c.isArrayType(bt)) return true;
+                    }
+                }
+            }
+        }
+        // Check base types (e.g., interface Foo<T> extends Array<T>).
+        if ((c.typesList.items[t].objectFlags & types.ObjectFlags.ClassOrInterface) != 0) {
+            for (c.getBaseTypes(t)) |bt| {
+                if (c.isArrayType(bt)) return true;
             }
         }
         return false;
@@ -9975,6 +10048,22 @@ pub const Checker = struct {
             }) catch {};
             c.regExpSymbolIndex = sym_idx;
         }
+        // Create a synthetic Array interface symbol for when lib.d.ts is not loaded.
+        // This allows `interface Foo<T> extends Array<T>` to resolve.
+        if (c.arraySymbolIndex == null) {
+            const sym_idx: ast_gen.SymbolIndex = @intCast(c.binder.symbols.items.len);
+            c.binder.symbols.append(c.binder.allocator, .{
+                .Flags = symbol.SymbolFlags.Interface,
+                .Name = "Array",
+                .Declarations = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty,
+                .ValueDeclaration = null,
+                .Members = symbol.SymbolTable.empty,
+                .Exports = symbol.SymbolTable.empty,
+                .Parent = null,
+                .ExportSymbol = null,
+            }) catch {};
+            c.arraySymbolIndex = sym_idx;
+        }
         // Build the global symbol table by merging SourceFile locals
         // (like Go's initializeChecker which merges globals).
         c.globalsSymbolTable = .{};
@@ -10001,6 +10090,12 @@ pub const Checker = struct {
         }
         // Set Globals on the resolver so resolveName can find global symbols.
         c.resolver.Globals = &c.globalsSymbolTable;
+        // Register synthetic Array symbol in globals.
+        if (c.arraySymbolIndex) |arr_sym| {
+            if (!c.globalsSymbolTable.contains("Array")) {
+                c.globalsSymbolTable.put(c.binder.allocator, "Array", arr_sym) catch {};
+            }
+        }
     }
 
     /// Port of checker.go::mergeGlobalSymbol. Merges a symbol into the
@@ -18800,6 +18895,8 @@ pub const Checker = struct {
         const sym = c.typesList.items[t].symbol orelse return;
         if (sym >= c.binder.symbols.items.len) return;
         // Walk interface declarations and check extends clauses.
+        var base_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer base_types.deinit(c.allocator);
         for (c.binder.symbols.items[sym].Declarations.items) |decl| {
             if (c.binder.ast.getKind(decl) != .InterfaceDeclaration) continue;
             const iface = c.binder.ast.getNode(decl).InterfaceDeclaration;
@@ -18809,9 +18906,108 @@ pub const Checker = struct {
                     const clauses = c.binder.ast.getNodeList(hc);
                     for (clauses) |clause| {
                         checkSourceElement(c, clause);
+                        // Extract the base type from the heritage clause.
+                        if (clause != 0) {
+                            const hc_data = c.binder.ast.getNode(clause).HeritageClause;
+                            if (hc_data.Types != 0) {
+                                const type_args = c.binder.ast.getNodeList(hc_data.Types);
+                                for (type_args) |ta| {
+                                    if (ta != 0) {
+                                        // The heritage clause type is an ExpressionWithTypeArguments.
+                                        const ewta = c.binder.ast.getNode(ta).ExpressionWithTypeArguments;
+                                        // Get the base type name (e.g., "Array").
+                                        const base_name = ast_utils.getTextOfNode(c.binder.ast, ewta.Expression);
+
+                                        // Special case: Array<T> — create an Array type directly.
+                                        if (std.mem.eql(u8, base_name, "Array")) {
+                                            if (ewta.TypeArguments) |type_args_list| {
+                                                if (type_args_list != 0) {
+                                                    const ta_nodes = c.binder.ast.getNodeList(type_args_list);
+                                                    if (ta_nodes.len > 0) {
+                                                        const elem_type = type_resolution_pkg.getTypeFromTypeNode(c, ta_nodes[0]);
+                                                        if (elem_type != 0) {
+                                                            const arr_type = c.createType(.{
+                                                                .flags = types.TypeFlags.Object,
+                                                                .objectFlags = types.ObjectFlags.Anonymous,
+                                                                .id = 0,
+                                                                .symbol = null,
+                                                                .alias = null,
+                                                                .data = .{ .Array = .{ .elementType = elem_type } },
+                                                            }) catch 0;
+                                                            if (arr_type != 0) {
+                                                                base_types.append(c.allocator, arr_type) catch {};
+                                                            }
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        const base_type = blk: {
+                                            const t_or_zero = type_resolution_pkg.getTypeFromTypeNode(c, ta);
+                                            break :blk if (t_or_zero != 0) t_or_zero else 0;
+                                        };
+                                        if (base_type != 0) {
+                                            base_types.append(c.allocator, base_type) catch {};
+                                        } else {
+                                            // Try checking the expression.
+                                            const expr_type = c.checkExpressionAdHoc(ewta.Expression) catch 0;
+                                            if (expr_type != 0) {
+                                                // If there are type arguments, create a Reference type.
+                                                if (ewta.TypeArguments) |type_args_list| {
+                                                    if (type_args_list != 0) {
+                                                        const ta_nodes = c.binder.ast.getNodeList(type_args_list);
+                                                        if (ta_nodes.len > 0 and expr_type < c.typesList.items.len) {
+                                                            const target_td = c.typesList.items[expr_type];
+                                                            if (target_td.symbol != null) {
+                                                                const ta_start: u32 = @intCast(c.typeArgumentsPool.items.len);
+                                                                for (ta_nodes) |tan| {
+                                                                    if (tan != 0) {
+                                                                        const ta_type = type_resolution_pkg.getTypeFromTypeNode(c, tan);
+                                                                        c.typeArgumentsPool.append(c.allocator, if (ta_type != 0) ta_type else (c.anyTypeIndex orelse 0)) catch {};
+                                                                    }
+                                                                }
+                                                                const ta_len: u32 = @intCast(c.typeArgumentsPool.items.len - ta_start);
+                                                                const ref_type = c.createType(.{
+                                                                    .flags = types.TypeFlags.Object,
+                                                                    .objectFlags = types.ObjectFlags.Reference,
+                                                                    .id = 0,
+                                                                    .symbol = target_td.symbol,
+                                                                    .alias = null,
+                                                                    .data = .{ .Object = .{
+                                                                        .Symbol = target_td.symbol,
+                                                                        .target = expr_type,
+                                                                        .typeArgumentsStart = ta_start,
+                                                                        .typeArgumentsLen = ta_len,
+                                                                    } },
+                                                                }) catch 0;
+                                                                if (ref_type != 0) {
+                                                                    base_types.append(c.allocator, ref_type) catch {};
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    base_types.append(c.allocator, expr_type) catch {};
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
+        // Store the resolved base types.
+        if (base_types.items.len > 0) {
+            const start: u32 = @intCast(c.baseTypesPool.items.len);
+            for (base_types.items) |bt| {
+                c.baseTypesPool.append(c.allocator, bt) catch {};
+            }
+            c.setBaseTypesResult(t, start, @intCast(base_types.items.len));
         }
     }
 
