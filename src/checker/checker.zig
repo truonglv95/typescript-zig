@@ -3614,6 +3614,45 @@ pub const Checker = struct {
             return try self.createUnionType(declaration_types.items);
         }
         if (sym.ValueDeclaration) |declIndex| {
+            // For BindingElement declarations, try to resolve the type from the
+            // contextual source (the destructured expression).
+            const decl_node = self.binder.ast.getNode(declIndex);
+            if (decl_node == .BindingElement) {
+                const be = decl_node.BindingElement;
+                // Walk up to find VariableDeclaration with initializer.
+                var cur = declIndex;
+                while (cur != 0) {
+                    const k = self.binder.ast.getNodeKind(cur);
+                    if (k == .VariableDeclaration) break;
+                    cur = self.binder.ast.getNodeParent(cur);
+                }
+                if (cur != 0) {
+                    const vd = self.binder.ast.getNode(cur).VariableDeclaration;
+                    if (vd.Initializer) |vd_init| {
+                        if (vd_init != 0) {
+                            const init_type = self.checkExpressionCached(vd_init);
+                            if (init_type != 0) {
+                                // Look up the property name (not binding name).
+                                var prop_name: []const u8 = "";
+                                if (be.PropertyName) |pn| {
+                                    if (pn != 0) prop_name = ast_utils.getTextOfNode(self.binder.ast, pn);
+                                }
+                                if (prop_name.len == 0) {
+                                    // Shorthand: { property1 } — use binding name.
+                                    if (be.name) |bn| {
+                                        if (bn != 0) prop_name = ast_utils.getTextOfNode(self.binder.ast, bn);
+                                    }
+                                }
+                                if (prop_name.len > 0) {
+                                    if (self.getPropertyOfType(init_type, prop_name)) |prop_sym| {
+                                        return self.getTypeOfSymbol(prop_sym) catch self.getAnyType() catch 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             return try self.getTypeOfNode(declIndex);
         }
         return try self.getAnyType();
@@ -23375,7 +23414,13 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
                     if (vd_init != 0) {
                         const init_type = c.checkExpressionCached(vd_init);
                         if (init_type != 0) {
-                            const name_str = ast_utils.getTextOfNode(c.binder.ast, node);
+                            // When cursor is on the binding name (prop1), we need
+                            // to look up the PROPERTY name (property1), not the
+                            // binding name. If PropertyName exists, use it.
+                            var name_str = ast_utils.getTextOfNode(c.binder.ast, node);
+                            if (is_binding_name and be.PropertyName != null and be.PropertyName.? != 0) {
+                                name_str = ast_utils.getTextOfNode(c.binder.ast, be.PropertyName.?);
+                            }
                             if (c.getPropertyOfType(init_type, name_str)) |prop_sym| {
                                 return prop_sym;
                             }
