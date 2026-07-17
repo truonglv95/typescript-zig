@@ -5916,13 +5916,53 @@ pub const Checker = struct {
             const param_type_node = param.Type orelse 0;
             if (param_type_node == 0) continue;
             // Get the param type as a TypeIndex.
-            // Use getTypeOfNode (not getTypeFromTypeNode) to ensure the same
-            // symbol resolution path as the return type, so TypeParameter
-            // symbols match between param and return types.
+            // Use getTypeOfNode to ensure the same symbol resolution path
+            // as the return type.
             const param_type_idx = self.getTypeOfNode(param_type_node) catch 0;
             if (param_type_idx == 0) continue;
             const arg_type_idx = arg_types[i];
             if (arg_type_idx == 0) continue;
+
+            // Also try matching TypeParameter by name directly when the param
+            // type is a TypeParameter. This handles cases where the symbol
+            // differs between the param type node and the tp_node due to
+            // different resolution paths.
+            if (param_type_idx < self.typesList.items.len) {
+                const ptd = self.typesList.items[param_type_idx];
+                if ((ptd.flags & types.TypeFlags.TypeParameter) != 0) {
+                    if (ptd.symbol) |pt_sym| {
+                        if (pt_sym < self.binder.symbols.items.len) {
+                            const tp_name = self.binder.symbols.items[pt_sym].Name;
+                            // Find matching tp_sym in inferred map by name.
+                            var inf_it = inferred.iterator();
+                            while (inf_it.next()) |inf_entry| {
+                                const inf_sym = inf_entry.key_ptr.*;
+                                if (inf_sym < self.binder.symbols.items.len) {
+                                    if (std.mem.eql(u8, self.binder.symbols.items[inf_sym].Name, tp_name)) {
+                                        // Bind directly.
+                                        var bound = arg_type_idx;
+                                        if (arg_type_idx < self.typesList.items.len) {
+                                            const af = self.typesList.items[arg_type_idx].flags;
+                                            if ((af & types.TypeFlags.NumberLiteral) != 0) {
+                                                bound = self.getNumberType() catch bound;
+                                            } else if ((af & types.TypeFlags.StringLiteral) != 0) {
+                                                bound = self.getStringType() catch bound;
+                                            } else if ((af & types.TypeFlags.BooleanLiteral) != 0) {
+                                                bound = self.getBooleanType() catch bound;
+                                            }
+                                        }
+                                        if (inf_entry.value_ptr.* == 0) {
+                                            inf_entry.value_ptr.* = bound;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Unify: walk both types in parallel and try to bind type parameters
             // to their corresponding argument types.
             self.unifyTypes(param_type_idx, arg_type_idx, &inferred) catch {};
@@ -5975,6 +6015,35 @@ pub const Checker = struct {
                         try inferred.put(sym, bound);
                     }
                     // If already inferred, keep the first inference (simplified).
+                } else {
+                    // Symbol not in inferred map — try name-based match.
+                    const tp_name = if (sym < self.binder.symbols.items.len)
+                        self.binder.symbols.items[sym].Name
+                    else
+                        "";
+                    if (tp_name.len > 0) {
+                        var name_it = inferred.iterator();
+                        while (name_it.next()) |entry| {
+                            const inferred_sym = entry.key_ptr.*;
+                            if (inferred_sym < self.binder.symbols.items.len) {
+                                if (std.mem.eql(u8, self.binder.symbols.items[inferred_sym].Name, tp_name)) {
+                                    if (entry.value_ptr.* == 0) {
+                                        var bound = arg_type;
+                                        const af2 = a.flags;
+                                        if ((af2 & types.TypeFlags.NumberLiteral) != 0) {
+                                            bound = try self.getNumberType();
+                                        } else if ((af2 & types.TypeFlags.StringLiteral) != 0) {
+                                            bound = try self.getStringType();
+                                        } else if ((af2 & types.TypeFlags.BooleanLiteral) != 0) {
+                                            bound = try self.getBooleanType();
+                                        }
+                                        entry.value_ptr.* = bound;
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                    }
                 }
             }
             return;
@@ -6009,7 +6078,7 @@ pub const Checker = struct {
     fn substituteTypeParams(
         self: *Checker,
         t: types.TypeIndex,
-        inferred: *const std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex),
+        inferred: *std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex),
     ) anyerror!types.TypeIndex {
         if (t == 0 or t >= self.typesList.items.len) return t;
         const type_data = self.typesList.items[t];
