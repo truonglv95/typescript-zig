@@ -2144,6 +2144,12 @@ pub fn forEachChild(tree: *Ast, nodeIndex: ast_gen.NodeIndex, visitor: anytype) 
                 if (n.Initializer) |child| try visitor.visitNode(child);
             }
         },
+        .ObjectBindingPattern => |n| {
+            if (n.Elements != 0) try visitor.visitList(n.Elements);
+        },
+        .ArrayBindingPattern => |n| {
+            if (n.Elements != 0) try visitor.visitList(n.Elements);
+        },
         else => {},
     }
 }
