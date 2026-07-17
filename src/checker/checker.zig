@@ -192,6 +192,45 @@ pub const Checker = struct {
                 if (sig_obj.parametersStart + idx >= c.signatureParameters.items.len) return null;
                 const param_sym = c.signatureParameters.items[sig_obj.parametersStart + idx];
                 if (param_sym == 0 or param_sym >= c.binder.symbols.items.len) return null;
+
+                // First, try to get the parameter's type annotation directly
+                // from its declaration node. This handles FunctionType annotations
+                // that aren't fully resolved.
+                if (param_sym < c.binder.symbols.items.len) {
+                    const param_sym_obj = c.binder.symbols.items[param_sym];
+                    if (param_sym_obj.Declarations.items.len > 0) {
+                        const param_decl = param_sym_obj.Declarations.items[0];
+                        if (param_decl != 0 and c.binder.ast.getNodeKind(param_decl) == .Parameter) {
+                            const param_data = c.binder.ast.getNode(param_decl).Parameter;
+                            if (param_data.Type) |param_type_node| {
+                                if (param_type_node != 0) {
+                                    const param_type_kind = c.binder.ast.getNodeKind(param_type_node);
+                                    // If the parameter type is a FunctionType, extract
+                                    // the inner parameter type directly.
+                                    if (param_type_kind == .FunctionType or param_type_kind == .ConstructorType) {
+                                        const ft_params_id: u32 = if (param_type_kind == .FunctionType) c.binder.ast.getNode(param_type_node).FunctionType.Parameters else c.binder.ast.getNode(param_type_node).ConstructorType.Parameters;
+                                        if (ft_params_id != 0) {
+                                            const ft_params = c.binder.ast.getNodeList(ft_params_id);
+                                            if (idx < ft_params.len) {
+                                                const ft_param = ft_params[idx];
+                                                if (ft_param != 0) {
+                                                    const ft_param_data = c.binder.ast.getNode(ft_param).Parameter;
+                                                    if (ft_param_data.Type) |pt| {
+                                                        if (pt != 0) {
+                                                            const inner_type = type_resolution_pkg.getTypeFromTypeNode(c, pt);
+                                                            if (inner_type != 0) return inner_type;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 const outer_param_type = c.getTypeOfSymbol(param_sym) catch 0;
                 if (outer_param_type == 0) return null;
 
