@@ -4861,6 +4861,28 @@ pub const Checker = struct {
             }
         }
         if (unique.items.len == 1) return unique.items[0];
+        // Sort union constituents to match Go's behavior. Go uses
+        // slices.BinarySearchFunc with CompareTypes which sorts by:
+        // 1. Type flags value (ascending)
+        // 2. Type name (alphabetical) for same flags
+        // This ensures deterministic output like "string | number" not
+        // "number | string" (String=32 < Number=64).
+        std.mem.sort(types.TypeIndex, unique.items, self, struct {
+            fn lt(ctx: *Checker, a: types.TypeIndex, b: types.TypeIndex) bool {
+                if (a >= ctx.typesList.items.len or b >= ctx.typesList.items.len) return a < b;
+                const fa = ctx.typesList.items[a].flags;
+                const fb = ctx.typesList.items[b].flags;
+                // Use the same sort key as Go's getSortOrderFlags: just the flags value.
+                if (fa != fb) return fa < fb;
+                // Same flags — compare by symbol name.
+                const sa = ctx.typesList.items[a].symbol;
+                const sb = ctx.typesList.items[b].symbol;
+                if (sa != null and sb != null and sa.? < ctx.binder.symbols.items.len and sb.? < ctx.binder.symbols.items.len) {
+                    return std.mem.lessThan(u8, ctx.binder.symbols.items[sa.?].Name, ctx.binder.symbols.items[sb.?].Name);
+                }
+                return a < b;
+            }
+        }.lt);
         const start = @as(u32, @intCast(self.unionTypesPool.items.len));
         try self.unionTypesPool.appendSlice(self.allocator, unique.items);
 
