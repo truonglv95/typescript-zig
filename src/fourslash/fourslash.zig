@@ -2792,10 +2792,10 @@ pub const FourslashTest = struct {
     pub fn VerifyErrorExistsBetweenMarkers(self: *FourslashTest, t: *testing.T, startMarkerName: []const u8, endMarkerName: []const u8) !void {
         _ = t;
         const startMarker = self.parsedData.markerPositions.get(startMarkerName) orelse {
-            std.debug.panic("Start marker '{s}' not found", .{startMarkerName});
+            std.debug.print("Start marker '{s}' not found" + "\n", .{startMarkerName}); return error.TestExpectedEqual;
         };
         const endMarker = self.parsedData.markerPositions.get(endMarkerName) orelse {
-            std.debug.panic("End marker '{s}' not found", .{endMarkerName});
+            std.debug.print("End marker '{s}' not found" + "\n", .{endMarkerName}); return error.TestExpectedEqual;
         };
         
         var found = false;
@@ -2826,7 +2826,7 @@ pub const FourslashTest = struct {
     pub fn VerifyErrorExistsAfterMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) !void {
         _ = t;
         const marker = self.parsedData.markerPositions.get(markerName) orelse {
-            std.debug.panic("Marker '{s}' not found", .{markerName});
+            std.debug.print("Marker '{s}' not found" + "\n", .{markerName}); return error.TestExpectedEqual;
         };
         
         var found = false;
@@ -2857,7 +2857,7 @@ pub const FourslashTest = struct {
     pub fn VerifyErrorExistsBeforeMarker(self: *FourslashTest, t: *testing.T, markerName: []const u8) !void {
         _ = t;
         const marker = self.parsedData.markerPositions.get(markerName) orelse {
-            std.debug.panic("Marker '{s}' not found", .{markerName});
+            std.debug.print("Marker '{s}' not found" + "\n", .{markerName}); return error.TestExpectedEqual;
         };
         
         var found = false;
