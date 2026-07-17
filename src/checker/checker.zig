@@ -437,6 +437,8 @@ pub const Checker = struct {
     globalESSymbolType: types.TypeIndex = 0,
     stringNumberSymbolType: types.TypeIndex = 0,
     emptyObjectType: types.TypeIndex = 0,
+    /// Global symbol table (mirrors Go's c.globals).
+    globalsSymbolTable: symbol.SymbolTable = .{},
     enumRelation: std.AutoHashMapUnmanaged(EnumRelationKey, relater.RelationComparisonResult) = .empty,
     markedAssignmentSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.MarkedAssignmentSymbolLinks) = .empty,
     aliasSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.AliasSymbolLinks) = .empty,
@@ -9594,8 +9596,32 @@ pub const Checker = struct {
             }) catch {};
             c.regExpSymbolIndex = sym_idx;
         }
-        // Global symbol merging is handled by the binder in bindSourceFile.
-        // Nothing additional to do here for now.
+        // Build the global symbol table by merging SourceFile locals
+        // (like Go's initializeChecker which merges globals).
+        c.globalsSymbolTable = .{};
+        // Walk all SourceFile node locals and merge type symbols into globals.
+        var locals_it = c.binder.nodeLocals.iterator();
+        while (locals_it.next()) |entry| {
+            const node_idx = entry.key_ptr.*;
+            const locals = entry.value_ptr.*;
+            // Only process SourceFile nodes.
+            if (c.binder.ast.getNodeKind(node_idx) == .SourceFile) {
+                var sym_it = locals.iterator();
+                while (sym_it.next()) |sym_entry| {
+                    const sym_name = sym_entry.key_ptr.*;
+                    const sym_idx = sym_entry.value_ptr.*;
+                    if (sym_idx != 0 and sym_idx < c.binder.symbols.items.len) {
+                        const sym_flags = c.binder.symbols.items[sym_idx].Flags;
+                        // Only merge type and value symbols (not locals).
+                        if ((sym_flags & (symbol.SymbolFlags.Type | symbol.SymbolFlags.Value | symbol.SymbolFlags.Namespace)) != 0) {
+                            c.globalsSymbolTable.put(c.binder.allocator, sym_name, sym_idx) catch {};
+                        }
+                    }
+                }
+            }
+        }
+        // Set Globals on the resolver so resolveName can find global symbols.
+        c.resolver.Globals = &c.globalsSymbolTable;
     }
 
     /// Port of checker.go::mergeGlobalSymbol. Merges a symbol into the
