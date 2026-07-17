@@ -1737,6 +1737,81 @@ pub const Checker = struct {
 
         if (typeNode == 0) {
             // Primitive fallback if NodeBuilder stubbed
+            // Function type: render as (params) => retType
+            if (typeData.data == .Function) {
+                const fn_decl = typeData.data.Function.declarationNode;
+                if (fn_decl != 0 and fn_decl < self.binder.ast.nodes.len) {
+                    const decl = self.binder.ast.getNode(fn_decl);
+                    // Get parameters.
+                    var params_id: u32 = 0;
+                    var tp_list: ?u32 = null;
+                    switch (decl) {
+                        .FunctionDeclaration => |f| { params_id = f.Parameters; tp_list = f.TypeParameters; },
+                        .FunctionExpression => |f| { params_id = f.Parameters; tp_list = f.TypeParameters; },
+                        .ArrowFunction => |f| { params_id = f.Parameters; tp_list = f.TypeParameters; },
+                        .MethodDeclaration => |m| { params_id = m.Parameters; tp_list = m.TypeParameters; },
+                        .CallSignature => |cs| { params_id = cs.Parameters; tp_list = cs.TypeParameters; },
+                        else => {},
+                    }
+                    var buf = std.ArrayListUnmanaged(u8).empty;
+                    // Type parameters: <T, U>
+                    if (tp_list) |tpl| {
+                        if (tpl != 0) {
+                            const tp_nodes = self.binder.ast.getNodeList(tpl);
+                            if (tp_nodes.len > 0) {
+                                buf.appendSlice(self.allocator, "<") catch {};
+                                for (tp_nodes, 0..) |tp_node, i| {
+                                    if (i > 0) buf.appendSlice(self.allocator, ", ") catch {};
+                                    if (tp_node != 0) {
+                                        const tp_name_node = ast_utils.getNameOfNode(self.binder.ast, tp_node);
+                                        if (tp_name_node != 0) {
+                                            const tp_name = ast_utils.getTextOfNode(self.binder.ast, tp_name_node);
+                                            buf.appendSlice(self.allocator, tp_name) catch {};
+                                        }
+                                    }
+                                }
+                                buf.appendSlice(self.allocator, ">") catch {};
+                            }
+                        }
+                    }
+                    buf.appendSlice(self.allocator, "(") catch {};
+                    if (params_id != 0) {
+                        const params = self.binder.ast.getNodeList(params_id);
+                        for (params, 0..) |param_node, i| {
+                            if (i > 0) buf.appendSlice(self.allocator, ", ") catch {};
+                            if (param_node != 0) {
+                                const param = self.binder.ast.getNode(param_node);
+                                if (param == .Parameter) {
+                                    const p_name_node = ast_utils.getNameOfNode(self.binder.ast, param_node);
+                                    if (p_name_node != 0) {
+                                        const p_name = ast_utils.getTextOfNode(self.binder.ast, p_name_node);
+                                        buf.appendSlice(self.allocator, p_name) catch {};
+                                    }
+                                    buf.appendSlice(self.allocator, ": ") catch {};
+                                    if (param.Parameter.Type) |pt| {
+                                        if (pt != 0) {
+                                            const pt_type = self.getTypeOfNode(pt) catch 0;
+                                            const pt_str = if (pt_type != 0) self.typeToString(pt_type, 0, 0, null) else "any";
+                                            buf.appendSlice(self.allocator, pt_str) catch {};
+                                        } else {
+                                            buf.appendSlice(self.allocator, "any") catch {};
+                                        }
+                                    } else {
+                                        buf.appendSlice(self.allocator, "any") catch {};
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    buf.appendSlice(self.allocator, ") => ") catch {};
+                    const ret_str = self.typeToString(typeData.data.Function.returnType, 0, 0, null);
+                    buf.appendSlice(self.allocator, ret_str) catch {};
+                    const result = buf.toOwnedSlice(self.allocator) catch return "Function";
+                    self.ownedStrings.append(self.allocator, result) catch {};
+                    return result;
+                }
+                return "Function";
+            }
             // Check Array first (Array types also have Object flag).
             if (typeData.data == .Array) {
                 const elem_str = self.typeToString(typeData.data.Array.elementType, 0, 0, null);
