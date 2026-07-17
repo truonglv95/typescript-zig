@@ -228,7 +228,11 @@ pub fn getTypeFromTypeReference(c: *Checker, node: NodeIndex) TypeIndex {
         entry.value_ptr.* = .{};
     }
 
-    if (entry.value_ptr.resolvedType == 0) {
+    // Retry if cached as 0 or errorType — resolution may have failed before
+    // the SourceFile fallback was available.
+    const should_retry = entry.value_ptr.resolvedType == 0 or
+        entry.value_ptr.resolvedType == (c.errorTypeIndex orelse 0);
+    if (should_retry) {
         const parent = c.binder.ast.getNodeParent(node);
         if (isConstTypeReference(c, node) and parent != 0 and (c.binder.ast.getKind(parent) == .TypeAssertionExpression or c.binder.ast.getKind(parent) == .AsExpression)) {
             entry.value_ptr.resolvedType = c.unknownTypeIndex orelse 0;
@@ -239,7 +243,14 @@ pub fn getTypeFromTypeReference(c: *Checker, node: NodeIndex) TypeIndex {
             } else if (tryGetRecordTypeFromNode(c, node)) |recordType| {
                 entry.value_ptr.resolvedType = recordType;
             } else {
-                entry.value_ptr.resolvedType = getTypeReferenceType(c, node, getSymbolFromTypeReference(c, node));
+                const sym = getSymbolFromTypeReference(c, node);
+                if (sym != 0 and sym != c.unknownSymbol) {
+                    const resolved = getTypeReferenceType(c, node, sym);
+                    // Only cache if we found a real type (not errorType).
+                    if (resolved != 0 and resolved != (c.errorTypeIndex orelse 0)) {
+                        entry.value_ptr.resolvedType = resolved;
+                    }
+                }
             }
         }
     }
@@ -314,12 +325,18 @@ fn getSymbolFromTypeReference(c: *Checker, node: NodeIndex) ast_gen.SymbolIndex 
     if (!entry.found_existing) {
         entry.value_ptr.* = .{};
     }
-    if (entry.value_ptr.resolvedSymbol == 0) {
+    // Retry if cached as 0 or unknownSymbol — the SourceFile fallback in
+    // resolveTypeReferenceName may not have been tried on first attempt.
+    if (entry.value_ptr.resolvedSymbol == 0 or entry.value_ptr.resolvedSymbol == c.unknownSymbol) {
         const parent = c.binder.ast.getNodeParent(node);
         if (isConstTypeReference(c, node) and parent != 0 and (c.binder.ast.getKind(parent) == .TypeAssertionExpression or c.binder.ast.getKind(parent) == .AsExpression)) {
             entry.value_ptr.resolvedSymbol = c.unknownSymbol;
         } else {
-            entry.value_ptr.resolvedSymbol = resolveTypeReferenceName(c, node, @import("../ast/symbol.zig").SymbolFlags.Type, false);
+            const sym = resolveTypeReferenceName(c, node, @import("../ast/symbol.zig").SymbolFlags.Type, false);
+            // Only update cache if we found a real symbol.
+            if (sym != 0 and sym != c.unknownSymbol) {
+                entry.value_ptr.resolvedSymbol = sym;
+            }
         }
     }
     return entry.value_ptr.resolvedSymbol;
@@ -364,6 +381,12 @@ fn resolveTypeReferenceName(c: *Checker, typeReference: NodeIndex, meaning: u32,
                         return exp_sym;
                     }
                 }
+            }
+        }
+        // Also try ALL binder symbols by name (brute force for missed cases).
+        for (c.binder.symbols.items, 0..) |sym, i| {
+            if (std.mem.eql(u8, sym.Name, nameText) and (sym.Flags & meaning) != 0) {
+                return @intCast(i);
             }
         }
     }

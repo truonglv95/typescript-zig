@@ -6017,14 +6017,27 @@ pub const Checker = struct {
             if (type_data.symbol) |sym| {
                 if (inferred.get(sym)) |inferred_t| {
                     if (inferred_t != 0) {
-                        // Recursively substitute in case the inferred type
-                        // itself contains type parameters (with a depth guard).
-                        if (inferred_t < self.typesList.items.len and
-                            (self.typesList.items[inferred_t].flags & types.TypeFlags.TypeParameter) != 0)
-                        {
-                            return inferred_t; // Already a type param — don't recurse.
-                        }
                         return inferred_t;
+                    }
+                }
+                // Fallback: try matching by name. The TypeParameter symbol in
+                // the return type may differ from the one in the inferred map
+                // due to different resolution paths.
+                const tp_name = if (sym < self.binder.symbols.items.len)
+                    self.binder.symbols.items[sym].Name
+                else
+                    "";
+                if (tp_name.len > 0) {
+                    var name_it = inferred.iterator();
+                    while (name_it.next()) |entry| {
+                        const inferred_sym = entry.key_ptr.*;
+                        if (inferred_sym < self.binder.symbols.items.len) {
+                            if (std.mem.eql(u8, self.binder.symbols.items[inferred_sym].Name, tp_name)) {
+                                if (entry.value_ptr.* != 0) {
+                                    return entry.value_ptr.*;
+                                }
+                            }
+                        }
                     }
                 }
             }
