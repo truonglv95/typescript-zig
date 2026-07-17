@@ -1904,11 +1904,25 @@ pub const Checker = struct {
                     const ts_start = typeData.data.Union.typesStart;
                     const ts_len = typeData.data.Union.typesLen;
                     if (ts_len > 0 and ts_start + ts_len <= self.unionTypesPool.items.len) {
-                        var buf = std.ArrayListUnmanaged(u8).empty;
+                        // Collect string representations and sort them for
+                        // deterministic output (TS sorts primitive types
+                        // alphabetically: "string | number" not "number | string").
+                        var strs = std.ArrayListUnmanaged([]const u8).empty;
+                        defer strs.deinit(self.allocator);
                         for (0..ts_len) |i| {
-                            if (i > 0) buf.appendSlice(self.allocator, " | ") catch {};
                             const constituent = self.unionTypesPool.items[ts_start + i];
                             const str = self.typeToString(constituent, 0, 0, null);
+                            strs.append(self.allocator, str) catch {};
+                        }
+                        // Sort alphabetically.
+                        std.mem.sort([]const u8, strs.items, {}, struct {
+                            fn lt(_: void, a_: []const u8, b_: []const u8) bool {
+                                return std.mem.lessThan(u8, a_, b_);
+                            }
+                        }.lt);
+                        var buf = std.ArrayListUnmanaged(u8).empty;
+                        for (strs.items, 0..) |str, i| {
+                            if (i > 0) buf.appendSlice(self.allocator, " | ") catch {};
                             buf.appendSlice(self.allocator, str) catch {};
                         }
                         const result = buf.toOwnedSlice(self.allocator) catch return "Union";
