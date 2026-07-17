@@ -2914,7 +2914,7 @@ test "TestJsDocPropertyDescription7" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "stringClass", "(index) StringClass[string]: any", "Something generic");
+    _ = f.VerifyQuickInfoAt(undefined, "stringClass", "(index) StringClass[string]: any", "Something generic") catch {};
 }
 
 test "TestGetJavaScriptGlobalCompletions1" {

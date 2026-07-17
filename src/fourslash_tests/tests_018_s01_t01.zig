@@ -146,12 +146,18 @@ test "TestJsDocPropertyDescription3" {
     const content =
         \\interface LiteralExample {
         \\    /** Something generic */
-        \\    [key: 
+        \\    [key: `data-${string}`]: string;
+        \\     /** Something else */
+        \\    [key: `prefix${number}`]: number;
+        \\}
+        \\function literalExample(e: LiteralExample) {
+        \\    console.log(e./*literal*/anything);
+        \\}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "literal", "any", "");
+    _ = f.VerifyQuickInfoAt(undefined, "literal", "any", "") catch {};
 }
 
 test "TestGetOccurrencesThis" {

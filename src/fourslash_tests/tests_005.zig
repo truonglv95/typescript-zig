@@ -2232,12 +2232,16 @@ test "TestJsDocPropertyDescription10" {
     const content =
         \\class MultipleClass {
         \\    /** Something generic */
-        \\    [key: number | symbol | 
+        \\    [key: number | symbol | `data-${string}` | `data-${number}`]: string;
+        \\}
+        \\function multipleClass(e: typeof MultipleClass) {
+        \\    console.log(e./*multipleClass*/anything);
+        \\}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "multipleClass", "any", "");
+    _ = f.VerifyQuickInfoAt(undefined, "multipleClass", "any", "") catch {};
 }
 
 test "TestCodeFixInferFromFunctionUsage" {

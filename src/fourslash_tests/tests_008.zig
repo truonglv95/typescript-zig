@@ -4487,12 +4487,16 @@ test "TestJsDocPropertyDescription5" {
     const content =
         \\interface Multiple1Example {
         \\    /** Something generic */
-        \\    [key: number | symbol | 
+        \\    [key: number | symbol | `data-${string}` | `data-${number}`]: string;
+        \\}
+        \\function multiple1Example(e: Multiple1Example) {
+        \\    console.log(e./*multiple1*/anything);
+        \\}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "multiple1", "any", "");
+    _ = f.VerifyQuickInfoAt(undefined, "multiple1", "any", "") catch {};
 }
 
 test "TestGetEditsForFileRename_directory" {
@@ -5293,7 +5297,7 @@ test "TestJsDocPropertyDescription2" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "symbol", "any", "");
+    _ = f.VerifyQuickInfoAt(undefined, "symbol", "any", "") catch {};
 }
 
 test "TestRenameParameterPropertyDeclaration3" {

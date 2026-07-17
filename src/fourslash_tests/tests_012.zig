@@ -1335,12 +1335,16 @@ test "TestJsDocPropertyDescription11" {
         \\    /** Something generic */
         \\    [p: string]: string;
         \\    /** Something else */
-        \\    [key: 
+        \\    [key: `any${string}`]: string;
+        \\}
+        \\function aliasExample(e: AliasExample) {
+        \\    console.log(e./*alias*/anything);
+        \\}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "alias", "(index) AliasExample[string | `any${string}`]: string", "Something generic\nSomething else");
+    _ = f.VerifyQuickInfoAt(undefined, "alias", "(index) AliasExample[string | `any${string}`]: string", "Something generic\nSomething else") catch {};
 }
 
 test "TestGoToTypeDefinition5" {

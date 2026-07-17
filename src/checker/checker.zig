@@ -13450,8 +13450,20 @@ pub const Checker = struct {
         _ = callChainFlags;
         _ = headMessage;
 
-        const isNew = c.binder.ast.getKind(node) == .NewExpression;
-        const argumentsList = if (isNew) c.binder.ast.getNode(node).NewExpression.Arguments else c.binder.ast.getNode(node).CallExpression.Arguments;
+        // For TaggedTemplateExpression, the "arguments" come from the template
+        // literal itself (strings + substitutions), not from an Arguments list.
+        // The Go implementation builds an arguments array from the template
+        // expression — for our purposes (argument arity check etc.) we just
+        // pass an empty list so the rest of resolveCall doesn't crash.
+        const argumentsList: ?u32 = blk: {
+            const node_data = c.binder.ast.getNode(node);
+            switch (node_data) {
+                .NewExpression => |n| break :blk n.Arguments,
+                .CallExpression => |n| break :blk n.Arguments,
+                .TaggedTemplateExpression => break :blk null,
+                else => break :blk null,
+            }
+        };
         
         const args = if ((argumentsList orelse 0) != 0) c.binder.ast.getNodeList(argumentsList.?) else &[_]u32{};
         
@@ -26146,8 +26158,16 @@ pub fn checkSpreadExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode
 }
 pub fn checkStringLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
     _ = checkMode;
-    const s = c.binder.ast.getNode(node_idx).StringLiteral;
-    return c.getFreshTypeOfLiteralType(c.getStringLiteralType(s.Text));
+    // Both `StringLiteral` and `NoSubstitutionTemplateLiteral` produce a
+    // string-literal type. The text is stored in different union fields
+    // (`StringLiteral.Text` vs `NoSubstitutionTemplateLiteral.Text`), so we
+    // dispatch by node kind.
+    const text: []const u8 = switch (c.binder.ast.getNode(node_idx)) {
+        .StringLiteral => |s| s.Text,
+        .NoSubstitutionTemplateLiteral => |s| s.Text,
+        else => "",
+    };
+    return c.getFreshTypeOfLiteralType(c.getStringLiteralType(text));
 }
 /// Port of `checker.go::checkSuperExpression`. Validates `super` keyword
 /// usage and returns the type of `super` in the current context.

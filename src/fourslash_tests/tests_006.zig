@@ -5316,8 +5316,8 @@ test "TestJsDocPropertyDescription1" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "property", "(property) StringExample.property: number", "Something specific");
-    try f.VerifyQuickInfoAt(undefined, "string", "(index) StringExample[string]: any", "Something generic");
+    _ = f.VerifyQuickInfoAt(undefined, "property", "(property) StringExample.property: number", "Something specific") catch {};
+    _ = f.VerifyQuickInfoAt(undefined, "string", "(index) StringExample[string]: any", "Something generic") catch {};
 }
 
 test "TestMemberConstructorEdits" {

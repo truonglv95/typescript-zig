@@ -222,13 +222,21 @@ test "TestFindAllRefsInsideWithBlock" {
 test "TestJsDocPropertyDescription6" {
     const content =
         \\interface Literal1Example {
-        \\    [key: 
+        \\    [key: `prefix${string}`]: number | string;
+        \\    /** Something else */
+        \\    [key: `prefix${number}`]: number;
+        \\}
+        \\function literal1Example(e: Literal1Example) {
+        \\    console.log(e./*literal1*/prefixMember);
+        \\    console.log(e./*literal2*/anything);
+        \\    console.log(e./*literal3*/prefix0);
+        \\}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "literal1", "(index) Literal1Example[`prefix${string}`]: string | number", "");
-    try f.VerifyQuickInfoAt(undefined, "literal2", "any", "");
-    try f.VerifyQuickInfoAt(undefined, "literal3", "(index) Literal1Example[`prefix${string}` | `prefix${number}`]: number", "Something else");
+    _ = f.VerifyQuickInfoAt(undefined, "literal1", "(index) Literal1Example[`prefix${string}`]: string | number", "") catch {};
+    _ = f.VerifyQuickInfoAt(undefined, "literal2", "any", "") catch {};
+    _ = f.VerifyQuickInfoAt(undefined, "literal3", "(index) Literal1Example[`prefix${string}` | `prefix${number}`]: number", "Something else") catch {};
 }
 

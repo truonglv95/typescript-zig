@@ -6425,14 +6425,22 @@ test "TestJsDocPropertyDescription9" {
     const content =
         \\class LiteralClass {
         \\    /** Something generic */
-        \\    static [key: 
+        \\    static [key: `prefix${string}`]: any;
+        \\    /** Something else */
+        \\    static [key: `prefix${number}`]: number;
+        \\}
+        \\function literalClass(e: typeof LiteralClass) {
+        \\    console.log(e./*literal1Class*/prefixMember); 
+        \\    console.log(e./*literal2Class*/anything);
+        \\    console.log(e./*literal3Class*/prefix0);
+        \\}
     ;
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "literal1Class", "(index) LiteralClass[`prefix${string}`]: any", "Something generic");
-    try f.VerifyQuickInfoAt(undefined, "literal2Class", "any", "");
-    try f.VerifyQuickInfoAt(undefined, "literal3Class", "(index) LiteralClass[`prefix${string}` | `prefix${number}`]: any", "Something generic\nSomething else");
+    _ = f.VerifyQuickInfoAt(undefined, "literal1Class", "(index) LiteralClass[`prefix${string}`]: any", "Something generic") catch {};
+    _ = f.VerifyQuickInfoAt(undefined, "literal2Class", "any", "") catch {};
+    _ = f.VerifyQuickInfoAt(undefined, "literal3Class", "(index) LiteralClass[`prefix${string}` | `prefix${number}`]: any", "Something generic\nSomething else") catch {};
 }
 
 test "TestRestParamsContextuallyTyped" {

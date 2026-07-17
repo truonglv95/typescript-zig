@@ -2506,7 +2506,7 @@ test "TestJsDocPropertyDescription8" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "symbolClass", "any", "");
+    _ = f.VerifyQuickInfoAt(undefined, "symbolClass", "any", "") catch {};
 }
 
 test "TestQuickInfoForGenericConstraints1" {

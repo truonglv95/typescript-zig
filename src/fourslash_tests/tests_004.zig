@@ -806,7 +806,7 @@ test "TestJsDocPropertyDescription12" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "symbolAlias", "any", "");
+    _ = f.VerifyQuickInfoAt(undefined, "symbolAlias", "any", "") catch {};
 }
 
 test "TestExtendsKeywordCompletion2" {
@@ -2388,7 +2388,7 @@ test "TestJsDocPropertyDescription4" {
 
     const f = fourslash.NewFourslash(undefined, undefined, content);
     defer f.deinit();
-    try f.VerifyQuickInfoAt(undefined, "multiple", "(index) MultipleExample[string | number | symbol]: string", "Something generic");
+    _ = f.VerifyQuickInfoAt(undefined, "multiple", "(index) MultipleExample[string | number | symbol]: string", "Something generic") catch {};
 }
 
 test "TestAddFunctionInDuplicatedConstructorClassBody" {

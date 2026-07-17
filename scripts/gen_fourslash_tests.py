@@ -72,7 +72,10 @@ ERROR_RETURNING_FNS = {
 }
 
 def escape_zig_multiline_string(s):
-    if not s: return ""
+    if not s:
+        # Zig multiline string literal cannot be empty — emit an empty
+        # single-line string instead.
+        return '        ""'
     lines = s.split('\n')
     return "\n".join(f"        \\\\{line.replace(chr(9), '    ')}" for line in lines)
 
@@ -329,6 +332,78 @@ def transform_go_to_zig(call_str):
 
     return result
 
+def parse_go_const_content(content):
+    """Parse a Go `const content = ...` declaration.
+
+    The Go source uses raw strings (backtick-delimited) but escapes literal
+    backticks by concatenation: `` `text` + "`" + `more` ``. A naive regex
+    stops at the first backtick and loses the rest. This parser walks the
+    Go token stream after `const content =` and concatenates every string
+    literal (raw or interpreted) it finds until the next Go statement
+    (detected by a newline followed by a non-+ token, or by the start of
+    the next `f, done := ...` line).
+    """
+    # Locate `const content\s*=\s*`
+    m = re.search(r'const\s+content\s*=\s*', content)
+    if not m:
+        return None
+    pos = m.end()
+    parts = []
+    while pos < len(content):
+        # Skip whitespace and `+` concatenation operators.
+        while pos < len(content) and content[pos] in ' \t\r\n+':
+            pos += 1
+        if pos >= len(content):
+            break
+        c = content[pos]
+        if c == '`':
+            # Raw string literal — read until next backtick.
+            end = content.find('`', pos + 1)
+            if end == -1:
+                return None
+            parts.append(content[pos + 1 : end])
+            pos = end + 1
+        elif c == '"':
+            # Interpreted string literal — read until unescaped ".
+            end = pos + 1
+            buf = []
+            while end < len(content):
+                ch = content[end]
+                if ch == '\\':
+                    if end + 1 < len(content):
+                        nxt = content[end + 1]
+                        if nxt == 'n':
+                            buf.append('\n')
+                        elif nxt == 't':
+                            buf.append('\t')
+                        elif nxt == 'r':
+                            buf.append('\r')
+                        elif nxt == '"':
+                            buf.append('"')
+                        elif nxt == '\\':
+                            buf.append('\\')
+                        elif nxt == '`':
+                            buf.append('`')
+                        else:
+                            buf.append(nxt)
+                        end += 2
+                        continue
+                if ch == '"':
+                    end += 1
+                    break
+                buf.append(ch)
+                end += 1
+            parts.append(''.join(buf))
+            pos = end
+        else:
+            # Anything else (letter, brace, etc.) means the const expression
+            # is over. Stop.
+            break
+    if not parts:
+        return None
+    return ''.join(parts)
+
+
 def parse_go_test(filepath):
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -338,12 +413,56 @@ def parse_go_test(filepath):
         return None
     test_name = test_func_match.group(1)
 
-    content_match = re.search(r'const content\s*=\s*`([^`]+)`', content)
-    if not content_match:
+    test_content = parse_go_const_content(content)
+    if test_content is None:
         return None
-    test_content = content_match.group(1)
 
-    method_calls = parse_go_test_calls(content[content_match.end():])
+    # Find where the const expression ends so we can parse method calls
+    # afterwards. We require the standard `f, done := fourslash.NewFourslash(...)`
+    # line as the anchor — this avoids accidentally matching `f.X(` patterns
+    # inside the test content string itself (which can happen when the test
+    # content includes code like `var b = new f.A()`).
+    const_start = re.search(r'const\s+content\s*=\s*', content)
+    if not const_start:
+        return None
+    rest_match = re.search(r'f,\s*done\s*:=\s*fourslash\.NewFourslash\(', content[const_start.end():])
+    if not rest_match:
+        return None
+    # Position calls_start AFTER the closing `)` of NewFourslash(...).
+    new_fourslash_open = const_start.end() + rest_match.end() - 1  # the '('
+    depth = 1
+    i = new_fourslash_open + 1
+    in_str = False
+    in_raw = False
+    escape = False
+    while i < len(content) and depth > 0:
+        c = content[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif c == '\\':
+                escape = True
+            elif c == '"':
+                in_str = False
+        elif in_raw:
+            if c == '`':
+                in_raw = False
+        else:
+            if c == '"':
+                in_str = True
+            elif c == '`':
+                in_raw = True
+            elif c == '(':
+                depth += 1
+            elif c == ')':
+                depth -= 1
+                if depth == 0:
+                    break
+        i += 1
+    if depth != 0:
+        return None
+    calls_start = i + 1
+    method_calls = parse_go_test_calls(content[calls_start:])
 
     return {
         "name": test_name,
