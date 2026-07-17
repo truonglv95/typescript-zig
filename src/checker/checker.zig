@@ -1568,6 +1568,32 @@ pub const Checker = struct {
         );
     }
 
+    /// Check if any of the single property's declarations is a method.
+    fn isUnionPropertyMethod(c: *Checker, sym: ast_gen.SymbolIndex) bool {
+        if (sym == 0 or sym >= c.binder.symbols.items.len) return false;
+        const sym_obj = c.binder.symbols.items[sym];
+        for (sym_obj.Declarations.items) |decl| {
+            if (decl != 0) {
+                const k = c.binder.ast.getNodeKind(decl);
+                if (k == .MethodDeclaration or k == .MethodSignature) return true;
+            }
+        }
+        return false;
+    }
+
+    /// Get the first single property's declaration node for method formatting.
+    fn getUnionPropertyMethodDecl(c: *Checker, sym: ast_gen.SymbolIndex) ast_gen.NodeIndex {
+        if (sym == 0 or sym >= c.binder.symbols.items.len) return 0;
+        const sym_obj = c.binder.symbols.items[sym];
+        for (sym_obj.Declarations.items) |decl| {
+            if (decl != 0) {
+                const k = c.binder.ast.getNodeKind(decl);
+                if (k == .MethodDeclaration or k == .MethodSignature) return decl;
+            }
+        }
+        return 0;
+    }
+
     fn getPropertyOfObjectType(c: *Checker, t: types.TypeIndex, name: []const u8) ?ast_gen.SymbolIndex {
         if ((c.getTypeFlags(t) & types.TypeFlags.Object) == 0) return null;
         const members = c.resolveStructuredTypeMembers(t);

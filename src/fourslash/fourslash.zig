@@ -1423,7 +1423,18 @@ pub const FourslashTest = struct {
 
         // Method declarations: format as "(method) name(params): retType" or
         // "(method) ClassName.name(params): retType" if parent is a class/interface.
-        if ((symObj.Flags & symbol.SymbolFlags.Method) != 0) {
+        // Also handle synthetic union properties that are methods (created by
+        // createUnionOrIntersectionProperty from method declarations).
+        const is_method_like = (symObj.Flags & symbol.SymbolFlags.Method) != 0 or
+            (symObj.Declarations.items.len > 0 and blk: {
+                const decl = symObj.Declarations.items[0];
+                if (decl != 0) {
+                    const k = p.ast.getNodeKind(decl);
+                    break :blk k == .MethodDeclaration or k == .MethodSignature;
+                }
+                break :blk false;
+            });
+        if (is_method_like) {
             const sigs = c.getSignaturesOfSymbol(sym);
             if (sigs.len > 0) {
                 var out = std.ArrayListUnmanaged(u8).empty;
