@@ -4343,7 +4343,10 @@ pub const Checker = struct {
                                         else => 0,
                                     };
                                     if (type_node != 0) {
-                                        retType = self.getTypeOfNode(type_node) catch 0;
+                                        retType = type_resolution_pkg.getTypeFromTypeNode(self, type_node);
+                                        if (retType == 0) {
+                                            retType = self.getTypeOfNode(type_node) catch 0;
+                                        }
                                     }
                                 }
                             }
