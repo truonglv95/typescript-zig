@@ -5881,7 +5881,10 @@ pub const Checker = struct {
             const param_type_node = param.Type orelse 0;
             if (param_type_node == 0) continue;
             // Get the param type as a TypeIndex.
-            const param_type_idx = type_resolution_pkg.getTypeFromTypeNode(self, param_type_node);
+            // Use getTypeOfNode (not getTypeFromTypeNode) to ensure the same
+            // symbol resolution path as the return type, so TypeParameter
+            // symbols match between param and return types.
+            const param_type_idx = self.getTypeOfNode(param_type_node) catch 0;
             if (param_type_idx == 0) continue;
             const arg_type_idx = arg_types[i];
             if (arg_type_idx == 0) continue;
