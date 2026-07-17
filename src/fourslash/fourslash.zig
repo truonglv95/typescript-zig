@@ -1384,6 +1384,22 @@ pub const FourslashTest = struct {
                 const decl_node = symObj.Declarations.items[0];
                 if (p.ast.getNodeKind(decl_node) == .Parameter) {
                     is_param = true;
+                } else {
+                    // For destructured parameters (e.g., `function f({ x }: ...)`),
+                    // the binding element's declaration is a BindingElement whose
+                    // ancestor is a Parameter.
+                    var cur = decl_node;
+                    while (cur != 0) {
+                        const k = p.ast.getNodeKind(cur);
+                        if (k == .Parameter) {
+                            is_param = true;
+                            break;
+                        }
+                        if (k == .Block or k == .SourceFile or k == .FunctionDeclaration or k == .FunctionExpression or k == .ArrowFunction or k == .MethodDeclaration) break;
+                        const parent = p.ast.getNodeParent(cur);
+                        if (parent == cur or parent == 0) break;
+                        cur = parent;
+                    }
                 }
             }
             if (is_param) {
