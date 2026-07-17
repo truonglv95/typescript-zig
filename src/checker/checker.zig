@@ -3962,8 +3962,37 @@ pub const Checker = struct {
                 // Handle both simple identifiers (Foo) and qualified names (A.B.Foo).
                 const type_name_node = reference.TypeName;
                 const name = ast_utils.getTextOfNode(self.binder.ast, type_name_node);
-                if (self.resolver.resolve(type_name_node, name, symbol.SymbolFlags.Type, null, false, false)) |sym_index| {
-                    const target_type = try self.getTypeOfSymbol(sym_index);
+                // Try resolver first.
+                var sym_index = self.resolver.resolve(type_name_node, name, symbol.SymbolFlags.Type, null, false, false);
+                // If resolver fails, try looking up in SourceFile locals directly.
+                if (sym_index == null or sym_index.? == self.unknownSymbol) {
+                    const source_file = ast_utils.getSourceFileOfNode(self.binder.ast, type_name_node);
+                    if (source_file != 0) {
+                        // Try SourceFile locals.
+                        if (self.binder.nodeLocals.getPtr(source_file)) |sf_locals| {
+                            if (sf_locals.get(name)) |sf_sym| {
+                                if ((self.binder.symbols.items[sf_sym].Flags & symbol.SymbolFlags.Type) != 0) {
+                                    sym_index = sf_sym;
+                                }
+                            }
+                        }
+                        // Try SourceFile exports.
+                        if (sym_index == null or sym_index.? == self.unknownSymbol) {
+                            if (self.binder.ast.getNodeSymbol(source_file)) |sf_sym| {
+                                if (self.binder.symbolExports.getPtr(sf_sym)) |sf_exports| {
+                                    if (sf_exports.get(name)) |exp_sym| {
+                                        if ((self.binder.symbols.items[exp_sym].Flags & symbol.SymbolFlags.Type) != 0) {
+                                            sym_index = exp_sym;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (sym_index) |si| {
+                    if (si != 0 and si != self.unknownSymbol) {
+                    const target_type = try self.getTypeOfSymbol(si);
                     // If there are type arguments, create a Reference type.
                     if (reference.TypeArguments) |type_args_list| {
                         if (type_args_list != 0) {
@@ -3996,6 +4025,7 @@ pub const Checker = struct {
                         }
                     }
                     return target_type;
+                    } // end if si != 0
                 }
                 return try self.getAnyType();
             },
