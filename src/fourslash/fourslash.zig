@@ -1527,6 +1527,33 @@ pub const FourslashTest = struct {
                     const is_named_type = (parent_obj.Flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface | symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum)) != 0;
                     if (is_named_type and parent_obj.Name.len > 0) {
                         out.appendSlice(aa, parent_obj.Name) catch {};
+                        // If the parent type has type parameters, append them.
+                        // E.g., `class G<T>` -> display as `G<T>`.
+                        if (parent_obj.Declarations.items.len > 0) {
+                            const parent_decl = parent_obj.Declarations.items[0];
+                            const parent_decl_data = p.ast.getNode(parent_decl);
+                            const tp_list: ?u32 = switch (parent_decl_data) {
+                                .ClassDeclaration => |cd| cd.TypeParameters,
+                                .InterfaceDeclaration => |id| id.TypeParameters,
+                                else => null,
+                            };
+                            if (tp_list) |tpl| {
+                                if (tpl != 0) {
+                                    const tp_nodes = p.ast.getNodeList(tpl);
+                                    if (tp_nodes.len > 0) {
+                                        out.appendSlice(aa, "<") catch {};
+                                        for (tp_nodes, 0..) |tp_node, i| {
+                                            if (i > 0) out.appendSlice(aa, ", ") catch {};
+                                            if (tp_node != 0) {
+                                                const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
+                                                out.appendSlice(aa, tp_name) catch {};
+                                            }
+                                        }
+                                        out.appendSlice(aa, ">") catch {};
+                                    }
+                                }
+                            }
+                        }
                         out.appendSlice(aa, ".") catch {};
                     }
                 }
