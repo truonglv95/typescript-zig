@@ -1194,8 +1194,20 @@ pub const FourslashTest = struct {
         if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return "";
 
         // Get the symbol at this location.
-        const sym = checker_module.getSymbolAtLocation(c, node);
+        var sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) return "";
+
+        // If the symbol has an ExportSymbol pointer (e.g., local symbol for an
+        // exported declaration), follow it to get the export symbol which has
+        // the full flags (FunctionScopedVariable, etc.).
+        {
+            const init_sym_obj = c.binder.symbols.items[sym];
+            if (init_sym_obj.ExportSymbol) |export_sym| {
+                if (export_sym != 0 and export_sym < c.binder.symbols.items.len) {
+                    sym = export_sym;
+                }
+            }
+        }
 
         const symObj = c.binder.symbols.items[sym];
 
@@ -1505,7 +1517,27 @@ pub const FourslashTest = struct {
                 out.appendSlice(aa, prefix) catch {};
                 out.appendSlice(aa, " ") catch {};
             }
-            out.appendSlice(aa, symObj.Name) catch {};
+            // If the variable is exported from a namespace (not SourceFile),
+            // prefix the name with the namespace name, e.g., "M.x".
+            // Only exported variables get the namespace prefix.
+            // We detect "exported" by checking if the symbol has a Parent
+            // (set when declared via .Exports table type).
+            var name_with_prefix = std.ArrayListUnmanaged(u8).empty;
+            name_with_prefix.appendSlice(aa, symObj.Name) catch {};
+            const has_parent = symObj.Parent != null and symObj.Parent.? != 0 and symObj.Parent.? < c.binder.symbols.items.len;
+            if (!is_local and !is_block_scoped and has_parent) {
+                const parent_obj = c.binder.symbols.items[symObj.Parent.?];
+                // Only add prefix if the parent is a namespace (ModuleDeclaration).
+                if ((parent_obj.Flags & symbol.SymbolFlags.Namespace) != 0 and parent_obj.Name.len > 0) {
+                    var new_name = std.ArrayListUnmanaged(u8).empty;
+                    new_name.appendSlice(aa, parent_obj.Name) catch {};
+                    new_name.appendSlice(aa, ".") catch {};
+                    new_name.appendSlice(aa, symObj.Name) catch {};
+                    name_with_prefix.clearRetainingCapacity();
+                    name_with_prefix.appendSlice(aa, new_name.items) catch {};
+                }
+            }
+            out.appendSlice(aa, name_with_prefix.items) catch {};
             out.appendSlice(aa, ": ") catch {};
             out.appendSlice(aa, typeStr) catch {};
             return out.toOwnedSlice(aa) catch "";
