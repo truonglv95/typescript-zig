@@ -978,6 +978,9 @@ pub const Binder = struct {
                 self.blockScopeContainer = saveBlockScopeContainer;
             },
             .CallSignature => |n| {
+                // CallSignature is declared as a __call member of the CONTAINING
+                // type (interface/class), not as a local of the CallSignature node.
+                // The container is the InterfaceDeclaration/TypeLiteral/etc.
                 _ = try self.declareSymbolAndAddToSymbolTable(nodeIndex, symbol.SymbolFlags.Signature, symbol.SymbolFlags.None, symbol.InternalSymbolNameCall);
                 const saveContainer = self.container;
                 const saveBlockScopeContainer = self.blockScopeContainer;

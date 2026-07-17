@@ -4267,6 +4267,7 @@ pub const Checker = struct {
                                 // Try getSignaturesOfType.
                                 sigs = self.getSignaturesOfType(calleeTypeIdx, .Call);
                             }
+                            // Debug removed.
                             if (sigs.len > 0) {
                                 sig_idx = self.resolvedSignaturesPool.items[sigs.start];
                                 const sig = &self.signatures.items[sig_idx];
