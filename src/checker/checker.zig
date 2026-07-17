@@ -122,6 +122,102 @@ pub const Checker = struct {
         }
     }
 
+    /// Get the contextual type for a parameter of a function expression that's
+    /// passed as an argument to a call. `param_node` is the Parameter node,
+    /// `fn_node` is the function-like parent (FunctionExpression, ArrowFunction).
+    /// Returns the parameter type from the contextual signature, or 0 if none.
+    pub fn getContextualParameterType(c: *Checker, param_node: ast_gen.NodeIndex, fn_node: ast_gen.NodeIndex) ?types.TypeIndex {
+        // Find the parameter index in fn_node's parameter list.
+        const fn_data = c.binder.ast.getNode(fn_node);
+        const params_id: u32 = switch (fn_data) {
+            .FunctionExpression => |f| f.Parameters,
+            .ArrowFunction => |f| f.Parameters,
+            .FunctionDeclaration => |f| f.Parameters,
+            .MethodDeclaration => |m| m.Parameters,
+            else => return null,
+        };
+        if (params_id == 0) return null;
+        const params = c.binder.ast.getNodeList(params_id);
+        var param_idx: ?usize = null;
+        var skipped_this = false;
+        for (params, 0..) |p, i| {
+            if (p == param_node) {
+                // Adjust index: skip `this` parameter (first param named "this").
+                var adj_idx = i;
+                if (!skipped_this and params.len > 0) {
+                    const first_param = params[0];
+                    if (first_param != 0) {
+                        const first_param_data = c.binder.ast.getNode(first_param);
+                        if (first_param_data == .Parameter) {
+                            const fp_name_node = first_param_data.Parameter.name;
+                            if (fp_name_node != 0) {
+                                const fp_name = ast_utils.getTextOfNode(c.binder.ast, fp_name_node);
+                                if (std.mem.eql(u8, fp_name, "this")) {
+                                    if (p != first_param) adj_idx = i - 1;
+                                    skipped_this = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                param_idx = adj_idx;
+                break;
+            }
+        }
+        if (param_idx == null) return null;
+        const idx = param_idx.?;
+
+        // Walk up from fn_node to find a CallExpression that has fn_node as an argument.
+        var cur = c.binder.ast.getNodeParent(fn_node);
+        while (cur != 0) {
+            const k = c.binder.ast.getNodeKind(cur);
+            if (k == .CallExpression or k == .NewExpression) {
+                const args_id_opt: ?u32 = if (k == .CallExpression) c.binder.ast.getNode(cur).CallExpression.Arguments else c.binder.ast.getNode(cur).NewExpression.Arguments;
+                if (args_id_opt == null or args_id_opt.? == 0) return null;
+                const args = c.binder.ast.getNodeList(args_id_opt.?);
+                var arg_idx: ?usize = null;
+                for (args, 0..) |a, i| {
+                    if (a == fn_node) {
+                        arg_idx = i;
+                        break;
+                    }
+                }
+                if (arg_idx == null) return null;
+
+                // Get the resolved signature and look up the parameter type.
+                const sig = c.getResolvedSignature(cur, null, .Normal);
+                if (sig == 0 or sig >= c.signatures.items.len) return null;
+                const sig_obj = &c.signatures.items[sig];
+                if (idx >= sig_obj.parametersLen) return null;
+                if (sig_obj.parametersStart + idx >= c.signatureParameters.items.len) return null;
+                const param_sym = c.signatureParameters.items[sig_obj.parametersStart + idx];
+                if (param_sym == 0 or param_sym >= c.binder.symbols.items.len) return null;
+                const outer_param_type = c.getTypeOfSymbol(param_sym) catch 0;
+                if (outer_param_type == 0) return null;
+
+                // The outer parameter type is the contextual type for the
+                // function expression. If it's a function type, extract the
+                // corresponding parameter type from its signature.
+                const inner_sigs = c.getSignaturesOfType(outer_param_type, .Call);
+                if (inner_sigs.len == 0) return null;
+                const inner_sig_idx = c.resolvedSignaturesPool.items[inner_sigs.start];
+                if (inner_sig_idx >= c.signatures.items.len) return null;
+                const inner_sig = &c.signatures.items[inner_sig_idx];
+                if (idx >= inner_sig.parametersLen) return null;
+                if (inner_sig.parametersStart + idx >= c.signatureParameters.items.len) return null;
+                const inner_param_sym = c.signatureParameters.items[inner_sig.parametersStart + idx];
+                if (inner_param_sym == 0 or inner_param_sym >= c.binder.symbols.items.len) return null;
+                const inner_param_type = c.getTypeOfSymbol(inner_param_sym) catch 0;
+                if (inner_param_type != 0) return inner_param_type;
+                return null;
+            }
+            if (k == .SourceFile or k == .Block or k == .FunctionDeclaration or k == .FunctionExpression or k == .ArrowFunction or k == .MethodDeclaration) return null;
+            cur = c.binder.ast.getNodeParent(cur);
+        }
+        return null;
+    }
+
+
     pub fn isFunctionType(c: *Checker, t: types.TypeIndex) bool {
         return (c.getTypeFlags(t) & types.TypeFlags.Object) != 0 and c.getSignaturesOfType(t, .Call).len > 0;
     }
@@ -3814,7 +3910,7 @@ pub const Checker = struct {
         switch (node) {
             .Parameter => |p| {
                 if (p.Type) |typeNodeIndex| {
-                    return try self.getTypeOfNode(typeNodeIndex);
+                    if (typeNodeIndex != 0) return try self.getTypeOfNode(typeNodeIndex);
                 }
 
                 const parent_node = self.binder.ast.getNodeParent(nodeIndex);
@@ -3837,7 +3933,7 @@ pub const Checker = struct {
                                         const tag_text = self.binder.ast.sourceText[tag_name_pos.pos..tag_name_pos.end];
                                         if (std.mem.eql(u8, param_text, tag_text)) {
                                             if (param_tag.TypeExpression) |type_expr| {
-                                                return self.getTypeFromTypeNode(type_expr);
+                                                if (type_expr != 0) return self.getTypeFromTypeNode(type_expr);
                                             }
                                         }
                                     }
@@ -3846,6 +3942,16 @@ pub const Checker = struct {
                         }
                     }
                 }
+
+                // Contextual typing: if this parameter is in a function expression
+                // that's an argument to a call, infer the parameter type from the
+                // call's signature.
+                if (parent_node != 0) {
+                    if (self.getContextualParameterType(nodeIndex, parent_node)) |ctx_type| {
+                        if (ctx_type != 0) return ctx_type;
+                    }
+                }
+
                 return try self.getAnyType();
             },
             .NumberKeyword => return try self.getNumberType(),
