@@ -1228,7 +1228,42 @@ pub const Checker = struct {
 
         const resolved = c.resolveStructuredTypeMembers(apparent);
         if (sigKind == .Call) {
-            return .{ .start = resolved.callSignaturesStart, .len = resolved.callSignaturesLen };
+            if (resolved.callSignaturesLen > 0) {
+                return .{ .start = resolved.callSignaturesStart, .len = resolved.callSignaturesLen };
+            }
+            // Fallback: walk the type's symbol declarations directly.
+            if (typeData.symbol) |sym| {
+                if (sym != 0 and sym < c.binder.symbols.items.len) {
+                    const sym_obj = c.binder.symbols.items[sym];
+                    for (sym_obj.Declarations.items) |decl| {
+                        const decl_data = c.binder.ast.getNode(decl);
+                        const members_list: ?u32 = switch (decl_data) {
+                            .InterfaceDeclaration => |id| id.Members,
+                            .TypeLiteral => |tl| tl.Members,
+                            else => null,
+                        };
+                        if (members_list) |ml| {
+                            if (ml != 0) {
+                                const member_nodes = c.binder.ast.getNodeList(ml);
+                                const start = c.resolvedSignaturesPool.items.len;
+                                for (member_nodes) |mn| {
+                                    if (mn != 0 and c.binder.ast.getNodeKind(mn) == .CallSignature) {
+                                        const sig_idx = c.getSignatureFromDeclaration(mn);
+                                        if (sig_idx != 0) {
+                                            c.resolvedSignaturesPool.append(c.allocator, sig_idx) catch {};
+                                        }
+                                    }
+                                }
+                                const sig_count = c.resolvedSignaturesPool.items.len - start;
+                                if (sig_count > 0) {
+                                    return .{ .start = @intCast(start), .len = @intCast(sig_count) };
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return .{ .start = 0, .len = 0 };
         }
         return .{ .start = resolved.constructSignaturesStart, .len = resolved.constructSignaturesLen };
     }
