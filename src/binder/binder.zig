@@ -1943,7 +1943,11 @@ pub const Binder = struct {
         self.symbolCount += 1;
         try self.symbols.items[typeLiteralSymIndex].Declarations.append(self.allocator, nodeIndex);
 
-        try symbol.symbolTablePut(&self.symbols.items[typeLiteralSymIndex].Members, self.allocator, "", symIndex);
+        var res = try self.symbolMembers.getOrPut(typeLiteralSymIndex);
+        if (!res.found_existing) {
+            res.value_ptr.* = std.StringHashMap(ast_gen.SymbolIndex).init(self.allocator);
+        }
+        try res.value_ptr.put(name, symIndex);
         self.ast.setNodeSymbol(nodeIndex, typeLiteralSymIndex);
     }
 

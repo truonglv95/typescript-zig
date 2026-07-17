@@ -1042,8 +1042,17 @@ pub fn getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c: *Checker, node: 
     }
     if (entry.value_ptr.resolvedType == 0) {
         const alias = getAliasForTypeNode(c, node);
+
         const sym = getSymbolOfNode(c, node);
+        if (c.binder.ast.getKind(node) == .FunctionType) {
+            std.debug.print("\n[DEBUG] getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode: FunctionType sym={d}\n", .{sym});
+            if (sym != 0) {
+                const has_members = symbolHasMembers(c, sym);
+                std.debug.print("[DEBUG] symbolHasMembers={}\n", .{has_members});
+            }
+        }
         if (sym == 0 or (!symbolHasMembers(c, sym) and alias == 0)) {
+
             entry.value_ptr.resolvedType = c.emptyTypeLiteralTypeIndex orelse c.errorTypeIndex orelse 0;
         } else {
             const t = newObjectType(c, types.ObjectFlags.Anonymous, sym);
