@@ -347,6 +347,26 @@ fn resolveTypeReferenceName(c: *Checker, typeReference: NodeIndex, meaning: u32,
     if (resolvedSymbol != 0 and resolvedSymbol != c.unknownSymbol) {
         return resolvedSymbol;
     }
+    // Fallback: search SourceFile locals and exports directly.
+    const source_file = ast_utils.getSourceFileOfNode(c.binder.ast, typeReference);
+    if (source_file != 0) {
+        if (c.binder.nodeLocals.getPtr(source_file)) |sf_locals| {
+            if (sf_locals.get(nameText)) |sf_sym| {
+                if ((c.binder.symbols.items[sf_sym].Flags & meaning) != 0) {
+                    return sf_sym;
+                }
+            }
+        }
+        if (c.binder.ast.getNodeSymbol(source_file)) |sf_sym| {
+            if (c.binder.symbolExports.getPtr(sf_sym)) |sf_exports| {
+                if (sf_exports.get(nameText)) |exp_sym| {
+                    if ((c.binder.symbols.items[exp_sym].Flags & meaning) != 0) {
+                        return exp_sym;
+                    }
+                }
+            }
+        }
+    }
     if (resolveLibSymbol(c, nameText, meaning)) |libSym| {
         return libSym;
     }
