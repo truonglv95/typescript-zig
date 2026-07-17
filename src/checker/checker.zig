@@ -5761,12 +5761,22 @@ pub const Checker = struct {
             return;
         }
 
-        // Case 3: param is a structured type (Object/Reference), arg matches.
-        // Walk members — simplified: only handle Reference<T> -> Reference<X>.
+        // Case 3: param is a Reference<T>, arg is a Reference<X> with the
+        // same target symbol — recurse on type arguments.
         if ((p.flags & types.TypeFlags.Object) != 0 and (a.flags & types.TypeFlags.Object) != 0) {
-            // If both have a symbol and they're the same class/interface, walk type
-            // arguments. (Simplified: only if both have type args stored.)
-            // Skip — too complex for now.
+            if (p.data == .Object and a.data == .Object and
+                (p.objectFlags & types.ObjectFlags.Reference) != 0 and
+                (a.objectFlags & types.ObjectFlags.Reference) != 0)
+            {
+                const p_ta = self.getTypeArguments(param_type);
+                const a_ta = self.getTypeArguments(arg_type);
+                if (p_ta.len > 0 and p_ta.len == a_ta.len) {
+                    for (p_ta, 0..) |pt, i| {
+                        try self.unifyTypes(pt, a_ta[i], inferred);
+                    }
+                    return;
+                }
+            }
         }
     }
 
@@ -5836,6 +5846,23 @@ pub const Checker = struct {
                     } },
                 });
             }
+        }
+
+        // Function type: substitute the return type.
+        if (type_data.data == .Function) {
+            const new_ret = try self.substituteTypeParams(type_data.data.Function.returnType, inferred);
+            return try self.createType(.{
+                .flags = type_data.flags,
+                .objectFlags = type_data.objectFlags,
+                .id = 0,
+                .symbol = type_data.symbol,
+                .alias = null,
+                .data = .{ .Function = .{
+                    .declarationNode = type_data.data.Function.declarationNode,
+                    .returnType = new_ret,
+                    .parameterCount = type_data.data.Function.parameterCount,
+                } },
+            });
         }
 
         // Other types: return as-is (no substitution).
