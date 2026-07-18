@@ -20107,6 +20107,8 @@ pub const Checker = struct {
         // Walk up the parent chain to find the enclosing class-like or
         // interface declaration.
         var container = ast_utils.getParent(c.binder.ast, node);
+        // Track whether we passed through a static member on the way up.
+        var passed_through_static = false;
         while (container != 0) {
             const container_kind = c.binder.ast.getKind(container);
             switch (container_kind) {
@@ -20126,12 +20128,31 @@ pub const Checker = struct {
                                 // Create a new `this` type parameter:
                                 // a TypeParameter with isThisType=true and
                                 // constraint = the class type.
+                                // For static methods, the constraint is the
+                                // constructor type (typeof C).
+                                var constraint = class_type;
+                                if (passed_through_static and (container_kind == .ClassDeclaration or container_kind == .ClassExpression)) {
+                                    // Get the constructor type: typeof C.
+                                    // This is a TypeReference with the class symbol.
+                                    const ctor_type = c.createType(.{
+                                        .flags = types.TypeFlags.Object,
+                                        .objectFlags = types.ObjectFlags.Anonymous,
+                                        .id = 0,
+                                        .symbol = sym,
+                                        .alias = null,
+                                        .data = .{ .Object = .{ .Symbol = sym } },
+                                    }) catch class_type;
+                                    _ = ctor_type;
+                                    // For now, use the class type as constraint.
+                                    // TODO: properly create a `typeof C` type.
+                                    constraint = class_type;
+                                }
                                 const this_tp = c.createType(.{
                                     .flags = types.TypeFlags.TypeParameter,
                                     .objectFlags = types.ObjectFlags.Anonymous,
                                     .symbol = sym,
                                     .data = .{ .TypeParameter = .{
-                                        .constraintType = class_type,
+                                        .constraintType = constraint,
                                         .isThisType = true,
                                     } },
                                 }) catch 0;
@@ -20143,6 +20164,12 @@ pub const Checker = struct {
                         }
                     }
                     return 0;
+                },
+                .MethodDeclaration, .MethodSignature, .GetAccessor, .SetAccessor, .PropertyDeclaration, .PropertySignature => {
+                    // Check if this member is static.
+                    if (ast_utils.hasSyntacticModifier(c.binder.ast, container, ast_utils.ModifierFlags.Static)) {
+                        passed_through_static = true;
+                    }
                 },
                 .SourceFile => return 0,
                 else => {},
@@ -24253,6 +24280,47 @@ pub fn getAliasedSymbolNullable(c: *Checker, symIdx: ast_gen.SymbolIndex) ?ast_g
     }
 }
 
+/// Extract the property name from an element access argument expression.
+/// For StringLiteral: returns the literal text without surrounding quotes.
+/// For NumericLiteral: returns the literal text.
+/// For Identifier: returns the identifier text.
+/// For NoSubstitutionTemplateLiteral: returns the template text.
+/// Returns the result as a slice into the provided buffer (or the source
+/// text directly for string/numeric literals).
+fn extractElementAccessName(c: *Checker, node: ast_gen.NodeIndex, buf: *[256]u8) []const u8 {
+    const node_kind = c.binder.ast.getNodeKind(node);
+    switch (node_kind) {
+        .StringLiteral => {
+            const text = c.binder.ast.getNode(node).StringLiteral.Text;
+            // Strip surrounding quotes if present (single or double).
+            if (text.len >= 2 and (text[0] == '"' or text[0] == '\'') and text[text.len - 1] == text[0]) {
+                return text[1 .. text.len - 1];
+            }
+            return text;
+        },
+        .NoSubstitutionTemplateLiteral => {
+            return c.binder.ast.getNode(node).NoSubstitutionTemplateLiteral.Text;
+        },
+        .NumericLiteral => {
+            return c.binder.ast.getNode(node).NumericLiteral.Text;
+        },
+        .Identifier => {
+            return c.binder.ast.getNode(node).Identifier.Text;
+        },
+        else => {
+            // Fallback: use getTextOfNode and strip quotes if any.
+            const text = ast_utils.getTextOfNode(c.binder.ast, node);
+            if (text.len >= 2 and (text[0] == '"' or text[0] == '\'') and text[text.len - 1] == text[0]) {
+                if (text.len - 2 <= buf.len) {
+                    @memcpy(buf[0 .. text.len - 2], text[1 .. text.len - 1]);
+                    return buf[0 .. text.len - 2];
+                }
+            }
+            return text;
+        },
+    }
+}
+
 pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolIndex {
     if (c.binder.ast.getNodeKind(node) == .SourceFile) {
         if (c.binder.ast.getNode(node).SourceFile.ExternalModuleIndicator != null or c.binder.ast.getNode(node).SourceFile.CommonJSModuleIndicator != null) {
@@ -24419,11 +24487,27 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
     if (parent != 0 and c.binder.ast.getNodeKind(parent) == .ElementAccessExpression) {
         const eae = c.binder.ast.getNode(parent).ElementAccessExpression;
         if (eae.ArgumentExpression == node) {
-            const obj_type = c.checkExpressionCached(eae.Expression);
+            var obj_type = c.checkExpressionCached(eae.Expression);
+            // Fallback for object type that resolved to any.
+            const obj_is_any = obj_type == (c.anyTypeIndex orelse 0);
+            if ((obj_type == 0 or obj_is_any) and c.binder.ast.getNodeKind(eae.Expression) == .Identifier) {
+                const obj_sym = getResolvedSymbol(c, eae.Expression);
+                if (obj_sym != 0 and obj_sym != c.unknownSymbol) {
+                    const sym_type = c.getTypeOfSymbol(obj_sym) catch 0;
+                    if (sym_type != 0) obj_type = sym_type;
+                }
+            }
             if (obj_type != 0) {
-                const name_str = ast_utils.getTextOfNode(c.binder.ast, node);
-                if (c.getPropertyOfType(obj_type, name_str)) |prop_sym| {
-                    return prop_sym;
+                // Extract the property name from the argument expression.
+                // For StringLiteral, use the literal text (without quotes).
+                // For NumericLiteral, use the literal text.
+                // For Identifier, use the identifier text.
+                var name_buf: [256]u8 = undefined;
+                const name_str = extractElementAccessName(c, node, &name_buf);
+                if (name_str.len > 0) {
+                    if (c.getPropertyOfType(obj_type, name_str)) |prop_sym| {
+                        return prop_sym;
+                    }
                 }
             }
         }
