@@ -1408,6 +1408,19 @@ pub const FourslashTest = struct {
                     }
                 }
             }
+            // NamedTupleMember: hovering on the name (e.g. `x` in `[x: string]`)
+            // should display the member's type. Go's hover returns just the type
+            // string (e.g. "string").
+            if (parent != 0 and p.ast.getNodeKind(parent) == .NamedTupleMember) {
+                const ntm = p.ast.getNode(parent).NamedTupleMember;
+                if (ntm.name == node and ntm.Type != 0) {
+                    const tp = c.getTypeFromTypeNode(ntm.Type);
+                    if (tp != 0) {
+                        const s = c.typeToString(tp, 0, 0, null);
+                        if (s.len > 0) return s;
+                    }
+                }
+            }
         }
 
         // Get the symbol at this location.
