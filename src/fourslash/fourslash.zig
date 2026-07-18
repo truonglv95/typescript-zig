@@ -2024,6 +2024,74 @@ pub const FourslashTest = struct {
             return out.toOwnedSlice(aa) catch "";
         }
 
+        // Enum member: format as "(enum member) EnumName.MemberName = value"
+        // The value is auto-incremented (0, 1, 2...) for number enums, or
+        // the string literal for string enums.
+        if ((symObj.Flags & symbol.SymbolFlags.EnumMember) != 0) {
+            var out = std.ArrayListUnmanaged(u8).empty;
+            const aa = self.arena.allocator();
+            out.appendSlice(aa, "(enum member) ") catch {};
+            // Find the parent enum's name.
+            var parent_name: []const u8 = "";
+            if (symObj.Parent) |parent_sym| {
+                if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
+                    parent_name = c.binder.symbols.items[parent_sym].Name;
+                }
+            }
+            if (parent_name.len > 0) {
+                out.appendSlice(aa, parent_name) catch {};
+                out.appendSlice(aa, ".") catch {};
+            }
+            out.appendSlice(aa, symObj.Name) catch {};
+            // Append the member's value. For auto-incremented number enums,
+            // the value is the member's index in the enum declaration.
+            // For string enums, the value is the string literal.
+            if (symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                if (p.ast.getNodeKind(decl_node) == .EnumMember) {
+                    const em = p.ast.getNode(decl_node).EnumMember;
+                    // Check if there's an initializer.
+                    if (em.Initializer) |init| {
+                        if (init != 0) {
+                            // For string literals, include the quotes.
+                            const init_kind = p.ast.getNodeKind(init);
+                            const init_text: []const u8 = switch (init_kind) {
+                                .StringLiteral => blk: {
+                                    const text = p.ast.getNode(init).StringLiteral.Text;
+                                    const quoted = std.fmt.allocPrint(aa, "\"{s}\"", .{text}) catch "";
+                                    break :blk quoted;
+                                },
+                                .NumericLiteral => p.ast.getNode(init).NumericLiteral.Text,
+                                else => ast_utils.getTextOfNode(&p.ast, init),
+                            };
+                            if (init_text.len > 0) {
+                                out.appendSlice(aa, " = ") catch {};
+                                out.appendSlice(aa, init_text) catch {};
+                            }
+                        }
+                    } else {
+                        // No initializer — auto-incremented. Compute the
+                        // member's index by counting siblings.
+                        const parent_node = p.ast.getNodeParent(decl_node);
+                        if (parent_node != 0 and p.ast.getNodeKind(parent_node) == .EnumDeclaration) {
+                            const ed = p.ast.getNode(parent_node).EnumDeclaration;
+                            if (ed.Members != 0) {
+                                const members = p.ast.getNodeList(ed.Members);
+                                var idx: u32 = 0;
+                                for (members) |m| {
+                                    if (m == decl_node) break;
+                                    idx += 1;
+                                }
+                                const val_str = std.fmt.allocPrint(aa, " = {d}", .{idx}) catch "";
+                                out.appendSlice(aa, val_str) catch {};
+                            }
+                        }
+                    }
+                }
+            }
+            return out.toOwnedSlice(aa) catch "";
+        }
+
         // Namespace/Module: format as "namespace Name" for namespaces,
         // or "module \"name\"" for ambient module declarations (eg
         // `declare module "*.css"`).
