@@ -2041,8 +2041,47 @@ pub const FourslashTest = struct {
                                     for (tp_nodes, 0..) |tp_node, i| {
                                         if (i > 0) out.appendSlice(aa, ", ") catch {};
                                         if (tp_node != 0) {
-                                            const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
+                                            const tp_data = p.ast.getNode(tp_node).TypeParameter;
+                                            const tp_name = ast_utils.getTextOfNode(&p.ast, tp_data.name);
                                             out.appendSlice(aa, tp_name) catch {};
+                                            // Append default type if present: `T = string`
+                                            if (tp_data.DefaultType) |dt| {
+                                                if (dt != 0) {
+                                                    out.appendSlice(aa, " = ") catch {};
+                                                    // Format the default type node. For simple
+                                                    // type keywords (StringKeyword, NumberKeyword,
+                                                    // etc.) use a literal string; for other types
+                                                    // fall back to the type text.
+                                                    const dt_kind = p.ast.getNodeKind(dt);
+                                                    const dt_text: []const u8 = switch (dt_kind) {
+                                                        .StringKeyword => "string",
+                                                        .NumberKeyword => "number",
+                                                        .BooleanKeyword => "boolean",
+                                                        .BigIntKeyword => "bigint",
+                                                        .VoidKeyword => "void",
+                                                        .UndefinedKeyword => "undefined",
+                                                        .NullKeyword => "null",
+                                                        .AnyKeyword => "any",
+                                                        .UnknownKeyword => "unknown",
+                                                        .NeverKeyword => "never",
+                                                        .SymbolKeyword => "symbol",
+                                                        .ObjectKeyword => "object",
+                                                        .TrueKeyword => "true",
+                                                        .FalseKeyword => "false",
+                                                        else => "",
+                                                    };
+                                                    if (dt_text.len > 0) {
+                                                        out.appendSlice(aa, dt_text) catch {};
+                                                    } else {
+                                                        // For complex types (TypeReference, etc.),
+                                                        // try to extract the name.
+                                                        const dt_name = ast_utils.getTextOfNode(&p.ast, dt);
+                                                        if (dt_name.len > 0) {
+                                                            out.appendSlice(aa, dt_name) catch {};
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     out.appendSlice(aa, ">") catch {};
