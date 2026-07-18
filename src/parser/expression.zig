@@ -506,13 +506,16 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
 
             const arg = try parseExpression(p);
             _ = p.parseExpected(kind.Kind.CloseBracketToken);
+            const ea_end = p.scanner.state.tokenStart;
             currentExpr = try p.ast.pushNode(.{ .ElementAccessExpression = .{
                 .Flags = 0,
                 .Expression = currentExpr,
                 .QuestionDotToken = questionDotToken,
                 .ArgumentExpression = arg,
             } });
-            p.setNodeStartPos(currentExpr, access_start);
+            if (currentExpr != 0 and currentExpr < p.ast.positions.items.len) {
+                p.ast.positions.items[currentExpr] = .{ .pos = @intCast(access_start), .end = @intCast(ea_end) };
+            }
             continue;
         }
 
