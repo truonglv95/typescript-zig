@@ -26346,6 +26346,11 @@ pub fn checkThisExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeI
             .FunctionType, .ConstructorType,
             => {
                 // Look for a `this` parameter on this function.
+                // Note: getParametersOfNode sometimes returns an empty list
+                // due to an extraData aliasing issue (length slot gets
+                // overwritten to 0). To be robust, also walk the children
+                // of the container node looking for Parameter nodes, and
+                // check if the first one is a `this` parameter.
                 const params = ast_utils.getParametersOfNode(c.binder.ast, container);
                 if (params.len > 0) {
                     const first_param = params[0];
@@ -26369,6 +26374,52 @@ pub fn checkThisExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeI
                             if (is_this_param) {
                                 // Found a `this` parameter. Use its type
                                 // annotation (or `any` if omitted).
+                                if (fp_data.Parameter.Type) |type_node| {
+                                    const tp = type_resolution_pkg.getTypeFromTypeNode(c, type_node);
+                                    if (tp != 0) return tp;
+                                }
+                                return c.anyTypeIndex orelse 0;
+                            }
+                        }
+                    }
+                }
+                // Fallback: walk children of container looking for first
+                // Parameter node (workaround for extraData aliasing bug).
+                {
+                    const ThisParamFinder = struct {
+                        ast_ref: *ast.Ast,
+                        found_param: ast_gen.NodeIndex = 0,
+                        pub fn visitNode(self: *@This(), n: ast_gen.NodeIndex) anyerror!void {
+                            if (self.found_param != 0) return;
+                            if (n != 0 and self.ast_ref.getKind(n) == .Parameter) {
+                                self.found_param = n;
+                            }
+                        }
+                        pub fn visitList(self: *@This(), list_idx: u32) anyerror!void {
+                            if (list_idx == 0) return;
+                            for (self.ast_ref.getNodeList(list_idx)) |child| {
+                                try self.visitNode(child);
+                                if (self.found_param != 0) return;
+                            }
+                        }
+                    };
+                    var finder = ThisParamFinder{ .ast_ref = c.binder.ast };
+                    @import("../ast/for_each_child.zig").forEachChild(c.binder.ast, container, &finder) catch {};
+                    if (finder.found_param != 0) {
+                        const fp_data = c.binder.ast.getNode(finder.found_param);
+                        if (fp_data == .Parameter) {
+                            const fp_name_node = fp_data.Parameter.name;
+                            const is_this_param = blk: {
+                                if (fp_name_node == 0) break :blk false;
+                                const name_kind = c.binder.ast.getNodeKind(fp_name_node);
+                                if (name_kind == .ThisKeyword) break :blk true;
+                                if (name_kind == .Identifier) {
+                                    const name_data = c.binder.ast.getNode(fp_name_node);
+                                    if (std.mem.eql(u8, name_data.Identifier.Text, "this")) break :blk true;
+                                }
+                                break :blk false;
+                            };
+                            if (is_this_param) {
                                 if (fp_data.Parameter.Type) |type_node| {
                                     const tp = type_resolution_pkg.getTypeFromTypeNode(c, type_node);
                                     if (tp != 0) return tp;

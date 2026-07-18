@@ -1255,9 +1255,12 @@ pub const FourslashTest = struct {
         }
 
         // Case 3: `this` in expression context → "this: <type>".
-        // Use checkExpressionCached to resolve the this-type, which now
-        // consults the enclosing function's `this` parameter (if any).
-        const this_type = c.checkExpressionCached(node);
+        // Call `checkThisExpression` directly. The parser may represent
+        // expression-position `this` either as a `ThisKeyword` node or as
+        // an `Identifier` with text "this" (for `this`-parameter names);
+        // `checkThisExpression` handles both by walking up to the enclosing
+        // function and inspecting its `this` parameter.
+        const this_type = checker_module.checkThisExpression(c, node);
         const type_str: []const u8 = if (this_type != 0)
             c.typeToString(this_type, 0, 0, null)
         else

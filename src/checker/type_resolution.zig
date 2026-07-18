@@ -184,8 +184,26 @@ fn getThisType(c: *Checker, node: NodeIndex) TypeIndex {
                 const parentSymbol = c.getSymbolOfDeclaration(parent);
                 const declaredType = getDeclaredTypeOfClassOrInterface(c, parentSymbol);
                 if (declaredType != 0) {
-                    const thisType = c.typesList.items[declaredType].data.Object.thisType orelse 0;
-                    return if (thisType != 0) thisType else c.errorTypeIndex orelse 0;
+                    // Use existing thisType if already set on the Object type.
+                    if (c.typesList.items[declaredType].data.Object.thisType) |this_tp| {
+                        if (this_tp != 0) return this_tp;
+                    }
+                    // Otherwise create a new polymorphic `this` type:
+                    // a TypeParameter with isThisType=true and
+                    // constraint = the class/interface type.
+                    const this_tp = c.createType(.{
+                        .flags = @import("types.zig").TypeFlags.TypeParameter,
+                        .objectFlags = @import("types.zig").ObjectFlags.Anonymous,
+                        .symbol = parentSymbol,
+                        .data = .{ .TypeParameter = .{
+                            .constraintType = declaredType,
+                            .isThisType = true,
+                        } },
+                    }) catch 0;
+                    if (this_tp != 0) {
+                        c.typesList.items[declaredType].data.Object.thisType = this_tp;
+                        return this_tp;
+                    }
                 }
                 return c.errorTypeIndex orelse 0;
             }
