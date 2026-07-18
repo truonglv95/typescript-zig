@@ -296,6 +296,58 @@ pub const Checker = struct {
                 }
                 return null;
             }
+            // PropertyDeclaration/PropertySignature with type annotation:
+            // the contextual type is the property's type annotation.
+            // E.g. `foo: (i: number, s: string) => number = function(i) { ... }`
+            if (k == .PropertyDeclaration or k == .PropertySignature or k == .PropertyAssignment) {
+                const type_node: ?ast_gen.NodeIndex = switch (c.binder.ast.getNode(cur)) {
+                    .PropertyDeclaration => |n| n.Type,
+                    .PropertySignature => |n| n.Type,
+                    .PropertyAssignment => |n| n.Type,
+                    else => null,
+                };
+                if (type_node) |tn| {
+                    if (tn != 0) {
+                        // For FunctionType nodes, directly extract the parameter type.
+                        const type_node_kind = c.binder.ast.getNodeKind(tn);
+                        if (type_node_kind == .FunctionType or type_node_kind == .ConstructorType) {
+                            const ft_params_id: u32 = if (type_node_kind == .FunctionType) c.binder.ast.getNode(tn).FunctionType.Parameters else c.binder.ast.getNode(tn).ConstructorType.Parameters;
+                            if (ft_params_id != 0) {
+                                const ft_params = c.binder.ast.getNodeList(ft_params_id);
+                                if (idx < ft_params.len) {
+                                    const ft_param = ft_params[idx];
+                                    if (ft_param != 0) {
+                                        const ft_param_data = c.binder.ast.getNode(ft_param).Parameter;
+                                        if (ft_param_data.Type) |pt| {
+                                            if (pt != 0) return c.getTypeFromTypeNode(pt);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        const ctx_type = c.getTypeFromTypeNode(tn);
+                        if (ctx_type != 0) {
+                            const inner_sigs = c.getSignaturesOfType(ctx_type, .Call);
+                            if (inner_sigs.len > 0) {
+                                const inner_sig_idx = c.resolvedSignaturesPool.items[inner_sigs.start];
+                                if (inner_sig_idx < c.signatures.items.len) {
+                                    const inner_sig = &c.signatures.items[inner_sig_idx];
+                                    if (idx < inner_sig.parametersLen and
+                                        inner_sig.parametersStart + idx < c.signatureParameters.items.len)
+                                    {
+                                        const inner_param_sym = c.signatureParameters.items[inner_sig.parametersStart + idx];
+                                        if (inner_param_sym != 0 and inner_param_sym < c.binder.symbols.items.len) {
+                                            const inner_param_type = c.getTypeOfSymbol(inner_param_sym) catch 0;
+                                            if (inner_param_type != 0) return inner_param_type;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
             if (k == .SourceFile or k == .Block or k == .FunctionDeclaration or k == .FunctionExpression or k == .ArrowFunction or k == .MethodDeclaration) return null;
             cur = c.binder.ast.getNodeParent(cur);
         }
