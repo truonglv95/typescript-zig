@@ -862,6 +862,7 @@ pub fn parseNewExpressionOrNewDotTarget(p: *parser_pkg.Parser) anyerror!ast_gen.
         arguments = p.parseDelimitedList(.ArgumentExpressions, parseArgumentExpressionWrapper);
         _ = p.parseExpected(kind.Kind.CloseParenToken);
     }
+    const new_expr_end = p.scanner.state.tokenStart;
 
     const node = try p.ast.pushNode(.{ .NewExpression = .{
         .Flags = 0,
@@ -869,7 +870,9 @@ pub fn parseNewExpressionOrNewDotTarget(p: *parser_pkg.Parser) anyerror!ast_gen.
         .TypeArguments = typeArguments,
         .Arguments = arguments,
     } });
-    p.setNodeStartPos(node, start_pos);
+    if (node != 0 and node < p.ast.positions.items.len) {
+        p.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(new_expr_end) };
+    }
     return node;
 }
 

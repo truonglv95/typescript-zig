@@ -1397,6 +1397,9 @@ pub const FourslashTest = struct {
         // Expression of a NewExpression (eg `new Foo()` where cursor is on
         // `Foo`), display the constructor signature instead of the class
         // declaration. Mirrors Go's hover.go behavior.
+        // Also handle the case where getTouchingPropertyName returns the
+        // NewExpression itself (cursor is on the space between `new` and
+        // the class name) — descend to the Expression field.
         if (node_kind == .Identifier) {
             const parent = p.ast.getNodeParent(node);
             if (parent != 0 and p.ast.getNodeKind(parent) == .NewExpression) {
@@ -1419,6 +1422,16 @@ pub const FourslashTest = struct {
                         const s = c.typeToString(tp, 0, 0, null);
                         if (s.len > 0) return s;
                     }
+                }
+            }
+        } else if (node_kind == .NewExpression) {
+            // Cursor is on the NewExpression itself (likely between `new`
+            // and the class name). Descend to the Expression field and try
+            // constructor display.
+            const ne = p.ast.getNode(node).NewExpression;
+            if (ne.Expression != 0 and p.ast.getNodeKind(ne.Expression) == .Identifier) {
+                if (self.formatConstructorQuickInfo(ne.Expression, node)) |info| {
+                    return info;
                 }
             }
         }
