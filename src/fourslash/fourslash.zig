@@ -1942,7 +1942,24 @@ pub const FourslashTest = struct {
             // This handles function types, array types, and object types
             // that TypeToStringEx can't render.
             var display_type: []const u8 = typeStr;
-            if (std.mem.eql(u8, typeStr, "{}") and sym_type != 0 and sym_type < c.typesList.items.len) {
+            // Trigger fallback for both "{}" and "any" when the variable has
+            // a FunctionType/ConstructorType type annotation. TypeToStringEx
+            // can't render these properly, so we format from the AST.
+            const should_try_fn_fallback = std.mem.eql(u8, typeStr, "{}") or
+                (std.mem.eql(u8, typeStr, "any") and blk: {
+                    if (symObj.Declarations.items.len == 0) break :blk false;
+                    const decl_node = symObj.Declarations.items[0];
+                    if (p.ast.getNodeKind(decl_node) != .VariableDeclaration) break :blk false;
+                    const vd = p.ast.getNode(decl_node).VariableDeclaration;
+                    if (vd.Type) |tn| {
+                        if (tn != 0) {
+                            const tn_kind = p.ast.getNodeKind(tn);
+                            break :blk tn_kind == .FunctionType or tn_kind == .ConstructorType;
+                        }
+                    }
+                    break :blk false;
+                });
+            if (should_try_fn_fallback and sym_type != 0 and sym_type < c.typesList.items.len) {
                 const td = c.typesList.items[sym_type];
                 // Check if it's a Function type (from function declaration/expression).
                 if (td.data == .Function) {
@@ -1990,8 +2007,11 @@ pub const FourslashTest = struct {
                                             const pt_type = c.getTypeFromTypeNode(pt);
                                             if (pt_type != 0) {
                                                 const s = c.typeToString(pt_type, 0, 0, null);
-                                                if (s.len > 0) break :blk s;
+                                                if (s.len > 0 and !std.mem.eql(u8, s, "any")) break :blk s;
                                             }
+                                            // Fallback: use the type node's text.
+                                            const text = ast_utils.getTextOfNode(&p.ast, pt);
+                                            if (text.len > 0) break :blk text;
                                         }
                                         break :blk "any";
                                     } else "any";
@@ -2006,8 +2026,11 @@ pub const FourslashTest = struct {
                                 const rt_type = c.getTypeFromTypeNode(rn);
                                 if (rt_type != 0) {
                                     const s = c.typeToString(rt_type, 0, 0, null);
-                                    if (s.len > 0) break :blk s;
+                                    if (s.len > 0 and !std.mem.eql(u8, s, "any")) break :blk s;
                                 }
+                                // Fallback: use the type node's text directly.
+                                const text = ast_utils.getTextOfNode(&p.ast, rn);
+                                if (text.len > 0) break :blk text;
                             }
                             break :blk "any";
                         } else "any";
@@ -2017,7 +2040,7 @@ pub const FourslashTest = struct {
                 }
                 // Check if the variable's type annotation is a FunctionType/ConstructorType
                 // node. Format from the AST directly.
-                if (std.mem.eql(u8, display_type, "{}") and symObj.Declarations.items.len > 0) {
+                if (std.mem.eql(u8, display_type, typeStr) and symObj.Declarations.items.len > 0) {
                     const decl_node = symObj.Declarations.items[0];
                     if (p.ast.getNodeKind(decl_node) == .VariableDeclaration) {
                         const vd = p.ast.getNode(decl_node).VariableDeclaration;
@@ -2087,7 +2110,13 @@ pub const FourslashTest = struct {
                                             const rt_type = c.getTypeFromTypeNode(rn);
                                             if (rt_type != 0) {
                                                 const s = c.typeToString(rt_type, 0, 0, null);
-                                                if (s.len > 0) break :blk s;
+                                                if (s.len > 0 and !std.mem.eql(u8, s, "any")) break :blk s;
+                                            }
+                                            // Fallback: use the type node's text directly.
+                                            const rn_kind = p.ast.getNodeKind(rn);
+                                            if (rn_kind == .TypeReference or rn_kind == .Identifier) {
+                                                const text = ast_utils.getTextOfNode(&p.ast, rn);
+                                                if (text.len > 0) break :blk text;
                                             }
                                         }
                                         break :blk "any";
@@ -2100,7 +2129,7 @@ pub const FourslashTest = struct {
                     }
                 }
                 // Check if it's an Array type (Object with Reference flag, target is Array)
-                if (std.mem.eql(u8, display_type, "{}") and (td.objectFlags & checker_module.types.ObjectFlags.Reference) != 0) {
+                if (std.mem.eql(u8, display_type, typeStr) and (td.objectFlags & checker_module.types.ObjectFlags.Reference) != 0) {
                     if (td.data == .Object) {
                         if (td.data.Object.target) |target| {
                             if (target != 0 and target < c.typesList.items.len) {
