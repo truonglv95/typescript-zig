@@ -1780,7 +1780,14 @@ pub const Checker = struct {
             if (c.getPropertyOfObjectType(apparent, name)) |prop| {
                 propCount += 1;
                 if (singleProp == null) singleProp = prop;
-                propFlags = symbol.SymbolFlags.Property;
+                // If the property is a method on any constituent type,
+                // set Method flag on the synthetic union property.
+                const prop_symbol_flags = c.getSymbolFlags(prop);
+                if ((prop_symbol_flags & symbol.SymbolFlags.Method) != 0) {
+                    propFlags = symbol.SymbolFlags.Property | symbol.SymbolFlags.Method;
+                } else {
+                    propFlags = symbol.SymbolFlags.Property;
+                }
 
                 if (isUnion) {
                     optionalFlag |= c.getSymbolFlags(prop) & symbol.SymbolFlags.Optional;
