@@ -1787,12 +1787,61 @@ pub const Checker = struct {
             return self.getPropertyOfUnionOrIntersectionType(tIdx, name);
         }
         if ((typ.flags & types.TypeFlags.Object) != 0) {
+            // First, try direct member lookup on the symbol.
             if (typ.symbol) |symIdx| {
                 if (self.binder.symbolMembers.getPtr(symIdx)) |members| {
                     if (members.get(name)) |propSymIdx| {
                         return propSymIdx;
                     }
                 }
+            }
+            // Then, try resolved structured type members (handles
+            // instantiated generics, fresh object literals, etc.).
+            if (self.getPropertyOfObjectType(tIdx, name)) |prop| {
+                return prop;
+            }
+            // Finally, fall back to index signature lookup. If the type
+            // has an index signature matching `name`'s kind (string/number),
+            // create a synthetic property with the index value type.
+            if (self.getPropertyFromIndexInfo(tIdx, name)) |prop| {
+                return prop;
+            }
+        }
+        return null;
+    }
+
+    /// Look up a property by name through the type's index signature(s).
+    /// If `name` is a numeric-like string, matches a number index; otherwise
+    /// matches a string index. Returns a synthetic property symbol whose
+    /// type is the index signature's value type.
+    fn getPropertyFromIndexInfo(c: *Checker, t: types.TypeIndex, name: []const u8) ?ast_gen.SymbolIndex {
+        const reduced = c.getReducedApparentType(t);
+        if (reduced == 0 or reduced >= c.typesList.items.len) return null;
+        if ((c.typesList.items[reduced].flags & types.TypeFlags.StructuredType) == 0) return null;
+
+        const index_infos = c.getIndexInfosOfStructuredType(reduced);
+        if (index_infos.len == 0) return null;
+
+        // Decide whether `name` is a number-like or string-like key.
+        const is_number_name = utils.isNumericLiteralName(name);
+        const target_key_flags: u32 = if (is_number_name)
+            types.TypeFlags.Number
+        else
+            types.TypeFlags.String;
+
+        for (index_infos) |info| {
+            const k_flags = c.typesList.items[info.keyType].flags;
+            if ((k_flags & target_key_flags) != 0) {
+                // Found matching index signature. Create synthetic property.
+                const value_type = c.getIndexInfoValueType(info);
+                const sym = c.createSyntheticPropertySymbol(
+                    symbol.SymbolFlags.Property,
+                    name,
+                    0,
+                    value_type,
+                    t,
+                ) orelse continue;
+                return sym;
             }
         }
         return null;
@@ -2096,6 +2145,8 @@ pub const Checker = struct {
         if (typeData.flags & types.TypeFlags.Unknown != 0) return "unknown";
         if (typeData.flags & types.TypeFlags.Never != 0) return "never";
         if (typeData.flags & types.TypeFlags.BigInt != 0) return "bigint";
+        if (typeData.flags & types.TypeFlags.ESSymbol != 0) return "symbol";
+        if (typeData.flags & types.TypeFlags.UniqueESSymbol != 0) return "symbol";
         if (typeData.flags & types.TypeFlags.StringLiteral != 0) {
             const str = std.fmt.allocPrint(self.allocator, "\"{s}\"", .{typeData.data.StringLiteral.text}) catch return "string";
             self.ownedStrings.append(self.allocator, str) catch {};
@@ -24338,14 +24389,21 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
             // We're hovering on the property name; look up the type of the
             // expression (obj), then find the property by name.
             var obj_type = c.checkExpressionCached(pae.Expression);
-            // Fallback: if checkExpressionCached returned 0, try resolving
+            // Fallback: if checkExpressionCached returned 0 or any, try resolving
             // the object expression's symbol and getting its type.
             // This handles cases where the expression is a parameter or
             // variable whose type hasn't been cached yet.
-            if (obj_type == 0 and c.binder.ast.getNodeKind(pae.Expression) == .Identifier) {
+            const obj_is_any = obj_type == (c.anyTypeIndex orelse 0);
+            if ((obj_type == 0 or obj_is_any) and c.binder.ast.getNodeKind(pae.Expression) == .Identifier) {
                 const obj_sym = getResolvedSymbol(c, pae.Expression);
                 if (obj_sym != 0 and obj_sym != c.unknownSymbol) {
-                    obj_type = c.getTypeOfSymbol(obj_sym) catch 0;
+                    const sym_type = c.getTypeOfSymbol(obj_sym) catch 0;
+                    if (sym_type != 0 and !obj_is_any) {
+                        obj_type = sym_type;
+                    } else if (sym_type != 0 and obj_is_any) {
+                        // Prefer the symbol's type over the cached any.
+                        obj_type = sym_type;
+                    }
                 }
             }
             if (obj_type != 0) {

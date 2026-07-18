@@ -1529,6 +1529,45 @@ pub const FourslashTest = struct {
                         const idx_range = c.getIndexInfosOfSymbol(td.symbol.?);
                         if (idx_range.len > 0) {
                             const infos = c.resolvedIndexInfosPool.items[idx_range.start .. idx_range.start + idx_range.len];
+                            // Determine whether the property name is numeric or string.
+                            const name_text = ast_utils.getTextOfNode(&p.ast, node);
+                            const is_number_name = checker_module.utils.isNumericLiteralName(name_text);
+                            const target_key_flags: u32 = if (is_number_name)
+                                checker_module.types.TypeFlags.Number
+                            else
+                                checker_module.types.TypeFlags.String;
+                            // Only display the index signature if at least one
+                            // index info has a key type that matches the
+                            // property name's kind (string vs number).
+                            // Symbol-only index signatures don't match `e.foo`.
+                            var has_match = false;
+                            for (infos) |info| {
+                                if (info.keyType != 0 and info.keyType < c.typesList.items.len) {
+                                    const k_flags = c.typesList.items[info.keyType].flags;
+                                    if ((k_flags & target_key_flags) != 0) {
+                                        has_match = true;
+                                        break;
+                                    }
+                                    // Union type: check constituents.
+                                    if ((k_flags & checker_module.types.TypeFlags.Union) != 0) {
+                                        const constituents = c.getTypesOfUnionOrIntersectionType(info.keyType);
+                                        for (constituents) |ct| {
+                                            if (ct != 0 and ct < c.typesList.items.len) {
+                                                const cf = c.typesList.items[ct].flags;
+                                                if ((cf & target_key_flags) != 0) {
+                                                    has_match = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (has_match) break;
+                                    }
+                                }
+                            }
+                            if (!has_match) {
+                                // No matching index — return any.
+                                return "any";
+                            }
                             // Find the type name.
                             var type_name: []const u8 = "";
                             if (td.symbol) |tsym| {
@@ -1542,11 +1581,61 @@ pub const FourslashTest = struct {
                             out.appendSlice(aa, "(index) ") catch {};
                             out.appendSlice(aa, type_name) catch {};
                             out.appendSlice(aa, "[") catch {};
-                            // Display key types joined by " | ".
-                            for (infos, 0..) |info, i| {
-                                if (i > 0) out.appendSlice(aa, " | ") catch {};
-                                const key_str = if (info.keyType != 0) c.typeToString(info.keyType, 0, 0, null) else "string";
-                                out.appendSlice(aa, key_str) catch {};
+                            // Display key types in source order. Iterate over the
+                            // original index info order, but deduplicate key types
+                            // so a Union with [string | number | symbol] still
+                            // displays as "string | number | symbol" not the union.
+                            var seen_string = false;
+                            var seen_number = false;
+                            var seen_symbol = false;
+                            for (infos) |info| {
+                                if (info.keyType != 0 and info.keyType < c.typesList.items.len) {
+                                    const k_flags = c.typesList.items[info.keyType].flags;
+                                    // Check for union of key types.
+                                    if ((k_flags & checker_module.types.TypeFlags.Union) != 0) {
+                                        // Iterate union constituents in source order.
+                                        const constituents = c.getTypesOfUnionOrIntersectionType(info.keyType);
+                                        for (constituents) |ct| {
+                                            if (ct != 0 and ct < c.typesList.items.len) {
+                                                const cf = c.typesList.items[ct].flags;
+                                                if ((cf & checker_module.types.TypeFlags.String) != 0 and !seen_string) {
+                                                    if (seen_number or seen_symbol) out.appendSlice(aa, " | ") catch {};
+                                                    out.appendSlice(aa, "string") catch {};
+                                                    seen_string = true;
+                                                } else if ((cf & checker_module.types.TypeFlags.Number) != 0 and !seen_number) {
+                                                    if (seen_string or seen_symbol) out.appendSlice(aa, " | ") catch {};
+                                                    out.appendSlice(aa, "number") catch {};
+                                                    seen_number = true;
+                                                } else if ((cf & checker_module.types.TypeFlags.ESSymbol) != 0 and !seen_symbol) {
+                                                    if (seen_string or seen_number) out.appendSlice(aa, " | ") catch {};
+                                                    out.appendSlice(aa, "symbol") catch {};
+                                                    seen_symbol = true;
+                                                }
+                                            }
+                                        }
+                                    } else if ((k_flags & checker_module.types.TypeFlags.String) != 0 and !seen_string) {
+                                        if (seen_number or seen_symbol) out.appendSlice(aa, " | ") catch {};
+                                        const key_str = c.typeToString(info.keyType, 0, 0, null);
+                                        out.appendSlice(aa, key_str) catch {};
+                                        seen_string = true;
+                                    } else if ((k_flags & checker_module.types.TypeFlags.Number) != 0 and !seen_number) {
+                                        if (seen_string or seen_symbol) out.appendSlice(aa, " | ") catch {};
+                                        out.appendSlice(aa, "number") catch {};
+                                        seen_number = true;
+                                    } else if ((k_flags & checker_module.types.TypeFlags.ESSymbol) != 0 and !seen_symbol) {
+                                        if (seen_string or seen_number) out.appendSlice(aa, " | ") catch {};
+                                        out.appendSlice(aa, "symbol") catch {};
+                                        seen_symbol = true;
+                                    }
+                                }
+                            }
+                            // If no key types were rendered (unusual), fall back to original behavior.
+                            if (!seen_string and !seen_number and !seen_symbol) {
+                                for (infos, 0..) |info, i| {
+                                    if (i > 0) out.appendSlice(aa, " | ") catch {};
+                                    const key_str = if (info.keyType != 0) c.typeToString(info.keyType, 0, 0, null) else "string";
+                                    out.appendSlice(aa, key_str) catch {};
+                                }
                             }
                             out.appendSlice(aa, "]: ") catch {};
                             // Display value type from first index info.
