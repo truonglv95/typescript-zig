@@ -1823,12 +1823,19 @@ pub const FourslashTest = struct {
                                                     if (tp_data.Constraint) |constraint| {
                                                         if (constraint != 0) {
                                                             const constraint_type = c.getTypeFromTypeNode(constraint);
+                                                            var constraint_str: []const u8 = "";
                                                             if (constraint_type != 0) {
-                                                                const constraint_str = c.typeToString(constraint_type, 0, 0, null);
-                                                                if (constraint_str.len > 0) {
-                                                                    const extended = std.fmt.allocPrint(aa, "{s} extends {s}", .{ typeStr, constraint_str }) catch typeStr;
-                                                                    type_display = extended;
-                                                                }
+                                                                const s = c.typeToString(constraint_type, 0, 0, null);
+                                                                if (s.len > 0 and !std.mem.eql(u8, s, "any")) constraint_str = s;
+                                                            }
+                                                            // Fallback: use the constraint node's text directly.
+                                                            if (constraint_str.len == 0) {
+                                                                const text = ast_utils.getTextOfNode(&p.ast, constraint);
+                                                                if (text.len > 0) constraint_str = text;
+                                                            }
+                                                            if (constraint_str.len > 0) {
+                                                                const extended = std.fmt.allocPrint(aa, "{s} extends {s}", .{ typeStr, constraint_str }) catch typeStr;
+                                                                type_display = extended;
                                                             }
                                                         }
                                                     }
