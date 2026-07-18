@@ -364,12 +364,28 @@ fn getSymbolFromTypeReference(c: *Checker, node: NodeIndex) ast_gen.SymbolIndex 
 
 fn resolveLibSymbol(c: *Checker, name: []const u8, meaning: u32) ?ast_gen.SymbolIndex {
     const lib = c.default_lib_binder orelse return null;
+    // Search the lib binder's symbols list.
     for (lib.symbols.items, 1..) |sym, i| {
         if (!std.mem.eql(u8, sym.Name, name)) continue;
         if ((sym.Flags & meaning) == 0) continue;
         const idx: ast_gen.SymbolIndex = @intCast(i);
         c.markLibSymbol(idx);
         return idx;
+    }
+    // Also search the lib binder's SourceFile locals (globals declared
+    // at the top level of the lib file, e.g. `var Date: DateConstructor;`).
+    if (lib.file != 0) {
+        if (lib.nodeLocals.getPtr(lib.file)) |locals| {
+            if (locals.get(name)) |sym_idx| {
+                if (sym_idx != 0 and sym_idx < lib.symbols.items.len) {
+                    const sym = lib.symbols.items[sym_idx];
+                    if ((sym.Flags & meaning) != 0) {
+                        c.markLibSymbol(sym_idx);
+                        return sym_idx;
+                    }
+                }
+            }
+        }
     }
     return null;
 }

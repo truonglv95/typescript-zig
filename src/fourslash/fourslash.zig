@@ -1777,7 +1777,75 @@ pub const FourslashTest = struct {
                     out.appendSlice(aa, typeStr) catch {};
                     out.appendSlice(aa, "[]") catch {};
                 } else {
-                    out.appendSlice(aa, typeStr) catch {};
+                    // For type parameters used as parameter types (e.g.
+                    // `function foo<T extends Date>(test: T)`), Go displays
+                    // the constraint as well: `T extends Date`. Check if
+                    // typeStr is a bare type parameter name and try to
+                    // append the constraint from the function's type
+                    // parameters.
+                    var type_display: []const u8 = typeStr;
+                    if (typeStr.len > 0 and typeStr.len <= 3) {
+                        // Walk up to find the enclosing function and check
+                        // its type parameters for a match.
+                        var cur: ast_gen.NodeIndex = if (symObj.Declarations.items.len > 0)
+                            p.ast.getNodeParent(symObj.Declarations.items[0])
+                        else
+                            0;
+                        while (cur != 0) {
+                            const k = p.ast.getNodeKind(cur);
+                            switch (k) {
+                                .FunctionDeclaration, .FunctionExpression, .MethodDeclaration,
+                                .MethodSignature, .Constructor, .ArrowFunction,
+                                .CallSignature, .ConstructSignature, .FunctionType, .ConstructorType,
+                                => {
+                                    const tp_list: ?u32 = switch (p.ast.getNode(cur)) {
+                                        .FunctionDeclaration => |n| n.TypeParameters,
+                                        .FunctionExpression => |n| n.TypeParameters,
+                                        .MethodDeclaration => |n| n.TypeParameters,
+                                        .MethodSignature => |n| n.TypeParameters,
+                                        .Constructor => |n| n.TypeParameters,
+                                        .ArrowFunction => |n| n.TypeParameters,
+                                        .CallSignature => |n| n.TypeParameters,
+                                        .ConstructSignature => |n| n.TypeParameters,
+                                        .FunctionType => |n| n.TypeParameters,
+                                        .ConstructorType => |n| n.TypeParameters,
+                                        else => null,
+                                    };
+                                    if (tp_list) |tpl| {
+                                        if (tpl != 0) {
+                                            const tp_nodes = p.ast.getNodeList(tpl);
+                                            for (tp_nodes) |tp_node| {
+                                                if (tp_node == 0) continue;
+                                                const tp_data = p.ast.getNode(tp_node).TypeParameter;
+                                                const tp_name = if (tp_data.name != 0) ast_utils.getTextOfNode(&p.ast, tp_data.name) else "";
+                                                if (std.mem.eql(u8, tp_name, typeStr)) {
+                                                    // Found matching type parameter. Check constraint.
+                                                    if (tp_data.Constraint) |constraint| {
+                                                        if (constraint != 0) {
+                                                            const constraint_type = c.getTypeFromTypeNode(constraint);
+                                                            if (constraint_type != 0) {
+                                                                const constraint_str = c.typeToString(constraint_type, 0, 0, null);
+                                                                if (constraint_str.len > 0) {
+                                                                    const extended = std.fmt.allocPrint(aa, "{s} extends {s}", .{ typeStr, constraint_str }) catch typeStr;
+                                                                    type_display = extended;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    break;
+                                },
+                                .SourceFile => break,
+                                else => {},
+                            }
+                            cur = p.ast.getNodeParent(cur);
+                        }
+                    }
+                    out.appendSlice(aa, type_display) catch {};
                 }
                 return out.toOwnedSlice(aa) catch "";
             }
@@ -3557,22 +3625,46 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
         b.bindSourceFile(f.sourceFile.?) catch unreachable;
         f.binder = b;
         
-        var c = aa.create(checker_module.Checker) catch unreachable;
-        c.* = checker_module.Checker.init(aa, b);
-        c.checkJs = true;
-        c.allowJs = true;
-        // Parse @strict directive from test content. Default is strict=true
-        // (matching TypeScript's strict mode). If @strict: false is present,
-        // disable strictNullChecks, noImplicitAny, and useUnknownInCatchVariables.
-        // Note: check the original `content` (before marker stripping) since
-        // the parsed file content may have the directive stripped.
-        const is_strict = std.mem.indexOf(u8, content, "@strict: false") == null;
-        c.strictNullChecks = is_strict;
-        c.noImplicitAny = is_strict;
-        c.useUnknownInCatchVariables = is_strict;
-        c.initializeChecker();
-        c.checkSourceFile(null, f.sourceFile.?, false);
-        f.checker = c;
+        // Load lib.d.ts + lib.es5.d.ts so that built-in types (Date, Array, etc.)
+        // resolve. lib.d.ts references other libs via /// <reference lib="..." />,
+        // but we can't easily parse those references from our binder. Instead,
+        // we load lib.es5.d.ts directly which contains the core type definitions.
+        const embed_gen = @import("../bundled/embed_generated.zig");
+        if (embed_gen.embeddedContents.get("lib.es5.d.ts")) |lib_content| {
+            var lib_parser = aa.create(parser_module.Parser) catch unreachable;
+            lib_parser.* = parser_module.Parser.init(aa, lib_content);
+            const lib_sf = lib_parser.parseSourceFile() catch unreachable;
+            var lib_binder = aa.create(binder_module.Binder) catch unreachable;
+            lib_binder.* = binder_module.Binder.init(aa, &lib_parser.ast) catch unreachable;
+            lib_binder.bindSourceFile(lib_sf) catch unreachable;
+            
+            var c = aa.create(checker_module.Checker) catch unreachable;
+            c.* = checker_module.Checker.init(aa, b);
+            c.default_lib_binder = lib_binder;
+            c.checkJs = true;
+            c.allowJs = true;
+            const is_strict = std.mem.indexOf(u8, content, "@strict: false") == null;
+            c.strictNullChecks = is_strict;
+            c.noImplicitAny = is_strict;
+            c.useUnknownInCatchVariables = is_strict;
+            c.initializeChecker();
+            // Check the lib file first so its types are available.
+            c.checkSourceFile(null, lib_sf, false);
+            c.checkSourceFile(null, f.sourceFile.?, false);
+            f.checker = c;
+        } else {
+            var c = aa.create(checker_module.Checker) catch unreachable;
+            c.* = checker_module.Checker.init(aa, b);
+            c.checkJs = true;
+            c.allowJs = true;
+            const is_strict = std.mem.indexOf(u8, content, "@strict: false") == null;
+            c.strictNullChecks = is_strict;
+            c.noImplicitAny = is_strict;
+            c.useUnknownInCatchVariables = is_strict;
+            c.initializeChecker();
+            c.checkSourceFile(null, f.sourceFile.?, false);
+            f.checker = c;
+        }
     }
     
     return f;
