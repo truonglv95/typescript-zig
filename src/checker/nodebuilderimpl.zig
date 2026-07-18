@@ -619,6 +619,22 @@ pub const NodeBuilderImpl = struct {
                 return symbolToTypeReferenceNode(b, sym, type_args_node);
             }
             if (objectFlags & (types.ObjectFlags.Anonymous | types.ObjectFlags.Mapped) != 0) {
+                // For anonymous object types with a symbol that has TypeLiteral
+                // or ObjectLiteral flag, return 0 so TypeToStringEx falls
+                // through to the custom rendering code that supports multiline
+                // format and proper property type widening.
+                // Only do this at the top level (serializationLevel == 0) to
+                // prevent infinite recursion on self-referential types.
+                if (b.c.serializationLevel == 0) {
+                    if (typeData.symbol) |sym| {
+                        if (sym != 0 and sym < b.c.binder.symbols.items.len) {
+                            const sym_flags = b.c.binder.symbols.items[sym].Flags;
+                            if ((sym_flags & (sym_mod.SymbolFlags.TypeLiteral | sym_mod.SymbolFlags.ObjectLiteral)) != 0) {
+                                return 0;
+                            }
+                        }
+                    }
+                }
                 return createTypeNodeFromObjectType(b, typ);
             }
             if (objectFlags & types.ObjectFlags.ClassOrInterface != 0) {

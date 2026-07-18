@@ -2390,8 +2390,12 @@ pub const Checker = struct {
                         // If the symbol is an anonymous type literal or object literal,
                         // render its members.
                         const sym_flags = self.binder.symbols.items[sym].Flags;
-        const is_anon = (sym_flags & (symbol.SymbolFlags.TypeLiteral | symbol.SymbolFlags.ObjectLiteral)) != 0;
-                        if (is_anon and self.serializationLevel < 20) {
+                        const is_anon = (sym_flags & (symbol.SymbolFlags.TypeLiteral | symbol.SymbolFlags.ObjectLiteral)) != 0;
+                        if (is_anon and self.serializationLevel < 2) {
+                            // Increment serialization level to prevent infinite recursion
+                            // on self-referential object types.
+                            self.serializationLevel += 1;
+                            defer self.serializationLevel -= 1;
                             // Resolve members.
                             const resolved = self.resolveStructuredTypeMembers(t);
                             if (resolved.propertiesLen > 0) {
