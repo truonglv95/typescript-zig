@@ -1745,6 +1745,66 @@ pub const FourslashTest = struct {
                         out.appendSlice(aa, "function ") catch {};
                         out.appendSlice(aa, symObj.Name) catch {};
                     }
+                    // Append type parameters if present: <T, U>
+                    if (symObj.Declarations.items.len > 0) {
+                        const decl_node = symObj.Declarations.items[0];
+                        const decl_data = p.ast.getNode(decl_node);
+                        const tp_list_id: u32 = switch (decl_data) {
+                            .FunctionDeclaration => |f| f.TypeParameters orelse 0,
+                            .FunctionExpression => |f| f.TypeParameters orelse 0,
+                            .ArrowFunction => |f| f.TypeParameters orelse 0,
+                            .MethodDeclaration => |m| m.TypeParameters orelse 0,
+                            .CallSignature => |cs| cs.TypeParameters orelse 0,
+                            .ConstructSignature => |cs| cs.TypeParameters orelse 0,
+                            else => 0,
+                        };
+                        if (tp_list_id != 0) {
+                            const tp_nodes = p.ast.getNodeList(tp_list_id);
+                            if (tp_nodes.len > 0) {
+                                out.appendSlice(aa, "<") catch {};
+                                for (tp_nodes, 0..) |tp_node, i| {
+                                    if (i > 0) out.appendSlice(aa, ", ") catch {};
+                                    if (tp_node != 0) {
+                                        // Try to extract the type parameter name and constraint.
+                                        const tp_data = p.ast.getNode(tp_node);
+                                        const tp_name_node = switch (tp_data) {
+                                            .TypeParameter => |tp| tp.name,
+                                            else => 0,
+                                        };
+                                        if (tp_name_node != 0) {
+                                            const tp_name = ast_utils.getTextOfNode(&p.ast, tp_name_node);
+                                            out.appendSlice(aa, tp_name) catch {};
+                                            // Append constraint if present.
+                                            switch (tp_data) {
+                                                .TypeParameter => |tp| {
+                                                    if (tp.Constraint) |constraint| {
+                                                        if (constraint != 0) {
+                                                            out.appendSlice(aa, " extends ") catch {};
+                                                            const constraint_text = ast_utils.getTextOfNode(&p.ast, constraint);
+                                                            out.appendSlice(aa, constraint_text) catch {};
+                                                        }
+                                                    }
+                                                    if (tp.DefaultType) |default_t| {
+                                                        if (default_t != 0) {
+                                                            out.appendSlice(aa, " = ") catch {};
+                                                            const default_text = ast_utils.getTextOfNode(&p.ast, default_t);
+                                                            out.appendSlice(aa, default_text) catch {};
+                                                        }
+                                                    }
+                                                },
+                                                else => {},
+                                            }
+                                        } else {
+                                            // Fallback: use text of node.
+                                            const tp_text = ast_utils.getTextOfNode(&p.ast, tp_node);
+                                            out.appendSlice(aa, tp_text) catch {};
+                                        }
+                                    }
+                                }
+                                out.appendSlice(aa, ">") catch {};
+                            }
+                        }
+                    }
                     out.appendSlice(aa, "(") catch {};
 
                     // Count visible signatures (excluding implementation signatures).
