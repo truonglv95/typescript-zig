@@ -1423,6 +1423,37 @@ pub const FourslashTest = struct {
             }
         }
 
+        // `as const` assertion: when hovering on `const` in `42 as const`,
+        // display `type const = <literal value>`. The TypeReference has
+        // TypeName = Identifier("const") and parent = AsExpression.
+        if (node_kind == .TypeReference) {
+            const tr = p.ast.getNode(node).TypeReference;
+            if (tr.TypeName != 0 and p.ast.getNodeKind(tr.TypeName) == .Identifier) {
+                const tn_text = p.ast.getNode(tr.TypeName).Identifier.Text;
+                if (std.mem.eql(u8, tn_text, "const")) {
+                    const parent = p.ast.getNodeParent(node);
+                    if (parent != 0 and (p.ast.getNodeKind(parent) == .AsExpression or p.ast.getNodeKind(parent) == .TypeAssertionExpression)) {
+                        // Get the expression being asserted.
+                        const expr = if (p.ast.getNodeKind(parent) == .AsExpression)
+                            p.ast.getNode(parent).AsExpression.Expression
+                        else
+                            p.ast.getNode(parent).TypeAssertionExpression.Expression;
+                        if (expr != 0) {
+                            const expr_type = c.checkExpressionCached(expr);
+                            if (expr_type != 0) {
+                                const type_str = c.typeToString(expr_type, 0, 0, null);
+                                var out = std.ArrayListUnmanaged(u8).empty;
+                                const aa = self.arena.allocator();
+                                out.appendSlice(aa, "type const = ") catch {};
+                                out.appendSlice(aa, type_str) catch {};
+                                return out.toOwnedSlice(aa) catch "";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Get the symbol at this location.
         var sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) return "";
