@@ -1946,12 +1946,13 @@ pub const Checker = struct {
                 propCount += 1;
                 if (singleProp == null) singleProp = prop;
                 // If the property is a method on any constituent type,
-                // set Method flag on the synthetic union property.
+                // set Method flag on the synthetic union property. We OR
+                // the flag in (never reset) so a method on constituent 1
+                // is preserved even if constituent 2's property is a
+                // non-method (e.g., a function-valued property).
                 const prop_symbol_flags = c.getSymbolFlags(prop);
                 if ((prop_symbol_flags & symbol.SymbolFlags.Method) != 0) {
-                    propFlags = symbol.SymbolFlags.Property | symbol.SymbolFlags.Method;
-                } else {
-                    propFlags = symbol.SymbolFlags.Property;
+                    propFlags |= symbol.SymbolFlags.Method;
                 }
 
                 if (isUnion) {
