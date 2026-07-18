@@ -493,6 +493,11 @@ pub const NodeBuilderImpl = struct {
     }
 
     fn createTypeNodeFromObjectType(b: *NodeBuilderImpl, t: types.TypeIndex) ast_gen.NodeIndex {
+        // Recursion guard: limit depth to prevent infinite recursion on
+        // self-referential object types like `var a = { f: a }`.
+        if (b.c.serializationLevel >= 20) return 0;
+        b.c.serializationLevel += 1;
+        defer b.c.serializationLevel -= 1;
         const members = b.c.resolveStructuredTypeMembers(t);
         const properties = b.c.resolvedPropertiesPool.items[members.propertiesStart .. members.propertiesStart + members.propertiesLen];
 

@@ -636,6 +636,10 @@ pub const Checker = struct {
     valueSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ValueSymbolLinks) = .empty,
     mappedSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.MappedSymbolLinks) = .empty,
     deferredSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.DeferredSymbolLinks) = .empty,
+    /// Set of symbols currently being resolved in getTypeOfSymbol.
+    /// Used to break infinite recursion in self-referential declarations
+    /// like `var a = { f: a }`.
+    resolvingSymbols: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, void) = .empty,
     moduleSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ModuleSymbolLinks) = .empty,
     reverseMappedSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ReverseMappedSymbolLinks) = .empty,
     lateBoundLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.LateBoundLinks) = .empty,
@@ -1231,8 +1235,11 @@ pub const Checker = struct {
             const sym_val = sym.?;
             const sym_flags = c.binder.symbols.items[sym_val].Flags;
             
-            // SymbolFlags.TypeLiteral is 1 << 11
-            if (sym_flags & (1 << 11) != 0) {
+            // SymbolFlags.TypeLiteral is 1 << 11, ObjectLiteral is 1 << 12.
+            // Both anonymous type literal and object literal symbols should
+            // resolve their declared members (the properties declared in
+            // the object literal or type literal).
+            if ((sym_flags & (symbol.SymbolFlags.TypeLiteral | symbol.SymbolFlags.ObjectLiteral)) != 0) {
                 const declMembers = c.resolveDeclaredMembers(t);
                 members.* = declMembers;
                 return;
@@ -2384,7 +2391,7 @@ pub const Checker = struct {
                         // render its members.
                         const sym_flags = self.binder.symbols.items[sym].Flags;
                         const is_anon = (sym_flags & (symbol.SymbolFlags.TypeLiteral | symbol.SymbolFlags.ObjectLiteral)) != 0;
-                        if (is_anon) {
+                        if (is_anon and self.serializationLevel < 20) {
                             // Resolve members.
                             const resolved = self.resolveStructuredTypeMembers(t);
                             if (resolved.propertiesLen > 0) {
@@ -4024,6 +4031,13 @@ pub const Checker = struct {
         if (self.valueSymbolLinks.get(symIndex)) |links| {
             if (links.resolvedType) |resolved| return resolved;
         }
+        // Recursion guard: if we're already resolving this symbol's type,
+        // return any to break infinite recursion (e.g. `var a = { f: a }`).
+        if (self.resolvingSymbols.contains(symIndex)) {
+            return self.anyTypeIndex orelse 0;
+        }
+        self.resolvingSymbols.put(self.allocator, symIndex, {}) catch {};
+        defer _ = self.resolvingSymbols.remove(symIndex);
         const sym = self.binder.symbols.items[symIndex];
         var declaration_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
         defer declaration_types.deinit(self.allocator);
@@ -4158,7 +4172,16 @@ pub const Checker = struct {
             }
         }
         if (declaration_types.items.len != 0) {
-            return try self.createUnionType(declaration_types.items);
+            const result_type = try self.createUnionType(declaration_types.items);
+            // Cache the result to avoid recomputing on future calls.
+            if (result_type != 0) {
+                var links = self.valueSymbolLinks.get(symIndex) orelse types.ValueSymbolLinks{};
+                if (links.resolvedType == null) {
+                    links.resolvedType = result_type;
+                    self.valueSymbolLinks.put(self.allocator, symIndex, links) catch {};
+                }
+            }
+            return result_type;
         }
         if (sym.ValueDeclaration) |declIndex| {
             // For BindingElement declarations, try to resolve the type from the
@@ -4231,9 +4254,25 @@ pub const Checker = struct {
                     cur = self.binder.ast.getNodeParent(cur);
                 }
             }
-            return try self.getTypeOfNode(declIndex);
+            const result_type = try self.getTypeOfNode(declIndex);
+            // Cache the result to avoid recomputing on future calls.
+            if (result_type != 0) {
+                var links = self.valueSymbolLinks.get(symIndex) orelse types.ValueSymbolLinks{};
+                if (links.resolvedType == null) {
+                    links.resolvedType = result_type;
+                    self.valueSymbolLinks.put(self.allocator, symIndex, links) catch {};
+                }
+            }
+            return result_type;
         }
-        return try self.getAnyType();
+        const any_t = try self.getAnyType();
+        // Cache anyType as well to prevent infinite recursion on unresolved symbols.
+        var links = self.valueSymbolLinks.get(symIndex) orelse types.ValueSymbolLinks{};
+        if (links.resolvedType == null) {
+            links.resolvedType = any_t;
+            self.valueSymbolLinks.put(self.allocator, symIndex, links) catch {};
+        }
+        return any_t;
     }
 
     pub fn getTypeOfNode(self: *Checker, nodeIndex: u32) anyerror!u32 {
@@ -4308,7 +4347,20 @@ pub const Checker = struct {
 
             .VariableDeclaration => |decl| {
                 if (decl.Type) |typeNode| {
-                    return try self.getTypeOfNode(typeNode);
+                    const result_type = try self.getTypeOfNode(typeNode);
+                    if (result_type != 0) {
+                        // Cache on the variable's symbol if available.
+                        if (self.binder.ast.getNodeSymbol(nodeIndex)) |sym_idx| {
+                            if (sym_idx != 0) {
+                                var links = self.valueSymbolLinks.get(sym_idx) orelse types.ValueSymbolLinks{};
+                                if (links.resolvedType == null) {
+                                    links.resolvedType = result_type;
+                                    self.valueSymbolLinks.put(self.allocator, sym_idx, links) catch {};
+                                }
+                            }
+                        }
+                    }
+                    return result_type;
                 }
                 if (decl.Initializer) |initExpr| {
                     const initType = try self.checkExpressionAdHoc(initExpr);
@@ -4321,6 +4373,7 @@ pub const Checker = struct {
                         // NodeFlag.Const = 1 << 1 (see ast/core.zig NodeFlag)
                         if ((vdl.Flags & 0x2) != 0) is_const = true;
                     }
+                    var widened_type = initType;
                     if (!is_const) {
                         // Widen literal types for var/let declarations:
                         //   var x = 123   -> number (not 123-literal)
@@ -4331,14 +4384,32 @@ pub const Checker = struct {
                         // This matches TypeScript's default widening behavior.
                         if (initType != 0 and initType < self.typesList.items.len) {
                             const f = self.typesList.items[initType].flags;
-                            if ((f & types.TypeFlags.NumberLiteral) != 0) return try self.getNumberType();
-                            if ((f & types.TypeFlags.StringLiteral) != 0) return try self.getStringType();
-                            if ((f & types.TypeFlags.BooleanLiteral) != 0) return try self.getBooleanType();
-                            if ((f & types.TypeFlags.Null) != 0) return try self.getAnyType();
-                            if ((f & types.TypeFlags.Undefined) != 0) return try self.getAnyType();
+                            if ((f & types.TypeFlags.NumberLiteral) != 0) {
+                                widened_type = try self.getNumberType();
+                            } else if ((f & types.TypeFlags.StringLiteral) != 0) {
+                                widened_type = try self.getStringType();
+                            } else if ((f & types.TypeFlags.BooleanLiteral) != 0) {
+                                widened_type = try self.getBooleanType();
+                            } else if ((f & types.TypeFlags.Null) != 0) {
+                                widened_type = try self.getAnyType();
+                            } else if ((f & types.TypeFlags.Undefined) != 0) {
+                                widened_type = try self.getAnyType();
+                            }
                         }
                     }
-                    return initType;
+                    if (widened_type != 0) {
+                        // Cache on the variable's symbol if available.
+                        if (self.binder.ast.getNodeSymbol(nodeIndex)) |sym_idx| {
+                            if (sym_idx != 0) {
+                                var links = self.valueSymbolLinks.get(sym_idx) orelse types.ValueSymbolLinks{};
+                                if (links.resolvedType == null) {
+                                    links.resolvedType = widened_type;
+                                    self.valueSymbolLinks.put(self.allocator, sym_idx, links) catch {};
+                                }
+                            }
+                        }
+                    }
+                    return widened_type;
                 }
                 // Catch clause variables have no Type and no Initializer.
                 // With useUnknownInCatchVariables, their type is `unknown`.
@@ -4359,9 +4430,52 @@ pub const Checker = struct {
             },
             .PropertyAssignment => |p| {
                 if (p.Type) |typeNode| {
-                    if (typeNode != 0) return try self.getTypeOfNode(typeNode);
+                    if (typeNode != 0) {
+                        const result_type = try self.getTypeOfNode(typeNode);
+                        if (result_type != 0) {
+                            if (self.binder.ast.getNodeSymbol(nodeIndex)) |sym_idx| {
+                                if (sym_idx != 0) {
+                                    var links = self.valueSymbolLinks.get(sym_idx) orelse types.ValueSymbolLinks{};
+                                    if (links.resolvedType == null) {
+                                        links.resolvedType = result_type;
+                                        self.valueSymbolLinks.put(self.allocator, sym_idx, links) catch {};
+                                    }
+                                }
+                            }
+                        }
+                        return result_type;
+                    }
                 }
-                return try self.checkExpressionAdHoc(p.Initializer);
+                const init_type = try self.checkExpressionAdHoc(p.Initializer);
+                // Widen literal types for object literal properties.
+                // { name: 'bob' } -> name: string (not "bob")
+                // { age: 18 } -> age: number (not 18)
+                // { flag: true } -> flag: boolean (not true)
+                var widened_type = init_type;
+                if (init_type != 0 and init_type < self.typesList.items.len) {
+                    const f = self.typesList.items[init_type].flags;
+                    if ((f & types.TypeFlags.NumberLiteral) != 0) {
+                        widened_type = try self.getNumberType();
+                    } else if ((f & types.TypeFlags.StringLiteral) != 0) {
+                        widened_type = try self.getStringType();
+                    } else if ((f & types.TypeFlags.BooleanLiteral) != 0) {
+                        widened_type = try self.getBooleanType();
+                    } else if ((f & (types.TypeFlags.Null | types.TypeFlags.Undefined)) != 0) {
+                        widened_type = try self.getAnyType();
+                    }
+                }
+                if (widened_type != 0) {
+                    if (self.binder.ast.getNodeSymbol(nodeIndex)) |sym_idx| {
+                        if (sym_idx != 0) {
+                            var links = self.valueSymbolLinks.get(sym_idx) orelse types.ValueSymbolLinks{};
+                            if (links.resolvedType == null) {
+                                links.resolvedType = widened_type;
+                                self.valueSymbolLinks.put(self.allocator, sym_idx, links) catch {};
+                            }
+                        }
+                    }
+                }
+                return widened_type;
             },
             .PropertySignature => |ps| {
                 if (ps.Type) |typeNode| {
@@ -26568,6 +26682,38 @@ pub fn checkObjectLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: C
         if (prop_idx != 0) checkSourceElement(c, prop_idx);
     }
 
+    // Create an anonymous object type with the object literal's symbol.
+    // This allows TypeToStringEx to render the properties as
+    // { name: string; age: number; } instead of {}.
+    // Skip this for object literals that are initializers of variables
+    // where the initializer references the variable itself (recursive),
+    // to avoid infinite recursion in type resolution.
+    const sym = c.binder.ast.getNodeSymbol(node_idx) orelse 0;
+    if (sym != 0) {
+        // Check if this object literal is the initializer of a variable
+        // declaration, and if so, whether the variable is referenced inside.
+        const parent = c.binder.ast.getNodeParent(node_idx);
+        var is_recursive = false;
+        if (parent != 0 and c.binder.ast.getNodeKind(parent) == .VariableDeclaration) {
+            // Get the variable's symbol.
+            if (c.binder.ast.getNodeSymbol(parent)) |var_sym| {
+                if (var_sym != 0 and c.resolvingSymbols.contains(var_sym)) {
+                    is_recursive = true;
+                }
+            }
+        }
+        if (!is_recursive) {
+            const t = c.createType(.{
+                .flags = types.TypeFlags.Object,
+                .objectFlags = types.ObjectFlags.Anonymous,
+                .id = 0,
+                .symbol = sym,
+                .alias = null,
+                .data = .{ .Object = .{ .Symbol = sym } },
+            }) catch return c.anyTypeIndex orelse 0;
+            return t;
+        }
+    }
     return c.anyTypeIndex orelse 0;
 }
 pub fn checkParenthesizedExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
