@@ -4698,6 +4698,7 @@ pub const Checker = struct {
                 for (element_nodes) |element| {
                     try self.tupleTypesPool.append(self.allocator, try self.getTypeOfNode(element));
                     var flags: u32 = 0;
+                    var labeled_decl: ?ast_gen.NodeIndex = null;
                     const elNode = self.binder.ast.getNode(element);
                     if (std.meta.activeTag(elNode) == .OptionalType) {
                         flags |= types.ElementFlags.Optional;
@@ -4712,12 +4713,17 @@ pub const Checker = struct {
                         } else {
                             flags |= types.ElementFlags.Required;
                         }
+                        // Store the NamedTupleMember node itself so the
+                        // nodebuilder can extract the label name when
+                        // rendering the tuple type (e.g.,
+                        // `[length: number, count: number]`).
+                        labeled_decl = element;
                     } else {
                         flags |= types.ElementFlags.Required;
                     }
                     try self.tupleElementInfos.append(self.allocator, .{
                         .flags = flags,
-                        .labeledDeclaration = null,
+                        .labeledDeclaration = labeled_decl,
                     });
                 }
                 return try self.createType(.{

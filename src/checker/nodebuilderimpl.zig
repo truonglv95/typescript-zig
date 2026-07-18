@@ -589,11 +589,33 @@ pub const NodeBuilderImpl = struct {
                 if (objectFlags & types.ObjectFlags.Tuple != 0) {
                     const tuple = typeData.data.Tuple;
                     const tuple_types = b.c.tupleTypesPool.items[tuple.typesStart .. tuple.typesStart + tuple.typesLen];
+                    const tuple_infos = b.c.tupleElementInfos.items[tuple.elementInfosStart .. tuple.elementInfosStart + tuple.typesLen];
                     var element_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
                     defer element_nodes.deinit(b.c.allocator);
-                    for (tuple_types) |element_type| {
-                        const element_node = b.typeToTypeNode(element_type);
+                    for (tuple_types, 0..) |element_type, i| {
+                        var element_node = b.typeToTypeNode(element_type);
                         if (element_node == 0) return 0;
+                        // If this tuple element has a label (NamedTupleMember),
+                        // wrap it in a NamedTupleMember node so the printer
+                        // renders `label: type` instead of just `type`.
+                        if (i < tuple_infos.len) {
+                            if (tuple_infos[i].labeledDeclaration) |ntm_node| {
+                                if (ntm_node != 0 and b.c.binder.ast.getNodeKind(ntm_node) == .NamedTupleMember) {
+                                    const orig_ntm = b.c.binder.ast.getNode(ntm_node).NamedTupleMember;
+                                    // Reuse the original label name and dotdotdot/question tokens.
+                                    element_node = b.c.binder.ast.pushNode(.{
+                                        .NamedTupleMember = .{
+                                            .Flags = synthesizedFlags(),
+                                            .Symbol = 0,
+                                            .DotDotDotToken = orig_ntm.DotDotDotToken,
+                                            .name = orig_ntm.name,
+                                            .QuestionToken = orig_ntm.QuestionToken,
+                                            .Type = element_node,
+                                        },
+                                    }) catch element_node;
+                                }
+                            }
+                        }
                         element_nodes.append(b.c.allocator, element_node) catch return 0;
                     }
                     const list = b.c.binder.ast.pushNodeList(element_nodes.items) catch return 0;

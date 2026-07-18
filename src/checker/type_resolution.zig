@@ -901,6 +901,13 @@ fn getArrayOrTupleTargetType(c: *Checker, node: NodeIndex) TypeIndex {
         return c.createArrayType(elem_type);
     }
     if (kind == .TupleType) {
+        // Build a proper tuple type from the element nodes.
+        // Use the checker's getTypeOfNode which has the full TupleType case
+        // (handles NamedTupleMember, OptionalType, RestType, and stores
+        // labeledDeclaration for element labels).
+        const tp = c.getTypeOfNode(node) catch 0;
+        if (tp != 0) return tp;
+        // Fallback: any[] (matches old behavior)
         return c.createArrayType(c.anyTypeIndex orelse 0);
     }
     return 0;
@@ -911,9 +918,10 @@ fn coreSomeVariadic(c: *Checker, node: NodeIndex) bool {
     return false;
 }
 fn getTupleElementsLen(c: *Checker, node: NodeIndex) usize {
-    _ = c;
-    _ = node;
-    return 0;
+    if (c.binder.ast.getKind(node) != .TupleType) return 0;
+    const tuple = c.binder.ast.getNode(node).TupleType;
+    if (tuple.Elements == 0) return 0;
+    return c.binder.ast.getNodeList(tuple.Elements).len;
 }
 fn addOptionality(c: *Checker, t: TypeIndex) TypeIndex {
     _ = c;
