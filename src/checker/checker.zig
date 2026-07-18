@@ -24182,6 +24182,36 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
         }
     }
 
+    // TypeReference (`Foo<Bar>`): if cursor is on the TypeName (Foo) or one
+    // of the TypeArguments (Bar), descend to that identifier and resolve
+    // its symbol. We check whether the cursor is inside the TypeName node
+    // or inside one of the TypeArguments, then call getSymbolAtLocation
+    // recursively on the matched child.
+    if (c.binder.ast.getNodeKind(node) == .TypeReference) {
+        const tr = c.binder.ast.getNode(node).TypeReference;
+        // Try TypeName first.
+        if (tr.TypeName != 0) {
+            // For QualifiedName, descend to the rightmost identifier.
+            const target = switch (c.binder.ast.getNode(tr.TypeName)) {
+                .QualifiedName => |q| q.Right,
+                else => tr.TypeName,
+            };
+            if (target != 0) {
+                const ret = getSymbolAtLocation(c, target);
+                if (ret != 0) return ret;
+            }
+        }
+        // Try TypeArguments.
+        if (tr.TypeArguments) |ta| {
+            const args = c.binder.ast.getNodeList(ta);
+            for (args) |arg| {
+                if (arg == 0) continue;
+                const ret = getSymbolAtLocation(c, arg);
+                if (ret != 0) return ret;
+            }
+        }
+    }
+
     if (c.binder.ast.getNodeKind(node) == .PropertyAccessExpression) {
         // Return property symbol if already typechecked and cached
         return getSymbolOfNode(c, node) orelse 0;

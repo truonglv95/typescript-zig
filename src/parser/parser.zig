@@ -3248,18 +3248,23 @@ pub const Parser = struct {
         } else if (self.token == kind.Kind.ImportKeyword) {
             return try self.parseImportType();
         } else if (self.isIdentifier() or kind.isKeyword(self.token)) {
+            const type_ref_start = self.scanner.state.tokenStart;
             const typeName = try self.parseEntityName();
 
             var typeArguments: ?ast_gen.NodeListIndex = null;
             if (self.token == kind.Kind.LessThanToken) {
                 typeArguments = try self.parseTypeArguments();
             }
-
-            return try self.ast.pushNode(.{ .TypeReference = .{
+            const type_ref_end = self.scanner.state.tokenStart;
+            const type_ref_node = try self.ast.pushNode(.{ .TypeReference = .{
                 .Flags = 0,
                 .TypeArguments = typeArguments,
                 .TypeName = typeName,
             } });
+            if (type_ref_node != 0 and type_ref_node < self.ast.positions.items.len) {
+                self.ast.positions.items[type_ref_node] = .{ .pos = @intCast(type_ref_start), .end = @intCast(type_ref_end) };
+            }
+            return type_ref_node;
         } else if (self.token == kind.Kind.OpenBraceToken) {
             const start_pos = self.scanner.state.tokenStart;
             if (self.nextIsStartOfMappedType()) {

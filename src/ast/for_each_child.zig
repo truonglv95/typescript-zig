@@ -2267,6 +2267,119 @@ pub fn forEachChild(tree: *Ast, nodeIndex: ast_gen.NodeIndex, visitor: anytype) 
                 if (n.DefaultType) |child| try visitor.visitNode(child);
             }
         },
+        // Additional missing handlers for signature-type nodes. Without
+        // these, fixupParentReferences and getTouchingPropertyName cannot
+        // descend into CallSignature / ConstructSignature / IndexSignature
+        // / GetAccessor / SetAccessor nodes, so identifiers inside their
+        // Type or Parameters fields appear orphaned (parent=0) and cursor
+        // lookups return SourceFile as a fallback.
+        .CallSignature => |n| {
+            // CallSignatureDeclarationNode
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+        },
+        .ConstructSignature => |n| {
+            // ConstructSignatureDeclarationNode (same layout as CallSignature)
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+        },
+        .IndexSignature => |n| {
+            // IndexSignatureDeclarationNode
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+        },
+        .GetAccessor => |n| {
+            // GetAccessorDeclarationNode
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (n.name != 0) try visitor.visitNode(n.name);
+            if (@TypeOf(n.PostfixToken) == u32) {
+                if (n.PostfixToken != 0) try visitor.visitNode(n.PostfixToken);
+            } else {
+                if (n.PostfixToken) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Body) == u32) {
+                if (n.Body != 0) try visitor.visitNode(n.Body);
+            } else {
+                if (n.Body) |child| try visitor.visitNode(child);
+            }
+        },
+        .SetAccessor => |n| {
+            // SetAccessorDeclarationNode (same layout as GetAccessor)
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (n.name != 0) try visitor.visitNode(n.name);
+            if (@TypeOf(n.PostfixToken) == u32) {
+                if (n.PostfixToken != 0) try visitor.visitNode(n.PostfixToken);
+            } else {
+                if (n.PostfixToken) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Body) == u32) {
+                if (n.Body != 0) try visitor.visitNode(n.Body);
+            } else {
+                if (n.Body) |child| try visitor.visitNode(child);
+            }
+        },
         else => {},
     }
 }
