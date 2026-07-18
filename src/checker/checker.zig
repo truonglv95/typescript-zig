@@ -5247,6 +5247,25 @@ pub const Checker = struct {
                                 }
                             }
                         }
+
+                        // For numeric literal keys, also try string property
+                        // lookup. E.g., `b[1]` should find property `'1'`
+                        // if the object type has a string-literal property
+                        // named "1".
+                        if ((argType.flags & types.TypeFlags.NumberLiteral) != 0) {
+                            const num_text = blk: {
+                                if (argType.data == .NumberLiteral) {
+                                    break :blk std.fmt.allocPrint(self.allocator, "{d}", .{argType.data.NumberLiteral.value}) catch "";
+                                }
+                                break :blk "";
+                            };
+                            if (num_text.len > 0) {
+                                if (self.getPropertyOfType(objTypeIdx, num_text)) |prop_sym| {
+                                    const prop_type = try self.getTypeOfSymbol(prop_sym);
+                                    return self.substituteTypeParamsForReference(objTypeIdx, prop_type);
+                                }
+                            }
+                        }
                     }
 
                     // Index signature lookup: for types with `[x: string]: T`
