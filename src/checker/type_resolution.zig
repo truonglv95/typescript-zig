@@ -365,7 +365,7 @@ fn getSymbolFromTypeReference(c: *Checker, node: NodeIndex) ast_gen.SymbolIndex 
 fn resolveLibSymbol(c: *Checker, name: []const u8, meaning: u32) ?ast_gen.SymbolIndex {
     const lib = c.default_lib_binder orelse return null;
     // Search the lib binder's symbols list.
-    for (lib.symbols.items, 1..) |sym, i| {
+    for (lib.symbols.items, 0..) |sym, i| {
         if (!std.mem.eql(u8, sym.Name, name)) continue;
         if ((sym.Flags & meaning) == 0) continue;
         const idx: ast_gen.SymbolIndex = @intCast(i);
