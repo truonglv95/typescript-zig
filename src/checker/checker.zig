@@ -1597,10 +1597,57 @@ pub const Checker = struct {
     }
 
     pub fn getIndexInfosOfSymbol(c: *Checker, symIdx: ast_gen.SymbolIndex) types.Range {
-        _ = c;
-        _ = symIdx;
-        // In Go this is just a wrapper, we handled it explicitly above
-        return .{ .start = 0, .len = 0 }; // Skipped
+        // Find the index symbol (named "\xFEindex") in the symbol's members.
+        if (symIdx == 0 or symIdx >= c.binder.symbols.items.len) return .{ .start = 0, .len = 0 };
+        const index_sym = c.binder.symbolMembers.getPtr(symIdx) orelse return .{ .start = 0, .len = 0 };
+        const idx_sym = index_sym.get("\xFEindex") orelse return .{ .start = 0, .len = 0 };
+        if (idx_sym == 0 or idx_sym >= c.binder.symbols.items.len) return .{ .start = 0, .len = 0 };
+
+        // For each IndexSignature declaration, extract keyType and valueType.
+        const idx_symbol = c.binder.symbols.items[idx_sym];
+        var index_infos = std.ArrayListUnmanaged(types.IndexInfo).empty;
+        defer index_infos.deinit(c.allocator);
+
+        for (idx_symbol.Declarations.items) |decl| {
+            if (decl == 0) continue;
+            if (c.binder.ast.getNodeKind(decl) != .IndexSignature) continue;
+            const sig = c.binder.ast.getNode(decl).IndexSignature;
+            // Get parameter type (the key type).
+            if (sig.Parameters == 0) continue;
+            const params = c.binder.ast.getNodeList(sig.Parameters);
+            if (params.len == 0) continue;
+            const param = params[0];
+            if (param == 0) continue;
+            const param_data = c.binder.ast.getNode(param).Parameter;
+            const key_type_node = param_data.Type orelse 0;
+            if (key_type_node == 0) continue;
+            const key_type = type_resolution_pkg.getTypeFromTypeNode(c, key_type_node);
+            if (key_type == 0) continue;
+
+            // Get value type (return type of the index signature).
+            var value_type: types.TypeIndex = c.anyTypeIndex orelse 0;
+            if (sig.Type) |ret_node| {
+                if (ret_node != 0) {
+                    const vt = type_resolution_pkg.getTypeFromTypeNode(c, ret_node);
+                    if (vt != 0) value_type = vt;
+                }
+            }
+
+            // Check readonly.
+            const is_readonly = (sig.modifierFlags & @import("../ast/ast_utils.zig").ModifierFlags.Readonly) != 0;
+
+            index_infos.append(c.allocator, .{
+                .keyType = key_type,
+                .valueType = value_type,
+                .isReadonly = is_readonly,
+                .declaration = decl,
+            }) catch {};
+        }
+
+        if (index_infos.items.len == 0) return .{ .start = 0, .len = 0 };
+        const start = @as(u32, @intCast(c.resolvedIndexInfosPool.items.len));
+        c.resolvedIndexInfosPool.appendSlice(c.allocator, index_infos.items) catch return .{ .start = 0, .len = 0 };
+        return .{ .start = start, .len = @as(u32, @intCast(index_infos.items.len)) };
     }
 
     pub fn isNamedMember(c: *Checker, symIdx: ast_gen.SymbolIndex, name: []const u8) bool {

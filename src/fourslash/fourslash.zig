@@ -1496,7 +1496,69 @@ pub const FourslashTest = struct {
 
         // Get the symbol at this location.
         var sym = checker_module.getSymbolAtLocation(c, node);
-        if (sym == 0) return "";
+        if (sym == 0) {
+            // Index signature fallback: if the cursor is on a property name
+            // that doesn't exist explicitly on the object type, check if
+            // the type has index signatures and display as
+            // "(index) TypeName[keyType]: valueType".
+            const parent = p.ast.getNodeParent(node);
+            if (parent != 0 and (p.ast.getNodeKind(parent) == .PropertyAccessExpression or
+                p.ast.getNodeKind(parent) == .ElementAccessExpression))
+            {
+                var obj_type: checker_module.types.TypeIndex = 0;
+                if (p.ast.getNodeKind(parent) == .PropertyAccessExpression) {
+                    const pae = p.ast.getNode(parent).PropertyAccessExpression;
+                    if (pae.name == node) {
+                        obj_type = c.checkExpressionCached(pae.Expression);
+                        if (obj_type == 0 and p.ast.getNodeKind(pae.Expression) == .Identifier) {
+                            const obj_sym = checker_module.getResolvedSymbol(c, pae.Expression);
+                            if (obj_sym != 0 and obj_sym != c.unknownSymbol) {
+                                obj_type = c.getTypeOfSymbol(obj_sym) catch 0;
+                            }
+                        }
+                    }
+                } else {
+                    const eae = p.ast.getNode(parent).ElementAccessExpression;
+                    if (eae.ArgumentExpression == node) {
+                        obj_type = c.checkExpressionCached(eae.Expression);
+                    }
+                }
+                if (obj_type != 0 and obj_type < c.typesList.items.len) {
+                    const td = c.typesList.items[obj_type];
+                    if ((td.flags & checker_module.types.TypeFlags.Object) != 0 and td.symbol != null and td.symbol.? != 0) {
+                        const idx_range = c.getIndexInfosOfSymbol(td.symbol.?);
+                        if (idx_range.len > 0) {
+                            const infos = c.resolvedIndexInfosPool.items[idx_range.start .. idx_range.start + idx_range.len];
+                            // Find the type name.
+                            var type_name: []const u8 = "";
+                            if (td.symbol) |tsym| {
+                                if (tsym != 0 and tsym < c.binder.symbols.items.len) {
+                                    type_name = c.binder.symbols.items[tsym].Name;
+                                }
+                            }
+                            // Build "(index) TypeName[keyType]: valueType"
+                            var out = std.ArrayListUnmanaged(u8).empty;
+                            const aa = self.arena.allocator();
+                            out.appendSlice(aa, "(index) ") catch {};
+                            out.appendSlice(aa, type_name) catch {};
+                            out.appendSlice(aa, "[") catch {};
+                            // Display key types joined by " | ".
+                            for (infos, 0..) |info, i| {
+                                if (i > 0) out.appendSlice(aa, " | ") catch {};
+                                const key_str = if (info.keyType != 0) c.typeToString(info.keyType, 0, 0, null) else "string";
+                                out.appendSlice(aa, key_str) catch {};
+                            }
+                            out.appendSlice(aa, "]: ") catch {};
+                            // Display value type from first index info.
+                            const val_str = if (infos[0].valueType != 0) c.typeToString(infos[0].valueType, 0, 0, null) else "any";
+                            out.appendSlice(aa, val_str) catch {};
+                            return out.toOwnedSlice(aa) catch "";
+                        }
+                    }
+                }
+            }
+            return "";
+        }
 
         // If the symbol has an ExportSymbol pointer (e.g., local symbol for an
         // exported declaration), follow it to get the export symbol which has
