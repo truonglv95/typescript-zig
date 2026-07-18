@@ -1734,7 +1734,24 @@ pub const FourslashTest = struct {
                 out.appendSlice(aa, "(parameter) ") catch {};
                 out.appendSlice(aa, symObj.Name) catch {};
                 out.appendSlice(aa, ": ") catch {};
-                out.appendSlice(aa, typeStr) catch {};
+                // Check if this is a rest parameter (has DotDotDotToken).
+                // If so, wrap the type in `T[]`.
+                var is_rest = false;
+                if (symObj.Declarations.items.len > 0) {
+                    const decl_node = symObj.Declarations.items[0];
+                    if (p.ast.getNodeKind(decl_node) == .Parameter) {
+                        const param = p.ast.getNode(decl_node).Parameter;
+                        if (param.DotDotDotToken) |ddt| {
+                            if (ddt != 0) is_rest = true;
+                        }
+                    }
+                }
+                if (is_rest) {
+                    out.appendSlice(aa, typeStr) catch {};
+                    out.appendSlice(aa, "[]") catch {};
+                } else {
+                    out.appendSlice(aa, typeStr) catch {};
+                }
                 return out.toOwnedSlice(aa) catch "";
             }
         }
@@ -1752,14 +1769,23 @@ pub const FourslashTest = struct {
                 prefix = "let";
                 if (symObj.Declarations.items.len > 0) {
                     const decl_node = symObj.Declarations.items[0];
-                    const parent = p.ast.getNodeParent(decl_node);
-                    if (parent != 0) {
-                        const pk = p.ast.getNodeKind(parent);
+                    // Walk up parent chain to find VariableDeclarationList —
+                    // for destructuring patterns, the declaration may be
+                    // nested inside BindingElement → BindingPattern →
+                    // VariableDeclaration → VariableDeclarationList.
+                    var cur = p.ast.getNodeParent(decl_node);
+                    while (cur != 0) {
+                        const pk = p.ast.getNodeKind(cur);
                         if (pk == .VariableDeclarationList) {
-                            const vdl = p.ast.getNode(parent).VariableDeclarationList;
-                            // NodeFlag.Const = 1 << 1 (see ast/core.zig NodeFlag)
+                            const vdl = p.ast.getNode(cur).VariableDeclarationList;
+                            // NodeFlag.Const = 1 << 1 (see ast_utils.zig NodeFlags)
                             if ((vdl.Flags & 0x2) != 0) prefix = "const";
+                            break;
                         }
+                        if (pk == .SourceFile or pk == .FunctionDeclaration or
+                            pk == .FunctionExpression or pk == .MethodDeclaration or
+                            pk == .ArrowFunction or pk == .Constructor) break;
+                        cur = p.ast.getNodeParent(cur);
                     }
                 }
             }
@@ -1991,6 +2017,17 @@ pub const FourslashTest = struct {
             }
 
             out.appendSlice(aa, "class ") catch {};
+            // Include namespace prefix if the class is inside a namespace.
+            // Walk up the parent chain to find the enclosing namespace/module.
+            if (symObj.Parent) |parent_sym| {
+                if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
+                    const parent_obj = c.binder.symbols.items[parent_sym];
+                    if ((parent_obj.Flags & (symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule)) != 0) {
+                        out.appendSlice(aa, parent_obj.Name) catch {};
+                        out.appendSlice(aa, ".") catch {};
+                    }
+                }
+            }
             out.appendSlice(aa, symObj.Name) catch {};
             // Append type parameters if present.
             if (symObj.Declarations.items.len > 0) {
@@ -2029,6 +2066,16 @@ pub const FourslashTest = struct {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
             out.appendSlice(aa, "interface ") catch {};
+            // Include namespace prefix if inside a namespace.
+            if (symObj.Parent) |parent_sym| {
+                if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
+                    const parent_obj = c.binder.symbols.items[parent_sym];
+                    if ((parent_obj.Flags & (symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule)) != 0) {
+                        out.appendSlice(aa, parent_obj.Name) catch {};
+                        out.appendSlice(aa, ".") catch {};
+                    }
+                }
+            }
             out.appendSlice(aa, symObj.Name) catch {};
             // Append type parameters if present.
             if (symObj.Declarations.items.len > 0) {
@@ -2059,10 +2106,28 @@ pub const FourslashTest = struct {
             return out.toOwnedSlice(aa) catch "";
         }
 
-        // Enum: format as "enum Name"
+        // Enum: format as "enum Name" or "const enum Name"
         if ((symObj.Flags & (symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum)) != 0) {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
+            // Check if this is a const enum by looking at the declaration's
+            // modifier flags.
+            var is_const_enum = (symObj.Flags & symbol.SymbolFlags.ConstEnum) != 0;
+            if (!is_const_enum and symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                if (p.ast.getNodeKind(decl_node) == .EnumDeclaration) {
+                    const ed = p.ast.getNode(decl_node).EnumDeclaration;
+                    if (ed.modifierFlags != 0) {
+                        const ModifierFlags = @import("../ast/ast_utils.zig").ModifierFlags;
+                        if ((ed.modifierFlags & ModifierFlags.Const) != 0) {
+                            is_const_enum = true;
+                        }
+                    }
+                }
+            }
+            if (is_const_enum) {
+                out.appendSlice(aa, "const ") catch {};
+            }
             out.appendSlice(aa, "enum ") catch {};
             out.appendSlice(aa, symObj.Name) catch {};
             return out.toOwnedSlice(aa) catch "";
