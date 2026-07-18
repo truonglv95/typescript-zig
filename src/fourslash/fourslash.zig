@@ -2069,7 +2069,24 @@ pub const FourslashTest = struct {
                     out.appendSlice(aa, pStr) catch {};
                 }
                 out.appendSlice(aa, "): ") catch {};
-                const retType = c.getReturnTypeOfSignature(sig);
+                var retType = c.getReturnTypeOfSignature(sig);
+                // Fallback: if getReturnTypeOfSignature returned 0, try
+                // resolving from the method declaration's Type annotation.
+                if (retType == 0 and symObj.Declarations.items.len > 0) {
+                    const decl_node = symObj.Declarations.items[0];
+                    const decl_data = p.ast.getNode(decl_node);
+                    const type_node: ?u32 = switch (decl_data) {
+                        .MethodDeclaration => |m| m.Type,
+                        .MethodSignature => |m| m.Type,
+                        .FunctionDeclaration => |f| f.Type,
+                        else => null,
+                    };
+                    if (type_node) |tn| {
+                        if (tn != 0) {
+                            retType = c.getTypeFromTypeNode(tn);
+                        }
+                    }
+                }
                 const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
                 out.appendSlice(aa, retTypeStr) catch {};
                 return out.toOwnedSlice(aa) catch "";
