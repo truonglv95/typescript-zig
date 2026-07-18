@@ -280,6 +280,7 @@ pub fn parseBinaryExpressionOrHigher(p: *parser_pkg.Parser, precedence: Operator
             const cast_start = p.scanner.state.tokenStart;
             p.nextToken();
             const typeNode = try p.parseType();
+            const cast_end = p.scanner.state.tokenStart;
 
             if (operator == kind.Kind.SatisfiesKeyword) {
                 leftOperand = try p.ast.pushNode(.{ .SatisfiesExpression = .{
@@ -287,14 +288,18 @@ pub fn parseBinaryExpressionOrHigher(p: *parser_pkg.Parser, precedence: Operator
                     .Expression = leftOperand,
                     .Type = typeNode,
                 } });
-                p.setNodeStartPos(leftOperand, cast_start);
+                if (leftOperand != 0 and leftOperand < p.ast.positions.items.len) {
+                    p.ast.positions.items[leftOperand] = .{ .pos = @intCast(cast_start), .end = @intCast(cast_end) };
+                }
             } else {
                 leftOperand = try p.ast.pushNode(.{ .AsExpression = .{
                     .Flags = 0,
                     .Expression = leftOperand,
                     .Type = typeNode,
                 } });
-                p.setNodeStartPos(leftOperand, cast_start);
+                if (leftOperand != 0 and leftOperand < p.ast.positions.items.len) {
+                    p.ast.positions.items[leftOperand] = .{ .pos = @intCast(cast_start), .end = @intCast(cast_end) };
+                }
             }
 
             if (@intFromEnum(getBinaryOperatorPrecedence(p.reScanGreaterThanToken())) > @intFromEnum(lastPrecedence)) {
