@@ -4200,40 +4200,94 @@ pub const Checker = struct {
             const decl_node = self.binder.ast.getNode(declIndex);
             if (decl_node == .BindingElement) {
                 const be = decl_node.BindingElement;
-                // Look up the property name (not binding name).
-                var prop_name: []const u8 = "";
-                if (be.PropertyName) |pn| {
-                    if (pn != 0) prop_name = ast_utils.getTextOfNode(self.binder.ast, pn);
-                }
-                if (prop_name.len == 0) {
-                    // Shorthand: { property1 } — use binding name.
-                    if (be.name) |bn| {
-                        if (bn != 0) prop_name = ast_utils.getTextOfNode(self.binder.ast, bn);
+                // Collect property-name chain from this BindingElement up
+                // through ancestor BindingElements. For nested destructuring
+                // like `{ a: { b } }` sourced from `{ a: { b: string } }`,
+                // the chain for `b` is ["b", "a"] (inner first). We resolve
+                // from outer to inner: param_type.a.b.
+                var prop_chain = std.ArrayListUnmanaged([]const u8).empty;
+                defer prop_chain.deinit(self.allocator);
+
+                // This BindingElement's own property name (or binding name
+                // for shorthand `{ x }`).
+                {
+                    var own_name: []const u8 = "";
+                    if (be.PropertyName) |pn| {
+                        if (pn != 0) own_name = ast_utils.getTextOfNode(self.binder.ast, pn);
+                    }
+                    if (own_name.len == 0) {
+                        if (be.name) |bn| {
+                            if (bn != 0) own_name = ast_utils.getTextOfNode(self.binder.ast, bn);
+                        }
+                    }
+                    if (own_name.len > 0) {
+                        prop_chain.append(self.allocator, own_name) catch {};
                     }
                 }
+
                 // Walk up to find VariableDeclaration with initializer OR
-                // Parameter with type annotation.
+                // Parameter with type annotation. Along the way, collect
+                // ancestor BindingElement property names so we can resolve
+                // through nested destructuring patterns.
                 var cur = declIndex;
                 while (cur != 0) {
                     const k = self.binder.ast.getNodeKind(cur);
+                    if (k == .BindingElement and cur != declIndex) {
+                        const anc_be = self.binder.ast.getNode(cur).BindingElement;
+                        var anc_name: []const u8 = "";
+                        if (anc_be.PropertyName) |pn| {
+                            if (pn != 0) anc_name = ast_utils.getTextOfNode(self.binder.ast, pn);
+                        }
+                        if (anc_name.len == 0) {
+                            // Shorthand ancestor — use binding name.
+                            if (anc_be.name) |bn| {
+                                if (bn != 0) anc_name = ast_utils.getTextOfNode(self.binder.ast, bn);
+                            }
+                        }
+                        if (anc_name.len > 0) {
+                            prop_chain.append(self.allocator, anc_name) catch {};
+                        }
+                    }
                     if (k == .VariableDeclaration) {
                         const vd = self.binder.ast.getNode(cur).VariableDeclaration;
                         if (vd.Initializer) |vd_init| {
                             if (vd_init != 0) {
-                                const init_type = self.checkExpressionCached(vd_init);
+                                var init_type = self.checkExpressionCached(vd_init);
                                 if (init_type != 0) {
-                                    // If the binding pattern is an ArrayBindingPattern,
-                                    // the binding element gets the element type.
+                                    // If the immediate binding pattern is an
+                                    // ArrayBindingPattern, the element type is
+                                    // the array's element type. For nested
+                                    // array patterns, we'd need to track array
+                                    // indices — but the simple case handles
+                                    // single-level arrays correctly.
                                     const parent_pattern = self.binder.ast.getNodeParent(declIndex);
                                     if (parent_pattern != 0 and self.binder.ast.getNodeKind(parent_pattern) == .ArrayBindingPattern) {
                                         if (self.isArrayType(init_type)) {
-                                            return self.getElementTypeOfArrayType(init_type);
-                                        }
-                                    } else if (prop_name.len > 0) {
-                                        if (self.getPropertyOfType(init_type, prop_name)) |prop_sym| {
-                                            return self.getTypeOfSymbol(prop_sym) catch self.getAnyType() catch 0;
+                                            init_type = self.getElementTypeOfArrayType(init_type);
                                         }
                                     }
+                                    // Resolve through the property chain in
+                                    // reverse (outer-to-inner). Skip the
+                                    // innermost name when the immediate parent
+                                    // is an ArrayBindingPattern — we've already
+                                    // extracted the element type above.
+                                    var t = init_type;
+                                    var start_idx: usize = 0;
+                                    if (parent_pattern != 0 and self.binder.ast.getNodeKind(parent_pattern) == .ArrayBindingPattern and prop_chain.items.len > 0) {
+                                        start_idx = 1;
+                                    }
+                                    var i: usize = prop_chain.items.len;
+                                    while (i > start_idx) : (i -= 1) {
+                                        if (t == 0) break;
+                                        const name = prop_chain.items[i - 1];
+                                        if (self.getPropertyOfType(t, name)) |prop_sym| {
+                                            t = self.getTypeOfSymbol(prop_sym) catch self.getAnyType() catch 0;
+                                        } else {
+                                            t = 0;
+                                            break;
+                                        }
+                                    }
+                                    if (t != 0) return t;
                                 }
                             }
                         }
@@ -4243,20 +4297,31 @@ pub const Checker = struct {
                         const param = self.binder.ast.getNode(cur).Parameter;
                         if (param.Type) |type_node| {
                             if (type_node != 0) {
-                                const param_type = self.getTypeFromTypeNode(type_node);
+                                var param_type = self.getTypeFromTypeNode(type_node);
                                 if (param_type != 0) {
-                                    // If the binding pattern is an ArrayBindingPattern,
-                                    // the binding element gets the element type.
                                     const parent_pattern = self.binder.ast.getNodeParent(declIndex);
                                     if (parent_pattern != 0 and self.binder.ast.getNodeKind(parent_pattern) == .ArrayBindingPattern) {
                                         if (self.isArrayType(param_type)) {
-                                            return self.getElementTypeOfArrayType(param_type);
-                                        }
-                                    } else if (prop_name.len > 0) {
-                                        if (self.getPropertyOfType(param_type, prop_name)) |prop_sym| {
-                                            return self.getTypeOfSymbol(prop_sym) catch self.getAnyType() catch 0;
+                                            param_type = self.getElementTypeOfArrayType(param_type);
                                         }
                                     }
+                                    var t = param_type;
+                                    var start_idx: usize = 0;
+                                    if (parent_pattern != 0 and self.binder.ast.getNodeKind(parent_pattern) == .ArrayBindingPattern and prop_chain.items.len > 0) {
+                                        start_idx = 1;
+                                    }
+                                    var i: usize = prop_chain.items.len;
+                                    while (i > start_idx) : (i -= 1) {
+                                        if (t == 0) break;
+                                        const name = prop_chain.items[i - 1];
+                                        if (self.getPropertyOfType(t, name)) |prop_sym| {
+                                            t = self.getTypeOfSymbol(prop_sym) catch self.getAnyType() catch 0;
+                                        } else {
+                                            t = 0;
+                                            break;
+                                        }
+                                    }
+                                    if (t != 0) return t;
                                 }
                             }
                         }

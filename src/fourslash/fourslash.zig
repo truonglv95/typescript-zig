@@ -1560,6 +1560,104 @@ pub const FourslashTest = struct {
             }
         }
 
+        // Special handling for `prototype` property access on class
+        // constructors. When the cursor is on `prototype` in `c1.prototype`,
+        // Go displays `(property) c1.prototype: c1` — i.e., the instance
+        // type of the class. The `prototype` symbol isn't declared
+        // explicitly in source; it's a built-in property of constructor
+        // functions/classes.
+        if (node_kind == .Identifier) {
+            const id_text = p.ast.getNode(node).Identifier.Text;
+            if (std.mem.eql(u8, id_text, "prototype")) {
+                const parent = p.ast.getNodeParent(node);
+                if (parent != 0 and p.ast.getNodeKind(parent) == .PropertyAccessExpression) {
+                    const pae = p.ast.getNode(parent).PropertyAccessExpression;
+                    if (pae.name == node) {
+                        // Resolve the object expression's symbol.
+                        const obj_sym = checker_module.getResolvedSymbol(c, pae.Expression);
+                        if (obj_sym != 0 and obj_sym != c.unknownSymbol) {
+                            // Get the constructor function type — for a class,
+                            // the symbol's type is the constructor type.
+                            const obj_type = c.getTypeOfSymbol(obj_sym) catch 0;
+                            if (obj_type != 0) {
+                                // For generic classes, Go displays the type
+                                // parameters in the class name part: `c2<T>`.
+                                // We extract them from the class declaration.
+                                const obj_sym_obj = c.binder.symbols.items[obj_sym];
+                                var class_display = std.ArrayListUnmanaged(u8).empty;
+                                const aa = self.arena.allocator();
+                                class_display.appendSlice(aa, obj_sym_obj.Name) catch {};
+                                // Try to find type parameters from the class declaration.
+                                var tp_has_generic = false;
+                                if (obj_sym_obj.Declarations.items.len > 0) {
+                                    const decl_node = obj_sym_obj.Declarations.items[0];
+                                    const decl_data = p.ast.getNode(decl_node);
+                                    const tp_list_id: ?u32 = switch (decl_data) {
+                                        .ClassDeclaration => |n| n.TypeParameters,
+                                        .ClassExpression => |n| n.TypeParameters,
+                                        .InterfaceDeclaration => |n| n.TypeParameters,
+                                        else => null,
+                                    };
+                                    if (tp_list_id) |tpl| {
+                                        if (tpl != 0) {
+                                            const tp_nodes = p.ast.getNodeList(tpl);
+                                            if (tp_nodes.len > 0) {
+                                                tp_has_generic = true;
+                                                class_display.appendSlice(aa, "<") catch {};
+                                                for (tp_nodes, 0..) |tp_node, i| {
+                                                    if (i > 0) class_display.appendSlice(aa, ", ") catch {};
+                                                    if (tp_node != 0) {
+                                                        const tp_data = p.ast.getNode(tp_node).TypeParameter;
+                                                        if (tp_data.name != 0) {
+                                                            const tp_name = ast_utils.getTextOfNode(&p.ast, tp_data.name);
+                                                            class_display.appendSlice(aa, tp_name) catch {};
+                                                        }
+                                                    }
+                                                }
+                                                class_display.appendSlice(aa, ">") catch {};
+                                            }
+                                        }
+                                    }
+                                }
+                                // Try to look up the `prototype` property on the constructor type.
+                                if (c.getPropertyOfType(obj_type, "prototype")) |proto_sym| {
+                                    const proto_type = c.getTypeOfSymbol(proto_sym) catch 0;
+                                    if (proto_type != 0) {
+                                        const proto_type_str = c.typeToString(proto_type, 0, 0, null);
+                                        var out = std.ArrayListUnmanaged(u8).empty;
+                                        out.appendSlice(aa, "(property) ") catch {};
+                                        out.appendSlice(aa, class_display.items) catch {};
+                                        out.appendSlice(aa, ".prototype: ") catch {};
+                                        // For the value type, if the class is generic,
+                                        // Go displays `c2<any>` (the instance type with
+                                        // defaults substituted). If proto_type_str is
+                                        // just the class name and the class is generic,
+                                        // append `<any>`.
+                                        var value_str = proto_type_str;
+                                        if (tp_has_generic and std.mem.eql(u8, proto_type_str, obj_sym_obj.Name)) {
+                                            value_str = std.fmt.allocPrint(aa, "{s}<any>", .{proto_type_str}) catch proto_type_str;
+                                        }
+                                        out.appendSlice(aa, value_str) catch {};
+                                        return out.toOwnedSlice(aa) catch "";
+                                    }
+                                }
+                                // Fallback: build instance type from the class symbol.
+                                var out = std.ArrayListUnmanaged(u8).empty;
+                                out.appendSlice(aa, "(property) ") catch {};
+                                out.appendSlice(aa, class_display.items) catch {};
+                                out.appendSlice(aa, ".prototype: ") catch {};
+                                out.appendSlice(aa, obj_sym_obj.Name) catch {};
+                                if (tp_has_generic) {
+                                    out.appendSlice(aa, "<any>") catch {};
+                                }
+                                return out.toOwnedSlice(aa) catch "";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Get the symbol at this location.
         var sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) {
