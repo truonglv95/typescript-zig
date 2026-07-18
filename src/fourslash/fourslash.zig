@@ -1938,7 +1938,194 @@ pub const FourslashTest = struct {
             }
             out.appendSlice(aa, name_with_prefix.items) catch {};
             out.appendSlice(aa, ": ") catch {};
-            out.appendSlice(aa, typeStr) catch {};
+            // If typeStr is "{}", try to resolve the actual type.
+            // This handles function types, array types, and object types
+            // that TypeToStringEx can't render.
+            var display_type: []const u8 = typeStr;
+            if (std.mem.eql(u8, typeStr, "{}") and sym_type != 0 and sym_type < c.typesList.items.len) {
+                const td = c.typesList.items[sym_type];
+                // Check if it's a Function type (from function declaration/expression).
+                if (td.data == .Function) {
+                    const fn_decl = td.data.Function.declarationNode;
+                    if (fn_decl != 0 and fn_decl < p.ast.nodes.len) {
+                        const decl = p.ast.getNode(fn_decl);
+                        var params_id: u32 = 0;
+                        var tp_list: ?u32 = null;
+                        var ret_node: ?u32 = null;
+                        switch (decl) {
+                            .FunctionDeclaration => |f| { params_id = f.Parameters; tp_list = f.TypeParameters; ret_node = f.Type; },
+                            .FunctionExpression => |f| { params_id = f.Parameters; tp_list = f.TypeParameters; ret_node = f.Type; },
+                            .ArrowFunction => |f| { params_id = f.Parameters; tp_list = f.TypeParameters; ret_node = f.Type; },
+                            .MethodDeclaration => |m| { params_id = m.Parameters; tp_list = m.TypeParameters; ret_node = m.Type; },
+                            .CallSignature => |cs| { params_id = cs.Parameters; tp_list = cs.TypeParameters; ret_node = cs.Type; },
+                            else => {},
+                        }
+                        var buf = std.ArrayListUnmanaged(u8).empty;
+                        if (tp_list) |tpl| {
+                            if (tpl != 0) {
+                                const tp_nodes = p.ast.getNodeList(tpl);
+                                if (tp_nodes.len > 0) {
+                                    buf.appendSlice(aa, "<") catch {};
+                                    for (tp_nodes, 0..) |tp_node, i| {
+                                        if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                                        if (tp_node != 0) {
+                                            const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
+                                            buf.appendSlice(aa, tp_name) catch {};
+                                        }
+                                    }
+                                    buf.appendSlice(aa, ">") catch {};
+                                }
+                            }
+                        }
+                        buf.appendSlice(aa, "(") catch {};
+                        if (params_id != 0) {
+                            const params = p.ast.getNodeList(params_id);
+                            for (params, 0..) |param, i| {
+                                if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                                if (param != 0) {
+                                    const pd = p.ast.getNode(param).Parameter;
+                                    const pname = if (pd.name != 0) ast_utils.getTextOfNode(&p.ast, pd.name) else "";
+                                    const ptype_str: []const u8 = if (pd.Type) |pt| blk: {
+                                        if (pt != 0) {
+                                            const pt_type = c.getTypeFromTypeNode(pt);
+                                            if (pt_type != 0) {
+                                                const s = c.typeToString(pt_type, 0, 0, null);
+                                                if (s.len > 0) break :blk s;
+                                            }
+                                        }
+                                        break :blk "any";
+                                    } else "any";
+                                    const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{pname, ptype_str}) catch "";
+                                    buf.appendSlice(aa, pStr) catch {};
+                                }
+                            }
+                        }
+                        buf.appendSlice(aa, ") => ") catch {};
+                        const ret_str: []const u8 = if (ret_node) |rn| blk: {
+                            if (rn != 0) {
+                                const rt_type = c.getTypeFromTypeNode(rn);
+                                if (rt_type != 0) {
+                                    const s = c.typeToString(rt_type, 0, 0, null);
+                                    if (s.len > 0) break :blk s;
+                                }
+                            }
+                            break :blk "any";
+                        } else "any";
+                        buf.appendSlice(aa, ret_str) catch {};
+                        display_type = buf.toOwnedSlice(aa) catch typeStr;
+                    }
+                }
+                // Check if the variable's type annotation is a FunctionType/ConstructorType
+                // node. Format from the AST directly.
+                if (std.mem.eql(u8, display_type, "{}") and symObj.Declarations.items.len > 0) {
+                    const decl_node = symObj.Declarations.items[0];
+                    if (p.ast.getNodeKind(decl_node) == .VariableDeclaration) {
+                        const vd = p.ast.getNode(decl_node).VariableDeclaration;
+                        if (vd.Type) |tn| {
+                            if (tn != 0) {
+                                const tn_kind = p.ast.getNodeKind(tn);
+                                if (tn_kind == .FunctionType or tn_kind == .ConstructorType) {
+                                    const ft = p.ast.getNode(tn);
+                                    const params_list: u32 = switch (ft) {
+                                        .FunctionType => |n| n.Parameters,
+                                        .ConstructorType => |n| n.Parameters,
+                                        else => 0,
+                                    };
+                                    const ret_node: ?u32 = switch (ft) {
+                                        .FunctionType => |n| n.Type,
+                                        .ConstructorType => |n| n.Type,
+                                        else => null,
+                                    };
+                                    const tp_list: ?u32 = switch (ft) {
+                                        .FunctionType => |n| n.TypeParameters,
+                                        .ConstructorType => |n| n.TypeParameters,
+                                        else => null,
+                                    };
+                                    var buf = std.ArrayListUnmanaged(u8).empty;
+                                    if (tp_list) |tpl| {
+                                        if (tpl != 0) {
+                                            const tp_nodes = p.ast.getNodeList(tpl);
+                                            if (tp_nodes.len > 0) {
+                                                buf.appendSlice(aa, "<") catch {};
+                                                for (tp_nodes, 0..) |tp_node, i| {
+                                                    if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                                                    if (tp_node != 0) {
+                                                        const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
+                                                        buf.appendSlice(aa, tp_name) catch {};
+                                                    }
+                                                }
+                                                buf.appendSlice(aa, ">") catch {};
+                                            }
+                                        }
+                                    }
+                                    buf.appendSlice(aa, "(") catch {};
+                                    if (params_list != 0) {
+                                        const params = p.ast.getNodeList(params_list);
+                                        for (params, 0..) |param, i| {
+                                            if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                                            if (param != 0) {
+                                                const pd = p.ast.getNode(param).Parameter;
+                                                const pname = if (pd.name != 0) ast_utils.getTextOfNode(&p.ast, pd.name) else "";
+                                                const ptype_str: []const u8 = if (pd.Type) |pt| blk: {
+                                                    if (pt != 0) {
+                                                        const pt_type = c.getTypeFromTypeNode(pt);
+                                                        if (pt_type != 0) {
+                                                            const s = c.typeToString(pt_type, 0, 0, null);
+                                                            if (s.len > 0) break :blk s;
+                                                        }
+                                                    }
+                                                    break :blk "any";
+                                                } else "any";
+                                                const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{pname, ptype_str}) catch "";
+                                                buf.appendSlice(aa, pStr) catch {};
+                                            }
+                                        }
+                                    }
+                                    buf.appendSlice(aa, ") => ") catch {};
+                                    const ret_str: []const u8 = if (ret_node) |rn| blk: {
+                                        if (rn != 0) {
+                                            const rt_type = c.getTypeFromTypeNode(rn);
+                                            if (rt_type != 0) {
+                                                const s = c.typeToString(rt_type, 0, 0, null);
+                                                if (s.len > 0) break :blk s;
+                                            }
+                                        }
+                                        break :blk "any";
+                                    } else "any";
+                                    buf.appendSlice(aa, ret_str) catch {};
+                                    display_type = buf.toOwnedSlice(aa) catch typeStr;
+                                }
+                            }
+                        }
+                    }
+                }
+                // Check if it's an Array type (Object with Reference flag, target is Array)
+                if (std.mem.eql(u8, display_type, "{}") and (td.objectFlags & checker_module.types.ObjectFlags.Reference) != 0) {
+                    if (td.data == .Object) {
+                        if (td.data.Object.target) |target| {
+                            if (target != 0 and target < c.typesList.items.len) {
+                                const target_sym = c.typesList.items[target].symbol;
+                                if (target_sym) |tsym| {
+                                    if (tsym != 0 and tsym < c.binder.symbols.items.len) {
+                                        const target_name = c.binder.symbols.items[tsym].Name;
+                                        if (std.mem.eql(u8, target_name, "Array") or std.mem.eql(u8, target_name, "ReadonlyArray")) {
+                                            const ta_start = td.data.Object.typeArgumentsStart;
+                                            const ta_len = td.data.Object.typeArgumentsLen;
+                                            if (ta_len > 0 and ta_start + ta_len <= c.typeArgumentsPool.items.len) {
+                                                const elem_type = c.typeArgumentsPool.items[ta_start];
+                                                const elem_str = if (elem_type != 0) c.typeToString(elem_type, 0, 0, null) else "any";
+                                                const arr_str = std.fmt.allocPrint(aa, "{s}[]", .{elem_str}) catch "any[]";
+                                                display_type = arr_str;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            out.appendSlice(aa, display_type) catch {};
             return out.toOwnedSlice(aa) catch "";
         }
 
