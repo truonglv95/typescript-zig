@@ -483,13 +483,16 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
                 right = try p.parseIdentifierName();
             }
             const flags = (if (hasNewlineBeforeDot) @as(u32, 1) << 31 else 0) | (if (hasNewlineAfterDot) @as(u32, 1) << 30 else 0);
+            const pa_end = p.scanner.state.tokenStart;
             currentExpr = try p.ast.pushNode(.{ .PropertyAccessExpression = .{
                 .Flags = flags,
                 .Expression = currentExpr,
                 .QuestionDotToken = questionDotToken,
                 .name = right,
             } });
-            p.setNodeStartPos(currentExpr, access_start);
+            if (currentExpr != 0 and currentExpr < p.ast.positions.items.len) {
+                p.ast.positions.items[currentExpr] = .{ .pos = @intCast(access_start), .end = @intCast(pa_end) };
+            }
             continue;
         }
 
@@ -548,12 +551,13 @@ pub fn parseCallExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.NodeIn
         }
 
         if (p.token == kind.Kind.OpenParenToken) {
-            const call_start = p.scanner.state.tokenStart;
+            const call_start = p.ast.getNodePos(currentExpr);
             p.nextToken();
 
             const argsList = p.parseDelimitedList(.ArgumentExpressions, parseArgumentExpressionWrapper);
 
             _ = p.parseExpected(kind.Kind.CloseParenToken);
+            const call_end = p.scanner.state.tokenStart;
 
             currentExpr = try p.ast.pushNode(.{ .CallExpression = .{
                 .Flags = 0,
@@ -563,7 +567,9 @@ pub fn parseCallExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.NodeIn
                 .TypeArguments = typeArguments,
                 .Arguments = argsList,
             } });
-            p.setNodeStartPos(currentExpr, call_start);
+            if (currentExpr != 0 and currentExpr < p.ast.positions.items.len) {
+                p.ast.positions.items[currentExpr] = .{ .pos = @intCast(call_start), .end = @intCast(call_end) };
+            }
             continue;
         }
 

@@ -1506,6 +1506,7 @@ pub const Parser = struct {
         } else {
             body = try self.parseModuleBlock();
         }
+        const ns_end = self.scanner.state.tokenStart;
 
         const decl = try self.ast.pushNode(.{ .ModuleDeclaration = .{
             .Symbol = 0,
@@ -1517,7 +1518,9 @@ pub const Parser = struct {
             .Keyword = @intFromEnum(keyword),
             .name = name.?,
         } });
-        self.setNodeStartPos(decl, start_pos);
+        if (decl != 0 and decl < self.ast.positions.items.len) {
+            self.ast.positions.items[decl] = .{ .pos = @intCast(start_pos), .end = @intCast(ns_end) };
+        }
         return decl;
     }
 
@@ -1557,6 +1560,7 @@ pub const Parser = struct {
             } else {
                 self.parseSemicolon();
             }
+            const mod_end = self.scanner.state.tokenStart;
 
             const decl = try self.ast.pushNode(.{ .ModuleDeclaration = .{
                 .Symbol = 0,
@@ -1568,7 +1572,9 @@ pub const Parser = struct {
                 .Keyword = @intFromEnum(keyword),
                 .name = name orelse 0,
             } });
-            self.setNodeStartPos(decl, start_pos);
+            if (decl != 0 and decl < self.ast.positions.items.len) {
+                self.ast.positions.items[decl] = .{ .pos = @intCast(start_pos), .end = @intCast(mod_end) };
+            }
             return decl;
         }
 
@@ -2415,6 +2421,7 @@ pub const Parser = struct {
         } else {
             self.parseSemicolon();
         }
+        const fn_end = self.scanner.state.tokenStart;
 
         const decl = try self.ast.pushNode(.{ .FunctionDeclaration = .{
             .Symbol = 0,
@@ -2429,7 +2436,9 @@ pub const Parser = struct {
             .Body = body,
             .name = name,
         } });
-        self.setNodeStartPos(decl, function_start);
+        if (decl != 0 and decl < self.ast.positions.items.len) {
+            self.ast.positions.items[decl] = .{ .pos = @intCast(function_start), .end = @intCast(fn_end) };
+        }
         return decl;
     }
 
