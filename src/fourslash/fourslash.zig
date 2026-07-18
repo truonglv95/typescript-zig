@@ -1727,6 +1727,119 @@ pub const FourslashTest = struct {
             }
         }
 
+        // PrivateIdentifier (e.g., `#foo` in `class A { #foo = 3; }`):
+        // Hovering on the private field name should display the property
+        // type. The symbol is stored on the PropertyDeclaration node, not
+        // on the PrivateIdentifier itself.
+        if (node_kind == .PrivateIdentifier) {
+            const parent = p.ast.getNodeParent(node);
+            if (parent != 0 and p.ast.getNodeKind(parent) == .PropertyDeclaration) {
+                const pd = p.ast.getNode(parent).PropertyDeclaration;
+                if (pd.name == node) {
+                    // Get the property's symbol from the declaration.
+                    const prop_sym = c.getSymbolOfDeclaration(parent);
+                    if (prop_sym != 0 and prop_sym < c.binder.symbols.items.len) {
+                        const sym_obj = c.binder.symbols.items[prop_sym];
+                        // Use the original PrivateIdentifier text (#foo),
+                        // not the mangled symbol name (__#1@#foo).
+                        const prop_name = p.ast.getNode(node).PrivateIdentifier.Text;
+                        const prop_type = c.getTypeOfSymbol(prop_sym) catch 0;
+                        var type_str: []const u8 = "any";
+                        if (prop_type != 0 and prop_type < c.typesList.items.len) {
+                            // Widen literal types: `#foo = 3` -> number, not 3.
+                            const pf = c.typesList.items[prop_type].flags;
+                            if ((pf & checker_module.types.TypeFlags.NumberLiteral) != 0) {
+                                type_str = "number";
+                            } else if ((pf & checker_module.types.TypeFlags.StringLiteral) != 0) {
+                                type_str = "string";
+                            } else if ((pf & checker_module.types.TypeFlags.BooleanLiteral) != 0) {
+                                type_str = "boolean";
+                            } else {
+                                type_str = c.typeToString(prop_type, 0, 0, null);
+                                // If typeToString returned "{}" and the type
+                                // is a Function type, try to format it as
+                                // (params) => retType from the declaration.
+                                if (std.mem.eql(u8, type_str, "{}")) {
+                                    const td = c.typesList.items[prop_type];
+                                    if (td.data == .Function) {
+                                        const fn_decl = td.data.Function.declarationNode;
+                                        if (fn_decl != 0 and fn_decl < p.ast.nodes.len) {
+                                            const decl = p.ast.getNode(fn_decl);
+                                            var params_id: u32 = 0;
+                                            var ret_node: ?u32 = null;
+                                            switch (decl) {
+                                                .FunctionExpression => |f| { params_id = f.Parameters; ret_node = f.Type; },
+                                                .ArrowFunction => |f| { params_id = f.Parameters; ret_node = f.Type; },
+                                                .FunctionDeclaration => |f| { params_id = f.Parameters; ret_node = f.Type; },
+                                                .MethodDeclaration => |m| { params_id = m.Parameters; ret_node = m.Type; },
+                                                else => {},
+                                            }
+                                            var buf = std.ArrayListUnmanaged(u8).empty;
+                                            const aa2 = self.arena.allocator();
+                                            buf.appendSlice(aa2, "(") catch {};
+                                            if (params_id != 0) {
+                                                const params = p.ast.getNodeList(params_id);
+                                                for (params, 0..) |param, i| {
+                                                    if (i > 0) buf.appendSlice(aa2, ", ") catch {};
+                                                    if (param != 0) {
+                                                        const param_data = p.ast.getNode(param).Parameter;
+                                                        const pname = if (param_data.name != 0) ast_utils.getTextOfNode(&p.ast, param_data.name) else "";
+                                                        buf.appendSlice(aa2, pname) catch {};
+                                                        buf.appendSlice(aa2, ": ") catch {};
+                                                        var ptype_str: []const u8 = "any";
+                                                        if (param_data.Type) |pt| {
+                                                            if (pt != 0) {
+                                                                const pt_type = c.getTypeFromTypeNode(pt);
+                                                                if (pt_type != 0) {
+                                                                    const s = c.typeToString(pt_type, 0, 0, null);
+                                                                    if (s.len > 0) ptype_str = s;
+                                                                }
+                                                            }
+                                                        }
+                                                        buf.appendSlice(aa2, ptype_str) catch {};
+                                                    }
+                                                }
+                                            }
+                                            buf.appendSlice(aa2, ") => ") catch {};
+                                            const ret_str: []const u8 = if (ret_node) |rn| blk: {
+                                                if (rn != 0) {
+                                                    const rt_type = c.getTypeFromTypeNode(rn);
+                                                    if (rt_type != 0) {
+                                                        const s = c.typeToString(rt_type, 0, 0, null);
+                                                        if (s.len > 0) break :blk s;
+                                                    }
+                                                }
+                                                break :blk "any";
+                                            } else "any";
+                                            buf.appendSlice(aa2, ret_str) catch {};
+                                            type_str = buf.toOwnedSlice(aa2) catch type_str;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        var out = std.ArrayListUnmanaged(u8).empty;
+                        const aa = self.arena.allocator();
+                        out.appendSlice(aa, "(property) ") catch {};
+                        // Prefix with class name if parent class exists.
+                        if (sym_obj.Parent) |class_sym| {
+                            if (class_sym != 0 and class_sym < c.binder.symbols.items.len) {
+                                const class_obj = c.binder.symbols.items[class_sym];
+                                if (class_obj.Name.len > 0) {
+                                    out.appendSlice(aa, class_obj.Name) catch {};
+                                    out.appendSlice(aa, ".") catch {};
+                                }
+                            }
+                        }
+                        out.appendSlice(aa, prop_name) catch {};
+                        out.appendSlice(aa, ": ") catch {};
+                        out.appendSlice(aa, type_str) catch {};
+                        return out.toOwnedSlice(aa) catch "";
+                    }
+                }
+            }
+        }
+
         // Get the symbol at this location.
         var sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) {
