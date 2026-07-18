@@ -24157,6 +24157,17 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
         }
     }
 
+    // Ambient module declaration: `declare module "name"` — the module name
+    // is a StringLiteral. Hovering on the string should return the module
+    // symbol. Walk up to the parent ModuleDeclaration and return its symbol.
+    if (c.binder.ast.getNodeKind(node) == .StringLiteral) {
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent != 0 and c.binder.ast.getNodeKind(parent) == .ModuleDeclaration) {
+            const sym = c.getSymbolOfDeclaration(parent);
+            if (sym != 0) return sym;
+        }
+    }
+
     // TypeQuery (`typeof X`): descend into the ExprName to find the
     // identifier whose symbol the user is hovering on.
     if (c.binder.ast.getNodeKind(node) == .TypeQuery) {

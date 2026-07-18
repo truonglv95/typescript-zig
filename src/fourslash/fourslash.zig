@@ -1881,17 +1881,28 @@ pub const FourslashTest = struct {
             return out.toOwnedSlice(aa) catch "";
         }
 
-        // Namespace/Module: format as "namespace Name"
+        // Namespace/Module: format as "namespace Name" for namespaces,
+        // or "module \"name\"" for ambient module declarations (eg
+        // `declare module "*.css"`).
         if ((symObj.Flags & (symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule)) != 0) {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
+            // Check if this is an ambient module declaration (name starts
+            // with a quote or is a string literal). If so, format as
+            // 'module "name"'.
+            const is_ambient_module = symObj.Name.len > 0 and
+                (symObj.Name[0] == '"' or symObj.Name[0] == '\'');
             // If this is an alias, prefix with "(alias) ".
             if ((symObj.Flags & symbol.SymbolFlags.Alias) != 0) {
-                out.appendSlice(aa, "(alias) namespace ") catch {};
+                out.appendSlice(aa, "(alias) ") catch {};
+            }
+            if (is_ambient_module) {
+                out.appendSlice(aa, "module ") catch {};
+                out.appendSlice(aa, symObj.Name) catch {};
             } else {
                 out.appendSlice(aa, "namespace ") catch {};
+                out.appendSlice(aa, symObj.Name) catch {};
             }
-            out.appendSlice(aa, symObj.Name) catch {};
             return out.toOwnedSlice(aa) catch "";
         }
 
