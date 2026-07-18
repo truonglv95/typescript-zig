@@ -1494,6 +1494,72 @@ pub const FourslashTest = struct {
             }
         }
 
+        // JSX intrinsic elements: when hovering on a tag name like `div` in
+        // `<div></div>`, return "any" if JSX.IntrinsicElements isn't defined
+        // or doesn't have the tag. This handles the common case of JSX in .tsx
+        // files without React types loaded.
+        if (node_kind == .Identifier) {
+            const parent = p.ast.getNodeParent(node);
+            if (parent != 0) {
+                const parent_kind = p.ast.getNodeKind(parent);
+                if (parent_kind == .JsxOpeningElement or parent_kind == .JsxClosingElement or parent_kind == .JsxSelfClosingElement) {
+                    // Get the tag name. For simple identifiers like `div`, the
+                    // tag name is the identifier itself.
+                    const tag_name_expr = if (parent_kind == .JsxOpeningElement)
+                        p.ast.getNode(parent).JsxOpeningElement.TagName
+                    else if (parent_kind == .JsxClosingElement)
+                        p.ast.getNode(parent).JsxClosingElement.TagName
+                    else
+                        p.ast.getNode(parent).JsxSelfClosingElement.TagName;
+                    if (tag_name_expr == node) {
+                        // Try to resolve JSX.IntrinsicElements[tag].
+                        // If not found, return "any".
+                        const id_text = p.ast.getNode(node).Identifier.Text;
+                        // JSX intrinsic elements start with a lowercase letter.
+                        // Class-based elements (uppercase) should fall through
+                        // to normal symbol resolution.
+                        const is_intrinsic = id_text.len > 0 and
+                            ((id_text[0] >= 'a' and id_text[0] <= 'z') or id_text[0] == '-' or id_text[0] == ':');
+                        if (!is_intrinsic) {
+                            // Fall through to normal symbol resolution.
+                        } else {
+                            // Look for JSX.IntrinsicElements global symbol.
+                            const jsx_sym = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Namespace, null, false, false);
+                            if (jsx_sym != 0 and jsx_sym != c.unknownSymbol) {
+                                // Get IntrinsicElements member.
+                                if (c.binder.symbolMembers.getPtr(jsx_sym)) |members| {
+                                    if (members.get("IntrinsicElements")) |ie_sym| {
+                                        // Get the type of IntrinsicElements and look up the tag.
+                                        const ie_type = c.getTypeOfSymbol(ie_sym) catch 0;
+                                        if (ie_type != 0) {
+                                            if (c.getPropertyOfType(ie_type, id_text)) |tag_sym| {
+                                                // Return the property type.
+                                                const tag_type = c.getTypeOfSymbol(tag_sym) catch 0;
+                                                if (tag_type != 0) {
+                                                    const tag_type_str = c.typeToString(tag_type, 0, 0, null);
+                                                    if (tag_type_str.len > 0) {
+                                                        var out = std.ArrayListUnmanaged(u8).empty;
+                                                        const aa = self.arena.allocator();
+                                                        out.appendSlice(aa, "(property) JSX.IntrinsicElements.") catch {};
+                                                        out.appendSlice(aa, id_text) catch {};
+                                                        out.appendSlice(aa, ": ") catch {};
+                                                        out.appendSlice(aa, tag_type_str) catch {};
+                                                        return out.toOwnedSlice(aa) catch "";
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Fallback: return "any".
+                            return "any";
+                        }
+                    }
+                }
+            }
+        }
+
         // Get the symbol at this location.
         var sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) {
