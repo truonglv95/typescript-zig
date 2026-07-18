@@ -2234,7 +2234,7 @@ pub const FourslashTest = struct {
                     // append the constraint from the function's type
                     // parameters.
                     var type_display: []const u8 = typeStr;
-                    if (typeStr.len > 0 and typeStr.len <= 3) {
+                    if (typeStr.len > 0 and typeStr.len <= 16 and !std.mem.eql(u8, typeStr, "any") and !std.mem.eql(u8, typeStr, "string") and !std.mem.eql(u8, typeStr, "number") and !std.mem.eql(u8, typeStr, "boolean") and !std.mem.eql(u8, typeStr, "void") and !std.mem.eql(u8, typeStr, "object") and !std.mem.eql(u8, typeStr, "never") and !std.mem.eql(u8, typeStr, "unknown")) {
                         // Walk up to find the enclosing function and check
                         // its type parameters for a match.
                         var cur: ast_gen.NodeIndex = if (symObj.Declarations.items.len > 0)

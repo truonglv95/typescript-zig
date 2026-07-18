@@ -5096,6 +5096,38 @@ pub const Checker = struct {
                             }
                         }
                     }
+
+                    // Index signature lookup: for types with `[x: string]: T`
+                    // or `[x: number]: T` index signatures, return the
+                    // signature's value type. Go looks up index signatures
+                    // on the apparent type.
+                    if (objTypeIdx < self.typesList.items.len) {
+                        const objType = self.typesList.items[objTypeIdx];
+                        // Determine whether the key is numeric or string.
+                        const is_number_key = (argType.flags & (types.TypeFlags.NumberLiteral | types.TypeFlags.Number)) != 0;
+                        const is_string_key = (argType.flags & (types.TypeFlags.StringLiteral | types.TypeFlags.String)) != 0;
+                        // Look up index infos via the object type's symbol.
+                        if (objType.symbol) |obj_sym| {
+                            if (obj_sym != 0) {
+                                const idx_range = self.getIndexInfosOfSymbol(obj_sym);
+                                if (idx_range.len > 0) {
+                                    const infos = self.resolvedIndexInfosPool.items[idx_range.start .. idx_range.start + idx_range.len];
+                                    for (infos) |info| {
+                                        if (info.keyType != 0 and info.keyType < self.typesList.items.len) {
+                                            const k_flags = self.typesList.items[info.keyType].flags;
+                                            const key_is_num = (k_flags & types.TypeFlags.Number) != 0;
+                                            const key_is_str = (k_flags & types.TypeFlags.String) != 0;
+                                            if ((is_number_key and key_is_num) or (is_string_key and key_is_str)) {
+                                                if (info.valueType != 0) {
+                                                    return self.substituteTypeParamsForReference(objTypeIdx, info.valueType);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 return try self.getAnyType();
