@@ -3230,6 +3230,7 @@ pub const Parser = struct {
             }.run)) {
                 return try self.parseImportType();
             }
+            const type_query_start = self.scanner.state.tokenStart;
             self.nextToken();
 
             // Should be parseEntityName, and optionally typeArguments
@@ -3238,7 +3239,12 @@ pub const Parser = struct {
             if (self.token == kind.Kind.LessThanToken and !self.scanner.hasPrecedingLineBreak()) {
                 typeArguments = try self.parseTypeArguments();
             }
-            return try self.ast.pushNode(.{ .TypeQuery = .{ .Flags = 0, .ExprName = exprName, .TypeArguments = typeArguments } });
+            const type_query_end = self.scanner.state.tokenStart;
+            const type_query_node = try self.ast.pushNode(.{ .TypeQuery = .{ .Flags = 0, .ExprName = exprName, .TypeArguments = typeArguments } });
+            if (type_query_node != 0 and type_query_node < self.ast.positions.items.len) {
+                self.ast.positions.items[type_query_node] = .{ .pos = @intCast(type_query_start), .end = @intCast(type_query_end) };
+            }
+            return type_query_node;
         } else if (self.token == kind.Kind.ImportKeyword) {
             return try self.parseImportType();
         } else if (self.isIdentifier() or kind.isKeyword(self.token)) {

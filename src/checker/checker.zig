@@ -24151,6 +24151,31 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
         }
     }
 
+    // TypeQuery (`typeof X`): descend into the ExprName to find the
+    // identifier whose symbol the user is hovering on.
+    if (c.binder.ast.getNodeKind(node) == .TypeQuery) {
+        const expr_name = c.binder.ast.getNode(node).TypeQuery.ExprName;
+        if (expr_name != 0) {
+            // For QualifiedName (e.g. typeof A.B), descend to the rightmost
+            // identifier. For simple Identifier, just resolve it.
+            const target = switch (c.binder.ast.getNode(expr_name)) {
+                .QualifiedName => |q| q.Right,
+                else => expr_name,
+            };
+            if (target != 0) {
+                const ret = getSymbolAtLocation(c, target);
+                if (ret != 0) return ret;
+                // Fallback: try resolving by name directly.
+                if (ast_utils.isIdentifier(c.binder.ast, target)) {
+                    const name = ast_utils.getTextOfNode(c.binder.ast, target);
+                    const sym = resolveName(c, target, name, symbol.SymbolFlags.Value | symbol.SymbolFlags.Type | symbol.SymbolFlags.FunctionScopedVariable, null, false, false);
+                    if (sym != 0 and sym != c.unknownSymbol) return sym;
+                }
+            }
+            return 0;
+        }
+    }
+
     if (c.binder.ast.getNodeKind(node) == .PropertyAccessExpression) {
         // Return property symbol if already typechecked and cached
         return getSymbolOfNode(c, node) orelse 0;
