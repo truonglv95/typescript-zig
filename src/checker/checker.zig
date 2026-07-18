@@ -4155,12 +4155,16 @@ pub const Checker = struct {
                         //   var x = 123   -> number (not 123-literal)
                         //   var x = "abc" -> string (not "abc"-literal)
                         //   var x = true  -> boolean (not true-literal)
+                        //   var x = null  -> any (not null-literal)
+                        //   var x = undefined -> any (not undefined-literal)
                         // This matches TypeScript's default widening behavior.
                         if (initType != 0 and initType < self.typesList.items.len) {
                             const f = self.typesList.items[initType].flags;
                             if ((f & types.TypeFlags.NumberLiteral) != 0) return try self.getNumberType();
                             if ((f & types.TypeFlags.StringLiteral) != 0) return try self.getStringType();
                             if ((f & types.TypeFlags.BooleanLiteral) != 0) return try self.getBooleanType();
+                            if ((f & types.TypeFlags.Null) != 0) return try self.getAnyType();
+                            if ((f & types.TypeFlags.Undefined) != 0) return try self.getAnyType();
                         }
                     }
                     return initType;
