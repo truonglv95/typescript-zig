@@ -1181,6 +1181,44 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
+    /// Returns "?" if the given parameter symbol should be displayed as
+    /// optional in quick info. Checks both the AST QuestionToken and the
+    /// JSDoc `@param {type} [name]` bracketed-name syntax.
+    fn getParamOptionalMarker(self: *FourslashTest, param_sym: ast_gen.SymbolIndex) []const u8 {
+        const c = self.checker orelse return "";
+        const p = self.parser orelse return "";
+        const symObj = c.binder.symbols.items[param_sym];
+        if (symObj.Declarations.items.len == 0) return "";
+        const pdecl = symObj.Declarations.items[0];
+        if (pdecl == 0 or p.ast.getNodeKind(pdecl) != .Parameter) return "";
+        // Check AST QuestionToken first.
+        if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
+            if (qt != 0) return "?";
+        }
+        // Then check JSDoc @param [name] bracketed syntax.
+        const param_parent = p.ast.getNodeParent(pdecl);
+        if (param_parent == 0) return "";
+        const jsdoc_nodes = ast_utils.getJSDoc(&p.ast, param_parent);
+        for (jsdoc_nodes) |jsdoc_idx| {
+            const jd = p.ast.getNode(jsdoc_idx).JSDoc;
+            if (jd.Tags) |tags_list| {
+                const tag_nodes = p.ast.getNodeList(tags_list);
+                for (tag_nodes) |tag_idx| {
+                    if (p.ast.getNodeKind(tag_idx) == .JSDocParameterTag) {
+                        const ptag = p.ast.getNode(tag_idx).JSDocParameterTag;
+                        if (ptag.IsBracketed != 0 and ptag.name != 0) {
+                            const tag_name = ast_utils.getTextOfNode(&p.ast, ptag.name);
+                            if (std.mem.eql(u8, tag_name, symObj.Name)) {
+                                return "?";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return "";
+    }
+
     /// Format quick info for the `this` keyword, mirroring Go's hover.go
     /// behavior. See `getQuickInfoAndDeclarationAtLocation` in
     /// submodule/typescript-go/internal/ls/hover.go:
@@ -2084,16 +2122,8 @@ pub const FourslashTest = struct {
                         };
                         const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
 
-                        const param_question: []const u8 = if (paramObj.Declarations.items.len > 0) blk: {
-                                        const pdecl = paramObj.Declarations.items[0];
-                                        if (pdecl != 0 and p.ast.getNodeKind(pdecl) == .Parameter) {
-                                            if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
-                                                if (qt != 0) break :blk "?";
-                                            }
-                                        }
-                                        break :blk "";
-                                    } else "";
-                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
+                        const param_question = self.getParamOptionalMarker(paramSym);
+                        const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
                         out.appendSlice(aa, pStr) catch {};
                     }
 
@@ -2647,16 +2677,8 @@ pub const FourslashTest = struct {
                         const paramObj = c.binder.symbols.items[paramSym];
                         const paramType = c.getTypeOfSymbol(paramSym) catch 0;
                         const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
-                        const param_question: []const u8 = if (paramObj.Declarations.items.len > 0) blk: {
-                                        const pdecl = paramObj.Declarations.items[0];
-                                        if (pdecl != 0 and p.ast.getNodeKind(pdecl) == .Parameter) {
-                                            if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
-                                                if (qt != 0) break :blk "?";
-                                            }
-                                        }
-                                        break :blk "";
-                                    } else "";
-                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
+                        const param_question = self.getParamOptionalMarker(paramSym);
+                        const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
                         out.appendSlice(aa, pStr) catch {};
                     }
                     out.appendSlice(aa, ") => ") catch {};
@@ -2783,16 +2805,8 @@ pub const FourslashTest = struct {
                     const paramObj = c.binder.symbols.items[paramSym];
                     const paramType = c.getTypeOfSymbol(paramSym) catch 0;
                     const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
-                    const param_question: []const u8 = if (paramObj.Declarations.items.len > 0) blk: {
-                                        const pdecl = paramObj.Declarations.items[0];
-                                        if (pdecl != 0 and p.ast.getNodeKind(pdecl) == .Parameter) {
-                                            if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
-                                                if (qt != 0) break :blk "?";
-                                            }
-                                        }
-                                        break :blk "";
-                                    } else "";
-                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
+                    const param_question = self.getParamOptionalMarker(paramSym);
+                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
                     out.appendSlice(aa, pStr) catch {};
                 }
                 out.appendSlice(aa, "): ") catch {};
@@ -3487,16 +3501,8 @@ pub const FourslashTest = struct {
             const paramObj = c.binder.symbols.items[paramSym];
             const paramType = c.getTypeOfSymbol(paramSym) catch 0;
             const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
-            const param_question: []const u8 = if (paramObj.Declarations.items.len > 0) blk: {
-                                        const pdecl = paramObj.Declarations.items[0];
-                                        if (pdecl != 0 and p.ast.getNodeKind(pdecl) == .Parameter) {
-                                            if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
-                                                if (qt != 0) break :blk "?";
-                                            }
-                                        }
-                                        break :blk "";
-                                    } else "";
-                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
+            const param_question = self.getParamOptionalMarker(paramSym);
+            const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
             out.appendSlice(aa, pStr) catch {};
         }
         out.appendSlice(aa, "): ") catch {};
