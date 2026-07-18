@@ -3349,9 +3349,15 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
         c.* = checker_module.Checker.init(aa, b);
         c.checkJs = true;
         c.allowJs = true;
-        c.strictNullChecks = true;
-        c.noImplicitAny = true;
-        c.useUnknownInCatchVariables = true;
+        // Parse @strict directive from test content. Default is strict=true
+        // (matching TypeScript's strict mode). If @strict: false is present,
+        // disable strictNullChecks, noImplicitAny, and useUnknownInCatchVariables.
+        // Note: check the original `content` (before marker stripping) since
+        // the parsed file content may have the directive stripped.
+        const is_strict = std.mem.indexOf(u8, content, "@strict: false") == null;
+        c.strictNullChecks = is_strict;
+        c.noImplicitAny = is_strict;
+        c.useUnknownInCatchVariables = is_strict;
         c.initializeChecker();
         c.checkSourceFile(null, f.sourceFile.?, false);
         f.checker = c;
