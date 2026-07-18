@@ -811,6 +811,12 @@ pub fn parseKeywordExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex 
     const start_pos = p.scanner.state.tokenStart;
     const token = p.token;
     p.nextToken();
+    // After nextToken(), scanner.state.tokenStart points to the start of the
+    // next token, which is the end of the current keyword token. Capture it
+    // so we can set both pos and end on the node — without the end position,
+    // getTouchingPropertyName cannot find this node when the cursor is inside
+    // the keyword (e.g. hovering on `this` in `console.log(this)`).
+    const end_pos = p.scanner.state.tokenStart;
     const node = switch (token) {
         kind.Kind.ThisKeyword => try p.ast.pushNode(.{ .ThisKeyword = void{} }),
         kind.Kind.SuperKeyword => try p.ast.pushNode(.{ .SuperKeyword = void{} }),
@@ -820,7 +826,9 @@ pub fn parseKeywordExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIndex 
         kind.Kind.ImportKeyword => try p.ast.pushNode(.{ .ImportKeyword = void{} }),
         else => return error.InvalidKeywordExpression,
     };
-    p.setNodeStartPos(node, start_pos);
+    if (node != 0 and node < p.ast.positions.items.len) {
+        p.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+    }
     return node;
 }
 

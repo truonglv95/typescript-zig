@@ -1181,6 +1181,94 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
+    /// Format quick info for the `this` keyword, mirroring Go's hover.go
+    /// behavior. See `getQuickInfoAndDeclarationAtLocation` in
+    /// submodule/typescript-go/internal/ls/hover.go:
+    ///   - `this` in expression context (e.g. `return this`) → "this: <type>"
+    ///   - `this` as a parameter name (e.g. `function f(this: T)`) →
+    ///     "(parameter) this: <type>"
+    ///   - `this` as a type annotation (e.g. `prop1: this`) → "this"
+    fn formatThisKeywordQuickInfo(self: *FourslashTest, node: ast_gen.NodeIndex) []const u8 {
+        const c = self.checker orelse return "";
+        const p = self.parser orelse return "";
+
+        // `ThisType` is the type-position form of `this` (e.g. `prop1: this`).
+        // It's always a type annotation, so just return "this".
+        // Also handle the case where the parser parsed `this` in type position
+        // as an `Identifier` with text "this" — in that case, check if the
+        // parent is a type annotation context.
+        const node_kind = p.ast.getNodeKind(node);
+        if (node_kind == .ThisType) {
+            return "this";
+        }
+
+        const parent = p.ast.getNodeParent(node);
+        if (parent != 0) {
+            const parent_data = p.ast.getNode(parent);
+
+            // Case 1: `this` is the name of a Parameter node → it's a
+            // `this` parameter declaration. Format as "(parameter) this: T".
+            if (parent_data == .Parameter and parent_data.Parameter.name == node) {
+                const type_str: []const u8 = blk: {
+                    if (parent_data.Parameter.Type) |type_node| {
+                        const tp = c.getTypeFromTypeNode(type_node);
+                        if (tp != 0) {
+                            const s = c.typeToString(tp, 0, 0, null);
+                            if (s.len > 0) break :blk s;
+                        }
+                    }
+                    break :blk "any";
+                };
+                var out = std.ArrayListUnmanaged(u8).empty;
+                const aa = self.arena.allocator();
+                out.appendSlice(aa, "(parameter) this: ") catch {};
+                out.appendSlice(aa, type_str) catch {};
+                return out.toOwnedSlice(aa) catch "";
+            }
+
+            // Case 2: `this` is the Type annotation of a declaration →
+            // it's in type position. Format as just "this".
+            // Matches: VariableDeclaration, Parameter, PropertyDeclaration,
+            // PropertySignature, FunctionDeclaration, MethodDeclaration, etc.
+            const is_type_annotation = switch (parent_data) {
+                .VariableDeclaration => |n| n.Type == node,
+                .Parameter => |n| n.Type == node,
+                .PropertyDeclaration => |n| n.Type == node,
+                .PropertySignature => |n| n.Type == node,
+                .FunctionDeclaration => |n| n.Type == node,
+                .MethodDeclaration => |n| n.Type == node,
+                .MethodSignature => |n| n.Type == node,
+                .GetAccessor => |n| n.Type == node,
+                .SetAccessor => |n| n.Type == node,
+                .CallSignature => |n| n.Type == node,
+                .ConstructSignature => |n| n.Type == node,
+                .Constructor => |n| n.Type == node,
+                .FunctionExpression => |n| n.Type == node,
+                .ArrowFunction => |n| n.Type == node,
+                .FunctionType => |n| n.Type == node,
+                .ConstructorType => |n| n.Type == node,
+                else => false,
+            };
+            if (is_type_annotation) {
+                return "this";
+            }
+        }
+
+        // Case 3: `this` in expression context → "this: <type>".
+        // Use checkExpressionCached to resolve the this-type, which now
+        // consults the enclosing function's `this` parameter (if any).
+        const this_type = c.checkExpressionCached(node);
+        const type_str: []const u8 = if (this_type != 0)
+            c.typeToString(this_type, 0, 0, null)
+        else
+            "any";
+        var out = std.ArrayListUnmanaged(u8).empty;
+        const aa = self.arena.allocator();
+        out.appendSlice(aa, "this: ") catch {};
+        out.appendSlice(aa, type_str) catch {};
+        return out.toOwnedSlice(aa) catch "";
+    }
+
     /// Returns quick info string at current cursor position.
     /// Uses checker to find the symbol at cursor and format its type.
     pub fn getQuickInfoStringAtCursor(self: *FourslashTest) []const u8 {
@@ -1192,6 +1280,32 @@ pub const FourslashTest = struct {
         const cursorPos = @as(u32, @intCast(self.cursorPos));
         const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
         if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return "";
+
+        // Special handling for the `this` keyword. The binder usually
+        // resolves `this` to the enclosing class symbol, which would produce
+        // "class Foo" — but Go's quick info formats `this` specially:
+        //   - `this` as a type annotation (e.g. `prop1: this`) → "this"
+        //   - `this` as a parameter name (e.g. `function f(this: T)`) →
+        //     "(parameter) this: T"
+        //   - `this` as an expression (e.g. `return this`) → "this: <type>"
+        // Note: TypeScript has two distinct AST kinds — `ThisKeyword` for
+        // the expression form and `ThisType` for the type-position form.
+        // However, the Zig parser currently parses `this` in type position
+        // as an `Identifier` with text "this" rather than as a `ThisType`
+        // node. We detect this case by checking the identifier text.
+        const node_kind = p.ast.getNodeKind(node);
+        const is_this_node = blk: {
+            if (node_kind == .ThisKeyword or node_kind == .ThisType) break :blk true;
+            if (node_kind == .Identifier) {
+                const id_text = p.ast.getNode(node).Identifier.Text;
+                if (std.mem.eql(u8, id_text, "this")) break :blk true;
+            }
+            break :blk false;
+        };
+
+        if (is_this_node) {
+            return self.formatThisKeywordQuickInfo(node);
+        }
 
         // Get the symbol at this location.
         var sym = checker_module.getSymbolAtLocation(c, node);

@@ -2308,6 +2308,10 @@ pub const Checker = struct {
                 return "Intersection";
             }
             if (typeData.flags & types.TypeFlags.TypeParameter != 0) {
+                // Polymorphic `this` type — stringified as "this".
+                if (typeData.data == .TypeParameter and typeData.data.TypeParameter.isThisType) {
+                    return "this";
+                }
                 // Return the type parameter's symbol name (e.g., "T").
                 if (typeData.symbol) |sym| {
                     if (sym != 0 and sym < self.binder.symbols.items.len) {
@@ -19972,9 +19976,55 @@ pub const Checker = struct {
         return type_resolution_pkg.getTypeFromThisTypeNode(c, node_idx);
     }
 
-    pub fn getThisType(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = node;
+    /// Port of checker.go::getThisType. Resolves the polymorphic `this` type
+    /// by walking up from the given node to find the enclosing class or
+    /// interface declaration, then returning its `thisType` TypeParameter.
+    pub fn getThisType(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+        // Walk up the parent chain to find the enclosing class-like or
+        // interface declaration.
+        var container = ast_utils.getParent(c.binder.ast, node);
+        while (container != 0) {
+            const container_kind = c.binder.ast.getKind(container);
+            switch (container_kind) {
+                .ClassDeclaration, .ClassExpression, .InterfaceDeclaration => {
+                    // Get the declared type of this class/interface and
+                    // return its thisType.
+                    const sym = getSymbolOfNode(c, container) orelse c.getSymbolOfDeclaration(container);
+                    if (sym != 0) {
+                        const class_type = c.tryGetDeclaredTypeOfSymbol(sym);
+                        if (class_type != 0) {
+                            const type_data = &c.typesList.items[class_type];
+                            if (type_data.data == .Object) {
+                                // Return existing thisType if already set.
+                                if (type_data.data.Object.thisType) |this_tp| {
+                                    if (this_tp != 0) return this_tp;
+                                }
+                                // Create a new `this` type parameter:
+                                // a TypeParameter with isThisType=true and
+                                // constraint = the class type.
+                                const this_tp = c.createType(.{
+                                    .flags = types.TypeFlags.TypeParameter,
+                                    .objectFlags = types.ObjectFlags.Anonymous,
+                                    .symbol = sym,
+                                    .data = .{ .TypeParameter = .{
+                                        .constraintType = class_type,
+                                        .isThisType = true,
+                                    } },
+                                }) catch 0;
+                                if (this_tp != 0) {
+                                    type_data.data.Object.thisType = this_tp;
+                                    return this_tp;
+                                }
+                            }
+                        }
+                    }
+                    return 0;
+                },
+                .SourceFile => return 0,
+                else => {},
+            }
+            container = ast_utils.getParent(c.binder.ast, container);
+        }
         return 0;
     }
 
@@ -26282,11 +26332,54 @@ pub fn checkTemplateExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.T
     return c.stringTypeIndex orelse 0;
 }
 pub fn checkThisExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
+    // Walk up to find the enclosing function-like declaration and check
+    // whether it has an explicit `this` parameter. In TypeScript, a `this`
+    // parameter is the first Parameter whose name is the ThisKeyword node.
+    // Its type annotation (if any) is the type of `this` inside that function.
     var container = ast_utils.getParent(c.binder.ast, node_idx);
     while (container != 0) {
         const container_kind = c.binder.ast.getKind(container);
         switch (container_kind) {
-            .Constructor, .MethodDeclaration, .GetAccessor, .SetAccessor, .FunctionDeclaration, .FunctionExpression, .ArrowFunction => {
+            .Constructor, .MethodDeclaration, .GetAccessor, .SetAccessor,
+            .FunctionDeclaration, .FunctionExpression, .ArrowFunction,
+            .CallSignature, .ConstructSignature, .MethodSignature,
+            .FunctionType, .ConstructorType,
+            => {
+                // Look for a `this` parameter on this function.
+                const params = ast_utils.getParametersOfNode(c.binder.ast, container);
+                if (params.len > 0) {
+                    const first_param = params[0];
+                    if (first_param != 0) {
+                        const fp_data = c.binder.ast.getNode(first_param);
+                        if (fp_data == .Parameter) {
+                            const fp_name_node = fp_data.Parameter.name;
+                            // The parser represents the `this` parameter name
+                            // either as a `ThisKeyword` node or as an
+                            // `Identifier` with text "this". Check for both.
+                            const is_this_param = blk: {
+                                if (fp_name_node == 0) break :blk false;
+                                const name_kind = c.binder.ast.getNodeKind(fp_name_node);
+                                if (name_kind == .ThisKeyword) break :blk true;
+                                if (name_kind == .Identifier) {
+                                    const name_data = c.binder.ast.getNode(fp_name_node);
+                                    if (std.mem.eql(u8, name_data.Identifier.Text, "this")) break :blk true;
+                                }
+                                break :blk false;
+                            };
+                            if (is_this_param) {
+                                // Found a `this` parameter. Use its type
+                                // annotation (or `any` if omitted).
+                                if (fp_data.Parameter.Type) |type_node| {
+                                    const tp = type_resolution_pkg.getTypeFromTypeNode(c, type_node);
+                                    if (tp != 0) return tp;
+                                }
+                                return c.anyTypeIndex orelse 0;
+                            }
+                        }
+                    }
+                }
+                // No `this` parameter — fall through to the class-lookup
+                // below for class methods.
                 const parent = ast_utils.getParent(c.binder.ast, container);
                 if (parent != 0 and ast_utils.isClassLike(c.binder.ast, parent)) {
                     const sym = getSymbolOfNode(c, parent) orelse c.getSymbolOfDeclaration(parent);

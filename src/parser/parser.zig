@@ -2327,7 +2327,12 @@ pub const Parser = struct {
             const this_start = self.scanner.state.tokenStart;
             const nameNode = try self.ast.pushNode(.{ .Identifier = .{ .Flags = 0, .Text = "this" } });
             self.nextToken();
-            self.setNodeStartPos(nameNode, this_start);
+            // Set both pos and end so getTouchingPropertyName can find this
+            // node when the cursor is inside the `this` keyword.
+            const this_end = self.scanner.state.tokenStart;
+            if (nameNode != 0 and nameNode < self.ast.positions.items.len) {
+                self.ast.positions.items[nameNode] = .{ .pos = @intCast(this_start), .end = @intCast(this_end) };
+            }
             break :blk nameNode;
         } else try self.parseIdentifierOrPattern();
 
@@ -3150,8 +3155,14 @@ pub const Parser = struct {
             self.nextToken();
             return try self.ast.pushNode(.{ .SymbolKeyword = void{} });
         } else if (self.token == kind.Kind.ThisKeyword) {
+            const this_start = self.scanner.state.tokenStart;
             self.nextToken();
-            return try self.ast.pushNode(.{ .ThisType = .{ .Flags = 0 } });
+            const this_end = self.scanner.state.tokenStart;
+            const node = try self.ast.pushNode(.{ .ThisType = .{ .Flags = 0 } });
+            if (node != 0 and node < self.ast.positions.items.len) {
+                self.ast.positions.items[node] = .{ .pos = @intCast(this_start), .end = @intCast(this_end) };
+            }
+            return node;
         } else if (self.token == kind.Kind.ObjectKeyword) {
             self.nextToken();
             return try self.ast.pushNode(.{ .ObjectKeyword = void{} });
