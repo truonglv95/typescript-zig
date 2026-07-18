@@ -1847,6 +1847,11 @@ pub const FourslashTest = struct {
                         }
                     }
                 }
+                // Property access where the property doesn't exist on the
+                // object type. Go returns "any" in this case (e.g. hovering
+                // on a missing property of a namespace, or on `X.add` where
+                // X has a syntax error).
+                return "any";
             }
             return "";
         }
