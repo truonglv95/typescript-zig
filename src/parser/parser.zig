@@ -886,12 +886,15 @@ pub const Parser = struct {
         }
 
         self.parseSemicolon();
+        const es_end = self.scanner.state.tokenStart;
 
         const stmt = try self.ast.pushNode(.{ .ExpressionStatement = .{
             .Flags = 0,
             .Expression = expr,
         } });
-        self.setNodeStartPos(stmt, start_pos);
+        if (stmt != 0 and stmt < self.ast.positions.items.len) {
+            self.ast.positions.items[stmt] = .{ .pos = @intCast(start_pos), .end = @intCast(es_end) };
+        }
         return stmt;
     }
 
@@ -2198,12 +2201,15 @@ pub const Parser = struct {
             expression = try @import("expression.zig").parseExpression(self);
         }
         self.parseSemicolon();
+        const ret_end = self.scanner.state.tokenStart;
 
         const stmt = try self.ast.pushNode(.{ .ReturnStatement = .{
             .Flags = 0,
             .Expression = expression,
         } });
-        self.setNodeStartPos(stmt, start_pos);
+        if (stmt != 0 and stmt < self.ast.positions.items.len) {
+            self.ast.positions.items[stmt] = .{ .pos = @intCast(start_pos), .end = @intCast(ret_end) };
+        }
         return stmt;
     }
 

@@ -2125,10 +2125,15 @@ pub const FourslashTest = struct {
         // createUnionOrIntersectionProperty from method declarations).
         const is_method_like = (symObj.Flags & symbol.SymbolFlags.Method) != 0 or
             (symObj.Declarations.items.len > 0 and blk: {
-                const decl = symObj.Declarations.items[0];
-                if (decl != 0) {
-                    const k = p.ast.getNodeKind(decl);
-                    break :blk k == .MethodDeclaration or k == .MethodSignature;
+                // Check ALL declarations — if any is a MethodDeclaration or
+                // MethodSignature, treat as method. This handles cases like
+                // `foo({ f: function() {}, f() {} })` where the second
+                // declaration is a method.
+                for (symObj.Declarations.items) |decl| {
+                    if (decl != 0) {
+                        const k = p.ast.getNodeKind(decl);
+                        if (k == .MethodDeclaration or k == .MethodSignature) break :blk true;
+                    }
                 }
                 break :blk false;
             });
