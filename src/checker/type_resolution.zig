@@ -92,6 +92,8 @@ pub fn getTypeFromTypeNodeWorker(c: *Checker, node: NodeIndex) TypeIndex {
 }
 
 pub fn getConditionalFlowTypeOfType(c: *Checker, t: TypeIndex, node: NodeIndex) TypeIndex {
+    // Guard: if t is 0 or out-of-bounds (garbage value), return 0.
+    if (t == 0 or t >= c.typesList.items.len) return 0;
     var constraints: std.ArrayListUnmanaged(TypeIndex) = .empty;
     defer constraints.deinit(c.allocator);
 

@@ -9401,7 +9401,14 @@ pub const Checker = struct {
         }
         if (typeParameters == null or typeParameters.?.len == 0) return t;
 
-        const combinedMapper = mapper_pkg.combineTypeMappers(c, c.getTargetTypeData(t).Object.mapper orelse 0, m);
+        // Guard: only access Object.mapper if the type data is actually Object.
+        // Some types (e.g. Mapped types) have different union fields.
+        const target_data = c.typesList.items[t].data;
+        const mapper_idx: types.TypeMapperIndex = if (target_data == .Object)
+            target_data.Object.mapper orelse 0
+        else
+            0;
+        const combinedMapper = mapper_pkg.combineTypeMappers(c, mapper_idx, m);
         const typeArguments = instantiateTypes(c, typeParameters.?, combinedMapper) catch return t;
 
         var newAlias = alias;
@@ -9410,6 +9417,8 @@ pub const Checker = struct {
         }
 
         const targetId = c.getTargetType(target);
+        // Guard: only access Object data if the target type is actually Object.
+        if (c.typesList.items[targetId].data != .Object) return t;
         var data = &c.typesList.items[targetId].data.Object;
         const key = getTypeInstantiationKey(typeArguments, newAlias, (objFlags & types.ObjectFlags.SingleSignatureType) != 0);
 
@@ -25441,17 +25450,17 @@ pub fn checkVariableDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
 }
 
 pub fn checkVariableLikeDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    // Read the Type annotation and Initializer from the VariableDeclaration
-    // node. The previous implementation hardcoded these to 0, which meant
-    // the checker never checked the type annotation node (so type
-    // annotations on variables were never type-checked).
+    // Read the Type annotation and Initializer from the declaration node.
+    // Supports both VariableDeclaration and Parameter nodes.
     const decl_data = c.binder.ast.getNode(node_idx);
     const type_idx: ast_gen.NodeIndex = switch (decl_data) {
         .VariableDeclaration => |n| n.Type orelse 0,
+        .Parameter => |n| n.Type orelse 0,
         else => 0,
     };
     const initializer_idx: ast_gen.NodeIndex = switch (decl_data) {
         .VariableDeclaration => |n| n.Initializer orelse 0,
+        .Parameter => |n| n.Initializer orelse 0,
         else => 0,
     };
 
@@ -25466,17 +25475,91 @@ pub fn checkVariableLikeDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) vo
         _ = checkExpression(c, name_idx);
     }
 
-    if (ast_utils.isBindingPattern(c.binder.ast, name_idx)) {
+    // For non-binding-pattern declarations, compute and cache the type.
+    if (!ast_utils.isBindingPattern(c.binder.ast, name_idx)) {
+        // Compute the type FIRST (without holding a pointer into the map).
+        // This is important because type resolution may recursively trigger
+        // more checking, which would mutate valueSymbolLinks and invalidate
+        // any pointer we hold.
+        var var_type: types.TypeIndex = 0;
+        if (type_idx != 0) {
+            var_type = type_resolution_pkg.getTypeFromTypeNode(c, type_idx);
+        }
+        if (var_type == 0 and initializer_idx != 0) {
+            var_type = c.checkExpressionCachedEx(initializer_idx, CheckMode.Normal);
+            // Widen literal types for var/let (not const, not parameters).
+            // Const declarations preserve literal types.
+            const is_parameter = decl_data == .Parameter;
+            var is_const_var = false;
+            if (!is_parameter and decl_data == .VariableDeclaration) {
+                // Walk up parent chain to find VariableDeclarationList.
+                var cur = c.binder.ast.getNodeParent(node_idx);
+                while (cur != 0) {
+                    if (c.binder.ast.getNodeKind(cur) == .VariableDeclarationList) {
+                        const vdl = c.binder.ast.getNode(cur).VariableDeclarationList;
+                        // NodeFlags.Const = 1 << 1
+                        if ((vdl.Flags & 0x2) != 0) is_const_var = true;
+                        break;
+                    }
+                    cur = c.binder.ast.getNodeParent(cur);
+                }
+            }
+            if (!is_parameter and !is_const_var and var_type != 0 and var_type < c.typesList.items.len) {
+                const f = c.typesList.items[var_type].flags;
+                if ((f & types.TypeFlags.NumberLiteral) != 0) {
+                    var_type = c.getNumberType() catch var_type;
+                } else if ((f & types.TypeFlags.StringLiteral) != 0) {
+                    var_type = c.getStringType() catch var_type;
+                } else if ((f & types.TypeFlags.BooleanLiteral) != 0) {
+                    var_type = c.getBooleanType() catch var_type;
+                } else if ((f & types.TypeFlags.Null) != 0) {
+                    var_type = c.getAnyType() catch var_type;
+                } else if ((f & types.TypeFlags.Undefined) != 0) {
+                    var_type = c.getAnyType() catch var_type;
+                }
+            }
+        }
+        // Cache the type if we found one.
+        // - From type annotations: always cache (safe — the annotation is
+        //   the definitive type).
+        // - From initializers: cache only for VariableDeclarations (not
+        //   Parameters) and only when the inferred type is NOT a TypeParameter
+        //   (uninstantiated type parameters from generic types would be wrong).
+        const should_cache = var_type != 0 and (
+            type_idx != 0 or
+            (initializer_idx != 0 and decl_data == .VariableDeclaration and
+             var_type < c.typesList.items.len and
+             (c.typesList.items[var_type].flags & types.TypeFlags.TypeParameter) == 0)
+        );
+        if (should_cache) {
+            const decl_sym = c.getSymbolOfDeclaration(node_idx);
+            if (decl_sym != 0) {
+                const existing = c.valueSymbolLinks.get(decl_sym);
+                const should_set = if (existing) |links|
+                    (links.resolvedType == null or links.resolvedType.? == 0)
+                else
+                    true;
+                if (should_set) {
+                    var links = if (existing) |links| links else types.ValueSymbolLinks{};
+                    links.resolvedType = var_type;
+                    c.valueSymbolLinks.put(c.allocator, decl_sym, links) catch {};
+                }
+            }
+        }
+        if (initializer_idx != 0 and var_type == 0) {
+            _ = checkExpression(c, initializer_idx);
+        }
+    } else {
+        // Binding pattern (destructuring): walk the elements.
         const elements = ast_utils.getElements(c.binder.ast, name_idx);
         if (elements.len != 0) {
             for (elements) |el_idx| {
                 if (el_idx != 0) checkSourceElement(c, el_idx);
             }
         }
-    }
-
-    if (initializer_idx != 0) {
-        _ = checkExpression(c, initializer_idx);
+        if (initializer_idx != 0) {
+            _ = checkExpression(c, initializer_idx);
+        }
     }
 }
 pub fn checkVariableStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
