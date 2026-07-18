@@ -1366,6 +1366,7 @@ pub const Parser = struct {
             }
         }
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
+        const iface_end = self.scanner.state.tokenStart;
         const members = try self.ast.pushNodeList(members_arr.items);
 
         const decl = try self.ast.pushNode(.{ .InterfaceDeclaration = .{
@@ -1378,7 +1379,9 @@ pub const Parser = struct {
             .HeritageClauses = heritageClauses,
             .Members = members,
         } });
-        self.setNodeStartPos(decl, start_pos);
+        if (decl != 0 and decl < self.ast.positions.items.len) {
+            self.ast.positions.items[decl] = .{ .pos = @intCast(start_pos), .end = @intCast(iface_end) };
+        }
         return decl;
     }
 
@@ -1389,6 +1392,7 @@ pub const Parser = struct {
         const typeParameters = try self.parseTypeParameters();
         _ = self.parseExpected(kind.Kind.EqualsToken);
         const typeNode = try self.parseType();
+        const type_alias_end = self.scanner.state.tokenStart;
         self.parseSemicolon();
 
         const decl = try self.ast.pushNode(.{ .TypeAliasDeclaration = .{
@@ -1400,7 +1404,9 @@ pub const Parser = struct {
             .TypeParameters = typeParameters,
             .Type = typeNode,
         } });
-        self.setNodeStartPos(decl, start_pos);
+        if (decl != 0 and decl < self.ast.positions.items.len) {
+            self.ast.positions.items[decl] = .{ .pos = @intCast(start_pos), .end = @intCast(type_alias_end) };
+        }
         return decl;
     }
 
@@ -1423,6 +1429,7 @@ pub const Parser = struct {
         }
         _ = self.parseOptional(kind.Kind.CommaToken);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
+        const enum_end = self.scanner.state.tokenStart;
         const members = try self.ast.pushNodeList(members_arr.items);
 
         const decl = try self.ast.pushNode(.{ .EnumDeclaration = .{
@@ -1433,7 +1440,9 @@ pub const Parser = struct {
             .name = name,
             .Members = members,
         } });
-        self.setNodeStartPos(decl, start_pos);
+        if (decl != 0 and decl < self.ast.positions.items.len) {
+            self.ast.positions.items[decl] = .{ .pos = @intCast(start_pos), .end = @intCast(enum_end) };
+        }
         return decl;
     }
 
