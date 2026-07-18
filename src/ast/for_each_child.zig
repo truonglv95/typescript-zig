@@ -2150,6 +2150,123 @@ pub fn forEachChild(tree: *Ast, nodeIndex: ast_gen.NodeIndex, visitor: anytype) 
         .ArrayBindingPattern => |n| {
             if (n.Elements != 0) try visitor.visitList(n.Elements);
         },
+        // Statement nodes that were missing — required for cursor-based
+        // lookups (getTouchingPropertyName) and parent fixup to work
+        // correctly. Without these, hovering on identifiers inside
+        // for-in/for-of/switch/constructor etc. returns SourceFile.
+        .ForInStatement, .ForOfStatement => |n| {
+            // ForInOrOfStatementNode
+            if (@TypeOf(n.AwaitModifier) == u32) {
+                if (n.AwaitModifier != 0) try visitor.visitNode(n.AwaitModifier);
+            } else {
+                if (n.AwaitModifier) |child| try visitor.visitNode(child);
+            }
+            if (n.Initializer != 0) try visitor.visitNode(n.Initializer);
+            if (n.Expression != 0) try visitor.visitNode(n.Expression);
+            if (n.Statement != 0) try visitor.visitNode(n.Statement);
+        },
+        .CaseClause, .DefaultClause => |n| {
+            // CaseOrDefaultClauseNode
+            if (n.Expression != 0) try visitor.visitNode(n.Expression);
+            if (n.Statements != 0) try visitor.visitList(n.Statements);
+        },
+        .Constructor => |n| {
+            // ConstructorDeclarationNode
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Body) == u32) {
+                if (n.Body != 0) try visitor.visitNode(n.Body);
+            } else {
+                if (n.Body) |child| try visitor.visitNode(child);
+            }
+        },
+        .PropertySignature => |n| {
+            // PropertySignatureDeclarationNode
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (n.name != 0) try visitor.visitNode(n.name);
+            if (@TypeOf(n.PostfixToken) == u32) {
+                if (n.PostfixToken != 0) try visitor.visitNode(n.PostfixToken);
+            } else {
+                if (n.PostfixToken) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Initializer) == u32) {
+                if (n.Initializer != 0) try visitor.visitNode(n.Initializer);
+            } else {
+                if (n.Initializer) |child| try visitor.visitNode(child);
+            }
+        },
+        .MethodSignature => |n| {
+            // MethodSignatureDeclarationNode
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (n.name != 0) try visitor.visitNode(n.name);
+            if (@TypeOf(n.PostfixToken) == u32) {
+                if (n.PostfixToken != 0) try visitor.visitNode(n.PostfixToken);
+            } else {
+                if (n.PostfixToken) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.TypeParameters) == u32) {
+                if (n.TypeParameters != 0) try visitor.visitList(n.TypeParameters);
+            } else {
+                if (n.TypeParameters) |child| try visitor.visitList(child);
+            }
+            if (n.Parameters != 0) try visitor.visitList(n.Parameters);
+            if (@TypeOf(n.Type) == u32) {
+                if (n.Type != 0) try visitor.visitNode(n.Type);
+            } else {
+                if (n.Type) |child| try visitor.visitNode(child);
+            }
+        },
+        .TypeParameter => |n| {
+            // TypeParameterDeclarationNode
+            if (@TypeOf(n.modifiers) == u32) {
+                if (n.modifiers != 0) try visitor.visitList(n.modifiers);
+            } else {
+                if (n.modifiers) |child| try visitor.visitList(child);
+            }
+            if (n.name != 0) try visitor.visitNode(n.name);
+            if (@TypeOf(n.Constraint) == u32) {
+                if (n.Constraint != 0) try visitor.visitNode(n.Constraint);
+            } else {
+                if (n.Constraint) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.Expression) == u32) {
+                if (n.Expression != 0) try visitor.visitNode(n.Expression);
+            } else {
+                if (n.Expression) |child| try visitor.visitNode(child);
+            }
+            if (@TypeOf(n.DefaultType) == u32) {
+                if (n.DefaultType != 0) try visitor.visitNode(n.DefaultType);
+            } else {
+                if (n.DefaultType) |child| try visitor.visitNode(child);
+            }
+        },
         else => {},
     }
 }
