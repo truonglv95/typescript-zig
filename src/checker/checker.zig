@@ -1245,6 +1245,20 @@ pub const Checker = struct {
                 return;
             }
 
+            // Enum: members are stored on the symbol's Exports table
+            // (via declareSymbolEx with .Exports tableType at bind time).
+            // Resolve them like declared members.
+            if ((sym_flags & symbol.SymbolFlags.Enum) != 0) {
+                const declMembers = c.resolveDeclaredMembers(t);
+                members.* = declMembers;
+                // Also collect call signatures (enum doesn't have any, but
+                // be safe).
+                const callSigs = c.getSignaturesOfSymbol(sym_val);
+                members.callSignaturesStart = callSigs.start;
+                members.callSignaturesLen = callSigs.len;
+                return;
+            }
+
             // Function, Class, Enum, Module...
             // Currently omitting exports/members collection, just doing signatures.
             const callSigs = c.getSignaturesOfSymbol(sym_val);
@@ -1288,7 +1302,16 @@ pub const Checker = struct {
         };
 
         // Try the symbol's own members.
-        const membersMap = c.binder.symbolMembers.getPtr(symIdx);
+        // For enum symbols, members are stored in the Exports table
+        // (via declareSymbolEx with .Exports tableType). For class/interface
+        // symbols, members are stored in the Members table. We need to
+        // check both.
+        const symFlags = c.binder.symbols.items[symIdx].Flags;
+        var membersMap = c.binder.symbolMembers.getPtr(symIdx);
+        if (membersMap == null and (symFlags & symbol.SymbolFlags.Enum) != 0) {
+            // Enums store their members on the Exports table.
+            membersMap = c.binder.symbolExports.getPtr(symIdx);
+        }
         if (membersMap == null) {
             // Symbol has no members map. Try symbol 0 (fallback for
             // containers that didn't have a symbol at binding time).
@@ -1863,6 +1886,17 @@ pub const Checker = struct {
                         return propSymIdx;
                     }
                 }
+                // For enum symbols, members are stored in the Exports table.
+                if (symIdx < self.binder.symbols.items.len) {
+                    const sym_flags = self.binder.symbols.items[symIdx].Flags;
+                    if ((sym_flags & symbol.SymbolFlags.Enum) != 0) {
+                        if (self.binder.symbolExports.getPtr(symIdx)) |exports| {
+                            if (exports.get(name)) |propSymIdx| {
+                                return propSymIdx;
+                            }
+                        }
+                    }
+                }
             }
             // Then, try resolved structured type members (handles
             // instantiated generics, fresh object literals, etc.).
@@ -2234,6 +2268,20 @@ pub const Checker = struct {
             const str = std.fmt.allocPrint(self.allocator, "{s}n", .{typeData.data.BigIntLiteral.text}) catch return "bigint";
             self.ownedStrings.append(self.allocator, str) catch {};
             return str;
+        }
+        // EnumLiteral types: render as the enum's symbol name. The symbol
+        // points to the parent enum declaration, so its Name is the enum
+        // name (e.g., "Colors"). For literal enum members like
+        // `Colors.Cornflower`, Go widens `var x = Colors.Cornflower` to
+        // the parent enum type "Colors".
+        if (typeData.flags & types.TypeFlags.EnumLiteral != 0) {
+            if (typeData.symbol) |sym_idx| {
+                if (sym_idx != 0 and sym_idx < self.binder.symbols.items.len) {
+                    const name = self.binder.symbols.items[sym_idx].Name;
+                    if (name.len > 0) return name;
+                }
+            }
+            // Fall through if no symbol — keep going to other renderers.
         }
         if (self.serializationLevel >= 100) { // maxSerializationLevel
             return "?";
@@ -4109,6 +4157,40 @@ pub const Checker = struct {
                     .alias = null,
                     .data = .{ .Object = .{ .Symbol = symIndex } },
                 }),
+                .EnumDeclaration => return try self.createType(.{
+                    // Enum types are Object + Enum flags. Members are stored on
+                    // the symbol's `Exports` table, so getPropertyOfType finds
+                    // them via `symbolMembers`.
+                    .flags = types.TypeFlags.Object | types.TypeFlags.Enum,
+                    .objectFlags = types.ObjectFlags.Anonymous,
+                    .id = 0,
+                    .symbol = symIndex,
+                    .alias = null,
+                    .data = .{ .Object = .{ .Symbol = symIndex } },
+                }),
+                .EnumMember => {
+                    // For an enum member, the type is the parent enum's type
+                    // (with EnumLiteral flag set so the literal type is preserved
+                    // for `var x = Colors.Cornflower` — Go widens this to the
+                    // enum type itself).
+                    const parent_sym = sym.Parent orelse 0;
+                    if (parent_sym != 0 and parent_sym < self.binder.symbols.items.len) {
+                        const parent_type = try self.getTypeOfSymbol(parent_sym);
+                        if (parent_type != 0) {
+                            // Create an EnumLiteral type pointing at the same
+                            // symbol so typeToString can render the enum name.
+                            return try self.createType(.{
+                                .flags = types.TypeFlags.EnumLiteral,
+                                .objectFlags = types.ObjectFlags.Anonymous,
+                                .id = 0,
+                                .symbol = parent_sym,
+                                .alias = null,
+                                .data = .{ .Object = .{ .Symbol = parent_sym } },
+                            });
+                        }
+                    }
+                    return try self.getAnyType();
+                },
                 .FunctionDeclaration, .MethodDeclaration, .Constructor,
                 .FunctionExpression, .ArrowFunction => {
                     // Get the explicit return type annotation if present.
