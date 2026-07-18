@@ -390,32 +390,44 @@ pub fn parseSimpleUnaryExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIn
             const start_pos = p.scanner.state.tokenStart;
             p.nextToken();
             const expr = try parseSimpleUnaryExpression(p);
+            const end_pos = p.scanner.state.tokenStart;
             const node = try p.ast.pushNode(.{ .DeleteExpression = .{ .Flags = 0, .Expression = expr } });
-            p.setNodeStartPos(node, start_pos);
+            if (node != 0 and node < p.ast.positions.items.len) {
+                p.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            }
             return node;
         },
         kind.Kind.TypeOfKeyword => {
             const start_pos = p.scanner.state.tokenStart;
             p.nextToken();
             const expr = try parseSimpleUnaryExpression(p);
+            const end_pos = p.scanner.state.tokenStart;
             const node = try p.ast.pushNode(.{ .TypeOfExpression = .{ .Flags = 0, .Expression = expr } });
-            p.setNodeStartPos(node, start_pos);
+            if (node != 0 and node < p.ast.positions.items.len) {
+                p.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            }
             return node;
         },
         kind.Kind.VoidKeyword => {
             const start_pos = p.scanner.state.tokenStart;
             p.nextToken();
             const expr = try parseSimpleUnaryExpression(p);
+            const end_pos = p.scanner.state.tokenStart;
             const node = try p.ast.pushNode(.{ .VoidExpression = .{ .Flags = 0, .Expression = expr } });
-            p.setNodeStartPos(node, start_pos);
+            if (node != 0 and node < p.ast.positions.items.len) {
+                p.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            }
             return node;
         },
         kind.Kind.AwaitKeyword => {
             const start_pos = p.scanner.state.tokenStart;
             p.nextToken();
             const expr = try parseSimpleUnaryExpression(p);
+            const end_pos = p.scanner.state.tokenStart;
             const node = try p.ast.pushNode(.{ .AwaitExpression = .{ .Flags = 0, .Expression = expr } });
-            p.setNodeStartPos(node, start_pos);
+            if (node != 0 and node < p.ast.positions.items.len) {
+                p.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            }
             return node;
         },
         kind.Kind.LessThanToken => {
@@ -427,8 +439,11 @@ pub fn parseSimpleUnaryExpression(p: *parser_pkg.Parser) anyerror!ast_gen.NodeIn
             const typeNode = p.parseType() catch 0;
             _ = p.parseExpected(kind.Kind.GreaterThanToken);
             const expr = try parseSimpleUnaryExpression(p);
+            const end_pos = p.scanner.state.tokenStart;
             const node = try p.ast.pushNode(.{ .TypeAssertionExpression = .{ .Flags = 0, .Type = typeNode, .Expression = expr } });
-            p.setNodeStartPos(node, start_pos);
+            if (node != 0 and node < p.ast.positions.items.len) {
+                p.ast.positions.items[node] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+            }
             return node;
         },
         else => return parseUpdateExpression(p),
