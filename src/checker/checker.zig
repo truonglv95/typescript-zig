@@ -24155,6 +24155,30 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
         if (type_sym != 0 and type_sym != c.unknownSymbol) {
             return type_sym;
         }
+        // Fallback: if this Identifier is the `name` of a declaration node
+        // (PropertySignature, PropertyDeclaration, MethodDeclaration, etc.),
+        // return the declaration's symbol directly. Property names inside
+        // interface/class declarations are declarations, not references, so
+        // resolveName won't find them in the scope chain.
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent != 0) {
+            const parent_data = c.binder.ast.getNode(parent);
+            const is_name_of_decl = switch (parent_data) {
+                .PropertySignature => |n| n.name == node,
+                .PropertyDeclaration => |n| n.name == node,
+                .MethodDeclaration => |n| n.name == node,
+                .MethodSignature => |n| n.name == node,
+                .GetAccessor => |n| n.name == node,
+                .SetAccessor => |n| n.name == node,
+                .PropertyAssignment => |n| n.name == node,
+                .EnumMember => |n| n.name == node,
+                else => false,
+            };
+            if (is_name_of_decl) {
+                const decl_sym = c.getSymbolOfDeclaration(parent);
+                if (decl_sym != 0) return decl_sym;
+            }
+        }
     }
 
     // Ambient module declaration: `declare module "name"` — the module name
