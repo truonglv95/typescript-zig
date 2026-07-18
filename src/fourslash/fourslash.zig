@@ -1771,7 +1771,16 @@ pub const FourslashTest = struct {
                         };
                         const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
 
-                        const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+                        const param_question: []const u8 = if (paramObj.Declarations.items.len > 0) blk: {
+                                        const pdecl = paramObj.Declarations.items[0];
+                                        if (pdecl != 0 and p.ast.getNodeKind(pdecl) == .Parameter) {
+                                            if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
+                                                if (qt != 0) break :blk "?";
+                                            }
+                                        }
+                                        break :blk "";
+                                    } else "";
+                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
                         out.appendSlice(aa, pStr) catch {};
                     }
 
@@ -2084,7 +2093,8 @@ pub const FourslashTest = struct {
                                         }
                                         break :blk "any";
                                     } else "any";
-                                    const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{pname, ptype_str}) catch "";
+                                    const p_question: []const u8 = if (pd.QuestionToken) |qt| (if (qt != 0) "?" else "") else "";
+                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{pname, p_question, ptype_str}) catch "";
                                     buf.appendSlice(aa, pStr) catch {};
                                 }
                             }
@@ -2168,7 +2178,8 @@ pub const FourslashTest = struct {
                                                     }
                                                     break :blk "any";
                                                 } else "any";
-                                                const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{pname, ptype_str}) catch "";
+                                                const p_question: []const u8 = if (pd.QuestionToken) |qt| (if (qt != 0) "?" else "") else "";
+                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{pname, p_question, ptype_str}) catch "";
                                                 buf.appendSlice(aa, pStr) catch {};
                                             }
                                         }
@@ -2323,7 +2334,16 @@ pub const FourslashTest = struct {
                         const paramObj = c.binder.symbols.items[paramSym];
                         const paramType = c.getTypeOfSymbol(paramSym) catch 0;
                         const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
-                        const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+                        const param_question: []const u8 = if (paramObj.Declarations.items.len > 0) blk: {
+                                        const pdecl = paramObj.Declarations.items[0];
+                                        if (pdecl != 0 and p.ast.getNodeKind(pdecl) == .Parameter) {
+                                            if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
+                                                if (qt != 0) break :blk "?";
+                                            }
+                                        }
+                                        break :blk "";
+                                    } else "";
+                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
                         out.appendSlice(aa, pStr) catch {};
                     }
                     out.appendSlice(aa, ") => ") catch {};
@@ -2450,7 +2470,16 @@ pub const FourslashTest = struct {
                     const paramObj = c.binder.symbols.items[paramSym];
                     const paramType = c.getTypeOfSymbol(paramSym) catch 0;
                     const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
-                    const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+                    const param_question: []const u8 = if (paramObj.Declarations.items.len > 0) blk: {
+                                        const pdecl = paramObj.Declarations.items[0];
+                                        if (pdecl != 0 and p.ast.getNodeKind(pdecl) == .Parameter) {
+                                            if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
+                                                if (qt != 0) break :blk "?";
+                                            }
+                                        }
+                                        break :blk "";
+                                    } else "";
+                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
                     out.appendSlice(aa, pStr) catch {};
                 }
                 out.appendSlice(aa, "): ") catch {};
@@ -3145,7 +3174,16 @@ pub const FourslashTest = struct {
             const paramObj = c.binder.symbols.items[paramSym];
             const paramType = c.getTypeOfSymbol(paramSym) catch 0;
             const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
-            const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+            const param_question: []const u8 = if (paramObj.Declarations.items.len > 0) blk: {
+                                        const pdecl = paramObj.Declarations.items[0];
+                                        if (pdecl != 0 and p.ast.getNodeKind(pdecl) == .Parameter) {
+                                            if (p.ast.getNode(pdecl).Parameter.QuestionToken) |qt| {
+                                                if (qt != 0) break :blk "?";
+                                            }
+                                        }
+                                        break :blk "";
+                                    } else "";
+                                    const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
             out.appendSlice(aa, pStr) catch {};
         }
         out.appendSlice(aa, "): ") catch {};
