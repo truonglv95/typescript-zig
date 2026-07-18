@@ -1467,6 +1467,33 @@ pub const FourslashTest = struct {
             }
         }
 
+        // Special handling for global identifiers that don't have explicit
+        // declarations: `undefined`, `arguments`, `globalThis`, etc.
+        if (node_kind == .Identifier) {
+            const id_text = p.ast.getNode(node).Identifier.Text;
+            if (std.mem.eql(u8, id_text, "undefined")) {
+                return "var undefined";
+            }
+            if (std.mem.eql(u8, id_text, "arguments")) {
+                // Check if we're inside a non-arrow function.
+                var cur: ast_gen.NodeIndex = p.ast.getNodeParent(node);
+                while (cur != 0) {
+                    const k = p.ast.getNodeKind(cur);
+                    switch (k) {
+                        .FunctionDeclaration, .FunctionExpression, .MethodDeclaration,
+                        .Constructor, .GetAccessor, .SetAccessor,
+                        => {
+                            return "(local var) arguments: IArguments";
+                        },
+                        .ArrowFunction => break, // Arrow functions don't have `arguments`
+                        .SourceFile => break,
+                        else => {},
+                    }
+                    cur = p.ast.getNodeParent(cur);
+                }
+            }
+        }
+
         // Get the symbol at this location.
         var sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) return "";
