@@ -2620,7 +2620,41 @@ pub const FourslashTest = struct {
         // Property declarations: format as "(property) name: type" or
         // "(property) ClassName.name: type" if the parent is a class/interface.
         // Optional properties: "(property) name?: type"
+        // Synthetic properties (from index signatures) are rendered as
+        // "(index) TypeName[keyType]: valueType" instead.
         if ((symObj.Flags & (symbol.SymbolFlags.Property | symbol.SymbolFlags.GetAccessor | symbol.SymbolFlags.SetAccessor | symbol.SymbolFlags.Accessor)) != 0) {
+            // Check if this is a synthetic property created from an index signature.
+            // If so, render as "(index) TypeName[keyType]: valueType".
+            if ((symObj.CheckFlags & checker_module.types.CheckFlags.SyntheticProperty) != 0) {
+                if (c.valueSymbolLinks.get(sym)) |links| {
+                    if (links.containingType) |ct_idx| {
+                        if (ct_idx != 0 and ct_idx < c.typesList.items.len) {
+                            const ct = c.typesList.items[ct_idx];
+                            var type_name: []const u8 = "";
+                            if (ct.symbol) |tsym| {
+                                if (tsym != 0 and tsym < c.binder.symbols.items.len) {
+                                    type_name = c.binder.symbols.items[tsym].Name;
+                                }
+                            }
+                            const idx_infos = c.getIndexInfosOfType(ct_idx);
+                            if (idx_infos.len > 0) {
+                                const info = idx_infos[0];
+                                const key_str = if (info.keyType != 0) c.typeToString(info.keyType, 0, 0, null) else "string";
+                                const val_str = if (info.valueType != 0) c.typeToString(info.valueType, 0, 0, null) else "any";
+                                var out = std.ArrayListUnmanaged(u8).empty;
+                                const aa = self.arena.allocator();
+                                out.appendSlice(aa, "(index) ") catch {};
+                                out.appendSlice(aa, type_name) catch {};
+                                out.appendSlice(aa, "[") catch {};
+                                out.appendSlice(aa, key_str) catch {};
+                                out.appendSlice(aa, "]: ") catch {};
+                                out.appendSlice(aa, val_str) catch {};
+                                return out.toOwnedSlice(aa) catch "";
+                            }
+                        }
+                    }
+                }
+            }
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
             out.appendSlice(aa, "(property) ") catch {};

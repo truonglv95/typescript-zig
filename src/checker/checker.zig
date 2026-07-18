@@ -1350,7 +1350,9 @@ pub const Checker = struct {
                 callSymbol = entry.value_ptr.*;
             } else if (std.mem.eql(u8, entry.key_ptr.*, "__new")) {
                 constructSymbol = entry.value_ptr.*;
-            } else if (std.mem.eql(u8, entry.key_ptr.*, "__index")) {
+            } else if (std.mem.eql(u8, entry.key_ptr.*, "__index") or
+                std.mem.eql(u8, entry.key_ptr.*, symbol.InternalSymbolNameIndex))
+            {
                 indexSymbol = entry.value_ptr.*;
             }
         }
@@ -1681,18 +1683,64 @@ pub const Checker = struct {
     }
 
     pub fn getIndexInfosOfIndexSymbol(c: *Checker, symIdx: ast_gen.SymbolIndex, propertiesStart: u32, propertiesLen: u32) types.Range {
-        _ = c;
-        _ = symIdx;
         _ = propertiesStart;
         _ = propertiesLen;
-        return .{ .start = 0, .len = 0 }; // Skipped
+        if (symIdx == 0 or symIdx >= c.binder.symbols.items.len) return .{ .start = 0, .len = 0 };
+        const idx_symbol = c.binder.symbols.items[symIdx];
+        var index_infos = std.ArrayListUnmanaged(types.IndexInfo).empty;
+        defer index_infos.deinit(c.allocator);
+
+        for (idx_symbol.Declarations.items) |decl| {
+            if (decl == 0) continue;
+            if (c.binder.ast.getNodeKind(decl) != .IndexSignature) continue;
+            const sig = c.binder.ast.getNode(decl).IndexSignature;
+            if (sig.Parameters == 0) continue;
+            const params = c.binder.ast.getNodeList(sig.Parameters);
+            if (params.len == 0) continue;
+            const param = params[0];
+            if (param == 0) continue;
+            const param_data = c.binder.ast.getNode(param).Parameter;
+            const key_type_node = param_data.Type orelse 0;
+            if (key_type_node == 0) continue;
+            const key_type = type_resolution_pkg.getTypeFromTypeNode(c, key_type_node);
+            if (key_type == 0) continue;
+
+            var value_type: types.TypeIndex = c.anyTypeIndex orelse 0;
+            if (sig.Type) |ret_node| {
+                if (ret_node != 0) {
+                    const vt = type_resolution_pkg.getTypeFromTypeNode(c, ret_node);
+                    if (vt != 0) value_type = vt;
+                }
+            }
+
+            const is_readonly = (sig.modifierFlags & @import("../ast/ast_utils.zig").ModifierFlags.Readonly) != 0;
+
+            index_infos.append(c.allocator, .{
+                .keyType = key_type,
+                .valueType = value_type,
+                .isReadonly = is_readonly,
+                .declaration = decl,
+            }) catch {};
+        }
+
+        if (index_infos.items.len == 0) return .{ .start = 0, .len = 0 };
+        const start: u32 = @intCast(c.resolvedIndexInfosPool.items.len);
+        for (index_infos.items) |info| {
+            c.resolvedIndexInfosPool.append(c.allocator, info) catch {};
+        }
+        return .{ .start = start, .len = @intCast(index_infos.items.len) };
     }
 
     pub fn getIndexInfosOfSymbol(c: *Checker, symIdx: ast_gen.SymbolIndex) types.Range {
         // Find the index symbol (named "\xFEindex") in the symbol's members.
         if (symIdx == 0 or symIdx >= c.binder.symbols.items.len) return .{ .start = 0, .len = 0 };
-        const index_sym = c.binder.symbolMembers.getPtr(symIdx) orelse return .{ .start = 0, .len = 0 };
-        const idx_sym = index_sym.get("\xFEindex") orelse return .{ .start = 0, .len = 0 };
+        var index_sym = c.binder.symbolMembers.getPtr(symIdx);
+        if (index_sym == null) {
+            index_sym = c.binder.symbolExports.getPtr(symIdx);
+        }
+        if (index_sym == null) return .{ .start = 0, .len = 0 };
+        const idx_sym = index_sym.?.get(symbol.InternalSymbolNameIndex) orelse
+            index_sym.?.get("__index") orelse return .{ .start = 0, .len = 0 };
         if (idx_sym == 0 or idx_sym >= c.binder.symbols.items.len) return .{ .start = 0, .len = 0 };
 
         // For each IndexSignature declaration, extract keyType and valueType.
@@ -1940,7 +1988,7 @@ pub const Checker = struct {
                 const sym = c.createSyntheticPropertySymbol(
                     symbol.SymbolFlags.Property,
                     name,
-                    0,
+                    types.CheckFlags.SyntheticProperty,
                     value_type,
                     t,
                 ) orelse continue;
