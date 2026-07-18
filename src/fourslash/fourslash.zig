@@ -1900,9 +1900,32 @@ pub const FourslashTest = struct {
                 out.appendSlice(aa, "?") catch {};
             }
             out.appendSlice(aa, ": ") catch {};
-            // If the typeStr is "{}" (function type that nodebuilder can't render),
-            // try formatting as a function signature: (params) => retType
-            if (std.mem.eql(u8, typeStr, "{}")) {
+            // If the typeStr is "{}" or "any" and the property's type
+            // annotation is a FunctionType/ConstructorType, try formatting
+            // as a function signature: (params) => retType.
+            // This works around the checker not properly resolving
+            // FunctionType nodes to function types.
+            const should_try_function_format = std.mem.eql(u8, typeStr, "{}") or
+                (std.mem.eql(u8, typeStr, "any") and blk: {
+                    // Check if the declaration has a FunctionType/ConstructorType
+                    // annotation.
+                    if (symObj.Declarations.items.len == 0) break :blk false;
+                    const decl_node = symObj.Declarations.items[0];
+                    const decl_data = p.ast.getNode(decl_node);
+                    const type_node: ?u32 = switch (decl_data) {
+                        .PropertySignature => |ps| ps.Type,
+                        .PropertyDeclaration => |pd| pd.Type,
+                        else => null,
+                    };
+                    if (type_node) |tn| {
+                        if (tn != 0) {
+                            const tn_kind = p.ast.getNodeKind(tn);
+                            break :blk tn_kind == .FunctionType or tn_kind == .ConstructorType;
+                        }
+                    }
+                    break :blk false;
+                });
+            if (should_try_function_format) {
                 // First try the symbol's signatures (works for Function/Method symbols).
                 var sigs = c.getSignaturesOfSymbol(sym);
                 // If the symbol has no signatures (e.g. a Property whose value is a
@@ -1928,6 +1951,73 @@ pub const FourslashTest = struct {
                     const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
                     out.appendSlice(aa, retTypeStr) catch {};
                     return out.toOwnedSlice(aa) catch "";
+                }
+                // Fallback: format directly from the FunctionType AST node.
+                // This handles cases where the checker doesn't resolve the
+                // FunctionType to a proper function type.
+                if (std.mem.eql(u8, typeStr, "any") and symObj.Declarations.items.len > 0) {
+                    const decl_node = symObj.Declarations.items[0];
+                    const decl_data = p.ast.getNode(decl_node);
+                    const type_node: ?u32 = switch (decl_data) {
+                        .PropertySignature => |ps| ps.Type,
+                        .PropertyDeclaration => |pd| pd.Type,
+                        else => null,
+                    };
+                    if (type_node) |tn| {
+                        if (tn != 0) {
+                            const tn_kind = p.ast.getNodeKind(tn);
+                            if (tn_kind == .FunctionType or tn_kind == .ConstructorType) {
+                                // Format from AST: (params) => returnType
+                                const ft = p.ast.getNode(tn);
+                                const params_list: u32 = switch (ft) {
+                                    .FunctionType => |n| n.Parameters,
+                                    .ConstructorType => |n| n.Parameters,
+                                    else => 0,
+                                };
+                                const ret_node: ?u32 = switch (ft) {
+                                    .FunctionType => |n| n.Type,
+                                    .ConstructorType => |n| n.Type,
+                                    else => null,
+                                };
+                                out.appendSlice(aa, "(") catch {};
+                                if (params_list != 0) {
+                                    const params = p.ast.getNodeList(params_list);
+                                    for (params, 0..) |param, i| {
+                                        if (i > 0) out.appendSlice(aa, ", ") catch {};
+                                        if (param != 0) {
+                                            const param_data = p.ast.getNode(param).Parameter;
+                                            const param_name = if (param_data.name != 0) ast_utils.getTextOfNode(&p.ast, param_data.name) else "";
+                                            const param_type_str: []const u8 = if (param_data.Type) |pt| blk: {
+                                                if (pt != 0) {
+                                                    const pt_type = c.getTypeFromTypeNode(pt);
+                                                    if (pt_type != 0) {
+                                                        const s = c.typeToString(pt_type, 0, 0, null);
+                                                        if (s.len > 0) break :blk s;
+                                                    }
+                                                }
+                                                break :blk "any";
+                                            } else "any";
+                                            const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{param_name, param_type_str}) catch "";
+                                            out.appendSlice(aa, pStr) catch {};
+                                        }
+                                    }
+                                }
+                                out.appendSlice(aa, ") => ") catch {};
+                                const ret_str: []const u8 = if (ret_node) |rn| blk: {
+                                    if (rn != 0) {
+                                        const rt_type = c.getTypeFromTypeNode(rn);
+                                        if (rt_type != 0) {
+                                            const s = c.typeToString(rt_type, 0, 0, null);
+                                            if (s.len > 0) break :blk s;
+                                        }
+                                    }
+                                    break :blk "any";
+                                } else "any";
+                                out.appendSlice(aa, ret_str) catch {};
+                                return out.toOwnedSlice(aa) catch "";
+                            }
+                        }
+                    }
                 }
             }
             out.appendSlice(aa, typeStr) catch {};
