@@ -169,6 +169,15 @@ pub const Checker = struct {
 
         // Walk up from fn_node to find a CallExpression that has fn_node as an argument.
         var cur = c.binder.ast.getNodeParent(fn_node);
+        // Walk through ParenthesizedExpression/NonNullExpression which are transparent.
+        while (cur != 0) {
+            const k = c.binder.ast.getNodeKind(cur);
+            if (k == .ParenthesizedExpression or k == .NonNullExpression) {
+                cur = c.binder.ast.getNodeParent(cur);
+                continue;
+            }
+            break;
+        }
         while (cur != 0) {
             const k = c.binder.ast.getNodeKind(cur);
             if (k == .CallExpression or k == .NewExpression) {
@@ -183,14 +192,15 @@ pub const Checker = struct {
                     }
                 }
                 if (arg_idx == null) return null;
+                const a_idx = arg_idx.?;
 
                 // Get the resolved signature and look up the parameter type.
                 const sig = c.getResolvedSignature(cur, null, .Normal);
                 if (sig == 0 or sig >= c.signatures.items.len) return null;
                 const sig_obj = &c.signatures.items[sig];
-                if (idx >= sig_obj.parametersLen) return null;
-                if (sig_obj.parametersStart + idx >= c.signatureParameters.items.len) return null;
-                const param_sym = c.signatureParameters.items[sig_obj.parametersStart + idx];
+                if (a_idx >= sig_obj.parametersLen) return null;
+                if (sig_obj.parametersStart + a_idx >= c.signatureParameters.items.len) return null;
+                const param_sym = c.signatureParameters.items[sig_obj.parametersStart + a_idx];
                 if (param_sym == 0 or param_sym >= c.binder.symbols.items.len) return null;
 
                 // First, try to get the parameter's type annotation directly
@@ -4272,7 +4282,11 @@ pub const Checker = struct {
                 // Contextual typing: if this parameter is in a function expression
                 // that's an argument to a call, infer the parameter type from the
                 // call's signature.
+                // nodeIndex is the Parameter node (decl), parent_node is the
+                // function-like declaration containing it.
                 if (parent_node != 0) {
+                    // The "fn_node" we pass should be the function-like parent
+                    // (FunctionExpression, ArrowFunction, etc.), which IS parent_node.
                     if (self.getContextualParameterType(nodeIndex, parent_node)) |ctx_type| {
                         if (ctx_type != 0) return ctx_type;
                     }
