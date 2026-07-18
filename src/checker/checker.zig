@@ -1699,6 +1699,9 @@ pub const Checker = struct {
     }
 
     pub fn getReducedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Sanity check: if t is 0 or out-of-bounds (garbage value from
+        // uninitialized memory or stale pointer), return 0 to avoid crash.
+        if (t == 0 or t >= c.typesList.items.len) return 0;
         const flags = c.typesList.items[t].flags;
         if ((flags & types.TypeFlags.Union) != 0) {
             const objectFlags = c.getObjectFlags(t);
@@ -2025,6 +2028,9 @@ pub const Checker = struct {
 
     pub fn TypeToStringEx(self: *Checker, t: types.TypeIndex, enclosingDeclaration: ast_gen.NodeIndex, formatFlags: u32, tracer: ?*nodebuilder.VerbosityContext) []const u8 {
         if (t == 0) return "any";
+        // Sanity check: if t is out-of-bounds (garbage value), return "any"
+        // to avoid crashing on invalid type indices.
+        if (t >= self.typesList.items.len) return "any";
         const typeData = &self.typesList.items[t];
         if (typeData.flags & types.TypeFlags.String != 0) return "string";
         if (typeData.flags & types.TypeFlags.Number != 0) return "number";
@@ -25356,14 +25362,22 @@ pub fn checkVariableDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
 }
 
 pub fn checkVariableLikeDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) void {
-    // We only need to traverse children to maintain traversal order.
-    // In DoD, we don't need to do complex type checking yet if we are just traversing, but checking types is what the checker does.
-    // So let's implement the AST traversal parts.
+    // Read the Type annotation and Initializer from the VariableDeclaration
+    // node. The previous implementation hardcoded these to 0, which meant
+    // the checker never checked the type annotation node (so type
+    // annotations on variables were never type-checked).
+    const decl_data = c.binder.ast.getNode(node_idx);
+    const type_idx: ast_gen.NodeIndex = switch (decl_data) {
+        .VariableDeclaration => |n| n.Type orelse 0,
+        else => 0,
+    };
+    const initializer_idx: ast_gen.NodeIndex = switch (decl_data) {
+        .VariableDeclaration => |n| n.Initializer orelse 0,
+        else => 0,
+    };
+
     const name_idx = ast_utils.getName(c.binder.ast, node_idx);
     if (name_idx == 0) return; // Missing array binding elements have no name
-
-    const type_idx = 0;
-    const initializer_idx = 0;
 
     if (!ast_utils.isBindingElement(c.binder.ast, node_idx)) {
         if (type_idx != 0) checkSourceElement(c, type_idx);
@@ -25371,36 +25385,19 @@ pub fn checkVariableLikeDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) vo
 
     if (ast_utils.isComputedPropertyName(c.binder.ast, name_idx)) {
         _ = checkExpression(c, name_idx);
-        if (initializer_idx != 0) {
-            _ = checkExpression(c, initializer_idx);
-        }
-    }
-
-    if (ast_utils.isBindingElement(c.binder.ast, node_idx)) {
-        const propName = 0;
-        if (propName != 0 and ast_utils.isComputedPropertyName(c.binder.ast, propName)) {
-            c.checkComputedPropertyName(propName);
-        }
     }
 
     if (ast_utils.isBindingPattern(c.binder.ast, name_idx)) {
-        // c.checkSourceElements(name.Elements())
         const elements = ast_utils.getElements(c.binder.ast, name_idx);
         if (elements.len != 0) {
-            const list = elements;
-            for (list) |el_idx| {
+            for (elements) |el_idx| {
                 if (el_idx != 0) checkSourceElement(c, el_idx);
             }
         }
     }
 
-    if (ast_utils.isBindingPattern(c.binder.ast, name_idx)) {
-        // check the binding pattern with empty elements
-        // This is skipped for now as we just do the traversal.
-    } else {
-        if (initializer_idx != 0) {
-            _ = checkExpression(c, initializer_idx);
-        }
+    if (initializer_idx != 0) {
+        _ = checkExpression(c, initializer_idx);
     }
 }
 pub fn checkVariableStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
