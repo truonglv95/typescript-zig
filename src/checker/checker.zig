@@ -2390,16 +2390,23 @@ pub const Checker = struct {
                         // If the symbol is an anonymous type literal or object literal,
                         // render its members.
                         const sym_flags = self.binder.symbols.items[sym].Flags;
-                        const is_anon = (sym_flags & (symbol.SymbolFlags.TypeLiteral | symbol.SymbolFlags.ObjectLiteral)) != 0;
+        const is_anon = (sym_flags & (symbol.SymbolFlags.TypeLiteral | symbol.SymbolFlags.ObjectLiteral)) != 0;
                         if (is_anon and self.serializationLevel < 20) {
                             // Resolve members.
                             const resolved = self.resolveStructuredTypeMembers(t);
                             if (resolved.propertiesLen > 0) {
                                 var buf = std.ArrayListUnmanaged(u8).empty;
-                                buf.appendSlice(self.allocator, "{ ") catch {};
+                                // Use multiline format when there are 2+ properties
+                                // (matches TypeScript's default TypeToString behavior).
+                                const use_multiline = resolved.propertiesLen >= 2;
+                                const sep: []const u8 = if (use_multiline) "\n    " else " ";
+                                const prefix: []const u8 = if (use_multiline) "{\n    " else "{ ";
+                                const suffix: []const u8 = if (use_multiline) ";\n}" else " }";
+                                buf.appendSlice(self.allocator, prefix) catch {};
                                 const props = self.resolvedPropertiesPool.items[resolved.propertiesStart .. resolved.propertiesStart + resolved.propertiesLen];
                                 for (props, 0..) |prop_sym, i| {
-                                    if (i > 0) buf.appendSlice(self.allocator, "; ") catch {};
+                                    if (i > 0) buf.appendSlice(self.allocator, ";") catch {};
+                                    if (i > 0) buf.appendSlice(self.allocator, sep) catch {};
                                     const prop_obj = self.binder.symbols.items[prop_sym];
                                     buf.appendSlice(self.allocator, prop_obj.Name) catch {};
                                     // Check optional
@@ -2411,7 +2418,7 @@ pub const Checker = struct {
                                     const prop_type_str = if (prop_type != 0) self.typeToString(prop_type, 0, 0, null) else "any";
                                     buf.appendSlice(self.allocator, prop_type_str) catch {};
                                 }
-                                buf.appendSlice(self.allocator, " }") catch {};
+                                buf.appendSlice(self.allocator, suffix) catch {};
                                 const result = buf.toOwnedSlice(self.allocator) catch return "Object";
                                 self.ownedStrings.append(self.allocator, result) catch {};
                                 return result;
@@ -26711,34 +26718,20 @@ pub fn checkObjectLiteral(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: C
     // Create an anonymous object type with the object literal's symbol.
     // This allows TypeToStringEx to render the properties as
     // { name: string; age: number; } instead of {}.
-    // Skip this for object literals that are initializers of variables
-    // where the initializer references the variable itself (recursive),
-    // to avoid infinite recursion in type resolution.
+    // The recursion guard in checkIdentifier handles self-referential
+    // cases like `var a = { f: a }` by returning anyType when `a` is
+    // encountered during resolution.
     const sym = c.binder.ast.getNodeSymbol(node_idx) orelse 0;
     if (sym != 0) {
-        // Check if this object literal is the initializer of a variable
-        // declaration, and if so, whether the variable is referenced inside.
-        const parent = c.binder.ast.getNodeParent(node_idx);
-        var is_recursive = false;
-        if (parent != 0 and c.binder.ast.getNodeKind(parent) == .VariableDeclaration) {
-            // Get the variable's symbol.
-            if (c.binder.ast.getNodeSymbol(parent)) |var_sym| {
-                if (var_sym != 0 and c.resolvingSymbols.contains(var_sym)) {
-                    is_recursive = true;
-                }
-            }
-        }
-        if (!is_recursive) {
-            const t = c.createType(.{
-                .flags = types.TypeFlags.Object,
-                .objectFlags = types.ObjectFlags.Anonymous,
-                .id = 0,
-                .symbol = sym,
-                .alias = null,
-                .data = .{ .Object = .{ .Symbol = sym } },
-            }) catch return c.anyTypeIndex orelse 0;
-            return t;
-        }
+        const t = c.createType(.{
+            .flags = types.TypeFlags.Object,
+            .objectFlags = types.ObjectFlags.Anonymous,
+            .id = 0,
+            .symbol = sym,
+            .alias = null,
+            .data = .{ .Object = .{ .Symbol = sym } },
+        }) catch return c.anyTypeIndex orelse 0;
+        return t;
     }
     return c.anyTypeIndex orelse 0;
 }
