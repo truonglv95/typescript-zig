@@ -24192,6 +24192,15 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
                 .SetAccessor => |n| n.name == node,
                 .PropertyAssignment => |n| n.name == node,
                 .EnumMember => |n| n.name == node,
+                .BindingElement => |n| n.name == node,
+                .VariableDeclaration => |n| n.name == node,
+                .Parameter => |n| n.name == node,
+                .FunctionDeclaration => |n| n.name orelse 0 == node,
+                .ClassDeclaration => |n| n.name orelse 0 == node,
+                .InterfaceDeclaration => |n| n.name == node,
+                .TypeAliasDeclaration => |n| n.name == node,
+                .EnumDeclaration => |n| n.name == node,
+                .ModuleDeclaration => |n| n.name == node,
                 else => false,
             };
             if (is_name_of_decl) {
