@@ -1431,6 +1431,37 @@ pub const FourslashTest = struct {
             return self.formatThisKeywordQuickInfo(node);
         }
 
+        // JSDoc @property tag: when hovering on the property name inside a
+        // `@property {type} name` JSDoc tag, format as
+        // `(property) <name>: <type>`. The comment text after the name
+        // becomes the documentation, but we don't display docs here.
+        if (node_kind == .Identifier) {
+            const parent = p.ast.getNodeParent(node);
+            if (parent != 0 and p.ast.getNodeKind(parent) == .JSDocPropertyTag) {
+                const ptag = p.ast.getNode(parent).JSDocPropertyTag;
+                if (ptag.name == node) {
+                    const prop_name = ast_utils.getTextOfNode(&p.ast, node);
+                    var type_str: []const u8 = "any";
+                    if (ptag.TypeExpression) |te| {
+                        if (te != 0) {
+                            const tp = c.getTypeFromTypeNode(te);
+                            if (tp != 0) {
+                                const s = c.typeToString(tp, 0, 0, null);
+                                if (s.len > 0) type_str = s;
+                            }
+                        }
+                    }
+                    var out = std.ArrayListUnmanaged(u8).empty;
+                    const aa = self.arena.allocator();
+                    out.appendSlice(aa, "(property) ") catch {};
+                    out.appendSlice(aa, prop_name) catch {};
+                    out.appendSlice(aa, ": ") catch {};
+                    out.appendSlice(aa, type_str) catch {};
+                    return out.toOwnedSlice(aa) catch "";
+                }
+            }
+        }
+
         // Constructor display: if the cursor is on an Identifier that is the
         // Expression of a NewExpression (eg `new Foo()` where cursor is on
         // `Foo`), display the constructor signature instead of the class
