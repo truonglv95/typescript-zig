@@ -1907,6 +1907,32 @@ pub const FourslashTest = struct {
         if ((symObj.Flags & symbol.SymbolFlags.Class) != 0) {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
+
+            // Check if this is a local class expression (eg `class {}`
+            // or `class Foo {}` used as an expression, not a declaration).
+            // For local class expressions, format as:
+            //   "(local class) (Anonymous class)" — if unnamed
+            //   "(local class) Name" — if named
+            var is_local_class = false;
+            if (symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                if (p.ast.getNodeKind(decl_node) == .ClassExpression) {
+                    is_local_class = true;
+                }
+            }
+
+            if (is_local_class) {
+                out.appendSlice(aa, "(local class)") catch {};
+                if (symObj.Name.len > 0 and !std.mem.eql(u8, symObj.Name, "__class")) {
+                    out.appendSlice(aa, " ") catch {};
+                    out.appendSlice(aa, symObj.Name) catch {};
+                } else {
+                    // Anonymous class.
+                    out.appendSlice(aa, " (Anonymous class)") catch {};
+                }
+                return out.toOwnedSlice(aa) catch "";
+            }
+
             out.appendSlice(aa, "class ") catch {};
             out.appendSlice(aa, symObj.Name) catch {};
             // Append type parameters if present.
