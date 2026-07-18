@@ -4877,6 +4877,17 @@ pub const Checker = struct {
                         _ = self.checkStatementAdHoc(prop) catch {};
                     }
                 }
+                // Check for recursive references: if this object literal is
+                // the initializer of a variable currently being resolved,
+                // return anyType to break the cycle.
+                const parent = self.binder.ast.getNodeParent(nodeIndex);
+                if (parent != 0 and self.binder.ast.getNodeKind(parent) == .VariableDeclaration) {
+                    if (self.binder.ast.getNodeSymbol(parent)) |var_sym| {
+                        if (var_sym != 0 and self.resolvingSymbols.contains(var_sym)) {
+                            return try self.getAnyType();
+                        }
+                    }
+                }
                 return try self.createType(.{
                     .flags = types.TypeFlags.Object,
                     .objectFlags = types.ObjectFlags.ObjectLiteral | types.ObjectFlags.FreshLiteral | types.ObjectFlags.Anonymous,
@@ -25871,6 +25882,15 @@ pub fn checkVariableLikeDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) vo
             var_type = type_resolution_pkg.getTypeFromTypeNode(c, type_idx);
         }
         if (var_type == 0 and initializer_idx != 0) {
+            // Mark the variable's symbol as "resolving" so that recursive
+            // references in the initializer (e.g. `var a = { f: a }`)
+            // resolve to `any` instead of recursing infinitely.
+            const var_sym = if (decl_data == .VariableDeclaration) blk: {
+                if (c.binder.ast.getNodeSymbol(node_idx)) |s| break :blk s;
+                break :blk @as(u32, 0);
+            } else 0;
+            if (var_sym != 0) c.resolvingSymbols.put(c.allocator, var_sym, {}) catch {};
+            defer _ = c.resolvingSymbols.remove(var_sym);
             var_type = c.checkExpressionCachedEx(initializer_idx, CheckMode.Normal);
             // Widen literal types for var/let (not const, not parameters).
             // Const declarations preserve literal types.
@@ -26616,6 +26636,12 @@ pub fn checkIdentifier(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: Chec
     }
     if (c.resolver.resolve(node_idx, name, symbol.SymbolFlags.Value, null, false, false)) |symIndex| {
         if (symIndex != 0 and symIndex != c.unknownSymbol) {
+            // Recursion guard: if this symbol is currently being resolved
+            // (e.g. `var a = { f: a }` where a references itself), return
+            // anyType to break the cycle.
+            if (c.resolvingSymbols.contains(symIndex)) {
+                return c.anyTypeIndex orelse 0;
+            }
             const t = c.getTypeOfSymbol(symIndex) catch c.anyTypeIndex orelse 0;
             return t;
         }
