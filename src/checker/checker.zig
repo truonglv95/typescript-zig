@@ -4858,6 +4858,22 @@ pub const Checker = struct {
                 }
                 return try self.getAnyType();
             },
+            .NamedTupleMember => |ntm| {
+                // For a NamedTupleMember (e.g., `length: number`), the type
+                // is the type of the inner Type node.
+                if (ntm.Type != 0) {
+                    return try self.getTypeOfNode(ntm.Type);
+                }
+                return try self.getAnyType();
+            },
+            .OptionalType => |ot| {
+                if (ot.Type != 0) return try self.getTypeOfNode(ot.Type);
+                return try self.getAnyType();
+            },
+            .RestType => |rt| {
+                if (rt.Type != 0) return try self.getTypeOfNode(rt.Type);
+                return try self.getAnyType();
+            },
             else => return try self.getAnyType(),
         }
     }
