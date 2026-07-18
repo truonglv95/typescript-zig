@@ -24,7 +24,10 @@ fn fillNodeStart(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
 
         pub fn visitNode(self: *@This(), child: ast_gen.NodeIndex) anyerror!void {
             const child_pos = fillNodeStart(self.tree, child);
-            if (child_pos < self.min_child_pos.*) {
+            // Only consider children with actual positions (not no_position).
+            // This prevents unset tokens (e.g. operator tokens like PlusToken)
+            // from propagating pos=0 to the parent.
+            if (child_pos != no_position and child_pos < self.min_child_pos.*) {
                 self.min_child_pos.* = child_pos;
             }
         }
@@ -44,7 +47,7 @@ fn fillNodeStart(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {
         tree.positions.items[node].pos = min_child_pos;
     }
 
-    return if (tree.positions.items[node].pos == ast.Ast.unset_pos) 0 else tree.positions.items[node].pos;
+    return if (tree.positions.items[node].pos == ast.Ast.unset_pos) no_position else tree.positions.items[node].pos;
 }
 
 fn fillNodeEnd(tree: *ast.Ast, node: ast_gen.NodeIndex) u32 {

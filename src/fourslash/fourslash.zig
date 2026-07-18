@@ -1497,9 +1497,13 @@ pub const FourslashTest = struct {
                         }
                     }
                     if (is_local_function) {
-                        out.appendSlice(aa, "(local function) ") catch {};
-                        // Include the function name if it has one.
+                        out.appendSlice(aa, "(local function)") catch {};
+                        // Include the function name if it has one. For
+                        // anonymous functions (name == "__function"), skip
+                        // the name entirely — output is "(local function)()"
+                        // with no space between ")" and "(".
                         if (symObj.Name.len > 0 and !std.mem.eql(u8, symObj.Name, "__function")) {
+                            out.appendSlice(aa, " ") catch {};
                             out.appendSlice(aa, symObj.Name) catch {};
                         }
                     } else {

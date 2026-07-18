@@ -2199,13 +2199,18 @@ pub const Parser = struct {
 
         const statements = try self.parseList(.BlockStatements, parseStatement);
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
+        // After consuming `}`, scanner.state.tokenStart points to the
+        // position immediately after `}` — capture it as the block's end.
+        const end_pos = self.scanner.state.tokenStart;
 
         const block = try self.ast.pushNode(.{ .Block = .{
             .Flags = 0,
             .Statements = statements,
             .MultiLine = multiLine,
         } });
-        self.setNodeStartPos(block, start_pos);
+        if (block != 0 and block < self.ast.positions.items.len) {
+            self.ast.positions.items[block] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+        }
         return block;
     }
 
@@ -2445,6 +2450,10 @@ pub const Parser = struct {
         } else {
             _ = self.parseExpected(kind.Kind.OpenBraceToken);
         }
+        // Capture end position from the body's end (or current scanner
+        // position if body is missing).
+        const body_end = if (body) |b| self.ast.getNodeEnd(b) else self.scanner.state.tokenStart;
+        const end_pos = if (body_end != 0) body_end else self.scanner.state.tokenStart;
 
         const expr = try self.ast.pushNode(.{ .FunctionExpression = .{
             .Flags = 0,
@@ -2459,7 +2468,9 @@ pub const Parser = struct {
             .Body = body,
             .name = name,
         } });
-        self.setNodeStartPos(expr, start_pos);
+        if (expr != 0 and expr < self.ast.positions.items.len) {
+            self.ast.positions.items[expr] = .{ .pos = @intCast(start_pos), .end = @intCast(end_pos) };
+        }
         return expr;
     }
 

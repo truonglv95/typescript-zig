@@ -1241,6 +1241,12 @@ pub fn parseParenthesizedArrowFunctionExpression(p: *parser_pkg.Parser, allowAmb
         .Body = body,
     } }) catch 0;
     p.setNodeStartPos(node, arrow_start);
+    // Set end position from body's end (or current scanner position).
+    if (node != 0 and node < p.ast.positions.items.len) {
+        const body_end = if (body != 0) p.ast.getNodeEnd(body) else 0;
+        const end_pos = if (body_end != 0) body_end else p.scanner.state.tokenStart;
+        p.ast.positions.items[node].end = @intCast(end_pos);
+    }
     return node;
 }
 
@@ -1314,6 +1320,12 @@ pub fn parseSimpleArrowFunctionExpression(p: *parser_pkg.Parser, identifier: ast
         },
     });
     p.setNodeStartPos(node, arrow_start);
+    // Set end position from body's end (or current scanner position).
+    if (node != 0 and node < p.ast.positions.items.len) {
+        const body_end = if (body != 0) p.ast.getNodeEnd(body) else 0;
+        const end_pos = if (body_end != 0) body_end else p.scanner.state.tokenStart;
+        p.ast.positions.items[node].end = @intCast(end_pos);
+    }
     return node;
 }
 
