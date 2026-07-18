@@ -24808,12 +24808,37 @@ pub fn checkForInStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
         // }
     }
     const node = c.binder.ast.getNode(node_idx).ForInStatement;
+    // Check the RHS expression first — its type determines the for-in
+    // loop variable's type (string for any/object types).
+    const right_type = checkExpression(c, node.Expression);
     if (c.binder.ast.getKind(node.Initializer) == .VariableDeclarationList) {
         checkVariableDeclarationList(c, node.Initializer);
+        // Assign string type to the loop variable. In TypeScript, `for
+        // (var k in obj)` always types `k` as `string` (the keys of the
+        // object). Walk the VariableDeclarationList to find the variable
+        // declaration and set its type via valueSymbolLinks.
+        const decl_list = c.binder.ast.getNode(node.Initializer).VariableDeclarationList;
+        const declarations = c.binder.ast.getNodeList(decl_list.Declarations);
+        const string_type = c.stringTypeIndex orelse 0;
+        _ = right_type; // for-in always returns string keys regardless of RHS
+        if (string_type != 0) {
+            for (declarations) |decl_node| {
+                if (decl_node == 0) continue;
+                const decl_sym = c.getSymbolOfDeclaration(decl_node);
+                if (decl_sym != 0) {
+                    // Cache the type in valueSymbolLinks so getTypeOfSymbol
+                    // returns it without re-resolving.
+                    var links = c.valueSymbolLinks.getOrPut(c.allocator, decl_sym) catch continue;
+                    if (!links.found_existing) {
+                        links.value_ptr.* = .{};
+                    }
+                    links.value_ptr.resolvedType = string_type;
+                }
+            }
+        }
     } else {
         _ = checkExpression(c, node.Initializer);
     }
-    _ = checkExpression(c, node.Expression);
     if (node.Statement != 0) checkSourceElement(c, node.Statement);
 }
 pub fn checkForOfStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
