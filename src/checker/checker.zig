@@ -24265,7 +24265,17 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
         if (pae.name == node) {
             // We're hovering on the property name; look up the type of the
             // expression (obj), then find the property by name.
-            const obj_type = c.checkExpressionCached(pae.Expression);
+            var obj_type = c.checkExpressionCached(pae.Expression);
+            // Fallback: if checkExpressionCached returned 0, try resolving
+            // the object expression's symbol and getting its type.
+            // This handles cases where the expression is a parameter or
+            // variable whose type hasn't been cached yet.
+            if (obj_type == 0 and c.binder.ast.getNodeKind(pae.Expression) == .Identifier) {
+                const obj_sym = getResolvedSymbol(c, pae.Expression);
+                if (obj_sym != 0 and obj_sym != c.unknownSymbol) {
+                    obj_type = c.getTypeOfSymbol(obj_sym) catch 0;
+                }
+            }
             if (obj_type != 0) {
                 const name_str = ast_utils.getTextOfNode(c.binder.ast, node);
                 if (c.getPropertyOfType(obj_type, name_str)) |prop_sym| {
