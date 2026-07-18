@@ -2999,6 +2999,8 @@ pub const Parser = struct {
         }
 
         _ = self.parseExpected(kind.Kind.CloseBraceToken);
+        // After consuming `}`, capture end position.
+        const class_end = self.scanner.state.tokenStart;
         const members = try self.ast.pushNodeList(members_arr.items);
 
         const decl = try self.ast.pushNode(.{ .ClassDeclaration = .{
@@ -3011,7 +3013,9 @@ pub const Parser = struct {
             .HeritageClauses = heritageClauses,
             .Members = members,
         } });
-        self.setNodeStartPos(decl, start_pos);
+        if (decl != 0 and decl < self.ast.positions.items.len) {
+            self.ast.positions.items[decl] = .{ .pos = @intCast(start_pos), .end = @intCast(class_end) };
+        }
         return decl;
     }
 
