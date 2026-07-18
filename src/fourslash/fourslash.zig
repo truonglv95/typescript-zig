@@ -1272,6 +1272,89 @@ pub const FourslashTest = struct {
         return out.toOwnedSlice(aa) catch "";
     }
 
+    /// Format quick info for a constructor call. When the user hovers on
+    /// the class name in a `new ClassName(args)` expression, Go displays
+    /// the constructor signature: `constructor ClassName<typeArgs>(params): ClassName<typeArgs>`.
+    /// Returns null if we can't format it (caller falls back to class display).
+    fn formatConstructorQuickInfo(self: *FourslashTest, identifier_node: ast_gen.NodeIndex, new_expr: ast_gen.NodeIndex) ?[]const u8 {
+        const c = self.checker orelse return null;
+        const p = self.parser orelse return null;
+
+        // Get the symbol of the class.
+        const sym = checker_module.getSymbolAtLocation(c, identifier_node);
+        if (sym == 0) return null;
+        const sym_obj = c.binder.symbols.items[sym];
+        if ((sym_obj.Flags & symbol.SymbolFlags.Class) == 0) return null;
+
+        // Get the class type.
+        const class_type = c.tryGetDeclaredTypeOfSymbol(sym);
+        if (class_type == 0) return null;
+
+        // Build "constructor ClassName<typeArgs>(): ClassName<typeArgs>"
+        // For now, use the class name with type arguments from the
+        // NewExpression's TypeArguments (if any), otherwise just the
+        // class name.
+        var out = std.ArrayListUnmanaged(u8).empty;
+        const aa = self.arena.allocator();
+        out.appendSlice(aa, "constructor ") catch {};
+        out.appendSlice(aa, sym_obj.Name) catch {};
+
+        // Append type arguments from the NewExpression if present.
+        const ne = p.ast.getNode(new_expr).NewExpression;
+        if (ne.TypeArguments) |ta| {
+            const args = p.ast.getNodeList(ta);
+            if (args.len > 0) {
+                out.appendSlice(aa, "<") catch {};
+                for (args, 0..) |arg, i| {
+                    if (i > 0) out.appendSlice(aa, ", ") catch {};
+                    if (arg != 0) {
+                        // Get the type from the type argument node.
+                        const t = c.getTypeFromTypeNode(arg);
+                        if (t != 0) {
+                            const s = c.typeToString(t, 0, 0, null);
+                            out.appendSlice(aa, s) catch {};
+                        } else {
+                            // Fallback to text.
+                            const text = ast_utils.getTextOfNode(&p.ast, arg);
+                            out.appendSlice(aa, text) catch {};
+                        }
+                    }
+                }
+                out.appendSlice(aa, ">") catch {};
+            }
+        }
+
+        // Append parameters (empty for now — full signature resolution
+        // would require resolving the construct signature).
+        out.appendSlice(aa, "()") catch {};
+
+        // Append return type: ClassName<typeArgs>
+        out.appendSlice(aa, ": ") catch {};
+        out.appendSlice(aa, sym_obj.Name) catch {};
+        if (ne.TypeArguments) |ta| {
+            const args = p.ast.getNodeList(ta);
+            if (args.len > 0) {
+                out.appendSlice(aa, "<") catch {};
+                for (args, 0..) |arg, i| {
+                    if (i > 0) out.appendSlice(aa, ", ") catch {};
+                    if (arg != 0) {
+                        const t = c.getTypeFromTypeNode(arg);
+                        if (t != 0) {
+                            const s = c.typeToString(t, 0, 0, null);
+                            out.appendSlice(aa, s) catch {};
+                        } else {
+                            const text = ast_utils.getTextOfNode(&p.ast, arg);
+                            out.appendSlice(aa, text) catch {};
+                        }
+                    }
+                }
+                out.appendSlice(aa, ">") catch {};
+            }
+        }
+
+        return out.toOwnedSlice(aa) catch null;
+    }
+
     /// Returns quick info string at current cursor position.
     /// Uses checker to find the symbol at cursor and format its type.
     pub fn getQuickInfoStringAtCursor(self: *FourslashTest) []const u8 {
@@ -1308,6 +1391,23 @@ pub const FourslashTest = struct {
 
         if (is_this_node) {
             return self.formatThisKeywordQuickInfo(node);
+        }
+
+        // Constructor display: if the cursor is on an Identifier that is the
+        // Expression of a NewExpression (eg `new Foo()` where cursor is on
+        // `Foo`), display the constructor signature instead of the class
+        // declaration. Mirrors Go's hover.go behavior.
+        if (node_kind == .Identifier) {
+            const parent = p.ast.getNodeParent(node);
+            if (parent != 0 and p.ast.getNodeKind(parent) == .NewExpression) {
+                const ne = p.ast.getNode(parent).NewExpression;
+                if (ne.Expression == node) {
+                    // Try to format as constructor.
+                    if (self.formatConstructorQuickInfo(node, parent)) |info| {
+                        return info;
+                    }
+                }
+            }
         }
 
         // Get the symbol at this location.
