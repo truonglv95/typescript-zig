@@ -7096,6 +7096,61 @@ pub const Checker = struct {
             });
         }
 
+        // Anonymous object literal type with index signatures: substitute
+        // each index info's value type. This handles cases like:
+        //   interface BaseCollection<TItem> {
+        //     _itemsByKey: { [key: string]: TItem; };
+        //   }
+        // When `a: BaseCollection<CollectionItem>` and we access `a._itemsByKey`,
+        // the property type is the anonymous object `{ [key: string]: TItem }`.
+        // We need to substitute TItem -> CollectionItem in the index signature.
+        if (type_data.data == .Object and (type_data.objectFlags & types.ObjectFlags.Anonymous) != 0) {
+            // Get index infos for this type.
+            const infos = self.getIndexInfosOfType(t);
+            if (infos.len > 0) {
+                var any_changed = false;
+                var new_infos = std.ArrayListUnmanaged(types.IndexInfo).empty;
+                defer new_infos.deinit(self.allocator);
+                for (infos) |info| {
+                    const new_vt = try self.substituteTypeParams(info.valueType, inferred);
+                    if (new_vt != info.valueType) any_changed = true;
+                    new_infos.append(self.allocator, .{
+                        .keyType = info.keyType,
+                        .valueType = new_vt,
+                        .isReadonly = info.isReadonly,
+                        .declaration = info.declaration,
+                    }) catch {};
+                }
+                if (any_changed) {
+                    // Create a new anonymous type with the substituted index infos.
+                    const new_idx_start: u32 = @intCast(self.resolvedIndexInfosPool.items.len);
+                    for (new_infos.items) |info| {
+                        self.resolvedIndexInfosPool.append(self.allocator, info) catch {};
+                    }
+                    const new_type = try self.createType(.{
+                        .flags = type_data.flags,
+                        .objectFlags = type_data.objectFlags,
+                        .id = 0,
+                        .symbol = type_data.symbol,
+                        .alias = null,
+                        .data = type_data.data,
+                    });
+                    var new_members = types.StructuredTypeMembers{};
+                    const orig_members = self.resolveStructuredTypeMembers(t);
+                    new_members.propertiesStart = orig_members.propertiesStart;
+                    new_members.propertiesLen = orig_members.propertiesLen;
+                    new_members.callSignaturesStart = orig_members.callSignaturesStart;
+                    new_members.callSignaturesLen = orig_members.callSignaturesLen;
+                    new_members.constructSignaturesStart = orig_members.constructSignaturesStart;
+                    new_members.constructSignaturesLen = orig_members.constructSignaturesLen;
+                    new_members.indexInfosStart = new_idx_start;
+                    new_members.indexInfosLen = @intCast(new_infos.items.len);
+                    self.resolvedStructuredTypeMembers.put(self.allocator, new_type, new_members) catch {};
+                    return new_type;
+                }
+            }
+        }
+
         // Other types: return as-is (no substitution).
         return t;
     }
