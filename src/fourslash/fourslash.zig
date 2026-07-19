@@ -2171,7 +2171,7 @@ pub const FourslashTest = struct {
         const symObj = c.binder.symbols.items[sym];
 
         // Format the symbol's type.
-        const sym_type = c.getTypeOfSymbol(sym) catch return "";
+        var sym_type = c.getTypeOfSymbol(sym) catch return "";
         if (sym_type == 0) return "";
 
         // Find the specific declaration the user is hovering on (if any).
@@ -2196,6 +2196,106 @@ pub const FourslashTest = struct {
                 const parent = p.ast.getNodeParent(cur);
                 if (parent == cur or parent == 0) break;
                 cur = parent;
+            }
+        }
+
+        // If the type is any and the variable has a CallExpression initializer,
+        // try to infer the return type from the call.
+        if (sym_type == (c.anyTypeIndex orelse 0) and symObj.Declarations.items.len > 0) {
+            const aa2 = self.arena.allocator();
+            const decl_node = symObj.Declarations.items[0];
+            if (p.ast.getNodeKind(decl_node) == .VariableDeclaration) {
+                const vd = p.ast.getNode(decl_node).VariableDeclaration;
+                if (vd.Initializer) |init| {
+                    if (init != 0 and (p.ast.getNodeKind(init) == .CallExpression or p.ast.getNodeKind(init) == .NewExpression)) {
+                        // Try to get the return type of the call expression.
+                        // Use checkExpressionEx (not cached) to bypass stale cache.
+                        const call_type = checker_module.checkExpressionEx(c, init, .Normal);
+                        if (call_type != 0 and call_type != (c.anyTypeIndex orelse 0) and call_type < c.typesList.items.len) {
+                            sym_type = call_type;
+                        } else {
+                            // Try the resolved signature's return type with inference.
+                            const sig = c.getResolvedSignature(init, null, .Normal);
+                            if (sig != 0 and sig < c.signatures.items.len) {
+                                const sig_decl = c.signatures.items[sig].declaration;
+                                if (sig_decl != 0) {
+                                    const sd = p.ast.getNode(sig_decl);
+                                    const tp_list_id: u32 = switch (sd) {
+                                        .FunctionDeclaration => |f| f.TypeParameters orelse 0,
+                                        .FunctionExpression => |f| f.TypeParameters orelse 0,
+                                        .ArrowFunction => |f| f.TypeParameters orelse 0,
+                                        .MethodDeclaration => |m| m.TypeParameters orelse 0,
+                                        .CallSignature => |cs| cs.TypeParameters orelse 0,
+                                        .ConstructSignature => |cs| cs.TypeParameters orelse 0,
+                                        else => 0,
+                                    };
+                                    if (tp_list_id != 0) {
+                                        const tp_nodes = p.ast.getNodeList(tp_list_id);
+                                        if (tp_nodes.len > 0) {
+                                            // Build inference map.
+                                            var inf_map = std.AutoHashMap(ast_gen.SymbolIndex, checker_module.types.TypeIndex).init(aa2);
+                                            for (tp_nodes) |tp_node| {
+                                                if (tp_node == 0) continue;
+                                                if (p.ast.getNodeSymbol(tp_node)) |tp_sym| {
+                                                    if (tp_sym != 0) inf_map.put(tp_sym, 0) catch {};
+                                                }
+                                            }
+                                            // Get arguments.
+                                            const args_id: ?u32 = if (p.ast.getNodeKind(init) == .CallExpression) p.ast.getNode(init).CallExpression.Arguments else p.ast.getNode(init).NewExpression.Arguments;
+                                            const args = if (args_id) |aid| (if (aid != 0) p.ast.getNodeList(aid) else &[_]ast_gen.NodeIndex{}) else &[_]ast_gen.NodeIndex{};
+                                            const sig_params = c.signatureParameters.items[c.signatures.items[sig].parametersStart .. c.signatures.items[sig].parametersStart + c.signatures.items[sig].parametersLen];
+                                            const min_l = @min(sig_params.len, args.len);
+                                            for (0..min_l) |i| {
+                                                const pt = c.getTypeOfSymbol(sig_params[i]) catch 0;
+                                                if (pt == 0 or pt >= c.typesList.items.len) continue;
+                                                var at = c.checkExpressionAdHoc(args[i]) catch 0;
+                                                if (at == 0 or at >= c.typesList.items.len) continue;
+                                                // Widen literal types in non-strict mode.
+                                                if (!c.strictNullChecks) {
+                                                    const atd = c.typesList.items[at];
+                                                    if ((atd.flags & checker_module.types.TypeFlags.NumberLiteral) != 0) {
+                                                        at = c.numberTypeIndex orelse at;
+                                                    } else if ((atd.flags & checker_module.types.TypeFlags.StringLiteral) != 0) {
+                                                        at = c.stringTypeIndex orelse at;
+                                                    } else if ((atd.flags & checker_module.types.TypeFlags.BooleanLiteral) != 0) {
+                                                        at = c.booleanTypeIndex orelse at;
+                                                    }
+                                                }
+                                                const ptd = c.typesList.items[pt];
+                                                if ((ptd.flags & checker_module.types.TypeFlags.TypeParameter) != 0) {
+                                                    if (ptd.symbol) |tp_sym| {
+                                                        if (inf_map.get(tp_sym)) |cv| {
+                                                            if (cv == 0) inf_map.put(tp_sym, at) catch {};
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            // Get return type and substitute.
+                                            var ret_type = c.getReturnTypeOfSignature(&c.signatures.items[sig]);
+                                            if (ret_type != 0) {
+                                                var subst = std.AutoHashMap(ast_gen.SymbolIndex, checker_module.types.TypeIndex).init(aa2);
+                                                for (tp_nodes) |tp_n| {
+                                                    if (tp_n != 0) {
+                                                        if (p.ast.getNodeSymbol(tp_n)) |ts| {
+                                                            if (ts != 0) {
+                                                                const val = inf_map.get(ts) orelse 0;
+                                                                if (val != 0) subst.put(ts, val) catch {};
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                ret_type = c.substituteTypeParams(ret_type, &subst) catch ret_type;
+                                                if (ret_type != 0 and ret_type != (c.anyTypeIndex orelse 0)) {
+                                                    sym_type = ret_type;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

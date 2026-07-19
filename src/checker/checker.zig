@@ -4143,8 +4143,13 @@ pub const Checker = struct {
         if (self.resolvingSymbols.contains(symIndex)) {
             return self.anyTypeIndex orelse 0;
         }
+        // Check cache, but don't return anyType from cache — retry
+        // to get a better type (the first pass may have missed types
+        // that weren't fully resolved yet).
         if (self.valueSymbolLinks.get(symIndex)) |links| {
-            if (links.resolvedType) |resolved| return resolved;
+            if (links.resolvedType) |resolved| {
+                if (resolved != (self.anyTypeIndex orelse 0)) return resolved;
+            }
         }
         self.resolvingSymbols.put(self.allocator, symIndex, {}) catch {};
         defer _ = self.resolvingSymbols.remove(symIndex);
