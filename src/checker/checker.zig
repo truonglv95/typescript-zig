@@ -16035,10 +16035,149 @@ pub const Checker = struct {
         //       if thisParameter != nil { return c.getTypeOfSymbol(thisParameter) }
         //     }
         //   }
-        //   ... (complex path with containingObjectLiteral, contextualType, etc.)
-        // Simplified: isContextSensitiveFunctionOrObjectLiteralMethod and
-        // getContextualSignature not yet wired; conservative return 0.
+        // Simplified: walk up from fn_ to find a VariableDeclaration or
+        // argument context with a type annotation that includes a `this`
+        // parameter. This handles the common case:
+        //   let x: SomeInterface = function(this, n) { ... }
+        //   ctx(function(this: A) { ... })
         if (ast_utils.isArrowFunction(c.binder.ast, fn_)) return 0;
+
+        // Walk up from fn_ to find a CallExpression (argument) or
+        // VariableDeclaration (assignment) that provides a contextual type.
+        var cur = c.binder.ast.getNodeParent(fn_);
+        while (cur != 0) {
+            const k = c.binder.ast.getNodeKind(cur);
+            if (k == .CallExpression or k == .NewExpression) {
+                // fn_ is an argument to a call. Get the resolved signature
+                // and look up the parameter type at the argument index.
+                const args_id_opt: ?u32 = if (k == .CallExpression) c.binder.ast.getNode(cur).CallExpression.Arguments else c.binder.ast.getNode(cur).NewExpression.Arguments;
+                if (args_id_opt) |aid| {
+                    if (aid != 0) {
+                        const args = c.binder.ast.getNodeList(aid);
+                        var arg_idx: ?usize = null;
+                        for (args, 0..) |a, i| {
+                            if (a == fn_) { arg_idx = i; break; }
+                        }
+                        if (arg_idx) |a_idx| {
+                            const sig = c.getResolvedSignature(cur, null, .Normal);
+                            if (sig != 0 and sig < c.signatures.items.len) {
+                                const sig_obj = &c.signatures.items[sig];
+                                if (a_idx < sig_obj.parametersLen and
+                                    sig_obj.parametersStart + a_idx < c.signatureParameters.items.len)
+                                {
+                                    const param_sym = c.signatureParameters.items[sig_obj.parametersStart + a_idx];
+                                    if (param_sym != 0 and param_sym < c.binder.symbols.items.len) {
+                                        // Check the parameter's declaration for a
+                                        // `this` parameter in a FunctionType annotation.
+                                        const param_sym_obj = c.binder.symbols.items[param_sym];
+                                        if (param_sym_obj.Declarations.items.len > 0) {
+                                            const param_decl = param_sym_obj.Declarations.items[0];
+                                            if (param_decl != 0 and c.binder.ast.getNodeKind(param_decl) == .Parameter) {
+                                                const param_data = c.binder.ast.getNode(param_decl).Parameter;
+                                                if (param_data.Type) |param_type_node| {
+                                                    if (param_type_node != 0) {
+                                                        const pt_kind = c.binder.ast.getNodeKind(param_type_node);
+                                                        if (pt_kind == .FunctionType or pt_kind == .ConstructorType) {
+                                                            // Extract the `this` parameter from the FunctionType.
+                                                            const ft_params_id: u32 = if (pt_kind == .FunctionType)
+                                                                c.binder.ast.getNode(param_type_node).FunctionType.Parameters
+                                                            else
+                                                                c.binder.ast.getNode(param_type_node).ConstructorType.Parameters;
+                                                            if (ft_params_id != 0) {
+                                                                const ft_params = c.binder.ast.getNodeList(ft_params_id);
+                                                                if (ft_params.len > 0) {
+                                                                    const first = ft_params[0];
+                                                                    if (first != 0) {
+                                                                        const fp_data = c.binder.ast.getNode(first).Parameter;
+                                                                        const fp_name_node = fp_data.name;
+                                                                        if (fp_name_node != 0) {
+                                                                            const is_this = blk: {
+                                                                                const nk = c.binder.ast.getNodeKind(fp_name_node);
+                                                                                if (nk == .ThisKeyword) break :blk true;
+                                                                                if (nk == .Identifier) {
+                                                                                    if (std.mem.eql(u8, c.binder.ast.getNode(fp_name_node).Identifier.Text, "this")) break :blk true;
+                                                                                }
+                                                                                break :blk false;
+                                                                            };
+                                                                            if (is_this) {
+                                                                                if (fp_data.Type) |this_type_node| {
+                                                                                    if (this_type_node != 0) {
+                                                                                        const tp = type_resolution_pkg.getTypeFromTypeNode(c, this_type_node);
+                                                                                        if (tp != 0) return tp;
+                                                                                    }
+                                                                                }
+                                                                                // `this` with no type annotation → void
+                                                                                return c.voidTypeIndex orelse 0;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+            if (k == .VariableDeclaration) {
+                // fn_ is assigned to a variable with a type annotation.
+                const vd = c.binder.ast.getNode(cur).VariableDeclaration;
+                if (vd.Type) |type_node| {
+                    if (type_node != 0) {
+                        // The type annotation should be a FunctionType or
+                        // interface with call signatures. Check for `this`
+                        // parameter in the FunctionType.
+                        const tn_kind = c.binder.ast.getNodeKind(type_node);
+                        if (tn_kind == .FunctionType or tn_kind == .ConstructorType) {
+                            const ft_params_id: u32 = if (tn_kind == .FunctionType)
+                                c.binder.ast.getNode(type_node).FunctionType.Parameters
+                            else
+                                c.binder.ast.getNode(type_node).ConstructorType.Parameters;
+                            if (ft_params_id != 0) {
+                                const ft_params = c.binder.ast.getNodeList(ft_params_id);
+                                if (ft_params.len > 0) {
+                                    const first = ft_params[0];
+                                    if (first != 0) {
+                                        const fp_data = c.binder.ast.getNode(first).Parameter;
+                                        const fp_name_node = fp_data.name;
+                                        if (fp_name_node != 0) {
+                                            const is_this = blk: {
+                                                const nk = c.binder.ast.getNodeKind(fp_name_node);
+                                                if (nk == .ThisKeyword) break :blk true;
+                                                if (nk == .Identifier) {
+                                                    if (std.mem.eql(u8, c.binder.ast.getNode(fp_name_node).Identifier.Text, "this")) break :blk true;
+                                                }
+                                                break :blk false;
+                                            };
+                                            if (is_this) {
+                                                if (fp_data.Type) |this_type_node| {
+                                                    if (this_type_node != 0) {
+                                                        const tp = type_resolution_pkg.getTypeFromTypeNode(c, this_type_node);
+                                                        if (tp != 0) return tp;
+                                                    }
+                                                }
+                                                return c.voidTypeIndex orelse 0;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+            if (k == .SourceFile or k == .FunctionDeclaration or k == .FunctionExpression or
+                k == .MethodDeclaration or k == .ArrowFunction or k == .Constructor) break;
+            cur = c.binder.ast.getNodeParent(cur);
+        }
         return 0;
     }
 
