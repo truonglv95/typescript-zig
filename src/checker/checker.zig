@@ -5467,6 +5467,53 @@ pub const Checker = struct {
                     // infer T (and other type params) from the argument types,
                     // then substitute them into the return type.
                     retType = self.inferAndSubstituteGenericTypes(declNode, params, args, arg_types.items, retType) catch retType;
+
+                    // Also substitute containing type's type parameters.
+                    if (ce.Expression != 0 and self.binder.ast.getKind(ce.Expression) == .PropertyAccessExpression) {
+                        const pae = self.binder.ast.getNode(ce.Expression).PropertyAccessExpression;
+                        const obj_type = try self.checkExpressionAdHoc(pae.Expression);
+                        if (obj_type != 0 and obj_type < self.typesList.items.len) {
+                            const obj_data = self.typesList.items[obj_type];
+                            if ((obj_data.objectFlags & types.ObjectFlags.Reference) != 0 and obj_data.data == .Object) {
+                                const ta = self.getTypeArguments(obj_type);
+                                if (ta.len > 0) {
+                                    const target = self.getTargetType(obj_type);
+                                    if (target != 0 and target < self.typesList.items.len) {
+                                        const target_sym = self.getSymbolOfType(target); if (target_sym != 0) {
+                                            if (target_sym != 0 and target_sym < self.binder.symbols.items.len) {
+                                                const tsym_obj = self.binder.symbols.items[target_sym];
+                                                if (tsym_obj.Declarations.items.len > 0) {
+                                                    const tdecl = tsym_obj.Declarations.items[0];
+                                                    const tdecl_data = self.binder.ast.getNode(tdecl);
+                                                    const ttp_list: ?u32 = switch (tdecl_data) {
+                                                        .InterfaceDeclaration => |id| id.TypeParameters,
+                                                        .ClassDeclaration => |cd| cd.TypeParameters,
+                                                        else => null,
+                                                    };
+                                                    if (ttp_list) |ttpl| {
+                                                        if (ttpl != 0) {
+                                                            const ttp_nodes = self.binder.ast.getNodeList(ttpl);
+                                                            if (ttp_nodes.len == ta.len) {
+                                                                var tsubst = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(self.allocator);
+                                                                defer tsubst.deinit();
+                                                                for (ttp_nodes, 0..) |tnode, i| {
+                                                                    if (tnode != 0) {
+                                                                        const tsym = self.binder.ast.getNodeSymbol(tnode) orelse 0;
+                                                                        if (tsym != 0) tsubst.put(tsym, ta[i]) catch {};
+                                                                    }
+                                                                }
+                                                                retType = self.substituteTypeParams(retType, &tsubst) catch retType;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
                     if (ce.Arguments != 0) {
                         const args = self.binder.ast.getNodeList(ce.Arguments);
@@ -26817,6 +26864,70 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                     arg_types.append(c.allocator, arg_t) catch {};
                 }
                 finalReturnType = c.inferAndSubstituteGenericTypes(sig_decl, params, args, arg_types.items, returnType) catch returnType;
+
+                // Also substitute the containing type's type parameters.
+                // For method calls like p1.then(cb) where p1: IPromise<string>,
+                // the method's signature has T (from IPromise<T>) in its
+                // parameter and return types. We need to substitute T with
+                // string (from p1's type arguments).
+                if (!isNew) {
+                    // Get the object type from the callee expression.
+                    // If expression is a PropertyAccessExpression, the object
+                    // is expression.Expression.
+                    var obj_type: types.TypeIndex = 0;
+                    if (c.binder.ast.getKind(expression) == .PropertyAccessExpression) {
+                        const pae = c.binder.ast.getNode(expression).PropertyAccessExpression;
+                        obj_type = c.checkExpressionAdHoc(pae.Expression) catch 0;
+                    }
+                    if (obj_type != 0 and obj_type < c.typesList.items.len) {
+                        // Check if obj_type is a Reference with type arguments.
+                        const obj_data = c.typesList.items[obj_type];
+                        if ((obj_data.objectFlags & types.ObjectFlags.Reference) != 0 and
+                            (obj_data.data == .Object))
+                        {
+                            const ta = c.getTypeArguments(obj_type);
+                            if (ta.len > 0) {
+                                // Get the target type's type parameters.
+                                const target = c.getTargetType(obj_type);
+                                if (target != 0 and target < c.typesList.items.len) {
+                                    const target_sym = c.getSymbolOfType(target);
+                                    if (target_sym != 0 and target_sym < c.binder.symbols.items.len) {
+                                        const sym_obj = c.binder.symbols.items[target_sym];
+                                        if (sym_obj.Declarations.items.len > 0) {
+                                            const decl = sym_obj.Declarations.items[0];
+                                            const parent_decl_data = c.binder.ast.getNode(decl);
+                                            const tp_list: ?u32 = switch (parent_decl_data) {
+                                                .InterfaceDeclaration => |id| id.TypeParameters,
+                                                .ClassDeclaration => |cd| cd.TypeParameters,
+                                                else => null,
+                                            };
+                                            if (tp_list) |tpl| {
+                                                if (tpl != 0) {
+                                                    const parent_tp_nodes = c.binder.ast.getNodeList(tpl);
+                                                    if (parent_tp_nodes.len == ta.len) {
+                                                        // Build substitution map for containing type parameters.
+                                                        var subst = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(c.allocator);
+                                                        defer subst.deinit();
+                                                        for (parent_tp_nodes, 0..) |ptp_node, i| {
+                                                            if (ptp_node != 0) {
+                                                                const ptp_sym = c.binder.ast.getNodeSymbol(ptp_node) orelse 0;
+                                                                if (ptp_sym != 0) {
+                                                                    subst.put(ptp_sym, ta[i]) catch {};
+                                                                }
+                                                            }
+                                                        }
+                                                        // Substitute the return type.
+                                                        finalReturnType = c.substituteTypeParams(finalReturnType, &subst) catch finalReturnType;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
