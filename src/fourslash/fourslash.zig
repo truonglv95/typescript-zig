@@ -1912,7 +1912,24 @@ pub const FourslashTest = struct {
                         // Fall through to normal symbol resolution.
                     } else {
                         // Look for JSX.IntrinsicElements global symbol.
-                        const jsx_sym = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Namespace, null, false, false);
+                        // Try multiple meanings: Namespace, Type, and Value
+                        // since the JSX namespace may be declared as any.
+                        const jsx_sym = blk: {
+                            const s1 = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Namespace, null, false, false);
+                            if (s1 != 0 and s1 != c.unknownSymbol) break :blk s1;
+                            const s2 = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Type, null, false, false);
+                            if (s2 != 0 and s2 != c.unknownSymbol) break :blk s2;
+                            const s3 = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Value, null, false, false);
+                            if (s3 != 0 and s3 != c.unknownSymbol) break :blk s3;
+                            // Fallback: search source file locals directly.
+                            const sf2 = ast_utils.getSourceFileOfNode(&p.ast, node);
+                            if (sf2 != 0) {
+                                if (c.binder.nodeLocals.getPtr(sf2)) |sf_locals| {
+                                    if (sf_locals.get("JSX")) |s4| break :blk s4;
+                                }
+                            }
+                            break :blk c.unknownSymbol;
+                        };
                         if (jsx_sym != 0 and jsx_sym != c.unknownSymbol) {
                             // Get IntrinsicElements member.
                             if (c.binder.symbolMembers.getPtr(jsx_sym)) |members| {
