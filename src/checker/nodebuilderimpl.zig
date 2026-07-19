@@ -480,7 +480,74 @@ pub const NodeBuilderImpl = struct {
             const literal = if (typeData.data.BooleanLiteral.value) f.newTrueExpression() else f.newFalseExpression();
             return createLiteralTypeNode(b, literal);
         }
+        if (flags & types.TypeFlags.TemplateLiteral != 0) {
+            return createTemplateLiteralTypeNode(b, typ);
+        }
         return null;
+    }
+
+    /// Build a TemplateLiteralType AST node from a TemplateLiteral type.
+    /// The type has `texts` (head + tail strings) and a slice of types (one
+    /// per span). The resulting AST node has Head (a NoSubstitutionTemplateLiteral
+    /// or a literal token with the head text) and TemplateSpans (a list of
+    /// TemplateLiteralTypeSpan nodes).
+    fn createTemplateLiteralTypeNode(b: *NodeBuilderImpl, t: types.TypeIndex) ast_gen.NodeIndex {
+        const typeData = &b.c.typesList.items[t];
+        if (typeData.data != .TemplateLiteral) return 0;
+        const tl = typeData.data.TemplateLiteral;
+        if (tl.texts.len == 0) return 0;
+
+        // Create the head as a NoSubstitutionTemplateLiteral node.
+        const head_text = tl.texts[0];
+        const head_node = b.c.binder.ast.pushNode(.{
+            .NoSubstitutionTemplateLiteral = .{
+                .Flags = synthesizedFlags(),
+                .Text = head_text,
+                .TokenFlags = 0,
+                .RawText = head_text,
+                .TemplateFlags = 0,
+                .Symbol = 0,
+            },
+        }) catch return 0;
+
+        // Build each span: type node + literal text (the next text segment).
+        var span_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+        defer span_nodes.deinit(b.c.allocator);
+        const types_pool = b.c.typeArgumentsPool.items;
+        const types_start = tl.typesStart;
+        const types_len = tl.typesLen;
+        var i: usize = 0;
+        while (i < types_len and i + 1 < tl.texts.len) : (i += 1) {
+            const type_idx = if (types_start + i < types_pool.len) types_pool[types_start + i] else 0;
+            const type_node = if (type_idx != 0) b.typeToTypeNode(type_idx) else createKeywordTypeNode(b, .AnyKeyword);
+            const tail_text = tl.texts[i + 1];
+            const literal_node = b.c.binder.ast.pushNode(.{
+                .NoSubstitutionTemplateLiteral = .{
+                    .Flags = synthesizedFlags(),
+                    .Text = tail_text,
+                    .TokenFlags = 0,
+                    .RawText = tail_text,
+                    .TemplateFlags = 0,
+                    .Symbol = 0,
+                },
+            }) catch return 0;
+            const span_node = b.c.binder.ast.pushNode(.{
+                .TemplateLiteralTypeSpan = .{
+                    .Flags = synthesizedFlags(),
+                    .Type = type_node,
+                    .Literal = literal_node,
+                },
+            }) catch return 0;
+            span_nodes.append(b.c.allocator, span_node) catch return 0;
+        }
+        const spans_list = b.c.binder.ast.pushNodeList(span_nodes.items) catch return 0;
+        return b.c.binder.ast.pushNode(.{
+            .TemplateLiteralType = .{
+                .Flags = synthesizedFlags(),
+                .Head = head_node,
+                .TemplateSpans = spans_list,
+            },
+        }) catch 0;
     }
 
     fn symbolToTypeReferenceNode(b: *NodeBuilderImpl, sym: ast_gen.SymbolIndex, typeArguments: ?ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -506,10 +573,12 @@ pub const NodeBuilderImpl = struct {
         defer _ = b.ctx.visitedTypes.remove(t);
         const members = b.c.resolveStructuredTypeMembers(t);
         const properties = b.c.resolvedPropertiesPool.items[members.propertiesStart .. members.propertiesStart + members.propertiesLen];
+        const index_infos = b.c.getIndexInfosOfType(t);
 
         var member_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         defer member_nodes.deinit(b.c.allocator);
 
+        // Render properties as PropertySignature nodes.
         for (properties) |prop| {
             if (!b.c.symbolIsValue(prop)) continue;
             const prop_type = b.c.getTypeOfSymbol(prop) catch 0;
@@ -530,6 +599,45 @@ pub const NodeBuilderImpl = struct {
                 },
             }) catch return 0;
             member_nodes.append(b.c.allocator, member) catch return 0;
+        }
+
+        // Render index signatures as IndexSignature nodes.
+        // Index infos are stored in resolvedIndexInfosPool; the actual data
+        // (keyType, valueType, etc.) is accessed via the IndexInfo struct.
+        for (index_infos) |info| {
+            // Build a Parameter node for the key: [name: keyType]
+            const key_type_node = if (info.keyType != 0) b.typeToTypeNode(info.keyType) else createKeywordTypeNode(b, .StringKeyword);
+            const value_type_node = if (info.valueType != 0) b.typeToTypeNode(info.valueType) else createKeywordTypeNode(b, .AnyKeyword);
+            // Build the Parameter AST node: name: x, Type: keyType, dotDotDot: null, question: null, initializer: null.
+            const key_name_node = createPropertyNameNode(b, "x");
+            const key_param = b.c.binder.ast.pushNode(.{
+                .Parameter = .{
+                    .Flags = synthesizedFlags(),
+                    .Symbol = 0,
+                    .modifiers = null,
+                    .modifierFlags = 0,
+                    .DotDotDotToken = null,
+                    .name = key_name_node,
+                    .QuestionToken = null,
+                    .Type = key_type_node,
+                    .Initializer = null,
+                },
+            }) catch return 0;
+            const params_list = b.c.binder.ast.pushNodeList(&.{key_param}) catch return 0;
+            // Build the IndexSignature node with Parameters list and Type = value_type_node.
+            const idx_sig = b.c.binder.ast.pushNode(.{
+                .IndexSignature = .{
+                    .Flags = synthesizedFlags(),
+                    .Symbol = 0,
+                    .modifiers = null,
+                    .modifierFlags = if (info.isReadonly) @import("../ast/ast_utils.zig").ModifierFlags.Readonly else 0,
+                    .TypeParameters = null,
+                    .Parameters = params_list,
+                    .Type = value_type_node,
+                    .FullSignature = null,
+                },
+            }) catch return 0;
+            member_nodes.append(b.c.allocator, idx_sig) catch return 0;
         }
 
         const members_list = b.c.binder.ast.pushNodeList(member_nodes.items) catch return 0;

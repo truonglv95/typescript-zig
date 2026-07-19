@@ -2127,65 +2127,37 @@ pub const FourslashTest = struct {
                             out.appendSlice(aa, "(index) ") catch {};
                             out.appendSlice(aa, type_name) catch {};
                             out.appendSlice(aa, "[") catch {};
-                            // Display key types in source order. Iterate over the
-                            // original index info order, but deduplicate key types
-                            // so a Union with [string | number | symbol] still
-                            // displays as "string | number | symbol" not the union.
-                            var seen_string = false;
-                            var seen_number = false;
-                            var seen_symbol = false;
+                            // Render each index info's key type using typeToString,
+                            // joined by " | ". This preserves template literal
+                            // types (e.g., `prefix${string}`) and other complex
+                            // types that the seen_string/seen_number/seen_symbol
+                            // shortcuts below would miss.
+                            //
+                            // Deduplicate identical key types so multiple index
+                            // signatures with the same key type display once.
+                            var dedup_keys = std.ArrayListUnmanaged(checker_module.types.TypeIndex).empty;
+                            defer dedup_keys.deinit(aa);
                             for (infos) |info| {
                                 if (info.keyType != 0 and info.keyType < c.typesList.items.len) {
-                                    const k_flags = c.typesList.items[info.keyType].flags;
-                                    // Check for union of key types.
-                                    if ((k_flags & checker_module.types.TypeFlags.Union) != 0) {
-                                        // Iterate union constituents in source order.
-                                        const constituents = c.getTypesOfUnionOrIntersectionType(info.keyType);
-                                        for (constituents) |ct| {
-                                            if (ct != 0 and ct < c.typesList.items.len) {
-                                                const cf = c.typesList.items[ct].flags;
-                                                if ((cf & checker_module.types.TypeFlags.String) != 0 and !seen_string) {
-                                                    if (seen_number or seen_symbol) out.appendSlice(aa, " | ") catch {};
-                                                    out.appendSlice(aa, "string") catch {};
-                                                    seen_string = true;
-                                                } else if ((cf & checker_module.types.TypeFlags.Number) != 0 and !seen_number) {
-                                                    if (seen_string or seen_symbol) out.appendSlice(aa, " | ") catch {};
-                                                    out.appendSlice(aa, "number") catch {};
-                                                    seen_number = true;
-                                                } else if ((cf & checker_module.types.TypeFlags.ESSymbol) != 0 and !seen_symbol) {
-                                                    if (seen_string or seen_number) out.appendSlice(aa, " | ") catch {};
-                                                    out.appendSlice(aa, "symbol") catch {};
-                                                    seen_symbol = true;
-                                                }
-                                            }
-                                        }
-                                    } else if ((k_flags & checker_module.types.TypeFlags.String) != 0 and !seen_string) {
-                                        if (seen_number or seen_symbol) out.appendSlice(aa, " | ") catch {};
-                                        const key_str = c.typeToString(info.keyType, 0, 0, null);
-                                        out.appendSlice(aa, key_str) catch {};
-                                        seen_string = true;
-                                    } else if ((k_flags & checker_module.types.TypeFlags.Number) != 0 and !seen_number) {
-                                        if (seen_string or seen_symbol) out.appendSlice(aa, " | ") catch {};
-                                        out.appendSlice(aa, "number") catch {};
-                                        seen_number = true;
-                                    } else if ((k_flags & checker_module.types.TypeFlags.ESSymbol) != 0 and !seen_symbol) {
-                                        if (seen_string or seen_number) out.appendSlice(aa, " | ") catch {};
-                                        out.appendSlice(aa, "symbol") catch {};
-                                        seen_symbol = true;
+                                    var already = false;
+                                    for (dedup_keys.items) |k| {
+                                        if (k == info.keyType) { already = true; break; }
                                     }
+                                    if (!already) dedup_keys.append(aa, info.keyType) catch {};
                                 }
                             }
-                            // If no key types were rendered (unusual), fall back to original behavior.
-                            if (!seen_string and !seen_number and !seen_symbol) {
-                                for (infos, 0..) |info, i| {
+                            if (dedup_keys.items.len > 0) {
+                                for (dedup_keys.items, 0..) |kt, i| {
                                     if (i > 0) out.appendSlice(aa, " | ") catch {};
-                                    const key_str = if (info.keyType != 0) c.typeToString(info.keyType, 0, 0, null) else "string";
+                                    const key_str = c.typeToString(kt, 0, HOVER_TYPE_FLAGS, null);
                                     out.appendSlice(aa, key_str) catch {};
                                 }
+                            } else {
+                                out.appendSlice(aa, "string") catch {};
                             }
                             out.appendSlice(aa, "]: ") catch {};
                             // Display value type from first index info.
-                            const val_str = if (infos[0].valueType != 0) c.typeToString(infos[0].valueType, 0, 0, null) else "any";
+                            const val_str = if (infos[0].valueType != 0) c.typeToString(infos[0].valueType, 0, HOVER_TYPE_FLAGS, null) else "any";
                             out.appendSlice(aa, val_str) catch {};
                             return out.toOwnedSlice(aa) catch "";
                         }
