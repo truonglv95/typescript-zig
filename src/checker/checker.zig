@@ -14501,13 +14501,18 @@ pub const Checker = struct {
 
     /// Port of `checker.go::getReturnTypeOfSingleNonGenericSignature`.
     /// Returns the return type of the single non-generic call/construct
-    /// signature of `funcType`, or 0 if no such signature exists.
+    /// signature of `funcType`, or 0 if no such signature exists. A
+    /// non-generic signature has no type parameters.
     pub fn getReturnTypeOfSingleNonGenericSignature(c: *Checker, funcType: types.TypeIndex, kind_: types.SignatureKind) types.TypeIndex {
-        // getSingleSignature is still a stub; conservatively return 0.
-        _ = c;
-        _ = funcType;
-        _ = kind_;
-        return 0;
+        if (funcType == 0 or funcType >= c.typesList.items.len) return 0;
+        const sigs = c.getSignaturesOfType(funcType, kind_);
+        if (sigs.len != 1) return 0;
+        const sig_idx = c.resolvedSignaturesPool.items[sigs.start];
+        if (sig_idx == 0 or sig_idx >= c.signatures.items.len) return 0;
+        const sig = &c.signatures.items[sig_idx];
+        // Check if the signature is non-generic (no type parameters).
+        if (sig.typeParametersLen != 0) return 0;
+        return c.getReturnTypeOfSignature(sig);
     }
 
     /// Port of `checker.go::getReturnTypeOfSingleNonGenericSignatureOfCallChain`.
@@ -14959,10 +14964,16 @@ pub const Checker = struct {
         return c.createPromiseType(c.anyTypeIndex orelse 0);
     }
 
+    /// Port of `checker.go::checkDeprecatedSignature`. Checks if a
+    /// signature is marked @deprecated and reports a deprecation warning.
+    /// Conservative: no-op (requires JSDoc @deprecated tag parsing).
     pub fn checkDeprecatedSignature(c: *Checker, sig: types.SignatureIndex, node: ast_gen.NodeIndex) void {
         _ = c;
         _ = sig;
         _ = node;
+        // Full implementation requires parsing JSDoc @deprecated tags on
+        // the signature's declaration and reporting a deprecation diagnostic.
+        // Conservative: no-op.
     }
 
     /// Port of `checker.go::addDeprecatedSuggestionWithSignature`. Reports
@@ -15008,12 +15019,11 @@ pub const Checker = struct {
         return std.mem.eql(u8, left_text, "Symbol");
     }
 
-    pub fn resolveSignature(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.TypeIndex {
-        _ = candidatesOutArray;
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return 0;
+    /// Port of `checker.go::resolveSignature`. Resolves the call
+    /// signature for a call-like expression (CallExpression, NewExpression,
+    /// TaggedTemplateExpression, Decorator). Delegates to `resolveCallExpression`.
+    pub fn resolveSignature(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.SignatureIndex {
+        return c.resolveCallExpression(node, candidatesOutArray, checkMode);
     }
 
     pub fn resolveCallExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.SignatureIndex {
@@ -15042,21 +15052,31 @@ pub const Checker = struct {
         return c.resolveCall(node, signatures, candidatesOutArray, checkMode, 0, 0);
     }
 
-    pub fn resolveNewExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.TypeIndex {
-        _ = candidatesOutArray;
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return 0;
+    /// Port of `checker.go::resolveNewExpression`. Resolves the construct
+    /// signature for a NewExpression. Delegates to `resolveCallExpression`
+    /// which handles NewExpression by checking construct signatures.
+    pub fn resolveNewExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.SignatureIndex {
+        return c.resolveCallExpression(node, candidatesOutArray, checkMode);
     }
 
+    /// Port of `checker.go::isConstructorAccessible`. Returns true if
+    /// the constructor signature is accessible from `node`'s location.
+    /// A constructor is accessible if it's public, or if it's protected/
+    /// private and the call site is within the same class or a subclass.
+    /// Conservative: returns true (assume accessible).
     pub fn isConstructorAccessible(c: *Checker, node: ast_gen.NodeIndex, signature: types.SignatureIndex) bool {
         _ = c;
         _ = node;
         _ = signature;
-        return false;
+        // Full implementation requires checking the constructor's access
+        // modifier and the calling context's class hierarchy.
+        // Conservative: assume accessible.
+        return true;
     }
 
+    /// Port of `checker.go::typeHasProtectedAccessibleBase`. Returns true
+    /// if `t` has a base type with a protected member accessible from `target`.
+    /// Conservative: returns false (no protected base types tracked).
     pub fn typeHasProtectedAccessibleBase(c: *Checker, target: types.TypeIndex, t: types.TypeIndex) bool {
         _ = c;
         _ = target;
@@ -15076,12 +15096,11 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn resolveTaggedTemplateExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.TypeIndex {
-        _ = candidatesOutArray;
-        _ = c;
-        _ = node;
-        _ = checkMode;
-        return 0;
+    /// Port of `checker.go::resolveTaggedTemplateExpression`. Resolves
+    /// the call signature for a TaggedTemplateExpression. Delegates to
+    /// `resolveCallExpression` which handles tagged templates.
+    pub fn resolveTaggedTemplateExpression(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.SignatureIndex {
+        return c.resolveCallExpression(node, candidatesOutArray, checkMode);
     }
 
     pub fn resolveDecorator(c: *Checker, node: ast_gen.NodeIndex, candidatesOutArray: ?*std.ArrayListUnmanaged(types.SignatureIndex), checkMode: CheckMode) types.TypeIndex {
