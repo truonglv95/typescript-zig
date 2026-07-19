@@ -4572,6 +4572,18 @@ pub const Checker = struct {
                     return result_type;
                 }
                 if (decl.Initializer) |initExpr| {
+                    // If the variable's symbol is being resolved (recursion
+                    // guard active) and the initializer is an object literal,
+                    // return anyType. This handles self-referential object
+                    // literals like `var a = { f: a }` where Go widens the
+                    // entire type to any.
+                    if (self.binder.ast.getNodeKind(initExpr) == .ObjectLiteralExpression) {
+                        if (self.binder.ast.getNodeSymbol(nodeIndex)) |var_sym| {
+                            if (var_sym != 0 and self.resolvingSymbols.contains(var_sym)) {
+                                return try self.getAnyType();
+                            }
+                        }
+                    }
                     const initType = try self.checkExpressionAdHoc(initExpr);
                     // Determine if this is a const declaration. Const declarations
                     // preserve literal types (no widening). Var/let widen literals.
