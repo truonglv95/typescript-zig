@@ -2028,6 +2028,37 @@ pub const Checker = struct {
         for (index_infos) |info| {
             const k_flags = c.typesList.items[info.keyType].flags;
             if ((k_flags & target_key_flags) != 0) {
+                // For template literal key types (e.g., `prefix${string}`),
+                // check if the property name actually matches the pattern.
+                // A name like "anything" should NOT match `prefix${string}`.
+                if ((k_flags & types.TypeFlags.TemplateLiteral) != 0) {
+                    const key_type_data = c.typesList.items[info.keyType];
+                    if (key_type_data.data == .TemplateLiteral) {
+                        const tl = key_type_data.data.TemplateLiteral;
+                        if (tl.texts.len > 0) {
+                            // The name must start with texts[0].
+                            if (!std.mem.startsWith(u8, name, tl.texts[0])) continue;
+                            // For single-span patterns like `prefix${string}`,
+                            // check that the rest is non-empty for string types
+                            // or a valid number for number types.
+                            if (tl.typesLen == 1 and tl.texts.len == 2 and tl.texts[1].len == 0) {
+                                const rest = name[tl.texts[0].len..];
+                                const types_pool = c.tupleTypesPool.items;
+                                const t_idx = if (tl.typesStart < types_pool.len) types_pool[tl.typesStart] else 0;
+                                if (t_idx != 0 and t_idx < c.typesList.items.len) {
+                                    const t_flags = c.typesList.items[t_idx].flags;
+                                    if ((t_flags & types.TypeFlags.Number) != 0) {
+                                        // Number: rest must be a valid number.
+                                        if (rest.len == 0) continue;
+                                        _ = std.fmt.parseFloat(f64, rest) catch continue;
+                                    }
+                                    // For String, any non-empty rest matches.
+                                    // But empty rest is OK for string types.
+                                }
+                            }
+                        }
+                    }
+                }
                 // Found matching index signature. Create synthetic property.
                 const value_type = c.getIndexInfoValueType(info);
                 const sym = c.createSyntheticPropertySymbol(
@@ -27318,7 +27349,50 @@ pub fn checkFunctionExpressionOrObjectLiteralMethod(c: *Checker, node_idx: ast_g
         },
         else => {},
     }
-    return c.anyTypeIndex orelse 0;
+
+    // Create a Function type (like getTypeOfSymbol does for FunctionDeclaration).
+    // This allows `var r = <T>(x: T) => x` to have type `<T>(x: T) => T`
+    // instead of `any`.
+    var ret_type: types.TypeIndex = 0;
+    switch (node) {
+        .FunctionExpression => |f| {
+            if (f.Type) |t| if (t != 0) { ret_type = c.getTypeOfNode(t) catch 0; };
+        },
+        .ArrowFunction => |f| {
+            if (f.Type) |t| if (t != 0) { ret_type = c.getTypeOfNode(t) catch 0; };
+        },
+        .MethodDeclaration => |m| {
+            if (m.Type) |t| if (t != 0) { ret_type = c.getTypeOfNode(t) catch 0; };
+        },
+        else => {},
+    }
+    // If no explicit return type annotation, infer from body.
+    if (ret_type == 0) {
+        ret_type = c.getReturnTypeFromBody(node_idx, CheckMode.Normal);
+    }
+    if (ret_type == 0) ret_type = c.anyTypeIndex orelse 0;
+
+    // Count parameters.
+    var param_count: u32 = 0;
+    if (params_id != 0) {
+        param_count = @intCast(c.binder.ast.getNodeList(params_id).len);
+    }
+
+    // Get the symbol for this function expression (if bound).
+    const sym = c.binder.ast.getNodeSymbol(node_idx) orelse 0;
+
+    return c.createType(.{
+        .flags = types.TypeFlags.Object,
+        .objectFlags = types.ObjectFlags.Anonymous,
+        .id = 0,
+        .symbol = sym,
+        .alias = null,
+        .data = .{ .Function = .{
+            .declarationNode = node_idx,
+            .returnType = ret_type,
+            .parameterCount = param_count,
+        } },
+    }) catch (c.anyTypeIndex orelse 0);
 }
 pub fn checkIdentifier(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
     _ = checkMode;
