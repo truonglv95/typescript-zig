@@ -26779,7 +26779,7 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
     // `inferAndSubstituteGenericTypes` but called from the worker path.
     const sig_decl = c.signatures.items[signature].declaration;
     var finalReturnType = returnType;
-    if (sig_decl != 0 and !isNew) {
+    if (sig_decl != 0) {
         const decl_data = c.binder.ast.getNode(sig_decl);
         const tp_list_id: u32 = switch (decl_data) {
             .FunctionDeclaration => |f| f.TypeParameters orelse 0,
