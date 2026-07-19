@@ -260,11 +260,11 @@ pub const FourslashTest = struct {
             const pos = @min(self.cursorPos, fileContent.len);
             const del: usize = if (deleteLen > 0) @intCast(deleteLen) else 0;
             const delete_start = if (pos >= del) pos - del else 0;
-            
+
             // Build new content: [0..delete_start] + text + [pos..]
             const new_len = delete_start + text.len + (fileContent.len - pos);
             var newContent = aa.alloc(u8, new_len) catch return;
-            
+
             // Copy before
             @memcpy(newContent[0..delete_start], fileContent[0..delete_start]);
             // Copy inserted text
@@ -273,13 +273,38 @@ pub const FourslashTest = struct {
             if (pos < fileContent.len) {
                 @memcpy(newContent[delete_start + text.len ..], fileContent[pos..]);
             }
-            
+
+            // Compute the edit's effect on marker positions: markers AFTER
+            // the edit point shift by (text.len - del). Markers AT or BEFORE
+            // the delete_start don't shift.
+            const shift: i64 = @as(i64, @intCast(text.len)) - @as(i64, @intCast(del));
+            if (shift != 0) {
+                var marker_it = self.parsedData.markerPositions.iterator();
+                while (marker_it.next()) |entry| {
+                    const m = entry.value_ptr.*;
+                    const old_pos = m.position;
+                    if (old_pos >= pos) {
+                        // Marker is at or after the edit's end position.
+                        // Shift it by `shift` (which may be negative).
+                        const new_pos_i64 = @as(i64, @intCast(old_pos)) + shift;
+                        if (new_pos_i64 < 0) {
+                            m.position = 0;
+                        } else {
+                            m.position = @intCast(new_pos_i64);
+                        }
+                    } else if (old_pos > delete_start) {
+                        // Marker was inside the deleted region — clamp to delete_start.
+                        m.position = delete_start;
+                    }
+                }
+            }
+
             // Update file content
             self.parsedData.files.put(self.currentFile, newContent) catch {};
-            
+
             // Update cursor position
             self.cursorPos = delete_start + text.len;
-            
+
             // Re-parse the file
             if (self.parser) |p| {
                 p.* = parser_module.Parser.init(aa, newContent);
