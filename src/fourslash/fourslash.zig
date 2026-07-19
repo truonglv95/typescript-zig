@@ -3243,6 +3243,21 @@ pub const FourslashTest = struct {
         // Synthetic properties (from index signatures) are rendered as
         // "(index) TypeName[keyType]: valueType" instead.
         if ((symObj.Flags & (symbol.SymbolFlags.Property | symbol.SymbolFlags.GetAccessor | symbol.SymbolFlags.SetAccessor | symbol.SymbolFlags.Accessor)) != 0) {
+            // If any declaration is a MethodDeclaration/MethodSignature, Go
+            // treats the merged symbol as a method rather than a property.
+            // Skip the property branch and fall through to the method branch.
+            const has_method_decl = blk: {
+                if (symObj.Declarations.items.len > 0) {
+                    for (symObj.Declarations.items) |decl| {
+                        if (decl != 0) {
+                            const k = p.ast.getNodeKind(decl);
+                            if (k == .MethodDeclaration or k == .MethodSignature) break :blk true;
+                        }
+                    }
+                }
+                break :blk false;
+            };
+            if (!has_method_decl) {
             // Check if this is a synthetic property created from an index signature.
             // If so, render as "(index) TypeName[keyType]: valueType".
             if ((symObj.CheckFlags & checker_module.types.CheckFlags.SyntheticProperty) != 0) {
@@ -3448,6 +3463,7 @@ pub const FourslashTest = struct {
             }
             out.appendSlice(aa, typeStr) catch {};
             return out.toOwnedSlice(aa) catch "";
+            }
         }
 
         // Method declarations: format as "(method) name(params): retType" or
