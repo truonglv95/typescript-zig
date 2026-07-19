@@ -513,7 +513,10 @@ pub const NodeBuilderImpl = struct {
         // Build each span: type node + literal text (the next text segment).
         var span_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
         defer span_nodes.deinit(b.c.allocator);
-        const types_pool = b.c.typeArgumentsPool.items;
+        // Template literal types are stored in tupleTypesPool (see
+        // newTemplateLiteralType in checker.zig which appends to
+        // tupleTypesPool).
+        const types_pool = b.c.tupleTypesPool.items;
         const types_start = tl.typesStart;
         const types_len = tl.typesLen;
         var i: usize = 0;

@@ -1173,7 +1173,7 @@ pub fn getTypeFromTemplateTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
             mappedTypes[i] = getTypeFromTypeNode(c, c.binder.ast.getNode(span).TemplateLiteralTypeSpan.Type);
         }
 
-        entry.value_ptr.resolvedType = getTemplateLiteralType(c, texts, mappedTypes);
+        entry.value_ptr.resolvedType = c.getTemplateLiteralType(texts, mappedTypes);
     }
     return entry.value_ptr.resolvedType;
 }

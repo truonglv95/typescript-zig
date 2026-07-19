@@ -1792,7 +1792,9 @@ pub const Checker = struct {
 
         for (idx_symbol.Declarations.items) |decl| {
             if (decl == 0) continue;
-            if (c.binder.ast.getNodeKind(decl) != .IndexSignature) continue;
+            const dk = c.binder.ast.getNodeKind(decl);
+            std.debug.print("[getIndexInfosOfIndexSymbol] decl={} kind={s}\n", .{decl, @tagName(dk)});
+            if (dk != .IndexSignature) continue;
             const sig = c.binder.ast.getNode(decl).IndexSignature;
             // Get parameter type (the key type).
             if (sig.Parameters == 0) continue;
@@ -2359,6 +2361,34 @@ pub const Checker = struct {
             const str = std.fmt.allocPrint(self.allocator, "{s}n", .{typeData.data.BigIntLiteral.text}) catch return "bigint";
             self.ownedStrings.append(self.allocator, str) catch {};
             return str;
+        }
+        // TemplateLiteral types: render as `prefix${string}` directly
+        // without going through the nodebuilder. This is simpler and
+        // avoids issues with the nodebuilder's cached state.
+        if ((typeData.flags & types.TypeFlags.TemplateLiteral) != 0) {
+            const tl = typeData.data.TemplateLiteral;
+            if (tl.texts.len > 0) {
+                var buf = std.ArrayListUnmanaged(u8).empty;
+                buf.appendSlice(self.allocator, "`") catch {};
+                buf.appendSlice(self.allocator, tl.texts[0]) catch {};
+                const types_pool = self.tupleTypesPool.items;
+                var i: usize = 0;
+                while (i < tl.typesLen and i + 1 < tl.texts.len) : (i += 1) {
+                    buf.appendSlice(self.allocator, "${") catch {};
+                    const t_idx = if (tl.typesStart + i < types_pool.len) types_pool[tl.typesStart + i] else 0;
+                    if (t_idx != 0 and t_idx < self.typesList.items.len) {
+                        const s = self.typeToString(t_idx, 0, 0, null);
+                        buf.appendSlice(self.allocator, s) catch {};
+                    }
+                    buf.appendSlice(self.allocator, "}") catch {};
+                    buf.appendSlice(self.allocator, tl.texts[i + 1]) catch {};
+                }
+                buf.appendSlice(self.allocator, "`") catch {};
+                const result = buf.toOwnedSlice(self.allocator) catch return "string";
+                self.ownedStrings.append(self.allocator, result) catch {};
+                return result;
+            }
+            return "string";
         }
         // EnumLiteral types: render as the enum's symbol name. The symbol
         // points to the parent enum declaration, so its Name is the enum

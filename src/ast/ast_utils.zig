@@ -1286,6 +1286,9 @@ pub fn getText(tree: *ast.Ast, node: ast.NodeIndex) []const u8 {
         .PrivateIdentifier => |n| return n.Text,
         .RegularExpressionLiteral => |n| return n.Text,
         .NoSubstitutionTemplateLiteral => |n| return n.Text,
+        .TemplateHead => |n| return n.Text,
+        .TemplateMiddle => |n| return n.Text,
+        .TemplateTail => |n| return n.Text,
         else => {
             if (node < tree.positions.items.len) {
                 const pos = tree.positions.items[node];

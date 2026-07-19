@@ -3589,7 +3589,7 @@ pub const FourslashTest = struct {
                                                 if (std.mem.startsWith(u8, prop_name, tl.texts[0])) {
                                                     var rest = prop_name[tl.texts[0].len..];
                                                     var matched_pattern = true;
-                                                    const types_pool = c.typeArgumentsPool.items;
+                                                    const types_pool = c.tupleTypesPool.items;
                                                     var ti: usize = 0;
                                                     while (ti < tl.typesLen) : (ti += 1) {
                                                         // The type at position ti determines what
@@ -3609,7 +3609,8 @@ pub const FourslashTest = struct {
                                                                     // Empty segment for last type — OK for string.
                                                                 }
                                                             } else if ((t_flags & checker_module.types.TypeFlags.Number) != 0) {
-                                                                // Number: segment must be a valid number.
+                                                                // Number: segment must be a non-empty valid number.
+                                                                if (segment.len == 0) { matched_pattern = false; break; }
                                                                 _ = std.fmt.parseFloat(f64, segment) catch { matched_pattern = false; break; };
                                                             } else if ((t_flags & checker_module.types.TypeFlags.TemplateLiteral) != 0) {
                                                                 // Nested template literal — skip for now.
