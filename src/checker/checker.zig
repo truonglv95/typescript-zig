@@ -1976,10 +1976,11 @@ pub const Checker = struct {
                         return propSymIdx;
                     }
                 }
-                // For enum symbols, members are stored in the Exports table.
+                // For enum and namespace/module symbols, members are stored
+                // in the Exports table (via declareSymbolEx with .Exports).
                 if (symIdx < self.binder.symbols.items.len) {
                     const sym_flags = self.binder.symbols.items[symIdx].Flags;
-                    if ((sym_flags & symbol.SymbolFlags.Enum) != 0) {
+                    if ((sym_flags & (symbol.SymbolFlags.Enum | symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule | symbol.SymbolFlags.Module)) != 0) {
                         if (self.binder.symbolExports.getPtr(symIdx)) |exports| {
                             if (exports.get(name)) |propSymIdx| {
                                 return propSymIdx;

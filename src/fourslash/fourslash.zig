@@ -2134,6 +2134,52 @@ pub const FourslashTest = struct {
         // Get the symbol at this location.
         var sym = checker_module.getSymbolAtLocation(c, node);
         if (sym == 0) {
+            // Fallback: if the cursor is on a property access name (e.g.,
+            // `m1.fooExport`), look up the property on the object's type.
+            // This handles cases where `getSymbolAtLocation` returned 0
+            // because `resolveName` couldn't find the name in scope (e.g.,
+            // for namespace exports like `m1.fooExport`).
+            //
+            // The cursor may be on:
+            // - Identifier (the property name in a PAE) — parent is PAE
+            // - PropertyAccessExpression itself (when cursor is in the middle)
+            //   — extract the property name from the PAE
+            var pae_node: ast_gen.NodeIndex = 0;
+            var prop_name_node: ast_gen.NodeIndex = 0;
+            if (p.ast.getNodeKind(node) == .PropertyAccessExpression) {
+                pae_node = node;
+                prop_name_node = p.ast.getNode(node).PropertyAccessExpression.name;
+            } else {
+                const parent = p.ast.getNodeParent(node);
+                if (parent != 0 and p.ast.getNodeKind(parent) == .PropertyAccessExpression) {
+                    const pae = p.ast.getNode(parent).PropertyAccessExpression;
+                    if (pae.name == node) {
+                        pae_node = parent;
+                        prop_name_node = node;
+                    }
+                }
+            }
+            if (pae_node != 0 and prop_name_node != 0) {
+                const pae = p.ast.getNode(pae_node).PropertyAccessExpression;
+                // Try multiple paths to get the object's type.
+                var obj_type: checker_module.types.TypeIndex = c.checkExpressionCached(pae.Expression);
+                if (obj_type == 0 or obj_type >= c.typesList.items.len) {
+                    const obj_sym = checker_module.getResolvedSymbol(c, pae.Expression);
+                    if (obj_sym != 0 and obj_sym != c.unknownSymbol) {
+                        obj_type = c.getTypeOfSymbol(obj_sym) catch 0;
+                    }
+                }
+                if (obj_type != 0 and obj_type < c.typesList.items.len) {
+                    const prop_name = ast_utils.getTextOfNode(&p.ast, prop_name_node);
+                    if (c.getPropertyOfType(obj_type, prop_name)) |prop_sym| {
+                        if (prop_sym != 0) {
+                            sym = prop_sym;
+                        }
+                    }
+                }
+            }
+        }
+        if (sym == 0) {
             // Index signature fallback: if the cursor is on a property name
             // that doesn't exist explicitly on the object type, check if
             // the type has index signatures and display as
@@ -2657,6 +2703,12 @@ pub const FourslashTest = struct {
                         }
                     } else {
                         out.appendSlice(aa, "function ") catch {};
+                        // If the function is exported from a namespace,
+                        // prefix the name with the qualified namespace name.
+                        const ns_prefix = self.getParentQualifiedNamePrefix(sym);
+                        if (ns_prefix.len > 0) {
+                            out.appendSlice(aa, ns_prefix) catch {};
+                        }
                         out.appendSlice(aa, symObj.Name) catch {};
                     }
                     // Append type parameters if present: <T, U> or <2> if inferred.
@@ -3103,8 +3155,8 @@ pub const FourslashTest = struct {
                 out.appendSlice(aa, " ") catch {};
             }
             // If the variable is exported from a namespace (not SourceFile),
-            // prefix the name with the namespace name, e.g., "M.x".
-            // Only exported variables get the namespace prefix.
+            // prefix the name with the fully-qualified namespace name, e.g.,
+            // "M.N.x". Only exported variables get the namespace prefix.
             // We detect "exported" by checking if the symbol has a Parent
             // (set when declared via .Exports table type).
             var name_with_prefix = std.ArrayListUnmanaged(u8).empty;
@@ -3114,12 +3166,23 @@ pub const FourslashTest = struct {
                 const parent_obj = c.binder.symbols.items[symObj.Parent.?];
                 // Only add prefix if the parent is a namespace (ModuleDeclaration).
                 if ((parent_obj.Flags & symbol.SymbolFlags.Namespace) != 0 and parent_obj.Name.len > 0) {
-                    var new_name = std.ArrayListUnmanaged(u8).empty;
-                    new_name.appendSlice(aa, parent_obj.Name) catch {};
-                    new_name.appendSlice(aa, ".") catch {};
-                    new_name.appendSlice(aa, symObj.Name) catch {};
-                    name_with_prefix.clearRetainingCapacity();
-                    name_with_prefix.appendSlice(aa, new_name.items) catch {};
+                    // Use recursive qualified-name prefix to handle nested
+                    // namespaces like M.N.x.
+                    const ns_prefix = self.getParentQualifiedNamePrefix(sym);
+                    if (ns_prefix.len > 0) {
+                        var new_name = std.ArrayListUnmanaged(u8).empty;
+                        new_name.appendSlice(aa, ns_prefix) catch {};
+                        new_name.appendSlice(aa, symObj.Name) catch {};
+                        name_with_prefix.clearRetainingCapacity();
+                        name_with_prefix.appendSlice(aa, new_name.items) catch {};
+                    } else {
+                        var new_name = std.ArrayListUnmanaged(u8).empty;
+                        new_name.appendSlice(aa, parent_obj.Name) catch {};
+                        new_name.appendSlice(aa, ".") catch {};
+                        new_name.appendSlice(aa, symObj.Name) catch {};
+                        name_with_prefix.clearRetainingCapacity();
+                        name_with_prefix.appendSlice(aa, new_name.items) catch {};
+                    }
                 }
             }
             out.appendSlice(aa, name_with_prefix.items) catch {};
