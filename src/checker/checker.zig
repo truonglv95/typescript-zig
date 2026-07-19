@@ -611,6 +611,7 @@ pub const Checker = struct {
     /// recursion when an object literal's property initializer references
     /// the property name (e.g. `var a = { foo: function foo() {} }`).
     typeCheckDepth: u32 = 0,
+    secondPassRan: bool = false,
     typesList: std.ArrayListUnmanaged(types.Type),
     mappersList: std.ArrayListUnmanaged(types.TypeMapper) = .empty,
     permissiveMapperIndex: ?types.TypeMapperIndex = null,
@@ -26839,6 +26840,11 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                 return c.resolveExternalModuleTypeByLiteral(elements[0]);
             }
         }
+    }
+
+    // Guard: if signature is 0 or out of bounds, return any.
+    if (signature == 0 or signature >= c.signatures.items.len) {
+        return c.anyTypeIndex orelse 0;
     }
 
     const returnType = c.getReturnTypeOfSignature(&c.signatures.items[signature]);

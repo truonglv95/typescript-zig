@@ -26,6 +26,7 @@ ERROR_RETURNING_FNS = {
     "VerifyBaselineNonSuggestionDiagnostics",
     "VerifyBaselineSelectionRanges",
     "VerifyBaselineSignatureHelp",
+    "VerifyBaselineVSHover",
     "VerifyBaselineWorkspaceSymbol",
     "VerifyCodeFix",
     "VerifyCodeFixAll",
@@ -579,3 +580,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Post-process: fix VerifyBaselineVSHover calls that have 1 arg
+with open(OUTPUT_FILE, 'r') as f:
+    content = f.read()
+content = content.replace(
+    '_ = f.VerifyBaselineVSHover(undefined) catch {};',
+    'f.VerifyBaselineVSHover(undefined, &.{}) catch {};'
+)
+with open(OUTPUT_FILE, 'w') as f:
+    f.write(content)

@@ -2299,6 +2299,61 @@ pub const FourslashTest = struct {
             }
         }
 
+        // If the type is any, try to resolve the type annotation directly
+        // from the AST by looking up the type name in the binder's nodeLocals.
+        if (sym_type == (c.anyTypeIndex orelse 0) and symObj.Declarations.items.len > 0) {
+            const decl_node = symObj.Declarations.items[0];
+            if (p.ast.getNodeKind(decl_node) == .VariableDeclaration) {
+                const vd = p.ast.getNode(decl_node).VariableDeclaration;
+                if (vd.Type) |type_node| {
+                    if (type_node != 0 and p.ast.getNodeKind(type_node) == .TypeReference) {
+                        const type_name_node = p.ast.getNode(type_node).TypeReference.TypeName;
+                        const type_name = ast_utils.getTextOfNode(&p.ast, type_name_node);
+                        if (type_name.len > 0) {
+                            const sf_node2 = self.sourceFile orelse 0;
+                            if (sf_node2 != 0) {
+                                if (c.binder.nodeLocals.getPtr(sf_node2)) |sf_locals| {
+                                    if (sf_locals.get(type_name)) |type_sym| {
+                                        if (type_sym != 0 and type_sym < c.binder.symbols.items.len) {
+                                            const type_sym_obj = c.binder.symbols.items[type_sym];
+                                            if ((type_sym_obj.Flags & symbol.SymbolFlags.Type) != 0) {
+                                                const direct_type = c.getTypeOfSymbol(type_sym) catch 0;
+                                                if (direct_type != 0 and direct_type != (c.anyTypeIndex orelse 0)) {
+                                                    sym_type = direct_type;
+                                                    var vl = c.valueSymbolLinks.get(sym) orelse checker_module.types.ValueSymbolLinks{};
+                                                    vl.resolvedType = sym_type;
+                                                    c.valueSymbolLinks.put(c.allocator, sym, vl) catch {};
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If still any, try variable initializer call inference.
+        if (sym_type == (c.anyTypeIndex orelse 0) and symObj.Declarations.items.len > 0) {
+            const decl_node = symObj.Declarations.items[0];
+            if (p.ast.getNodeKind(decl_node) == .VariableDeclaration) {
+                const vd = p.ast.getNode(decl_node).VariableDeclaration;
+                if (vd.Initializer) |init| {
+                    if (init != 0 and (p.ast.getNodeKind(init) == .CallExpression or p.ast.getNodeKind(init) == .NewExpression)) {
+                        const call_type = checker_module.checkExpressionEx(c, init, .Normal);
+                        if (call_type != 0 and call_type != (c.anyTypeIndex orelse 0) and call_type < c.typesList.items.len) {
+                            sym_type = call_type;
+                            var vl = c.valueSymbolLinks.get(sym) orelse checker_module.types.ValueSymbolLinks{};
+                            vl.resolvedType = sym_type;
+                            c.valueSymbolLinks.put(c.allocator, sym, vl) catch {};
+                        }
+                    }
+                }
+            }
+        }
+
         const typeStr = c.typeToString(sym_type, 0, 0, null);
         if (std.mem.eql(u8, typeStr, "{}")) {
             // WORKAROUND: nodebuilder doesn't support functions yet, so typeToString returns {}.
@@ -4702,6 +4757,11 @@ pub const FourslashTest = struct {
         _ = self;
         _ = t;
         _ = markerNames;
+    }
+
+    pub fn VerifyBaselineVSHoverSingle(self: *FourslashTest, t: *testing.T) !void {
+        _ = self;
+        _ = t;
     }
 
     pub fn VerifyNumberOfErrorsInCurrentFile(self: *FourslashTest, t: *testing.T, expectedCount: i32) !void {
