@@ -1181,6 +1181,59 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
+    /// Returns the property name formatted for display, with quotes if
+    /// the name was declared as a string literal or contains characters
+    /// that require quoting (not alphanumeric, _, or $).
+    fn formatPropertyName(self: *FourslashTest, sym: ast_gen.SymbolIndex) []const u8 {
+        const c = self.checker orelse return "";
+        if (sym == 0 or sym >= c.binder.symbols.items.len) return "";
+        const sym_obj = c.binder.symbols.items[sym];
+        const name = sym_obj.Name;
+        if (name.len == 0) return name;
+
+        // Check if the name was declared with a StringLiteral.
+        // If so, wrap in double quotes.
+        if (sym_obj.Declarations.items.len > 0) {
+            const p = self.parser orelse return name;
+            for (sym_obj.Declarations.items) |decl| {
+                if (decl == 0) continue;
+                const decl_data = p.ast.getNode(decl);
+                const name_node: ?u32 = switch (decl_data) {
+                    .PropertyDeclaration => |n| n.name,
+                    .PropertySignature => |n| n.name,
+                    .PropertyAssignment => |n| n.name,
+                    else => null,
+                };
+                if (name_node) |nn| {
+                    if (nn != 0 and p.ast.getNodeKind(nn) == .StringLiteral) {
+                        // Wrap in double quotes.
+                        const aa = self.arena.allocator();
+                        return std.fmt.allocPrint(aa, "\"{s}\"", .{name}) catch name;
+                    }
+                }
+            }
+        }
+
+        // Also check if the name contains characters that require quoting.
+        // Go uses: if the name is not a valid identifier, quote it.
+        var needs_quotes = false;
+        for (name) |ch| {
+            if (!std.ascii.isAlphanumeric(ch) and ch != '_' and ch != '$') {
+                needs_quotes = true;
+                break;
+            }
+        }
+        // Also quote if it starts with a digit.
+        if (name.len > 0 and std.ascii.isDigit(name[0])) {
+            needs_quotes = true;
+        }
+        if (needs_quotes) {
+            const aa = self.arena.allocator();
+            return std.fmt.allocPrint(aa, "\"{s}\"", .{name}) catch name;
+        }
+        return name;
+    }
+
     /// Returns "?" if the given parameter symbol should be displayed as
     /// optional in quick info. Checks both the AST QuestionToken and the
     /// JSDoc `@param {type} [name]` bracketed-name syntax.
@@ -2811,7 +2864,8 @@ pub const FourslashTest = struct {
                     }
                 }
             }
-            out.appendSlice(aa, symObj.Name) catch {};
+            const prop_name_display = self.formatPropertyName(sym);
+            out.appendSlice(aa, prop_name_display) catch {};
             // Check optional (SymbolFlags.Optional)
             if ((symObj.Flags & symbol.SymbolFlags.Optional) != 0) {
                 out.appendSlice(aa, "?") catch {};
