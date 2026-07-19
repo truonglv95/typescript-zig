@@ -1591,9 +1591,17 @@ pub const FourslashTest = struct {
 
         // Special handling for global identifiers that don't have explicit
         // declarations: `undefined`, `arguments`, `globalThis`, etc.
+        // But only when the identifier is NOT a property access name.
+        // If it's `x.undefined`, we should look up the property on x's type.
         if (node_kind == .Identifier) {
             const id_text = p.ast.getNode(node).Identifier.Text;
-            if (std.mem.eql(u8, id_text, "undefined")) {
+            // Check if this identifier is the name of a PropertyAccessExpression.
+            // If so, don't apply the global identifier shortcut.
+            const parent = p.ast.getNodeParent(node);
+            const is_property_access_name = parent != 0 and
+                p.ast.getNodeKind(parent) == .PropertyAccessExpression and
+                p.ast.getNode(parent).PropertyAccessExpression.name == node;
+            if (std.mem.eql(u8, id_text, "undefined") and !is_property_access_name) {
                 return "var undefined";
             }
             if (std.mem.eql(u8, id_text, "arguments")) {
