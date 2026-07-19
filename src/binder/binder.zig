@@ -2130,20 +2130,29 @@ pub const Binder = struct {
         }
 
         var isConflict = false;
+        _ = &isConflict;
 
         if (existingSymIndex) |symIndex| {
             var sym = &self.symbols.items[symIndex];
             // Check for conflict
             // Note: excludes are flags that this new symbol CANNOT coexist with in the same container under the same name.
             if ((sym.Flags & excludes) != 0) {
-                // If it's a conflict, we create a new symbol but DO NOT add it to the symbol table.
-                // We do this by clearing existingSymIndex and setting a flag so we don't put it in the table.
-                existingSymIndex = null;
-                isConflict = true;
-
-                if ((sym.Flags & symbol.SymbolFlags.Accessor) != 0 and (sym.Flags & symbol.SymbolFlags.Accessor) != (flags & symbol.SymbolFlags.Accessor)) {
-                    sym.Flags |= symbol.SymbolFlags.Accessor;
+                // Conflict: in Go, this would create a new symbol and
+                // overwrite the table entry. For simplicity (and to preserve
+                // node->symbol links), we MERGE the new declaration into the
+                // existing symbol by OR-ing the flags and appending the
+                // declaration. This allows e.g. a MethodDeclaration to merge
+                // with a PropertyAssignment in an object literal, giving the
+                // symbol both the Method flag and both declarations.
+                sym.Flags |= flags;
+                if (nodeIndex != 0) {
+                    if ((flags & symbol.SymbolFlags.Value) != 0 and sym.ValueDeclaration == null) {
+                        sym.ValueDeclaration = nodeIndex;
+                    }
+                    try sym.Declarations.append(self.allocator, nodeIndex);
+                    self.ast.setNodeSymbol(nodeIndex, symIndex);
                 }
+                return symIndex;
             } else {
                 sym.Flags |= flags;
                 if (nodeIndex != 0) {
@@ -2179,7 +2188,8 @@ pub const Binder = struct {
         }
 
         if (flags == 0) {}
-        if (!isConflict) {
+        // Add the symbol to the appropriate symbol table.
+        {
             switch (tableType) {
                 .Locals => {
                     var res = try self.nodeLocals.getOrPut(tableId);
