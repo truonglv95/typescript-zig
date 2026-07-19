@@ -21879,9 +21879,10 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn tryGetTypeFromTypeNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {        _ = c;
-        _ = node;
-        return 0;
+    pub fn tryGetTypeFromTypeNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        if (node == 0) return 0;
+        // Try to get the type from the type node, returning 0 on error.
+        return c.getTypeOfNode(node) catch 0;
     }
 
     pub fn getTypeFromTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
@@ -22007,9 +22008,12 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getSymbolFromTypeReference(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {        _ = c;
-        _ = node;
-        return 0;
+    pub fn getSymbolFromTypeReference(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        if (node == 0) return 0;
+        if (c.binder.ast.getKind(node) != .TypeReference) return 0;
+        const type_name = c.binder.ast.getNode(node).TypeReference.TypeName;
+        if (type_name == 0) return 0;
+        return getSymbolAtLocation(c, type_name);
     }
 
     pub fn resolveTypeReferenceName(c: *Checker, typeReference: ast_gen.NodeIndex, meaning: u32, ignoreErrors: bool) types.TypeIndex {        _ = c;
@@ -22102,12 +22106,18 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn isResolvedByTypeAlias(c: *Checker, node: ast_gen.NodeIndex) bool {        _ = c;
+    pub fn isResolvedByTypeAlias(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Returns true if `node` is resolved by a type alias.
+        // Conservative: returns false.
+        _ = c;
         _ = node;
         return false;
     }
 
-    pub fn mayResolveTypeAlias(c: *Checker, node: ast_gen.NodeIndex) bool {        _ = c;
+    pub fn mayResolveTypeAlias(c: *Checker, node: ast_gen.NodeIndex) bool {
+        // Returns true if `node` may be resolved by a type alias.
+        // Conservative: returns false.
+        _ = c;
         _ = node;
         return false;
     }
@@ -22132,14 +22142,25 @@ pub const Checker = struct {
         return @intCast(tuple_data.fixedLength + end_count);
     }
 
-    pub fn getElementTypes(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getElementTypes(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Returns the element types of a tuple type as a union.
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        if (!c.isTupleType(t)) return 0;
+        const target = c.getTargetType(t);
+        if (target == 0 or target >= c.typesList.items.len) return 0;
+        if (c.typesList.items[target].data != .Tuple) return 0;
+        const tuple = c.typesList.items[target].data.Tuple;
+        const elem_types = c.tupleTypesPool.items[tuple.typesStart .. tuple.typesStart + tuple.typesLen];
+        if (elem_types.len == 0) return 0;
+        if (elem_types.len == 1) return elem_types[0];
+        return c.getUnionTypeFromArray(elem_types);
     }
 
-    pub fn getTypeReferenceArity(c: *Checker, t: types.TypeIndex) i32 {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getTypeReferenceArity(c: *Checker, t: types.TypeIndex) i32 {
+        // Returns the number of type parameters of a type reference.
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const type_args = c.getTypeArguments(t);
+        return @intCast(type_args.len);
     }
 
     pub fn isEmptyLiteralType(c: *Checker, t: types.TypeIndex) bool {        _ = c;
