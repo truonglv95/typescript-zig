@@ -1535,8 +1535,29 @@ pub const FourslashTest = struct {
         // an `Identifier` with text "this" (for `this`-parameter names);
         // `checkThisExpression` handles both by walking up to the enclosing
         // function and inspecting its `this` parameter.
-        const this_type = checker_module.checkThisExpression(c, node);
-        const type_str: []const u8 = if (this_type != 0)
+        var this_type = checker_module.checkThisExpression(c, node);
+        // If checkThisExpression returned 0 or any, try the contextual
+        // this parameter type (from getContextualThisParameterType).
+        if (this_type == 0 or this_type == (c.anyTypeIndex orelse 0)) {
+            // Walk up to find the enclosing function-like container.
+            var container = p.ast.getNodeParent(node);
+            while (container != 0) {
+                const ck = p.ast.getNodeKind(container);
+                if (ck == .FunctionExpression or ck == .FunctionDeclaration or
+                    ck == .MethodDeclaration or ck == .ArrowFunction or
+                    ck == .Constructor or ck == .GetAccessor or ck == .SetAccessor)
+                {
+                    const ctx_type = c.getContextualThisParameterType(container);
+                    if (ctx_type != 0 and ctx_type != (c.anyTypeIndex orelse 0)) {
+                        this_type = ctx_type;
+                    }
+                    break;
+                }
+                if (ck == .SourceFile) break;
+                container = p.ast.getNodeParent(container);
+            }
+        }
+        const type_str: []const u8 = if (this_type != 0 and this_type != (c.anyTypeIndex orelse 0))
             c.typeToString(this_type, 0, 0, null)
         else
             "any";
