@@ -3538,9 +3538,121 @@ pub const FourslashTest = struct {
                             }
                             const idx_infos = c.getIndexInfosOfType(ct_idx);
                             if (idx_infos.len > 0) {
+                                // Determine whether the property name is numeric or string.
+                                const prop_name = ast_utils.getTextOfNode(&p.ast, node);
+                                const is_number_name = checker_module.utils.isNumericLiteralName(prop_name);
+                                const target_key_flags: u32 = if (is_number_name)
+                                    checker_module.types.TypeFlags.NumberLike
+                                else
+                                    checker_module.types.TypeFlags.StringLike;
+                                // Collect all index infos whose keyType matches.
+                                // For exact matching, check if the property name
+                                // (as a string literal type) is assignable to
+                                // the index info's key type. This handles
+                                // template literal index signatures like
+                                // `prefix${string}` matching "prefixMember".
+                                var matched = std.ArrayListUnmanaged(checker_module.types.IndexInfo).empty;
+                                defer matched.deinit(self.arena.allocator());
+                                // Create a string literal type for the property name.
+                                const prop_name_type = c.createType(.{
+                                    .flags = checker_module.types.TypeFlags.StringLiteral,
+                                    .objectFlags = checker_module.types.ObjectFlags.Anonymous,
+                                    .id = 0,
+                                    .symbol = null,
+                                    .alias = null,
+                                    .data = .{ .StringLiteral = .{ .text = prop_name } },
+                                }) catch 0;
+                                for (idx_infos) |info| {
+                                    if (info.keyType != 0 and info.keyType < c.typesList.items.len) {
+                                        // First, do a flag-based check.
+                                        const k_flags = c.typesList.items[info.keyType].flags;
+                                        const flag_matches = (k_flags & target_key_flags) != 0;
+                                        if (!flag_matches) continue;
+                                        // For plain string index signatures, match all.
+                                        if ((k_flags & checker_module.types.TypeFlags.String) != 0 and
+                                            (k_flags & (checker_module.types.TypeFlags.TemplateLiteral | checker_module.types.TypeFlags.StringMapping | checker_module.types.TypeFlags.Union)) == 0)
+                                        {
+                                            matched.append(self.arena.allocator(), info) catch {};
+                                            continue;
+                                        }
+                                        // For template literal key types, do
+                                        // a pattern match: extract the texts
+                                        // and types from the TemplateLiteral
+                                        // and check if the property name
+                                        // matches the pattern.
+                                        const key_type_data = c.typesList.items[info.keyType];
+                                        if ((k_flags & checker_module.types.TypeFlags.TemplateLiteral) != 0 and key_type_data.data == .TemplateLiteral) {
+                                            const tl = key_type_data.data.TemplateLiteral;
+                                            if (tl.texts.len > 0 and tl.texts.len == tl.typesLen + 1) {
+                                                // Pattern: texts[0] + type[0] + texts[1] + type[1] + ... + texts[last]
+                                                // Check if prop_name matches the pattern.
+                                                if (std.mem.startsWith(u8, prop_name, tl.texts[0])) {
+                                                    var rest = prop_name[tl.texts[0].len..];
+                                                    var matched_pattern = true;
+                                                    const types_pool = c.typeArgumentsPool.items;
+                                                    var ti: usize = 0;
+                                                    while (ti < tl.typesLen) : (ti += 1) {
+                                                        // The type at position ti determines what
+                                                        // the next segment of `rest` should be.
+                                                        const t_idx = if (tl.typesStart + ti < types_pool.len) types_pool[tl.typesStart + ti] else 0;
+                                                        const next_text = if (ti + 1 < tl.texts.len) tl.texts[ti + 1] else "";
+                                                        // Find next_text in rest.
+                                                        const idx = std.mem.indexOf(u8, rest, next_text);
+                                                        if (idx == null) { matched_pattern = false; break; }
+                                                        const segment = rest[0..idx.?];
+                                                        // Check if segment matches the type.
+                                                        if (t_idx != 0 and t_idx < c.typesList.items.len) {
+                                                            const t_flags = c.typesList.items[t_idx].flags;
+                                                            if ((t_flags & checker_module.types.TypeFlags.String) != 0) {
+                                                                // String: any non-empty segment is fine.
+                                                                if (segment.len == 0 and ti == tl.typesLen - 1) {
+                                                                    // Empty segment for last type — OK for string.
+                                                                }
+                                                            } else if ((t_flags & checker_module.types.TypeFlags.Number) != 0) {
+                                                                // Number: segment must be a valid number.
+                                                                _ = std.fmt.parseFloat(f64, segment) catch { matched_pattern = false; break; };
+                                                            } else if ((t_flags & checker_module.types.TypeFlags.TemplateLiteral) != 0) {
+                                                                // Nested template literal — skip for now.
+                                                            }
+                                                        }
+                                                        rest = rest[idx.? + next_text.len..];
+                                                    }
+                                                    if (matched_pattern) {
+                                                        matched.append(self.arena.allocator(), info) catch {};
+                                                    }
+                                                }
+                                            }
+                                            continue;
+                                        }
+                                        // For other types, use assignability.
+                                        if (prop_name_type != 0) {
+                                            if (c.isTypeAssignableTo(prop_name_type, info.keyType)) {
+                                                matched.append(self.arena.allocator(), info) catch {};
+                                            }
+                                        }
+                                    }
+                                }
+                                if (matched.items.len > 0) {
+                                    var out = std.ArrayListUnmanaged(u8).empty;
+                                    const aa = self.arena.allocator();
+                                    out.appendSlice(aa, "(index) ") catch {};
+                                    out.appendSlice(aa, type_name) catch {};
+                                    out.appendSlice(aa, "[") catch {};
+                                    for (matched.items, 0..) |info, i| {
+                                        if (i > 0) out.appendSlice(aa, " | ") catch {};
+                                        const key_str = if (info.keyType != 0) c.typeToString(info.keyType, 0, HOVER_TYPE_FLAGS, null) else "string";
+                                        out.appendSlice(aa, key_str) catch {};
+                                    }
+                                    out.appendSlice(aa, "]: ") catch {};
+                                    // Display value type from first matched index info.
+                                    const val_str = if (matched.items[0].valueType != 0) c.typeToString(matched.items[0].valueType, 0, HOVER_TYPE_FLAGS, null) else "any";
+                                    out.appendSlice(aa, val_str) catch {};
+                                    return out.toOwnedSlice(aa) catch "";
+                                }
+                                // Fallback: use first index info.
                                 const info = idx_infos[0];
-                                const key_str = if (info.keyType != 0) c.typeToString(info.keyType, 0, 0, null) else "string";
-                                const val_str = if (info.valueType != 0) c.typeToString(info.valueType, 0, 0, null) else "any";
+                                const key_str = if (info.keyType != 0) c.typeToString(info.keyType, 0, HOVER_TYPE_FLAGS, null) else "string";
+                                const val_str = if (info.valueType != 0) c.typeToString(info.valueType, 0, HOVER_TYPE_FLAGS, null) else "any";
                                 var out = std.ArrayListUnmanaged(u8).empty;
                                 const aa = self.arena.allocator();
                                 out.appendSlice(aa, "(index) ") catch {};

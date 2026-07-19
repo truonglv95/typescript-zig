@@ -2019,9 +2019,9 @@ pub const Checker = struct {
         // Decide whether `name` is a number-like or string-like key.
         const is_number_name = utils.isNumericLiteralName(name);
         const target_key_flags: u32 = if (is_number_name)
-            types.TypeFlags.Number
+            types.TypeFlags.NumberLike
         else
-            types.TypeFlags.String;
+            types.TypeFlags.StringLike;
 
         for (index_infos) |info| {
             const k_flags = c.typesList.items[info.keyType].flags;
