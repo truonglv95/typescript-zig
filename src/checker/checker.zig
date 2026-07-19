@@ -24941,10 +24941,26 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
         }
         // If value resolution failed, try Type meaning. This is needed for
         // type references like `T` in `type X = T` where T is a type parameter.
-        const name = ast_utils.getTextOfNode(c.binder.ast, node);
-        const type_sym = resolveName(c, node, name, symbol.SymbolFlags.Type, null, false, false);
-        if (type_sym != 0 and type_sym != c.unknownSymbol) {
-            return type_sym;
+        // But ONLY if the identifier is NOT in expression position.
+        const tf_parent = c.binder.ast.getNodeParent(node);
+        const tf_parent_kind = if (tf_parent != 0) c.binder.ast.getNodeKind(tf_parent) else .SourceFile;
+        const is_expr_pos = switch (tf_parent_kind) {
+            .CallExpression, .NewExpression, .PropertyAccessExpression,
+            .ElementAccessExpression, .ExpressionStatement, .BinaryExpression,
+            .VariableDeclaration, .PrefixUnaryExpression, .PostfixUnaryExpression,
+            .ConditionalExpression, .ParenthesizedExpression, .ArrayLiteralExpression,
+            .ReturnStatement, .IfStatement, .WhileStatement, .ThrowStatement,
+            .AwaitExpression, .YieldExpression, .NonNullExpression,
+            .AsExpression, .TypeAssertionExpression, .SpreadElement,
+            => true,
+            else => false,
+        };
+        if (!is_expr_pos) {
+            const name = ast_utils.getTextOfNode(c.binder.ast, node);
+            const type_sym = resolveName(c, node, name, symbol.SymbolFlags.Type, null, false, false);
+            if (type_sym != 0 and type_sym != c.unknownSymbol) {
+                return type_sym;
+            }
         }
         // Fallback: if this Identifier is the `name` of a declaration node
         // (PropertySignature, PropertyDeclaration, MethodDeclaration, etc.),
@@ -26840,6 +26856,11 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                 return c.resolveExternalModuleTypeByLiteral(elements[0]);
             }
         }
+    }
+
+    // Guard: if signature is 0 or out of bounds, return any.
+    if (signature == 0 or signature >= c.signatures.items.len) {
+        return c.anyTypeIndex orelse 0;
     }
 
     // Guard: if signature is 0 or out of bounds, return any.
