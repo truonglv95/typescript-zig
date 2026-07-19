@@ -1325,6 +1325,15 @@ pub const FourslashTest = struct {
         // Only include named types and namespaces.
         const is_named_type = (parent_obj.Flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface | symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum | symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule)) != 0;
         if (!is_named_type or parent_obj.Name.len == 0) return "";
+        // Exclude source file symbols (which have ValueModule flag but
+        // represent the file, not a namespace). Source file symbols have
+        // declarations of kind SourceFile.
+        if (parent_obj.Declarations.items.len > 0) {
+            if (self.parser) |p| {
+                const first_decl = parent_obj.Declarations.items[0];
+                if (first_decl != 0 and p.ast.getNodeKind(first_decl) == .SourceFile) return "";
+            }
+        }
         // Recurse: build grandparent prefix + parent.Name + "."
         const grandparent_prefix = self.getParentQualifiedNamePrefix(parent_sym);
         // Append type parameters if the parent has them.
@@ -3831,15 +3840,11 @@ pub const FourslashTest = struct {
 
             out.appendSlice(aa, "class ") catch {};
             // Include namespace prefix if the class is inside a namespace.
-            // Walk up the parent chain to find the enclosing namespace/module.
-            if (symObj.Parent) |parent_sym| {
-                if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
-                    const parent_obj = c.binder.symbols.items[parent_sym];
-                    if ((parent_obj.Flags & (symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule)) != 0) {
-                        out.appendSlice(aa, parent_obj.Name) catch {};
-                        out.appendSlice(aa, ".") catch {};
-                    }
-                }
+            // Use recursive qualified-name prefix to handle nested
+            // namespaces like m1.m2.c.
+            const ns_prefix = self.getParentQualifiedNamePrefix(sym);
+            if (ns_prefix.len > 0) {
+                out.appendSlice(aa, ns_prefix) catch {};
             }
             out.appendSlice(aa, symObj.Name) catch {};
             // Append type parameters if present.
@@ -3880,14 +3885,9 @@ pub const FourslashTest = struct {
             const aa = self.arena.allocator();
             out.appendSlice(aa, "interface ") catch {};
             // Include namespace prefix if inside a namespace.
-            if (symObj.Parent) |parent_sym| {
-                if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
-                    const parent_obj = c.binder.symbols.items[parent_sym];
-                    if ((parent_obj.Flags & (symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule)) != 0) {
-                        out.appendSlice(aa, parent_obj.Name) catch {};
-                        out.appendSlice(aa, ".") catch {};
-                    }
-                }
+            const ns_prefix = self.getParentQualifiedNamePrefix(sym);
+            if (ns_prefix.len > 0) {
+                out.appendSlice(aa, ns_prefix) catch {};
             }
             out.appendSlice(aa, symObj.Name) catch {};
             // Append type parameters if present.
@@ -3942,6 +3942,10 @@ pub const FourslashTest = struct {
                 out.appendSlice(aa, "const ") catch {};
             }
             out.appendSlice(aa, "enum ") catch {};
+            const ns_prefix = self.getParentQualifiedNamePrefix(sym);
+            if (ns_prefix.len > 0) {
+                out.appendSlice(aa, ns_prefix) catch {};
+            }
             out.appendSlice(aa, symObj.Name) catch {};
             return out.toOwnedSlice(aa) catch "";
         }
