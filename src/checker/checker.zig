@@ -5598,8 +5598,9 @@ pub const Checker = struct {
                                 }
                             }
                         }
-                        // No explicit type arguments — check if the class
-                        // has type parameters. If so, default them to `unknown`.
+                        // No explicit type arguments — check if the class/interface
+                        // has type parameters. If so, return anyType (can't infer
+                        // type arguments from constructor arguments in adhoc path).
                         if (td.symbol != null and td.symbol.? < self.binder.symbols.items.len) {
                             const cls_sym = self.binder.symbols.items[td.symbol.?];
                             if (cls_sym.Declarations.items.len > 0) {
@@ -5607,12 +5608,20 @@ pub const Checker = struct {
                                 const decl_data = self.binder.ast.getNode(decl);
                                 const tp_list: ?u32 = switch (decl_data) {
                                     .ClassDeclaration => |cd| cd.TypeParameters,
+                                    .InterfaceDeclaration => |id| id.TypeParameters,
                                     else => null,
                                 };
                                 if (tp_list) |tpl| {
                                     if (tpl != 0) {
                                         const tp_nodes = self.binder.ast.getNodeList(tpl);
                                         if (tp_nodes.len > 0) {
+                                            // For interfaces with type parameters, return any
+                                            // (can't infer type arguments from constructor arguments).
+                                            // For classes, create Reference with unknown type args.
+                                            const is_interface = decl_data == .InterfaceDeclaration;
+                                            if (is_interface) {
+                                                return try self.getAnyType();
+                                            }
                                             const ta_start: u32 = @intCast(self.typeArgumentsPool.items.len);
                                             for (tp_nodes) |tp_node| {
                                                 _ = tp_node;
