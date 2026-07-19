@@ -2264,8 +2264,21 @@ pub const FourslashTest = struct {
                                     for (0..min_l) |i| {
                                         const pt = c.getTypeOfSymbol(sig_params[i]) catch 0;
                                         if (pt == 0 or pt >= c.typesList.items.len) continue;
-                                        const at = c.checkExpressionAdHoc(call_args[i]) catch 0;
-                                        if (at == 0) continue;
+                                        var at = c.checkExpressionAdHoc(call_args[i]) catch 0;
+                                        if (at == 0 or at >= c.typesList.items.len) continue;
+                                        // Widen literal types in non-strict mode.
+                                        // In strict mode, preserve literal types (e.g., f<2>).
+                                        // In non-strict mode, widen (e.g., f<number>).
+                                        if (!c.strictNullChecks) {
+                                            const atd = c.typesList.items[at];
+                                            if ((atd.flags & checker_module.types.TypeFlags.NumberLiteral) != 0) {
+                                                at = c.numberTypeIndex orelse at;
+                                            } else if ((atd.flags & checker_module.types.TypeFlags.StringLiteral) != 0) {
+                                                at = c.stringTypeIndex orelse at;
+                                            } else if ((atd.flags & checker_module.types.TypeFlags.BooleanLiteral) != 0) {
+                                                at = c.booleanTypeIndex orelse at;
+                                            }
+                                        }
                                         const ptd = c.typesList.items[pt];
                                         if ((ptd.flags & checker_module.types.TypeFlags.TypeParameter) != 0) {
                                             if (ptd.symbol) |tp_sym| {
