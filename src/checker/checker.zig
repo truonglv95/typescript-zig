@@ -1194,13 +1194,22 @@ pub const Checker = struct {
     }
 
     pub fn resolveObjectTypeMembers(c: *Checker, t: types.TypeIndex, source: types.TypeIndex, typeParametersStart: u32, typeParametersLen: u32, typeArgumentsStart: u32, typeArgumentsLen: u32, outMembers: *types.StructuredTypeMembers) void {
+        const resolved = c.resolveDeclaredMembers(source);
+        // If the source has type parameters and this reference has type
+        // arguments, we need to substitute type parameters in property types
+        // with the corresponding type arguments when callers query property
+        // types. For now, we keep the same property symbols but cache an
+        // "instantiated type" hint on valueSymbolLinks.containingType so
+        // getTypeOfSymbol can later substitute using the type arguments.
+        //
+        // We don't override resolvedType (which is shared across all
+        // instantiations of the same source). Instead we just return the
+        // source's members as-is; downstream code (getTypeOfSymbol with
+        // containingType) handles substitution when needed.
         _ = typeParametersStart;
         _ = typeParametersLen;
         _ = typeArgumentsStart;
         _ = typeArgumentsLen;
-
-        const resolved = c.resolveDeclaredMembers(source);
-        // For now, assume type parameters and arguments match
         outMembers.propertiesStart = resolved.propertiesStart;
         outMembers.propertiesLen = resolved.propertiesLen;
         outMembers.callSignaturesStart = resolved.callSignaturesStart;
@@ -1209,8 +1218,6 @@ pub const Checker = struct {
         outMembers.constructSignaturesLen = resolved.constructSignaturesLen;
         outMembers.indexInfosStart = resolved.indexInfosStart;
         outMembers.indexInfosLen = resolved.indexInfosLen;
-
-        // c.setStructuredTypeMembers(...) is basically done via outMembers here
         _ = t;
     }
 

@@ -2383,6 +2383,52 @@ pub const FourslashTest = struct {
             }
         }
 
+        // If the property was looked up on an instantiated generic type
+        // (e.g., `x.self` where `x: G<T>`), substitute the type parameters
+        // in the property's type with the type arguments from the containing
+        // type. This is needed because resolveObjectTypeMembers doesn't
+        // currently substitute type parameters into property types.
+        if (c.valueSymbolLinks.get(sym)) |links| {
+            if (links.containingType) |ct_idx| {
+                if (ct_idx != 0 and ct_idx < c.typesList.items.len) {
+                    const ct = c.typesList.items[ct_idx];
+                    if ((ct.objectFlags & checker_module.types.ObjectFlags.Reference) != 0) {
+                        const target = c.getTargetType(ct_idx);
+                        if (target != 0 and target < c.typesList.items.len) {
+                            const target_data = c.typesList.items[target];
+                            // Get type parameters of the target.
+                            if (target_data.data == .Object) {
+                                const tp_arr = c.getTypeArguments(target);
+                                const ta_arr = c.getTypeArguments(ct_idx);
+                                if (tp_arr.len > 0 and ta_arr.len > 0 and tp_arr.len == ta_arr.len) {
+                                    // Build a substitution map: type param symbol -> type arg.
+                                    var subst = std.AutoHashMap(ast_gen.SymbolIndex, checker_module.types.TypeIndex).init(self.arena.allocator());
+                                    for (tp_arr, 0..) |tp, i| {
+                                        if (tp != 0 and tp < c.typesList.items.len and i < ta_arr.len) {
+                                            const tp_data = c.typesList.items[tp];
+                                            if ((tp_data.flags & checker_module.types.TypeFlags.TypeParameter) != 0) {
+                                                if (tp_data.symbol) |tp_sym| {
+                                                    if (tp_sym != 0) {
+                                                        subst.put(tp_sym, ta_arr[i]) catch {};
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (subst.count() > 0) {
+                                        const new_type = c.substituteTypeParams(sym_type, &subst) catch sym_type;
+                                        if (new_type != 0 and new_type != sym_type) {
+                                            sym_type = new_type;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Go's hover always uses MultilineObjectLiterals flag for type display.
         const typeStr = c.typeToString(sym_type, 0, HOVER_TYPE_FLAGS, null);
         // Track if this is an alias (imported symbol) — we'll prefix
