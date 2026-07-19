@@ -2383,7 +2383,9 @@ pub const Checker = struct {
                         .FunctionExpression => |f| { params_id = f.Parameters; tp_list = f.TypeParameters; },
                         .ArrowFunction => |f| { params_id = f.Parameters; tp_list = f.TypeParameters; },
                         .MethodDeclaration => |m| { params_id = m.Parameters; tp_list = m.TypeParameters; },
+                        .MethodSignature => |m| { params_id = m.Parameters; tp_list = m.TypeParameters; },
                         .CallSignature => |cs| { params_id = cs.Parameters; tp_list = cs.TypeParameters; },
+                        .ConstructSignature => |cs| { params_id = cs.Parameters; tp_list = cs.TypeParameters; },
                         else => {},
                     }
                     var buf = std.ArrayListUnmanaged(u8).empty;
@@ -4282,8 +4284,8 @@ pub const Checker = struct {
                     }
                     return try self.getAnyType();
                 },
-                .FunctionDeclaration, .MethodDeclaration, .Constructor,
-                .FunctionExpression, .ArrowFunction => {
+                .FunctionDeclaration, .MethodDeclaration, .MethodSignature, .Constructor,
+                .FunctionExpression, .ArrowFunction, .CallSignature, .ConstructSignature => {
                     // Get the explicit return type annotation if present.
                     var ret_type: types.TypeIndex = 0;
                     const decl_node_for_type = decl_index;
@@ -4300,6 +4302,21 @@ pub const Checker = struct {
                         },
                         .MethodDeclaration => |m| {
                             if (m.Type) |t| {
+                                if (t != 0) ret_type = self.getTypeOfNode(t) catch 0;
+                            }
+                        },
+                        .MethodSignature => |m| {
+                            if (m.Type) |t| {
+                                if (t != 0) ret_type = self.getTypeOfNode(t) catch 0;
+                            }
+                        },
+                        .CallSignature => |cs| {
+                            if (cs.Type) |t| {
+                                if (t != 0) ret_type = self.getTypeOfNode(t) catch 0;
+                            }
+                        },
+                        .ConstructSignature => |cs| {
+                            if (cs.Type) |t| {
                                 if (t != 0) ret_type = self.getTypeOfNode(t) catch 0;
                             }
                         },
@@ -4326,6 +4343,21 @@ pub const Checker = struct {
                         .MethodDeclaration => |m| {
                             if (m.Parameters != 0) {
                                 param_count = @intCast(self.binder.ast.getNodeList(m.Parameters).len);
+                            }
+                        },
+                        .MethodSignature => |m| {
+                            if (m.Parameters != 0) {
+                                param_count = @intCast(self.binder.ast.getNodeList(m.Parameters).len);
+                            }
+                        },
+                        .CallSignature => |cs| {
+                            if (cs.Parameters != 0) {
+                                param_count = @intCast(self.binder.ast.getNodeList(cs.Parameters).len);
+                            }
+                        },
+                        .ConstructSignature => |cs| {
+                            if (cs.Parameters != 0) {
+                                param_count = @intCast(self.binder.ast.getNodeList(cs.Parameters).len);
                             }
                         },
                         .ArrowFunction => |af| {
@@ -6939,6 +6971,7 @@ pub const Checker = struct {
             .FunctionDeclaration => |n| n.Type orelse 0,
             .FunctionExpression => |n| n.Type orelse 0,
             .MethodDeclaration => |n| n.Type orelse 0,
+            .MethodSignature => |n| n.Type orelse 0,
             .ArrowFunction => |n| n.Type orelse 0,
             .GetAccessor => |n| n.Type orelse 0,
             .SetAccessor => |n| n.Type orelse 0,

@@ -3243,10 +3243,13 @@ pub const FourslashTest = struct {
         // Synthetic properties (from index signatures) are rendered as
         // "(index) TypeName[keyType]: valueType" instead.
         if ((symObj.Flags & (symbol.SymbolFlags.Property | symbol.SymbolFlags.GetAccessor | symbol.SymbolFlags.SetAccessor | symbol.SymbolFlags.Accessor)) != 0) {
-            // If any declaration is a MethodDeclaration/MethodSignature, Go
-            // treats the merged symbol as a method rather than a property.
-            // Skip the property branch and fall through to the method branch.
+            // If any declaration is a MethodDeclaration/MethodSignature, or
+            // the symbol has the Method flag set (e.g., synthetic union
+            // property created from method declarations), Go treats the
+            // symbol as a method rather than a property. Skip the property
+            // branch and fall through to the method branch.
             const has_method_decl = blk: {
+                if ((symObj.Flags & symbol.SymbolFlags.Method) != 0) break :blk true;
                 if (symObj.Declarations.items.len > 0) {
                     for (symObj.Declarations.items) |decl| {
                         if (decl != 0) {
@@ -3485,7 +3488,31 @@ pub const FourslashTest = struct {
                 break :blk false;
             });
         if (is_method_like) {
-            const sigs = c.getSignaturesOfSymbol(sym);
+            var sigs = c.getSignaturesOfSymbol(sym);
+            // Fallback: for synthetic union/intersection properties with the
+            // Method flag but no own declarations (e.g., `x.f` where `x` is a
+            // union of types each declaring `f` as a method), try to fetch
+            // signatures from the property's resolved type.
+            if (sigs.len == 0 and sym_type != 0) {
+                sigs = c.getSignaturesOfType(sym_type, .Call);
+            }
+            // Fallback: if sym_type is a union of function types, try the
+            // first constituent type's signatures.
+            if (sigs.len == 0 and sym_type != 0) {
+                const td = c.typesList.items[sym_type];
+                if ((td.flags & checker_module.types.TypeFlags.Union) != 0) {
+                    const constituents = c.getTypesOfUnionOrIntersectionType(sym_type);
+                    for (constituents) |ct| {
+                        if (ct != 0 and ct < c.typesList.items.len) {
+                            const sigs2 = c.getSignaturesOfType(ct, .Call);
+                            if (sigs2.len > 0) {
+                                sigs = sigs2;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             if (sigs.len > 0) {
                 var out = std.ArrayListUnmanaged(u8).empty;
                 const aa = self.arena.allocator();
