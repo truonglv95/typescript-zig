@@ -7150,7 +7150,7 @@ pub const Checker = struct {
     }
 
     /// Substitute type parameters in a type with their inferred types.
-    fn substituteTypeParams(
+    pub fn substituteTypeParams(
         self: *Checker,
         t: types.TypeIndex,
         inferred: *std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex),

@@ -2210,6 +2210,87 @@ pub const FourslashTest = struct {
                 if (sigs.len > 0) {
                     var out = std.ArrayListUnmanaged(u8).empty;
                     const aa = self.arena.allocator();
+
+                    // Infer type arguments if the function is being called.
+                    // This allows displaying f<2>(a: 2): 2 instead of f<T>(a: T): T.
+                    var inferred_types: []const checker_module.types.TypeIndex = &[_]checker_module.types.TypeIndex{};
+                    var has_type_params = false;
+                    var first_sig_decl: ast_gen.NodeIndex = 0;
+                    {
+                        const first_sig_idx = c.resolvedSignaturesPool.items[sigs.start];
+                        first_sig_decl = c.signatures.items[first_sig_idx].declaration;
+                        if (first_sig_decl != 0) {
+                            const sd = p.ast.getNode(first_sig_decl);
+                            const tp_list_id: u32 = switch (sd) {
+                                .FunctionDeclaration => |f| f.TypeParameters orelse 0,
+                                .FunctionExpression => |f| f.TypeParameters orelse 0,
+                                .ArrowFunction => |f| f.TypeParameters orelse 0,
+                                .MethodDeclaration => |m| m.TypeParameters orelse 0,
+                                .CallSignature => |cs| cs.TypeParameters orelse 0,
+                                .ConstructSignature => |cs| cs.TypeParameters orelse 0,
+                                else => 0,
+                            };
+                            if (tp_list_id != 0) {
+                                const tp_nodes = p.ast.getNodeList(tp_list_id);
+                                if (tp_nodes.len > 0) {
+                                    has_type_params = true;
+                                    // Find CallExpression arguments.
+                                    var call_args: []const ast_gen.NodeIndex = &[_]ast_gen.NodeIndex{};
+                                    // Search for a CallExpression at the cursor position.
+                                    const cursor_pos = @as(u32, @intCast(self.cursorPos));
+                                    var ni: u32 = 1;
+                                    while (ni < p.ast.nodes.len) : (ni += 1) {
+                                        const nk = p.ast.getNodeKind(ni);
+                                        if (nk != .CallExpression and nk != .NewExpression) continue;
+                                        const npos = p.ast.getNodePos(ni);
+                                        const nend = p.ast.getNodeEnd(ni);
+                                        if (npos <= cursor_pos and cursor_pos <= nend) {
+                                            const aid: ?u32 = if (nk == .CallExpression) p.ast.getNode(ni).CallExpression.Arguments else p.ast.getNode(ni).NewExpression.Arguments;
+                                            if (aid) |a| { if (a != 0) call_args = p.ast.getNodeList(a); }
+                                            break;
+                                        }
+                                    }
+                                    // Build inference map.
+                                    var inf_map = std.AutoHashMap(ast_gen.SymbolIndex, checker_module.types.TypeIndex).init(aa);
+                                    for (tp_nodes) |tp_node| {
+                                        if (tp_node == 0) continue;
+                                        if (p.ast.getNodeSymbol(tp_node)) |tp_sym| {
+                                            if (tp_sym != 0) inf_map.put(tp_sym, 0) catch {};
+                                        }
+                                    }
+                                    // Unify parameter types with argument types.
+                                    const sig_params = c.signatureParameters.items[c.signatures.items[first_sig_idx].parametersStart .. c.signatures.items[first_sig_idx].parametersStart + c.signatures.items[first_sig_idx].parametersLen];
+                                    const min_l = @min(sig_params.len, call_args.len);
+                                    for (0..min_l) |i| {
+                                        const pt = c.getTypeOfSymbol(sig_params[i]) catch 0;
+                                        if (pt == 0 or pt >= c.typesList.items.len) continue;
+                                        const at = c.checkExpressionAdHoc(call_args[i]) catch 0;
+                                        if (at == 0) continue;
+                                        const ptd = c.typesList.items[pt];
+                                        if ((ptd.flags & checker_module.types.TypeFlags.TypeParameter) != 0) {
+                                            if (ptd.symbol) |tp_sym| {
+                                                if (inf_map.get(tp_sym)) |cv| {
+                                                    if (cv == 0) inf_map.put(tp_sym, at) catch {};
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Build inferred types array.
+                                    var inf_arr = std.ArrayListUnmanaged(checker_module.types.TypeIndex).empty;
+                                    for (tp_nodes) |tp_node| {
+                                        var val: checker_module.types.TypeIndex = 0;
+                                        if (tp_node != 0) {
+                                            if (p.ast.getNodeSymbol(tp_node)) |tp_sym| {
+                                                if (tp_sym != 0) val = inf_map.get(tp_sym) orelse 0;
+                                            }
+                                        }
+                                        inf_arr.append(aa, val) catch {};
+                                    }
+                                    inferred_types = inf_arr.toOwnedSlice(aa) catch &[_]checker_module.types.TypeIndex{};
+                                }
+                            }
+                        }
+                    }
                     // Determine if local: walk parent chain from declaration.
                     // Function expressions and arrow functions are always
                     // considered local (they don't have a top-level declaration
@@ -2252,65 +2333,42 @@ pub const FourslashTest = struct {
                         out.appendSlice(aa, "function ") catch {};
                         out.appendSlice(aa, symObj.Name) catch {};
                     }
-                    // Append type parameters if present: <T, U>
-                    if (symObj.Declarations.items.len > 0) {
-                        const decl_node = symObj.Declarations.items[0];
-                        const decl_data = p.ast.getNode(decl_node);
-                        const tp_list_id: u32 = switch (decl_data) {
-                            .FunctionDeclaration => |f| f.TypeParameters orelse 0,
-                            .FunctionExpression => |f| f.TypeParameters orelse 0,
-                            .ArrowFunction => |f| f.TypeParameters orelse 0,
-                            .MethodDeclaration => |m| m.TypeParameters orelse 0,
-                            .CallSignature => |cs| cs.TypeParameters orelse 0,
-                            .ConstructSignature => |cs| cs.TypeParameters orelse 0,
-                            else => 0,
-                        };
-                        if (tp_list_id != 0) {
-                            const tp_nodes = p.ast.getNodeList(tp_list_id);
-                            if (tp_nodes.len > 0) {
-                                out.appendSlice(aa, "<") catch {};
-                                for (tp_nodes, 0..) |tp_node, i| {
-                                    if (i > 0) out.appendSlice(aa, ", ") catch {};
-                                    if (tp_node != 0) {
-                                        // Try to extract the type parameter name and constraint.
-                                        const tp_data = p.ast.getNode(tp_node);
-                                        const tp_name_node = switch (tp_data) {
-                                            .TypeParameter => |tp| tp.name,
-                                            else => 0,
-                                        };
-                                        if (tp_name_node != 0) {
-                                            const tp_name = ast_utils.getTextOfNode(&p.ast, tp_name_node);
-                                            out.appendSlice(aa, tp_name) catch {};
-                                            // Append constraint if present.
-                                            switch (tp_data) {
-                                                .TypeParameter => |tp| {
-                                                    if (tp.Constraint) |constraint| {
-                                                        if (constraint != 0) {
-                                                            out.appendSlice(aa, " extends ") catch {};
-                                                            const constraint_text = ast_utils.getTextOfNode(&p.ast, constraint);
-                                                            out.appendSlice(aa, constraint_text) catch {};
-                                                        }
-                                                    }
-                                                    if (tp.DefaultType) |default_t| {
-                                                        if (default_t != 0) {
-                                                            out.appendSlice(aa, " = ") catch {};
-                                                            const default_text = ast_utils.getTextOfNode(&p.ast, default_t);
-                                                            out.appendSlice(aa, default_text) catch {};
-                                                        }
-                                                    }
-                                                },
-                                                else => {},
+                    // Append type parameters if present: <T, U> or <2> if inferred.
+                    if (has_type_params and inferred_types.len > 0) {
+                        out.appendSlice(aa, "<") catch {};
+                        for (inferred_types, 0..) |inf_t, i| {
+                            if (i > 0) out.appendSlice(aa, ", ") catch {};
+                            if (inf_t != 0 and inf_t < c.typesList.items.len) {
+                                const s = c.typeToString(inf_t, 0, 0, null);
+                                out.appendSlice(aa, s) catch {};
+                            } else {
+                                // Fallback: show type parameter name.
+                                if (symObj.Declarations.items.len > 0) {
+                                    const decl_node = symObj.Declarations.items[0];
+                                    const decl_data = p.ast.getNode(decl_node);
+                                    const tp_list_id: u32 = switch (decl_data) {
+                                        .FunctionDeclaration => |f| f.TypeParameters orelse 0,
+                                        .FunctionExpression => |f| f.TypeParameters orelse 0,
+                                        .ArrowFunction => |f| f.TypeParameters orelse 0,
+                                        .MethodDeclaration => |m| m.TypeParameters orelse 0,
+                                        .CallSignature => |cs| cs.TypeParameters orelse 0,
+                                        .ConstructSignature => |cs| cs.TypeParameters orelse 0,
+                                        else => 0,
+                                    };
+                                    if (tp_list_id != 0) {
+                                        const tp_nodes = p.ast.getNodeList(tp_list_id);
+                                        if (i < tp_nodes.len and tp_nodes[i] != 0) {
+                                            const tp_name_node = p.ast.getNode(tp_nodes[i]).TypeParameter.name;
+                                            if (tp_name_node != 0) {
+                                                const tp_name = ast_utils.getTextOfNode(&p.ast, tp_name_node);
+                                                out.appendSlice(aa, tp_name) catch {};
                                             }
-                                        } else {
-                                            // Fallback: use text of node.
-                                            const tp_text = ast_utils.getTextOfNode(&p.ast, tp_node);
-                                            out.appendSlice(aa, tp_text) catch {};
                                         }
                                     }
                                 }
-                                out.appendSlice(aa, ">") catch {};
                             }
                         }
+                        out.appendSlice(aa, ">") catch {};
                     }
                     out.appendSlice(aa, "(") catch {};
 
@@ -2421,10 +2479,33 @@ pub const FourslashTest = struct {
                     for (params, 0..) |paramSym, i| {
                         if (i > 0) out.appendSlice(aa, ", ") catch {};
                         const paramObj = c.binder.symbols.items[paramSym];
-                        const paramType = c.getTypeOfSymbol(paramSym) catch |err| blk: {
-                            std.debug.print("getTypeOfSymbol error for {s}: {}\n", .{paramObj.Name, err});
-                            break :blk 0;
-                        };
+                        var paramType = c.getTypeOfSymbol(paramSym) catch 0;
+                        // Substitute type parameters with inferred types.
+                        if (has_type_params and inferred_types.len > 0 and first_sig_decl != 0) {
+                            const sd2 = p.ast.getNode(first_sig_decl);
+                            const tp_list_id2: u32 = switch (sd2) {
+                                .FunctionDeclaration => |f| f.TypeParameters orelse 0,
+                                .FunctionExpression => |f| f.TypeParameters orelse 0,
+                                .ArrowFunction => |f| f.TypeParameters orelse 0,
+                                .MethodDeclaration => |m| m.TypeParameters orelse 0,
+                                .CallSignature => |cs| cs.TypeParameters orelse 0,
+                                .ConstructSignature => |cs| cs.TypeParameters orelse 0,
+                                else => 0,
+                            };
+                            if (tp_list_id2 != 0) {
+                                const tp_nodes2 = p.ast.getNodeList(tp_list_id2);
+                                var subst2 = std.AutoHashMap(ast_gen.SymbolIndex, checker_module.types.TypeIndex).init(aa);
+                                for (tp_nodes2, 0..) |tp_n, j| {
+                                    if (tp_n != 0 and j < inferred_types.len) {
+                                        const ts = p.ast.getNodeSymbol(tp_n) orelse 0;
+                                        if (ts != 0 and inferred_types[j] != 0) {
+                                            subst2.put(ts, inferred_types[j]) catch {};
+                                        }
+                                    }
+                                }
+                                paramType = c.substituteTypeParams(paramType, &subst2) catch paramType;
+                            }
+                        }
                         const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
 
                         const param_question = self.getParamOptionalMarker(paramSym);
@@ -2434,7 +2515,33 @@ pub const FourslashTest = struct {
 
                     out.appendSlice(aa, "): ") catch {};
 
-                    const retType = c.getReturnTypeOfSignature(sig);
+                    var retType = c.getReturnTypeOfSignature(sig);
+                    // Substitute return type with inferred type arguments.
+                    if (has_type_params and inferred_types.len > 0 and first_sig_decl != 0) {
+                        const sd3 = p.ast.getNode(first_sig_decl);
+                        const tp_list_id3: u32 = switch (sd3) {
+                            .FunctionDeclaration => |f| f.TypeParameters orelse 0,
+                            .FunctionExpression => |f| f.TypeParameters orelse 0,
+                            .ArrowFunction => |f| f.TypeParameters orelse 0,
+                            .MethodDeclaration => |m| m.TypeParameters orelse 0,
+                            .CallSignature => |cs| cs.TypeParameters orelse 0,
+                            .ConstructSignature => |cs| cs.TypeParameters orelse 0,
+                            else => 0,
+                        };
+                        if (tp_list_id3 != 0) {
+                            const tp_nodes3 = p.ast.getNodeList(tp_list_id3);
+                            var subst3 = std.AutoHashMap(ast_gen.SymbolIndex, checker_module.types.TypeIndex).init(aa);
+                            for (tp_nodes3, 0..) |tp_n, j| {
+                                if (tp_n != 0 and j < inferred_types.len) {
+                                    const ts = p.ast.getNodeSymbol(tp_n) orelse 0;
+                                    if (ts != 0 and inferred_types[j] != 0) {
+                                        subst3.put(ts, inferred_types[j]) catch {};
+                                    }
+                                }
+                            }
+                            retType = c.substituteTypeParams(retType, &subst3) catch retType;
+                        }
+                    }
                     // Check for TypePredicate return type.
                     const sig_decl = c.signatures.items[display_sig_idx].declaration;
                     var tp_node: ast_gen.NodeIndex = 0;
