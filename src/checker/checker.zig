@@ -4136,13 +4136,15 @@ pub const Checker = struct {
     // =========================================================================
 
     pub fn getTypeOfSymbol(self: *Checker, symIndex: u32) anyerror!u32 {
-        if (self.valueSymbolLinks.get(symIndex)) |links| {
-            if (links.resolvedType) |resolved| return resolved;
-        }
-        // Recursion guard: if we're already resolving this symbol's type,
-        // return any to break infinite recursion (e.g. `var a = { f: a }`).
+        // Recursion guard: check BEFORE cache. If we're already resolving
+        // this symbol's type, return any to break infinite recursion
+        // (e.g. `var a = { f: a }`). The cache might have a partial/wrong
+        // result from a previous attempt that didn't have the guard.
         if (self.resolvingSymbols.contains(symIndex)) {
             return self.anyTypeIndex orelse 0;
+        }
+        if (self.valueSymbolLinks.get(symIndex)) |links| {
+            if (links.resolvedType) |resolved| return resolved;
         }
         self.resolvingSymbols.put(self.allocator, symIndex, {}) catch {};
         defer _ = self.resolvingSymbols.remove(symIndex);
