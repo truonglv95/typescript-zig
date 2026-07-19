@@ -4771,6 +4771,21 @@ pub const Checker = struct {
                         }
                     }
                     const initType = try self.checkExpressionAdHoc(initExpr);
+                    // For FunctionExpression/ArrowFunction initializers,
+                    // checkExpressionAdHoc may return a type with
+                    // returnType=any. Try checkExpressionCachedEx which
+                    // calls checkFunctionExpressionOrObjectLiteralMethod
+                    // (which infers return type from body).
+                    var effective_init_type = initType;
+                    if (initExpr != 0) {
+                        const init_kind = self.binder.ast.getNodeKind(initExpr);
+                        if (init_kind == .FunctionExpression or init_kind == .ArrowFunction) {
+                            const better_type = self.checkExpressionCachedEx(initExpr, CheckMode.Normal);
+                            if (better_type != 0 and better_type != (self.anyTypeIndex orelse 0)) {
+                                effective_init_type = better_type;
+                            }
+                        }
+                    }
                     // Determine if this is a const declaration. Const declarations
                     // preserve literal types (no widening). Var/let widen literals.
                     var is_const = false;
@@ -4780,29 +4795,9 @@ pub const Checker = struct {
                         // NodeFlag.Const = 1 << 1 (see ast/core.zig NodeFlag)
                         if ((vdl.Flags & 0x2) != 0) is_const = true;
                     }
-                    var widened_type = initType;
+                    var widened_type = effective_init_type;
                     if (!is_const) {
-                        // Widen literal types for var/let declarations:
-                        //   var x = 123   -> number (not 123-literal)
-                        //   var x = "abc" -> string (not "abc"-literal)
-                        //   var x = true  -> boolean (not true-literal)
-                        //   var x = null  -> any (not null-literal)
-                        //   var x = undefined -> any (not undefined-literal)
-                        // This matches TypeScript's default widening behavior.
-                        if (initType != 0 and initType < self.typesList.items.len) {
-                            const f = self.typesList.items[initType].flags;
-                            if ((f & types.TypeFlags.NumberLiteral) != 0) {
-                                widened_type = try self.getNumberType();
-                            } else if ((f & types.TypeFlags.StringLiteral) != 0) {
-                                widened_type = try self.getStringType();
-                            } else if ((f & types.TypeFlags.BooleanLiteral) != 0) {
-                                widened_type = try self.getBooleanType();
-                            } else if ((f & types.TypeFlags.Null) != 0) {
-                                widened_type = try self.getAnyType();
-                            } else if ((f & types.TypeFlags.Undefined) != 0) {
-                                widened_type = try self.getAnyType();
-                            }
-                        }
+                        widened_type = self.getWidenedType(effective_init_type);
                     }
                     if (widened_type != 0) {
                         // Cache on the variable's symbol if available.
