@@ -1285,6 +1285,59 @@ pub const FourslashTest = struct {
     /// Renders a TypePredicate return type annotation (e.g., `x is T` or
     /// `this is T`) as a display string. Returns null if the type node
     /// is not a TypePredicate.
+    /// Returns the qualified parent name prefix for `sym`, e.g. for a
+    /// property `foo` declared inside `interface M2.A`, returns "M2.A.".
+    /// Returns "" if `sym` has no parent or the parent isn't a named
+    /// type (class/interface/enum) or namespace.
+    /// Walks the parent chain to handle nested namespaces like `M.N.A`.
+    fn getParentQualifiedNamePrefix(self: *FourslashTest, sym: ast_gen.SymbolIndex) []const u8 {
+        const c = self.checker orelse return "";
+        if (sym == 0 or sym >= c.binder.symbols.items.len) return "";
+        const sym_obj = c.binder.symbols.items[sym];
+        const parent_sym = sym_obj.Parent orelse return "";
+        if (parent_sym == 0 or parent_sym >= c.binder.symbols.items.len) return "";
+        const parent_obj = c.binder.symbols.items[parent_sym];
+        // Only include named types and namespaces.
+        const is_named_type = (parent_obj.Flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface | symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum | symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule)) != 0;
+        if (!is_named_type or parent_obj.Name.len == 0) return "";
+        // Recurse: build grandparent prefix + parent.Name + "."
+        const grandparent_prefix = self.getParentQualifiedNamePrefix(parent_sym);
+        // Append type parameters if the parent has them.
+        var tp_str: []const u8 = "";
+        if (self.parser) |p| {
+            if (parent_obj.Declarations.items.len > 0) {
+                const parent_decl = parent_obj.Declarations.items[0];
+                const parent_decl_data = p.ast.getNode(parent_decl);
+                const tp_list: ?u32 = switch (parent_decl_data) {
+                    .ClassDeclaration => |cd| cd.TypeParameters,
+                    .InterfaceDeclaration => |id| id.TypeParameters,
+                    else => null,
+                };
+                if (tp_list) |tpl| {
+                    if (tpl != 0) {
+                        const tp_nodes = p.ast.getNodeList(tpl);
+                        if (tp_nodes.len > 0) {
+                            var buf = std.ArrayListUnmanaged(u8).empty;
+                            const aa = self.arena.allocator();
+                            buf.appendSlice(aa, "<") catch {};
+                            for (tp_nodes, 0..) |tp_node, i| {
+                                if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                                if (tp_node != 0) {
+                                    const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
+                                    buf.appendSlice(aa, tp_name) catch {};
+                                }
+                            }
+                            buf.appendSlice(aa, ">") catch {};
+                            tp_str = buf.toOwnedSlice(aa) catch "";
+                        }
+                    }
+                }
+            }
+        }
+        const aa = self.arena.allocator();
+        return std.fmt.allocPrint(aa, "{s}{s}{s}.", .{ grandparent_prefix, parent_obj.Name, tp_str }) catch "";
+    }
+
     fn tryFormatTypePredicate(self: *FourslashTest, type_node: ast_gen.NodeIndex) ?[]const u8 {
         const p = self.parser orelse return null;
         const c = self.checker orelse return null;
@@ -3327,45 +3380,12 @@ pub const FourslashTest = struct {
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
             out.appendSlice(aa, "(property) ") catch {};
-            // Try to find the parent symbol's name. Only prefix when the parent
-            // is a class/interface/enum — NOT for object literals (whose synthetic
-            // symbol has a generated name like "__object").
-            if (symObj.Parent) |parent_sym| {
-                if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
-                    const parent_obj = c.binder.symbols.items[parent_sym];
-                    const is_named_type = (parent_obj.Flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface | symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum)) != 0;
-                    if (is_named_type and parent_obj.Name.len > 0) {
-                        out.appendSlice(aa, parent_obj.Name) catch {};
-                        // If the parent type has type parameters, append them.
-                        // E.g., `class G<T>` -> display as `G<T>`.
-                        if (parent_obj.Declarations.items.len > 0) {
-                            const parent_decl = parent_obj.Declarations.items[0];
-                            const parent_decl_data = p.ast.getNode(parent_decl);
-                            const tp_list: ?u32 = switch (parent_decl_data) {
-                                .ClassDeclaration => |cd| cd.TypeParameters,
-                                .InterfaceDeclaration => |id| id.TypeParameters,
-                                else => null,
-                            };
-                            if (tp_list) |tpl| {
-                                if (tpl != 0) {
-                                    const tp_nodes = p.ast.getNodeList(tpl);
-                                    if (tp_nodes.len > 0) {
-                                        out.appendSlice(aa, "<") catch {};
-                                        for (tp_nodes, 0..) |tp_node, i| {
-                                            if (i > 0) out.appendSlice(aa, ", ") catch {};
-                                            if (tp_node != 0) {
-                                                const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
-                                                out.appendSlice(aa, tp_name) catch {};
-                                            }
-                                        }
-                                        out.appendSlice(aa, ">") catch {};
-                                    }
-                                }
-                            }
-                        }
-                        out.appendSlice(aa, ".") catch {};
-                    }
-                }
+            // Try to find the parent symbol's name. Use the qualified name
+            // (e.g., "M2.A") so properties inside namespaced types display
+            // with the full namespace prefix.
+            const parent_prefix = self.getParentQualifiedNamePrefix(sym);
+            if (parent_prefix.len > 0) {
+                out.appendSlice(aa, parent_prefix) catch {};
             }
             const prop_name_display = self.formatPropertyName(sym);
             out.appendSlice(aa, prop_name_display) catch {};
@@ -3548,44 +3568,12 @@ pub const FourslashTest = struct {
                 var out = std.ArrayListUnmanaged(u8).empty;
                 const aa = self.arena.allocator();
                 out.appendSlice(aa, "(method) ") catch {};
-                // Try to find the parent symbol's name. Only prefix when the parent
-                // is a class/interface/enum — NOT for object literals.
-                if (symObj.Parent) |parent_sym| {
-                    if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
-                        const parent_obj = c.binder.symbols.items[parent_sym];
-                        const is_named_type = (parent_obj.Flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface | symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum)) != 0;
-                        if (is_named_type and parent_obj.Name.len > 0) {
-                            out.appendSlice(aa, parent_obj.Name) catch {};
-                            // Append type parameters if the class/interface has them.
-                            // E.g., `class Crate<T>` -> display as `Crate<T>`.
-                            if (parent_obj.Declarations.items.len > 0) {
-                                const parent_decl = parent_obj.Declarations.items[0];
-                                const parent_decl_data = p.ast.getNode(parent_decl);
-                                const tp_list: ?u32 = switch (parent_decl_data) {
-                                    .ClassDeclaration => |cd| cd.TypeParameters,
-                                    .InterfaceDeclaration => |id| id.TypeParameters,
-                                    else => null,
-                                };
-                                if (tp_list) |tpl| {
-                                    if (tpl != 0) {
-                                        const tp_nodes = p.ast.getNodeList(tpl);
-                                        if (tp_nodes.len > 0) {
-                                            out.appendSlice(aa, "<") catch {};
-                                            for (tp_nodes, 0..) |tp_node, i| {
-                                                if (i > 0) out.appendSlice(aa, ", ") catch {};
-                                                if (tp_node != 0) {
-                                                    const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
-                                                    out.appendSlice(aa, tp_name) catch {};
-                                                }
-                                            }
-                                            out.appendSlice(aa, ">") catch {};
-                                        }
-                                    }
-                                }
-                            }
-                            out.appendSlice(aa, ".") catch {};
-                        }
-                    }
+                // Try to find the parent symbol's name. Use the qualified name
+                // (e.g., "M2.A") so methods inside namespaced types display
+                // with the full namespace prefix.
+                const parent_prefix = self.getParentQualifiedNamePrefix(sym);
+                if (parent_prefix.len > 0) {
+                    out.appendSlice(aa, parent_prefix) catch {};
                 }
                 out.appendSlice(aa, symObj.Name) catch {};
                 out.appendSlice(aa, "(") catch {};
