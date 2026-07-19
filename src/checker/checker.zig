@@ -27472,8 +27472,14 @@ pub fn checkThisExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeI
                                 // Found a `this` parameter. Use its type
                                 // annotation (or `any` if omitted).
                                 if (fp_data.Parameter.Type) |type_node| {
-                                    const tp = type_resolution_pkg.getTypeFromTypeNode(c, type_node);
-                                    if (tp != 0) return tp;
+                                    if (type_node != 0) {
+                                        const tp = type_resolution_pkg.getTypeFromTypeNode(c, type_node);
+                                        if (tp != 0) return tp;
+                                        // Fallback: try getTypeOfNode which may
+                                        // handle TypeReferences differently.
+                                        const tp2 = c.getTypeOfNode(type_node) catch 0;
+                                        if (tp2 != 0) return tp2;
+                                    }
                                 }
                                 return c.anyTypeIndex orelse 0;
                             }
@@ -27518,8 +27524,12 @@ pub fn checkThisExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeI
                             };
                             if (is_this_param) {
                                 if (fp_data.Parameter.Type) |type_node| {
-                                    const tp = type_resolution_pkg.getTypeFromTypeNode(c, type_node);
-                                    if (tp != 0) return tp;
+                                    if (type_node != 0) {
+                                        const tp = type_resolution_pkg.getTypeFromTypeNode(c, type_node);
+                                        if (tp != 0) return tp;
+                                        const tp2 = c.getTypeOfNode(type_node) catch 0;
+                                        if (tp2 != 0) return tp2;
+                                    }
                                 }
                                 return c.anyTypeIndex orelse 0;
                             }
