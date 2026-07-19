@@ -158,7 +158,28 @@ pub const TextWriter = struct {
                 self.getIndentString();
                 self.lineStart = false;
             }
-            self.builder.appendSlice(self.allocator, s) catch {};
+            // Guard against aliasing: if `s` is anywhere within the builder's
+            // allocated capacity, appending may either alias with the
+            // destination range or be invalidated by growth. Copy to a
+            // temporary buffer first.
+            const items_ptr = @intFromPtr(self.builder.items.ptr);
+            const cap_end = items_ptr + self.builder.capacity;
+            const s_ptr = @intFromPtr(s.ptr);
+            const s_end = s_ptr + s.len;
+            if (s_ptr >= items_ptr and s_end <= cap_end) {
+                var stack_buf: [256]u8 = undefined;
+                if (s.len <= stack_buf.len) {
+                    @memcpy(stack_buf[0..s.len], s);
+                    self.builder.appendSlice(self.allocator, stack_buf[0..s.len]) catch {};
+                } else {
+                    const tmp = self.allocator.alloc(u8, s.len) catch return;
+                    defer self.allocator.free(tmp);
+                    @memcpy(tmp, s);
+                    self.builder.appendSlice(self.allocator, tmp) catch {};
+                }
+            } else {
+                self.builder.appendSlice(self.allocator, s) catch {};
+            }
             self.lastWritten = s;
             self.updateLineCountAndPosFor(s);
         }

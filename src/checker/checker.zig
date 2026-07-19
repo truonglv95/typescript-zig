@@ -2620,12 +2620,47 @@ pub const Checker = struct {
         defer factory.deinit();
         var emitContext = emitcontext_pkg.EmitContext.init(self.allocator, self.binder.ast, &factory);
         defer emitContext.deinit();
+        // Default: emit on single line (covers tuples, arrays, etc).
         emitContext.setEmitFlags(typeNode, @import("../printer/emitflags.zig").EmitFlags.SingleLine) catch {};
+        // When MultilineObjectLiterals is requested, walk the synthesized type
+        // node tree and clear SingleLine on every TypeLiteral node so the
+        // printer renders object types multi-line (matching Go's behavior in
+        // nodebuilderimpl.go:2725). Other node kinds (tuples, arrays) keep
+        // SingleLine.
+        if ((formatFlags & types.TypeFormatFlags.MultilineObjectLiterals) != 0) {
+            self.clearSingleLineOnTypeLiterals(&emitContext, typeNode);
+        }
 
         var p = printer_pkg.Printer.init(self.binder.ast, &emitContext, &emit_writer);
         p.printNode(typeNode) catch return "type"; // Note: printNode might have a different signature
 
         return self.dupeTracked(text_writer.string(), "type");
+    }
+
+    /// Walks the type node tree rooted at `node` and clears the SingleLine
+    /// emit flag on every TypeLiteral node. Used to honor the
+    /// MultilineObjectLiterals TypeFormatFlag.
+    fn clearSingleLineOnTypeLiterals(self: *Checker, emitContext: *emitcontext_pkg.EmitContext, root: ast_gen.NodeIndex) void {
+        const Visitor = struct {
+            checker: *Checker,
+            emit_ctx: *emitcontext_pkg.EmitContext,
+            pub fn visitNode(v: *@This(), n: ast_gen.NodeIndex) anyerror!void {
+                if (n == 0) return;
+                const k = v.checker.binder.ast.getNodeKind(n);
+                if (k == .TypeLiteral) {
+                    // Clear SingleLine flag by setting flags to 0 (no flags).
+                    v.emit_ctx.setEmitFlags(n, 0) catch {};
+                }
+                try ast_utils.forEachChild(v.checker.binder.ast, n, v);
+            }
+            pub fn visitList(v: *@This(), listIndex: ast_gen.NodeIndex) anyerror!void {
+                if (listIndex == 0) return;
+                const nodes = v.checker.binder.ast.getNodeList(listIndex);
+                for (nodes) |n| try v.visitNode(n);
+            }
+        };
+        var v = Visitor{ .checker = self, .emit_ctx = emitContext };
+        v.visitNode(root) catch {};
     }
 
     pub fn TypeToString(self: *Checker, t: types.TypeIndex) []const u8 {

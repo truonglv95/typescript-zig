@@ -466,8 +466,11 @@ pub const NodeBuilderImpl = struct {
             return createLiteralTypeNode(b, literal);
         }
         if (flags & types.TypeFlags.NumberLiteral != 0) {
+            // IMPORTANT: do not free this string — it's stored in the AST node
+            // and used later by the printer. Track it in checker.ownedStrings
+            // so it's freed when the checker is deinitialized.
             const text = std.fmt.allocPrint(b.c.allocator, "{d}", .{typeData.data.NumberLiteral.value}) catch return null;
-            defer b.c.allocator.free(text);
+            b.c.ownedStrings.append(b.c.allocator, text) catch {};
             var f = factory(b);
             const literal = f.newNumericLiteral(text, 0);
             return createLiteralTypeNode(b, literal);

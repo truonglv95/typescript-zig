@@ -46,6 +46,11 @@ const collections = struct {
 const RangeMarker = fourslash_parser.RangeMarker;
 const Marker = fourslash_parser.Marker;
 const stateBaseline = struct {};
+
+// Hover type format flags: Go's hover always uses MultilineObjectLiterals
+// when rendering types so multi-property object types display with one
+// property per line.
+const HOVER_TYPE_FLAGS: u32 = checker_module.types.TypeFormatFlags.MultilineObjectLiterals;
 const lsconv = struct {
     pub const LSPLineMap = struct {};
     pub const Converters = struct {};
@@ -1950,7 +1955,7 @@ pub const FourslashTest = struct {
                             } else if ((pf & checker_module.types.TypeFlags.BooleanLiteral) != 0) {
                                 type_str = "boolean";
                             } else {
-                                type_str = c.typeToString(prop_type, 0, 0, null);
+                                type_str = c.typeToString(prop_type, 0, HOVER_TYPE_FLAGS, null);
                                 // If typeToString returned "{}" and the type
                                 // is a Function type, try to format it as
                                 // (params) => retType from the declaration.
@@ -2393,7 +2398,8 @@ pub const FourslashTest = struct {
             }
         }
 
-        const typeStr = c.typeToString(sym_type, 0, 0, null);
+        // Go's hover always uses MultilineObjectLiterals flag for type display.
+        const typeStr = c.typeToString(sym_type, 0, HOVER_TYPE_FLAGS, null);
         // Track if this is an alias (imported symbol) — we'll prefix
         // the display with "(alias) " if so.
         const is_alias = (symObj.Flags & symbol.SymbolFlags.Alias) != 0;
@@ -2717,7 +2723,7 @@ pub const FourslashTest = struct {
                                 paramType = c.substituteTypeParams(paramType, &subst2) catch paramType;
                             }
                         }
-                        const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
+                        const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, HOVER_TYPE_FLAGS, null) else "any";
 
                         const param_question = self.getParamOptionalMarker(paramSym);
                         const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
@@ -2774,11 +2780,11 @@ pub const FourslashTest = struct {
                         if (self.tryFormatTypePredicate(tp_node)) |tp_str| {
                             out.appendSlice(aa, tp_str) catch {};
                         } else {
-                            const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+                            const retTypeStr = if (retType != 0) c.typeToString(retType, 0, HOVER_TYPE_FLAGS, null) else "any";
                             out.appendSlice(aa, retTypeStr) catch {};
                         }
                     } else {
-                        const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+                        const retTypeStr = if (retType != 0) c.typeToString(retType, 0, HOVER_TYPE_FLAGS, null) else "any";
                         out.appendSlice(aa, retTypeStr) catch {};
                     }
 
@@ -3361,14 +3367,14 @@ pub const FourslashTest = struct {
                         if (i > 0) out.appendSlice(aa, ", ") catch {};
                         const paramObj = c.binder.symbols.items[paramSym];
                         const paramType = c.getTypeOfSymbol(paramSym) catch 0;
-                        const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, 0, null) else "any";
+                        const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, HOVER_TYPE_FLAGS, null) else "any";
                         const param_question = self.getParamOptionalMarker(paramSym);
                         const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
                         out.appendSlice(aa, pStr) catch {};
                     }
                     out.appendSlice(aa, ") => ") catch {};
                     const retType = c.getReturnTypeOfSignature(sig);
-                    const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+                    const retTypeStr = if (retType != 0) c.typeToString(retType, 0, HOVER_TYPE_FLAGS, null) else "any";
                     out.appendSlice(aa, retTypeStr) catch {};
                     return out.toOwnedSlice(aa) catch "";
                 }
@@ -3556,7 +3562,7 @@ pub const FourslashTest = struct {
                         return out.toOwnedSlice(aa) catch "";
                     }
                 }
-                const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+                const retTypeStr = if (retType != 0) c.typeToString(retType, 0, HOVER_TYPE_FLAGS, null) else "any";
                 out.appendSlice(aa, retTypeStr) catch {};
                 return out.toOwnedSlice(aa) catch "";
             }
@@ -4242,7 +4248,7 @@ pub const FourslashTest = struct {
         }
         out.appendSlice(aa, "): ") catch {};
         const retType = c.getReturnTypeOfSignature(sig);
-        const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+        const retTypeStr = if (retType != 0) c.typeToString(retType, 0, HOVER_TYPE_FLAGS, null) else "any";
         out.appendSlice(aa, retTypeStr) catch {};
         const actual_text = out.toOwnedSlice(aa) catch "";
 

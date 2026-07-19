@@ -1396,7 +1396,11 @@ pub const Printer = struct {
 
         const listLen = self.tree.getNodeList(node.Members).len;
         if (listLen > 0) {
-            const format = if ((node.Flags & @import("../ast/ast_utils.zig").NodeFlags.Synthesized) != 0 or self.shouldEmitOnSingleLine(nodeIndex))
+            // Go's printer uses shouldEmitOnSingleLine (EFSingleLine flag) to
+            // decide single-line vs multi-line format. Synthesized nodes from
+            // NodeBuilder should display multi-line when there are multiple
+            // members, matching Go's hover behavior.
+            const format = if (self.shouldEmitOnSingleLine(nodeIndex))
                 @import("emit_list.zig").ListFormat.SpaceBetweenSiblings | @import("emit_list.zig").ListFormat.SingleLine | @import("emit_list.zig").ListFormat.SpaceBetweenBraces
             else
                 @import("emit_list.zig").ListFormat.TypeLiteralMembers;
@@ -1414,7 +1418,7 @@ pub const Printer = struct {
     pub fn printTupleType(self: *Printer, nodeIndex: ast_mod.NodeIndex) anyerror!void {
         const node = self.tree.getNode(nodeIndex).TupleType;
         self.writer.writePunctuation("[");
-        const format = if ((node.Flags & @import("../ast/ast_utils.zig").NodeFlags.Synthesized) != 0 or self.shouldEmitOnSingleLine(nodeIndex))
+        const format = if (self.shouldEmitOnSingleLine(nodeIndex))
             @import("emit_list.zig").ListFormat.CommaDelimited | @import("emit_list.zig").ListFormat.SpaceBetweenSiblings | @import("emit_list.zig").ListFormat.SingleLine
         else
             @import("emit_list.zig").ListFormat.TupleTypeElements;
