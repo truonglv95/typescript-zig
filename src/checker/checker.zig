@@ -2475,7 +2475,8 @@ pub const Checker = struct {
             // Primitive fallback if NodeBuilder stubbed
             // Function type: render as (params) => retType
             if (typeData.data == .Function) {
-                const fn_decl = typeData.data.Function.declarationNode;
+                const fn_data = typeData.data.Function;
+                const fn_decl = fn_data.declarationNode;
                 if (fn_decl != 0 and fn_decl < self.binder.ast.nodes.len) {
                     const decl = self.binder.ast.getNode(fn_decl);
                     // Get parameters.
@@ -2542,7 +2543,10 @@ pub const Checker = struct {
                         }
                     }
                     buf.appendSlice(self.allocator, ") => ") catch {};
-                    const ret_str = self.typeToString(typeData.data.Function.returnType, 0, 0, null);
+                    const ret_str = if (fn_data.returnType != 0 and fn_data.returnType < self.typesList.items.len)
+                        self.typeToString(fn_data.returnType, 0, 0, null)
+                    else
+                        "any";
                     buf.appendSlice(self.allocator, ret_str) catch {};
                     const result = buf.toOwnedSlice(self.allocator) catch return "Function";
                     self.ownedStrings.append(self.allocator, result) catch {};

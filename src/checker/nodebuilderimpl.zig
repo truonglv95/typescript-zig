@@ -713,6 +713,31 @@ pub const NodeBuilderImpl = struct {
         const typeFlags = typeData.flags;
         const objectFlags = typeData.objectFlags;
 
+        // Function types: return 0 so TypeToStringEx falls through to its
+        // primitive Function fallback which renders (params) => retType.
+        // Only do this for anonymous function expressions and arrow functions
+        // (not named FunctionDeclarations which should be rendered as named types).
+        if (typeData.data == .Function) {
+            const fn_data = typeData.data.Function;
+            if (fn_data.declarationNode != 0 and fn_data.declarationNode < b.c.binder.ast.nodes.len) {
+                const decl_kind = b.c.binder.ast.getNodeKind(fn_data.declarationNode);
+                // ArrowFunction and anonymous FunctionExpression (no name)
+                // should use the (params) => retType rendering.
+                if (decl_kind == .ArrowFunction) {
+                    return 0;
+                }
+                if (decl_kind == .FunctionExpression) {
+                    // Check if the FunctionExpression has a name — if it does,
+                    // it's a named function expression and should keep its type
+                    // literal rendering.
+                    const fe = b.c.binder.ast.getNode(fn_data.declarationNode).FunctionExpression;
+                    if (fe.name == null or fe.name.? == 0) {
+                        return 0;
+                    }
+                }
+            }
+        }
+
         if (typeFlags & types.TypeFlags.Union != 0) {
             return unionOrIntersectionTypeToTypeNode(b, typ, true);
         }
