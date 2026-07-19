@@ -478,6 +478,16 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
         var isPropertyAccess = false;
         const hasNewlineBeforeDot = p.scanner.hasPrecedingLineBreak();
 
+        // Capture the start of the entire member expression, including
+        // the left-hand expression. The PropertyAccessExpression should
+        // span from the start of `expression` to the end of the right
+        // identifier, so that `Colors.Cornflower` is [139..156], not
+        // [146..156] (which would miss `Colors`).
+        const access_start = if (currentExpr != 0 and currentExpr < p.ast.positions.items.len)
+            p.ast.positions.items[currentExpr].pos
+        else
+            p.scanner.state.tokenStart;
+
         if (allowOptionalChain and isStartOfOptionalPropertyOrElementAccessChain(p)) {
             questionDotToken = try p.ast.pushNode(.{ .QuestionDotToken = void{} });
             p.nextToken();
@@ -487,7 +497,6 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
         }
 
         if (isPropertyAccess) {
-            const access_start = p.scanner.state.tokenStart;
             var right: ast_gen.NodeIndex = 0;
             var hasNewlineAfterDot = false;
             if (p.token == kind.Kind.PrivateIdentifier) {
@@ -517,7 +526,12 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
         }
 
         if (questionDotToken != null or p.token == kind.Kind.OpenBracketToken) {
-            const access_start = p.scanner.state.tokenStart;
+            // For ElementAccessExpression, also start from the left expression's
+            // position so the range covers `arr[0]` instead of just `[0]`.
+            const ea_start = if (currentExpr != 0 and currentExpr < p.ast.positions.items.len)
+                p.ast.positions.items[currentExpr].pos
+            else
+                p.scanner.state.tokenStart;
             if (questionDotToken == null) {
                 p.nextToken();
             } else {
@@ -534,7 +548,7 @@ pub fn parseMemberExpressionRest(p: *parser_pkg.Parser, expression: ast_gen.Node
                 .ArgumentExpression = arg,
             } });
             if (currentExpr != 0 and currentExpr < p.ast.positions.items.len) {
-                p.ast.positions.items[currentExpr] = .{ .pos = @intCast(access_start), .end = @intCast(ea_end) };
+                p.ast.positions.items[currentExpr] = .{ .pos = @intCast(ea_start), .end = @intCast(ea_end) };
             }
             continue;
         }
