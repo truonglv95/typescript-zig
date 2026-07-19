@@ -27327,7 +27327,7 @@ pub fn checkElementAccessExpression(c: *Checker, node_idx: ast_gen.NodeIndex, ex
     const indexedAccessType = c.getIndexedAccessTypeOrUndefined(objectType, effectiveIndexType, accessFlags, node_idx, 0) orelse (c.errorTypeIndex orelse 0);
     return c.checkIndexedAccessIndexType(c.getFlowTypeOfAccessExpression(node_idx, getResolvedSymbolOrNil(c, node_idx), indexedAccessType, indexExpression, checkMode), node_idx);
 }
-pub fn checkFunctionExpressionOrObjectLiteralMethod(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
+    pub fn checkFunctionExpressionOrObjectLiteralMethod(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
     _ = checkMode;
     const node = c.binder.ast.getNode(node_idx);
     const params_id: ast_gen.NodeIndex = switch (node) {
@@ -27337,12 +27337,25 @@ pub fn checkFunctionExpressionOrObjectLiteralMethod(c: *Checker, node_idx: ast_g
         else => 0,
     };
     checkFunctionParameters(c, params_id);
+    // For expression-body arrow functions, check the body expression directly
+    // (not via checkStatementAdHoc which only handles statement nodes).
     switch (node) {
         .FunctionExpression => |f| {
             if (f.Body) |body| if (body != 0) checkSourceElement(c, body);
         },
         .ArrowFunction => |f| {
-            if (f.Body) |body| c.checkStatementAdHoc(body) catch {};
+            if (f.Body) |body| {
+                if (body != 0) {
+                    const body_kind = c.binder.ast.getNodeKind(body);
+                    if (body_kind == .Block) {
+                        checkSourceElement(c, body);
+                    } else {
+                        // Expression body — check the expression to resolve
+                        // identifier types (e.g., `x` in `(x: T) => x`).
+                        _ = c.checkExpressionCachedEx(body, CheckMode.Normal);
+                    }
+                }
+            }
         },
         .MethodDeclaration => |m| {
             if (m.Body) |body| if (body != 0) checkSourceElement(c, body);
