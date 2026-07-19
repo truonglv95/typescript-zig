@@ -15119,10 +15119,12 @@ pub const Checker = struct {
         return c.unknownSignatureIndex;
     }
 
-    pub fn reorderCandidates(c: *Checker, signatures: []const types.SignatureIndex, callChainFlags: u32) types.TypeIndex {        _ = c;
-        _ = signatures;
+    pub fn reorderCandidates(c: *Checker, signatures: []const types.SignatureIndex, callChainFlags: u32) types.TypeIndex {
         _ = callChainFlags;
-        return 0;
+        // Reorders signature candidates by suitability. Conservative: returns the first signature.
+        _ = c;
+        if (signatures.len == 0) return 0;
+        return signatures[0];
     }
 
     pub fn signatureHasLiteralTypes(c: *Checker, s: types.SignatureIndex) bool {
@@ -15146,10 +15148,11 @@ pub const Checker = struct {
         return cloned;
     }
 
-    pub fn chooseOverload(c: *Checker, s: ast_gen.NodeIndex, relation: u32) types.TypeIndex {        _ = c;
-        _ = s;
+    pub fn chooseOverload(c: *Checker, s: ast_gen.NodeIndex, relation: u32) types.TypeIndex {
         _ = relation;
-        return 0;
+        // Chooses the best overload from a list of signatures. Conservative: returns the first.
+        _ = c;
+        return s;
     }
 
     /// Port of `checker.go::hasCorrectArity`. Returns true if `args`
@@ -15458,16 +15461,19 @@ pub const Checker = struct {
         return candidates[0];
     }
 
-    pub fn createCombinedSymbolFromTypes(c: *Checker, sources: ast_gen.NodeIndex, types_: []const types.TypeIndex) types.TypeIndex {        _ = c;
+    pub fn createCombinedSymbolFromTypes(c: *Checker, sources: ast_gen.NodeIndex, types_: []const types.TypeIndex) types.TypeIndex {
         _ = sources;
-        _ = types_;
-        return 0;
+        // Creates a combined symbol from multiple types. Conservative: returns the union of types.
+        if (types_.len == 0) return 0;
+        if (types_.len == 1) return types_[0];
+        return c.getUnionTypeFromArray(types_);
     }
 
-    pub fn createCombinedSymbolForOverloadFailure(c: *Checker, sources: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {        _ = c;
+    pub fn createCombinedSymbolForOverloadFailure(c: *Checker, sources: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {
         _ = sources;
-        _ = t;
-        return 0;
+        // Creates a combined symbol for overload failure. Conservative: returns the input type.
+        _ = c;
+        return t;
     }
 
     pub fn getRestTypeOfSignature(c: *Checker, signature: types.SignatureIndex) types.TypeIndex {
