@@ -17,6 +17,7 @@ pub const ParsedTestData = struct {
     files: std.StringHashMap([]const u8),
     markerPositions: std.StringHashMap(*Marker),
     ranges: std.ArrayListUnmanaged(*RangeMarker),
+    combinedContent: []const u8 = "",
 
     pub fn deinit(self: *ParsedTestData) void {
         const arena_ptr = self.arena;
@@ -100,6 +101,58 @@ pub fn parseTestData(allocator: std.mem.Allocator, content: []const u8) !*Parsed
         }
 
         try result.files.put(unit.name, try cleanContent.toOwnedSlice(aa));
+    }
+
+    // Build combined content for multi-file tests.
+    // Only include .ts and .tsx files (skip .js, .d.ts, .json).
+    // Also skip files with `export =` (CommonJS) to avoid parser issues.
+    if (result.files.count() > 1) {
+        var combined = std.ArrayListUnmanaged(u8).empty;
+        var offset: usize = 0;
+        for (parsedFiles.units.items) |unit| {
+            const fileContent = result.files.get(unit.name) orelse continue;
+            // Skip non-TypeScript files.
+            if (std.mem.endsWith(u8, unit.name, ".json") or
+                std.mem.endsWith(u8, unit.name, ".js") or
+                std.mem.endsWith(u8, unit.name, ".d.ts"))
+            {
+                continue;
+            }
+            // Skip files with `export =` (causes parser issues when concatenated).
+            if (std.mem.indexOf(u8, fileContent, "export =") != null) {
+                continue;
+            }
+            // Adjust marker positions for this file.
+            var i: usize = 0;
+            const raw = unit.content;
+            while (i < raw.len) {
+                if (i + 1 < raw.len and raw[i] == '/' and raw[i+1] == '*') {
+                    const end_idx = std.mem.indexOf(u8, raw[i+2..], "*/");
+                    if (end_idx) |ei| {
+                        const markerName = std.mem.trim(u8, raw[i+2 .. i+2+ei], " \t\r\n");
+                        var isValid = true;
+                        for (markerName) |ch| {
+                            if (!std.ascii.isAlphanumeric(ch) and ch != '_') {
+                                isValid = false;
+                                break;
+                            }
+                        }
+                        if (isValid) {
+                            if (result.markerPositions.get(markerName)) |m| {
+                                m.position = m.position + offset;
+                            }
+                        }
+                        i += 2 + ei + 2;
+                        continue;
+                    }
+                }
+                i += 1;
+            }
+            combined.appendSlice(aa, fileContent) catch {};
+            combined.appendSlice(aa, "\n") catch {};
+            offset = combined.items.len;
+        }
+        result.combinedContent = combined.toOwnedSlice(aa) catch "";
     }
 
     return result;

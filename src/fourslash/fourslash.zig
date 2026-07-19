@@ -4488,12 +4488,30 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
     f.sourceFile = null;
     
     if (f.parsedData.files.count() > 0) {
-        var it = f.parsedData.files.iterator();
-        const first = it.next().?;
-        f.currentFile = first.key_ptr.*;
-        
+        // For multi-file tests, use combined content (all .ts/.tsx files
+        // concatenated) so cross-file references resolve.
+        // For single-file tests, use the file's content directly.
+        const parse_content = if (f.parsedData.files.count() > 1 and f.parsedData.combinedContent.len > 0)
+            f.parsedData.combinedContent
+        else
+            blk: {
+                var it = f.parsedData.files.iterator();
+                const first = it.next().?;
+                f.currentFile = first.key_ptr.*;
+                break :blk first.value_ptr.*;
+            };
+        if (f.parsedData.files.count() > 1 and f.parsedData.combinedContent.len > 0) {
+            // Set currentFile to the last file.
+            var it = f.parsedData.files.iterator();
+            var last: []const u8 = "";
+            while (it.next()) |entry| {
+                last = entry.key_ptr.*;
+            }
+            f.currentFile = last;
+        }
+
         var p = aa.create(parser_module.Parser) catch unreachable;
-        p.* = parser_module.Parser.init(aa, first.value_ptr.*);
+        p.* = parser_module.Parser.init(aa, parse_content);
         if (std.mem.endsWith(u8, f.currentFile, ".js")) {
             p.setScriptKind(.JS);
         } else if (std.mem.endsWith(u8, f.currentFile, ".jsx")) {
