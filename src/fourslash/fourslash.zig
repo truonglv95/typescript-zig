@@ -1927,6 +1927,15 @@ pub const FourslashTest = struct {
                                 if (c.binder.nodeLocals.getPtr(sf2)) |sf_locals| {
                                     if (sf_locals.get("JSX")) |s4| break :blk s4;
                                 }
+                                // Also check source file exports (for
+                                // external modules).
+                                if (c.binder.symbolExports.getPtr(sf2)) |sf_exports| {
+                                    if (sf_exports.get("JSX")) |s5| break :blk s5;
+                                }
+                            }
+                            // Also check global symbols.
+                            if (c.binder.symbolExports.getPtr(0)) |globals| {
+                                if (globals.get("JSX")) |s6| break :blk s6;
                             }
                             break :blk c.unknownSymbol;
                         };
