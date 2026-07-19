@@ -19532,7 +19532,53 @@ pub const Checker = struct {
     }
 
     pub fn getWidenedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        // In non-strict mode, null and undefined widen to any.
+        if (!c.strictNullChecks) {
+            if ((flags & types.TypeFlags.Null) != 0) return c.anyTypeIndex orelse t;
+            if ((flags & types.TypeFlags.Undefined) != 0) return c.anyTypeIndex orelse t;
+        }
+        // Literal types widen to their primitive types.
+        if ((flags & types.TypeFlags.NumberLiteral) != 0) return c.numberTypeIndex orelse t;
+        if ((flags & types.TypeFlags.StringLiteral) != 0) return c.stringTypeIndex orelse t;
+        if ((flags & types.TypeFlags.BooleanLiteral) != 0) return c.booleanTypeIndex orelse t;
+        // Union types: widen each constituent.
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesOfUnionOrIntersectionType(t);
+            var changed = false;
+            const widened = c.allocator.alloc(types.TypeIndex, constituents.len) catch return t;
+            defer c.allocator.free(widened);
+            for (constituents, 0..) |ct, i| {
+                widened[i] = c.getWidenedType(ct);
+                if (widened[i] != ct) changed = true;
+            }
+            if (changed) {
+                // Deduplicate widened constituents.
+                var dedup = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                defer dedup.deinit(c.allocator);
+                for (widened) |w| {
+                    var found = false;
+                    for (dedup.items) |d| {
+                        if (d == w) { found = true; break; }
+                    }
+                    if (!found) dedup.append(c.allocator, w) catch {};
+                }
+                // If all constituents widened to the same type, return that type.
+                if (dedup.items.len == 1) return dedup.items[0];
+                return c.getUnionTypeFromArray(dedup.items);
+            }
+        }
+        // Array types: widen the element type.
+        if ((flags & types.TypeFlags.Object) != 0) {
+            if (c.isArrayType(t)) {
+                const elem = c.getElementTypeOfArrayType(t);
+                const widened_elem = c.getWidenedType(elem);
+                if (widened_elem != elem) {
+                    return c.createArrayType(widened_elem);
+                }
+            }
+        }
         return t;
     }
 
@@ -26724,18 +26770,9 @@ pub fn checkVariableLikeDeclaration(c: *Checker, node_idx: ast_gen.NodeIndex) vo
                 }
             }
             if (!is_parameter and !is_const_var and var_type != 0 and var_type < c.typesList.items.len) {
-                const f = c.typesList.items[var_type].flags;
-                if ((f & types.TypeFlags.NumberLiteral) != 0) {
-                    var_type = c.getNumberType() catch var_type;
-                } else if ((f & types.TypeFlags.StringLiteral) != 0) {
-                    var_type = c.getStringType() catch var_type;
-                } else if ((f & types.TypeFlags.BooleanLiteral) != 0) {
-                    var_type = c.getBooleanType() catch var_type;
-                } else if ((f & types.TypeFlags.Null) != 0) {
-                    var_type = c.getAnyType() catch var_type;
-                } else if ((f & types.TypeFlags.Undefined) != 0) {
-                    var_type = c.getAnyType() catch var_type;
-                }
+                // Use getWidenedType which handles nested types (unions,
+                // arrays) in addition to simple literal/null/undefined.
+                var_type = c.getWidenedType(var_type);
             }
         }
         // Cache the type if we found one.
