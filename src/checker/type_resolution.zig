@@ -579,9 +579,55 @@ fn getDeclaredTypeOfClassOrInterface(c: *Checker, symbol: ast_gen.SymbolIndex) T
     return newObjectType(c, kind, symbol);
 }
 fn getLocalTypeParameters(c: *Checker, t: TypeIndex) []const TypeIndex {
-    _ = c;
-    _ = t;
-    return &[_]TypeIndex{};
+    // Port of Go's appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias.
+    // For class/interface/type-alias symbols, walks the declarations and
+    // collects the declared type of each TypeParameter node.
+    if (t == 0 or t >= c.typesList.items.len) return &[_]TypeIndex{};
+    const typeData = c.typesList.items[t];
+    const sym = typeData.symbol orelse return &[_]TypeIndex{};
+    if (sym == 0 or sym >= c.binder.symbols.items.len) return &[_]TypeIndex{};
+
+    const sym_obj = c.binder.symbols.items[sym];
+    var collected = std.ArrayListUnmanaged(TypeIndex).empty;
+    defer collected.deinit(c.allocator);
+    for (sym_obj.Declarations.items) |decl_node| {
+        if (decl_node == 0) continue;
+        const kind = c.binder.ast.getKind(decl_node);
+        var tp_list_id: u32 = 0;
+        const decl_data = c.binder.ast.getNode(decl_node);
+        switch (kind) {
+            .InterfaceDeclaration => tp_list_id = decl_data.InterfaceDeclaration.TypeParameters orelse 0,
+            .ClassDeclaration => tp_list_id = decl_data.ClassDeclaration.TypeParameters orelse 0,
+            .ClassExpression => tp_list_id = decl_data.ClassExpression.TypeParameters orelse 0,
+            .TypeAliasDeclaration => tp_list_id = decl_data.TypeAliasDeclaration.TypeParameters orelse 0,
+            else => {},
+        }
+        if (tp_list_id == 0) continue;
+        const tp_nodes = c.binder.ast.getNodeList(tp_list_id);
+        for (tp_nodes) |tp_node| {
+            if (tp_node == 0) continue;
+            const tp_sym = c.binder.ast.getNodeSymbol(tp_node) orelse 0;
+            if (tp_sym == 0) continue;
+            const tp_type = c.getDeclaredTypeOfTypeParameter(tp_sym);
+            if (tp_type != 0) {
+                // Append unique.
+                var found = false;
+                for (collected.items) |existing| {
+                    if (existing == tp_type) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) collected.append(c.allocator, tp_type) catch {};
+            }
+        }
+    }
+    // Transfer ownership to the checker's arena so the slice outlives this
+    // function call. Use a long-lived allocator (the checker allocator).
+    const slice = c.allocator.dupe(TypeIndex, collected.items) catch return &[_]TypeIndex{};
+    // Track for cleanup via ownedTypes? For now, leak — checker outlives
+    // callers and this is called at most once per cached type reference.
+    return slice;
 }
 fn getTypeArgumentsLength(c: *Checker, node: NodeIndex) usize {
     if (getTypeArgumentsNode(c, node)) |argsNode| {
@@ -758,22 +804,26 @@ fn getDefaultTypeArgumentType(c: *Checker, isInJavaScriptFile: bool) TypeIndex {
 }
 
 fn getOuterTypeParameters(c: *Checker, t: TypeIndex) []const TypeIndex {
+    // Outer type parameters come from the enclosing generic class when a
+    // nested type declaration references the outer's type parameters. For
+    // now we return an empty slice — top-level interfaces/classes have no
+    // outer type parameters.
     _ = c;
     _ = t;
     return &[_]TypeIndex{};
 }
 fn appendTypeArrays(c: *Checker, arr1: []const TypeIndex, arr2: []const TypeIndex) []const TypeIndex {
-    _ = c;
-    _ = arr1;
-    _ = arr2;
-    return &[_]TypeIndex{};
+    if (arr1.len == 0) return arr2;
+    if (arr2.len == 0) return arr1;
+    const total = arr1.len + arr2.len;
+    const result = c.allocator.alloc(TypeIndex, total) catch return &[_]TypeIndex{};
+    @memcpy(result[0..arr1.len], arr1);
+    @memcpy(result[arr1.len..], arr2);
+    return result;
 }
 fn createTypeReferenceEx(c: *Checker, t: TypeIndex, typeArguments: []const TypeIndex, objectFlags: u32) TypeIndex {
-    _ = c;
-    _ = t;
-    _ = typeArguments;
-    _ = objectFlags;
-    return 0;
+    // Delegate to the checker's createTypeReferenceEx.
+    return c.createTypeReferenceEx(t, typeArguments, objectFlags) catch 0;
 }
 
 fn tryGetRecordTypeFromNode(c: *Checker, node: NodeIndex) ?TypeIndex {
