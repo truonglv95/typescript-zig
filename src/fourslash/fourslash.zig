@@ -2355,6 +2355,9 @@ pub const FourslashTest = struct {
         }
 
         const typeStr = c.typeToString(sym_type, 0, 0, null);
+        // Track if this is an alias (imported symbol) — we'll prefix
+        // the display with "(alias) " if so.
+        const is_alias = (symObj.Flags & symbol.SymbolFlags.Alias) != 0;
         if (std.mem.eql(u8, typeStr, "{}")) {
             // WORKAROUND: nodebuilder doesn't support functions yet, so typeToString returns {}.
             // Extract the function signature manually using checker APIs.
@@ -2365,6 +2368,7 @@ pub const FourslashTest = struct {
                 if (sigs.len > 0) {
                     var out = std.ArrayListUnmanaged(u8).empty;
                     const aa = self.arena.allocator();
+                    if (is_alias) out.appendSlice(aa, "(alias) ") catch {};
 
                     // Infer type arguments if the function is being called.
                     // This allows displaying f<2>(a: 2): 2 instead of f<T>(a: T): T.
@@ -2883,6 +2887,9 @@ pub const FourslashTest = struct {
         // top-level), prepend "(local var) ". Block-scoped let/const do NOT get
         // this prefix even when local — they stay as "let x" / "const x".
         if ((symObj.Flags & (symbol.SymbolFlags.FunctionScopedVariable | symbol.SymbolFlags.BlockScopedVariable)) != 0) {
+            var out = std.ArrayListUnmanaged(u8).empty;
+            const aa = self.arena.allocator();
+            if (is_alias) out.appendSlice(aa, "(alias) ") catch {};
             var prefix: []const u8 = "var";
             var is_block_scoped = false;
             if ((symObj.Flags & symbol.SymbolFlags.BlockScopedVariable) != 0) {
@@ -2935,8 +2942,6 @@ pub const FourslashTest = struct {
                     }
                 }
             }
-            var out = std.ArrayListUnmanaged(u8).empty;
-            const aa = self.arena.allocator();
             if (is_local) {
                 out.appendSlice(aa, "(local var) ") catch {};
             } else {
