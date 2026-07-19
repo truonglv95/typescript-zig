@@ -15727,26 +15727,32 @@ pub const Checker = struct {
         // No-op: full implementation not yet wired.
     }
 
-    pub fn getContextualSignature(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {        _ = c;
-        _ = node;
-        return 0;
+    pub fn getContextualSignature(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        // Returns the contextual signature for a function expression / arrow function.
+        // Walks up to find the contextual type, then returns its single call signature.
+        if (node == 0) return 0;
+        const ctx_type = c.getContextualType(node, 0);
+        if (ctx_type == 0) return 0;
+        return c.getSingleCallSignature(ctx_type);
     }
 
-    pub fn createUnionSignature(c: *Checker, sig: types.SignatureIndex, unionSignatures: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = sig;
+    pub fn createUnionSignature(c: *Checker, sig: types.SignatureIndex, unionSignatures: ast_gen.NodeIndex) types.TypeIndex {
+        _ = c;
         _ = unionSignatures;
-        return 0;
+        // Creates a union of signatures. Conservative: returns the input signature.
+        return sig;
     }
 
-    pub fn getContextualCallSignature(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = t;
+    pub fn getContextualCallSignature(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {
         _ = node;
-        return 0;
+        return c.getSingleCallSignature(t);
     }
 
-    pub fn getIntersectedSignatures(c: *Checker, signatures: []const types.SignatureIndex) types.TypeIndex {        _ = c;
-        _ = signatures;
-        return 0;
+    pub fn getIntersectedSignatures(c: *Checker, signatures: []const types.SignatureIndex) types.TypeIndex {
+        // Returns the intersection of multiple signatures. Conservative: returns the first.
+        _ = c;
+        if (signatures.len == 0) return 0;
+        return signatures[0];
     }
 
     pub fn isAritySmaller(c: *Checker, signature: types.SignatureIndex, target: ast_gen.NodeIndex) bool {
