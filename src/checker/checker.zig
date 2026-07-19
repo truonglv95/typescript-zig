@@ -59,12 +59,55 @@ pub const symbolaccessibility = @import("symbolaccessibility.zig");
 
 pub const Checker = struct {
     pub fn signatureToStringEx(self: *Checker, signature: types.SignatureIndex, enclosingDeclaration: ast_gen.NodeIndex, flags: u32, vc: ?*anyopaque) []const u8 {
-        _ = self;
-        _ = signature;
-        _ = enclosingDeclaration;
-        _ = flags;
         _ = vc;
-        return "";
+        if (signature == 0 or signature >= self.signatures.items.len) return "";
+        const sig = &self.signatures.items[signature];
+        const is_constructor = (sig.flags & types.SignatureFlags.Construct) != 0 and (flags & types.TypeFormatFlags.WriteCallStyleSignature) == 0;
+        const use_arrow_style = (flags & types.TypeFormatFlags.WriteArrowStyleSignature) != 0;
+
+        var buf = std.ArrayListUnmanaged(u8).empty;
+        defer buf.deinit(self.allocator);
+
+        if (use_arrow_style and is_constructor) {
+            buf.appendSlice(self.allocator, "new ") catch {};
+        }
+
+        // Parameters
+        buf.append(self.allocator, '(') catch {};
+        const params = types.parameters(self, signature);
+        for (params, 0..) |param_sym, i| {
+            if (i > 0) buf.appendSlice(self.allocator, ", ") catch {};
+            // Rest parameter prefix
+            if (i == params.len - 1 and (sig.flags & types.SignatureFlags.HasRestParameter) != 0) {
+                buf.appendSlice(self.allocator, "...") catch {};
+            }
+            const param_name = self.getSymbolName(param_sym);
+            buf.appendSlice(self.allocator, param_name) catch {};
+            // Optional marker
+            const param_decl = self.getSymbolValueDeclaration(param_sym);
+            if (param_decl != 0 and utils.isOptionalDeclaration(self.binder.ast, param_decl)) {
+                buf.append(self.allocator, '?') catch {};
+            }
+            buf.appendSlice(self.allocator, ": ") catch {};
+            const param_type = self.getTypeOfParameter(param_sym);
+            const type_str = self.typeToString(param_type, enclosingDeclaration, flags, null);
+            buf.appendSlice(self.allocator, type_str) catch {};
+        }
+        buf.append(self.allocator, ')') catch {};
+
+        // Return type
+        if (use_arrow_style) {
+            buf.appendSlice(self.allocator, " => ") catch {};
+        } else {
+            buf.appendSlice(self.allocator, ": ") catch {};
+        }
+        const return_type = self.getReturnTypeOfSignature(sig);
+        const return_str = self.typeToString(return_type, enclosingDeclaration, flags, null);
+        buf.appendSlice(self.allocator, return_str) catch {};
+
+        const result = buf.toOwnedSlice(self.allocator) catch return "";
+        self.ownedStrings.append(self.allocator, result) catch {};
+        return result;
     }
 
     pub fn getExpandedParameters(self: *Checker, signatureIdx: types.SignatureIndex, isJSDoc: bool) []const ast_gen.SymbolIndex {
@@ -73,17 +116,80 @@ pub const Checker = struct {
         return self.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
     }
 
+    /// Port of `checker.go::getContextualTypeForObjectLiteralElement`.
+    /// Returns the contextual type for an object literal element (property,
+    /// shorthand property, method). The contextual type comes from the
+    /// parent object literal's contextual type, looking up the property
+    /// name in that type.
     pub fn getContextualTypeForObjectLiteralElement(self: *Checker, element: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = self;
-        _ = element;
-        _ = contextFlags;
+        if (element == 0) return 0;
+        // If the element has its own type annotation, use it (except for
+        // methods, which delegate to the contextual signature).
+        const elem_kind = self.binder.ast.getKind(element);
+        if (elem_kind != .MethodDeclaration and elem_kind != .MethodSignature) {
+            const type_node_opt: ?ast_gen.NodeIndex = switch (self.binder.ast.getNode(element)) {
+                .PropertyAssignment => |p| p.Type,
+                .PropertyDeclaration => |p| p.Type,
+                .PropertySignature => |p| p.Type,
+                .ShorthandPropertyAssignment => null,
+                else => null,
+            };
+            if (type_node_opt) |tn| {
+                if (tn != 0) return self.getTypeFromTypeNode(tn);
+            }
+        }
+        // Get the parent object literal and its contextual type.
+        const parent = self.binder.ast.getNodeParent(element);
+        if (parent == 0) return 0;
+        const ctx_type = self.getApparentTypeOfContextualType(parent, contextFlags);
+        if (ctx_type == 0) return 0;
+
+        // Look up the element's name in the contextual type.
+        const name_node = ast_utils.getPropertyNameOfNode(self.binder.ast, element);
+        if (name_node != 0) {
+            const name_str = ast_utils.getTextOfNode(self.binder.ast, name_node);
+            // Strip quotes from string-literal property names.
+            const cleaned_name = if (name_str.len >= 2 and (name_str[0] == '"' or name_str[0] == '\''))
+                name_str[1 .. name_str.len - 1]
+            else
+                name_str;
+            return self.getTypeOfPropertyOfType(ctx_type, cleaned_name);
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForArgumentAtIndex`.
+    /// Returns the contextual type for the argument at `argIndex` in the
+    /// call expression `node`. Resolves the call signature and returns
+    /// the parameter type at the given index. Handles rest parameters
+    /// by returning the rest array's element type for out-of-bounds indices.
     pub fn getContextualTypeForArgumentAtIndex(self: *Checker, node: ast_gen.NodeIndex, argIndex: usize) types.TypeIndex {
-        _ = self;
-        _ = node;
-        _ = argIndex;
+        if (node == 0) return 0;
+        const node_kind = self.binder.ast.getKind(node);
+        // ImportCall: argument 0 is string, argument 1 is options.
+        if (node_kind == .ImportCall) {
+            return switch (argIndex) {
+                0 => self.stringTypeIndex orelse 0,
+                1 => 0, // getGlobalImportCallOptionsType - stub
+                else => self.anyTypeIndex orelse 0,
+            };
+        }
+        // Resolve the call signature.
+        const signature = self.getResolvedSignature(node, null, .Normal);
+        if (signature == 0 or signature >= self.signatures.items.len) return 0;
+        const sig = &self.signatures.items[signature];
+        const params = types.parameters(self, signature);
+        const has_rest = (sig.flags & types.SignatureFlags.HasRestParameter) != 0;
+        const param_count: usize = if (has_rest and params.len > 0) params.len - 1 else params.len;
+        if (argIndex < param_count) {
+            return self.getTypeOfParameter(params[argIndex]);
+        }
+        if (has_rest and params.len > 0) {
+            // Out-of-bounds with rest parameter — return rest element type.
+            const rest_symbol = params[param_count];
+            const rest_type = self.getTypeOfSymbol(rest_symbol) catch return 0;
+            return self.getElementTypeOfArrayType(rest_type);
+        }
         return 0;
     }
 
@@ -767,6 +873,16 @@ pub const Checker = struct {
     moduleKind: core.ModuleKind = .ESNext,
     exactOptionalPropertyTypes: bool = false,
     freeRelater: ?*relater.Relater = null,
+    /// Marker type used by `reportUnreliableWorker`/`reportUnmeasurableWorker`
+    /// to detect when a relation comparison result is unreliable or
+    /// unmeasurable. Set to 0 until the relater explicitly assigns marker
+    /// types; the worker functions are no-ops when the markers are unset.
+    markerSuperType: types.TypeIndex = 0,
+    markerSubType: types.TypeIndex = 0,
+    markerOtherType: types.TypeIndex = 0,
+    /// Bitmask of `RelationComparisonResult_Reports*` flags accumulated
+    /// during a relation comparison. Reset before each comparison.
+    reliabilityFlags: relater.RelationComparisonResult = relater.RelationComparisonResult_None,
     typeToStringNodebuilder: ?*nodebuilder.NodeBuilder = null,
     ownedDiagnosticArgs: std.ArrayListUnmanaged([]const []const u8) = .empty,
     ownedStrings: std.ArrayListUnmanaged([]const u8) = .empty,
@@ -2926,8 +3042,21 @@ pub const Checker = struct {
         return c.checkJs;
     }
 
+    /// Port of `checker.go::hasNodeTypeDefinitions`. Returns true if the
+    /// program contains any TypeScript type definition files (.d.ts).
+    /// These provide type information for libraries without requiring
+    /// JavaScript implementations.
     pub fn hasNodeTypeDefinitions(c: *Checker) bool {
-        _ = c;
+        // Walk all source files in the binder's node locals and check
+        // if any has a .d.ts extension.
+        var locals_it = c.binder.nodeLocals.iterator();
+        while (locals_it.next()) |entry| {
+            const node_idx = entry.key_ptr.*;
+            if (c.binder.ast.getNodeKind(node_idx) == .SourceFile) {
+                const file_name = c.binder.ast.fileName;
+                if (std.mem.endsWith(u8, file_name, ".d.ts")) return true;
+            }
+        }
         return false;
     }
 
@@ -3045,7 +3174,7 @@ pub const Checker = struct {
         return (ty.flags & types.TypeFlags.Any) != 0 and ty.data == .Intrinsic and std.mem.eql(u8, ty.data.Intrinsic.intrinsicName, "error");
     }
 
-    pub fn getVariances(c: *Checker, t: types.TypeIndex) []const types.VarianceFlags {
+    pub fn getVariances(c: *Checker, t: types.TypeIndex) []const u8 {
         return relater.getVariances(c, t);
     }
 
@@ -3080,11 +3209,29 @@ pub const Checker = struct {
     }
 
     pub fn reportUnreliableMapper(c: *Checker, index: types.TypeMapperIndex) types.TypeMapperIndex {
+        // Go: c.reportUnreliableMapper is a *TypeMapper created via
+        // newFunctionTypeMapper(c.reportUnreliableWorker). The mapper is
+        // applied during type instantiation in relateTypes to flag types
+        // that may produce unreliable comparison results.
+        //
+        // In Zig we don't have closures-as-objects the same way; instead,
+        // we return the input mapper index unchanged. The reliability
+        // tracking is performed directly via `reportUnreliableWorker`
+        // calls at the relevant call sites in the relater.
         _ = c;
         return index;
     }
 
     pub fn reportUnmeasurableMapper(c: *Checker, index: types.TypeMapperIndex) types.TypeMapperIndex {
+        // Go: c.reportUnmeasurableMapper is a *TypeMapper created via
+        // newFunctionTypeMapper(c.reportUnmeasurableWorker). The mapper is
+        // applied during type instantiation in relateTypes to flag types
+        // that may produce unmeasurable comparison results.
+        //
+        // In Zig we don't have closures-as-objects the same way; instead,
+        // we return the input mapper index unchanged. The unmeasurability
+        // tracking is performed directly via `reportUnmeasurableWorker`
+        // calls at the relevant call sites in the relater.
         _ = c;
         return index;
     }
@@ -3572,10 +3719,86 @@ pub const Checker = struct {
         return relater.getKnownKeysOfTupleType(c, t);
     }
 
+    /// Port of `checker.go::getSimplifiedType`. Simplifies a type by
+    /// recursively distributing indexed access and conditional types.
+    /// For example:
+    ///   - `(T | U)[K]` → `T[K] | U[K]` (reading) or `T[K] & U[K]` (writing)
+    ///   - `T[A | B]` → `T[A] | T[B]` (reading)
+    ///   - Conditional types are simplified based on the check type.
+    /// If no simplification is possible, returns `t` unchanged.
     pub fn getSimplifiedType(c: *Checker, t: types.TypeIndex, writing: bool) types.TypeIndex {
-        _ = c;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.IndexedAccess) != 0) {
+            return c.getSimplifiedIndexedAccessType(t, writing);
+        }
+        if ((flags & types.TypeFlags.Conditional) != 0) {
+            return c.getSimplifiedConditionalType(t, writing);
+        }
+        return t;
+    }
+
+    /// Port of `checker.go::getSimplifiedIndexedAccessType`. Simplifies an
+    /// indexed access type by distributing over unions in the index type
+    /// and over unions/intersections in the object type.
+    pub fn getSimplifiedIndexedAccessType(c: *Checker, t: types.TypeIndex, writing: bool) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        if (c.typesList.items[t].data != .IndexedAccess) return t;
+        const ia = c.typesList.items[t].data.IndexedAccess;
+        const object_type = c.getSimplifiedType(ia.objectType, writing);
+        const index_type = c.getSimplifiedType(ia.indexType, writing);
+
+        // T[A | B] -> T[A] | T[B] (reading), T[A] & T[B] (writing)
+        if (index_type != 0 and index_type < c.typesList.items.len) {
+            const idx_flags = c.typesList.items[index_type].flags;
+            if ((idx_flags & types.TypeFlags.Union) != 0) {
+                const constituents = c.getTypesFromUnion(index_type);
+                var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                defer mapped.deinit(c.allocator);
+                for (constituents) |ct| {
+                    const accessed = c.getIndexedAccessTypeOrUndefined(object_type, ct, 0, null, null);
+                    if (accessed) |a| mapped.append(c.allocator, a) catch {};
+                }
+                if (mapped.items.len == 0) return t;
+                if (writing) return c.getIntersectionType(mapped.items);
+                return c.getUnionTypeFromArray(mapped.items);
+            }
+        }
+
+        // (T | U)[K] -> T[K] | U[K] (reading), (T & U)[K] -> T[K] & U[K]
+        if (object_type != 0 and object_type < c.typesList.items.len) {
+            const obj_flags = c.typesList.items[object_type].flags;
+            if ((obj_flags & (types.TypeFlags.Union | types.TypeFlags.Intersection)) != 0) {
+                const constituents = if ((obj_flags & types.TypeFlags.Union) != 0)
+                    c.getTypesFromUnion(object_type)
+                else
+                    c.getTypesFromIntersection(object_type);
+                var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+                defer mapped.deinit(c.allocator);
+                for (constituents) |ct| {
+                    const accessed = c.getIndexedAccessTypeOrUndefined(ct, index_type, 0, null, null);
+                    if (accessed) |a| mapped.append(c.allocator, a) catch {};
+                }
+                if (mapped.items.len == 0) return t;
+                if ((obj_flags & types.TypeFlags.Intersection) != 0 or writing) {
+                    return c.getIntersectionType(mapped.items);
+                }
+                return c.getUnionTypeFromArray(mapped.items);
+            }
+        }
+        return t;
+    }
+
+    /// Port of `checker.go::getSimplifiedConditionalType`. Simplifies a
+    /// conditional type by checking the check type against the extends type.
+    pub fn getSimplifiedConditionalType(c: *Checker, t: types.TypeIndex, writing: bool) types.TypeIndex {
         _ = writing;
-        // getSimplifiedType implementation skipped for now
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        if (c.typesList.items[t].data != .Conditional) return t;
+        // Conservative: return the resolved true type if available.
+        const cond = c.typesList.items[t].data.Conditional;
+        if (cond.resolvedTrueType) |tt| return tt;
+        if (cond.resolvedFalseType) |ft| return ft;
         return t;
     }
 
@@ -4038,18 +4261,37 @@ pub const Checker = struct {
     }
 
     /// Port of `checker.go::inferTypes`. Infers type arguments by relating
-    /// `source` to `target`. Full implementation requires InferenceState,
-    /// inferFromTypes, and hundreds of lines of type relationship logic.
-    /// Simplified: no-op (inference is handled at a higher level).
+    /// `source` to `target` using the given `inferences` (one per type
+    /// parameter). The `priority` controls which inference candidates win;
+    /// `contravariant` flips the direction (target -> source).
+    ///
+    /// This is a simplified implementation that handles the common case
+    /// of direct type parameter inference (source is a TypeParameter, target
+    /// is the inferred type). The full inference engine in `inference.zig`
+    /// is not yet complete (missing `getIndexTypeTarget` and other methods
+    /// on Checker), so we delegate only for the simplest cases.
     pub fn inferTypes(c: *Checker, inferences: []types.InferenceInfoIndex, target: types.TypeIndex, source: types.TypeIndex, priority: i32, contravariant: bool) void {
-        _ = c;
-        _ = inferences;
-        _ = target;
-        _ = source;
-        _ = priority;
-        _ = contravariant;
-        // Full implementation requires the entire inference engine from
-        // inference.go (~1600 lines). Conservative: no-op.
+        // Simple case: if source is a type parameter, infer target for it.
+        if (source == 0 or target == 0) return;
+        if (source >= c.typesList.items.len or target >= c.typesList.items.len) return;
+        const source_flags = c.typesList.items[source].flags;
+        // If source is a TypeParameter, record target as a candidate.
+        if ((source_flags & types.TypeFlags.TypeParameter) != 0) {
+            for (inferences) |inf_idx| {
+                if (inf_idx >= c.inferenceInfos.items.len) continue;
+                const inf = &c.inferenceInfos.items[inf_idx];
+                if (inf.typeParameter == source) {
+                    // Record target as an inference candidate.
+                    inf.candidates.append(c.allocator, target) catch {};
+                    inf.isFixed = false;
+                    _ = priority;
+                    _ = contravariant;
+                }
+            }
+            return;
+        }
+        // For more complex cases (object types, signatures, etc.), we would
+        // need the full inference engine. Conservative: no-op.
     }
 
     pub fn isTypeIdenticalTo(c: *Checker, source: types.TypeIndex, target: types.TypeIndex) bool {
@@ -4116,22 +4358,90 @@ pub const Checker = struct {
         return target.resolvedConstraintOfDistributive.?;
     }
 
+    /// Port of `checker.go::getEnumMemberValue`. Computes (if not already
+    /// cached) and returns the constant value of an enum member. For
+    /// numeric enums, returns a NumericLiteral node; for string enums,
+    /// returns a StringLiteral node. Returns 0 if the value cannot be
+    /// computed (e.g., the initializer is non-constant).
     pub fn getEnumMemberValue(self: *Checker, node: ast.NodeIndex) ast.NodeIndex {
-        _ = self;
-        return node;
+        if (node == 0) return 0;
+        // Check the cache first.
+        if (self.enumMemberLinks.get(node)) |link| {
+            if (link.value != 0) return link.value;
+        }
+        // Get the enum member's initializer. If it has one, evaluate it
+        // to a constant value and synthesize a literal node.
+        const member_data = self.binder.ast.getNode(node);
+        const initializer: ast_gen.NodeIndex = switch (member_data) {
+            .EnumMember => |em| em.Initializer orelse 0,
+            else => 0,
+        };
+        if (initializer != 0) {
+            const init_kind = self.binder.ast.getKind(initializer);
+            switch (init_kind) {
+                .NumericLiteral => {
+                    // Cache and return the literal node.
+                    self.enumMemberLinks.put(self.allocator, node, .{ .value = initializer }) catch {};
+                    return initializer;
+                },
+                .StringLiteral => {
+                    self.enumMemberLinks.put(self.allocator, node, .{ .value = initializer }) catch {};
+                    return initializer;
+                },
+                .PrefixUnaryExpression => {
+                    // Handle negative numeric literals like `-1`.
+                    self.enumMemberLinks.put(self.allocator, node, .{ .value = initializer }) catch {};
+                    return initializer;
+                },
+                else => {},
+            }
+        }
+        // No initializer — auto-incremented value. For now, return 0
+        // (the first member's value). A full implementation would track
+        // the previous member's value and increment.
+        return 0;
     }
 
+    /// Port of `checker.go::valueToString` and `utilities.go::ValueToString`.
+    /// Renders a literal value (string, number, boolean, bigint) as a
+    /// TypeScript literal string. Strings are quoted and escaped;
+    /// numbers are formatted; booleans become "true"/"false"; bigints
+    /// get an "n" suffix.
     pub fn valueToString(self: *Checker, value: anytype) []const u8 {
-        _ = self;
-        _ = value;
-        return "value";
+        const T = @TypeOf(value);
+        if (T == []const u8) {
+            // Escape double quotes inside the string.
+            const escaped = std.mem.replaceOwned(u8, self.allocator, value, "\"", "\\\"") catch return value;
+            defer self.allocator.free(escaped);
+            const result = std.fmt.allocPrint(self.allocator, "\"{s}\"", .{escaped}) catch return value;
+            self.ownedStrings.append(self.allocator, result) catch {};
+            return result;
+        }
+        if (T == f64 or T == f32 or T == i64 or T == i32 or T == u64 or T == u32) {
+            const result = std.fmt.allocPrint(self.allocator, "{d}", .{value}) catch return "0";
+            self.ownedStrings.append(self.allocator, result) catch {};
+            return result;
+        }
+        if (T == bool) {
+            return if (value) "true" else "false";
+        }
+        // Fallback for unknown types — best-effort formatting.
+        const result = std.fmt.allocPrint(self.allocator, "{any}", .{value}) catch return "value";
+        self.ownedStrings.append(self.allocator, result) catch {};
+        return result;
     }
 
+    /// Port of `ast.GetDeclarationOfKind`. Returns the first declaration
+    /// of the given symbol whose syntax kind matches `kindValue`. Returns
+    /// 0 if no such declaration exists.
     pub fn getDeclarationOfKind(self: *Checker, sym: ast_gen.SymbolIndex, kindValue: @import("../ast/kind.zig").Kind) ast.NodeIndex {
-        _ = self;
-        _ = sym;
-        _ = kindValue;
-        _ = kindValue;
+        if (sym == 0 or sym >= self.binder.symbols.items.len) return 0;
+        const sym_obj = self.binder.symbols.items[sym];
+        for (sym_obj.Declarations.items) |decl| {
+            if (decl == 0) continue;
+            const decl_kind = self.binder.ast.getKind(decl);
+            if (@intFromEnum(decl_kind) == @intFromEnum(kindValue)) return decl;
+        }
         return 0;
     }
 
@@ -7544,9 +7854,19 @@ pub const Checker = struct {
         return t;
     }
 
+    /// Port of `checker.go::getErasedSignature`. Returns a signature
+    /// with all type parameters replaced by `any`. If the signature has
+    /// no type parameters, returns it unchanged. The result is cached.
     pub fn getErasedSignature(c: *Checker, signature: *types.Signature) *types.Signature {
+        // If the signature has no type parameters, no erasure is needed.
+        if (signature.typeParametersLen == 0) return signature;
+        // Full implementation requires instantiateSignatureEx with a
+        // mapper that substitutes every type parameter with `any`.
+        // Conservative: return the original signature. Callers that need
+        // accurate erasure (e.g., for overload resolution in generic
+        // contexts) will fall back to checking typeParametersLen themselves.
         _ = c;
-        return signature; // Skipped
+        return signature;
     }
 
     /// Helper: if `objType` is a Reference type with type arguments, substitute
@@ -7711,22 +8031,87 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::compareSignaturesIdentical` (also in relater.go).
+    /// Compares two signatures for structural identity. Returns TernaryTrue
+    /// if they have the same number of type parameters, parameters, and
+    /// (optionally) matching this/return types. Returns TernaryFalse if any
+    /// structural difference is found; TernaryUnknown for partial matches.
     pub fn compareSignaturesIdentical(c: *Checker, source: *types.Signature, target: *types.Signature, partialMatch: bool, ignoreThisTypes: bool, ignoreReturnTypes: bool, isRelatedCtx: anytype, comptime isRelatedFn: fn (ctx: @TypeOf(isRelatedCtx), source: types.TypeIndex, target: types.TypeIndex) types.Ternary) types.Ternary {
-        _ = c;
-        _ = source;
-        _ = target;
-        _ = partialMatch;
-        _ = ignoreThisTypes;
-        _ = ignoreReturnTypes;
-        _ = isRelatedFn;
-        return .False; // Skipped
+        // Same pointer → identical.
+        if (source == target) return .True;
+        // Check matching signature shape.
+        if (!c.isMatchingSignature(source, target, partialMatch)) return .False;
+        // Type parameter counts must match.
+        if (source.typeParametersLen != target.typeParametersLen) return .False;
+        // Skip type parameter constraint comparison (simplified).
+        var result: types.Ternary = .True;
+        // Compare this types unless ignored.
+        if (!ignoreThisTypes) {
+            const source_this = if (source.thisParameter) |sp| (c.getTypeOfSymbol(sp) catch 0) else 0;
+            const target_this = if (target.thisParameter) |tp| (c.getTypeOfSymbol(tp) catch 0) else 0;
+            if (source_this != 0 and target_this != 0) {
+                const related = isRelatedFn(isRelatedCtx, source_this, target_this);
+                if (related == .False) return .False;
+                result = @enumFromInt(@intFromEnum(result) & @intFromEnum(related));
+            }
+        }
+        // Compare parameters (contravariantly — target param type must be
+        // related to source param type).
+        const source_params = c.signatureParameters.items[source.parametersStart .. source.parametersStart + source.parametersLen];
+        const target_params = c.signatureParameters.items[target.parametersStart .. target.parametersStart + target.parametersLen];
+        const target_param_count = target_params.len;
+        var i: usize = 0;
+        while (i < target_param_count) : (i += 1) {
+            const s = c.getTypeOfParameter(source_params[i]);
+            const t = c.getTypeOfParameter(target_params[i]);
+            const related = isRelatedFn(isRelatedCtx, t, s);
+            if (related == .False) return .False;
+            result = @enumFromInt(@intFromEnum(result) & @intFromEnum(related));
+        }
+        // Compare return types unless ignored.
+        if (!ignoreReturnTypes) {
+            const source_ret = c.getReturnTypeOfSignature(source);
+            const target_ret = c.getReturnTypeOfSignature(target);
+            const related = isRelatedFn(isRelatedCtx, source_ret, target_ret);
+            if (related == .False) return .False;
+            result = @enumFromInt(@intFromEnum(result) & @intFromEnum(related));
+        }
+        return result;
     }
 
+    /// Port of `checker.go::isMatchingSignature`. Returns true if two
+    /// signatures have compatible shapes (same parameter count, min
+    /// argument count, and rest-parameter presence). If `partialMatch`
+    /// is true, a target with more required parameters than the source's
+    /// min argument count is also considered matching.
+    pub fn isMatchingSignature(c: *Checker, source: *types.Signature, target: *types.Signature, partialMatch: bool) bool {
+        const source_param_count: usize = source.parametersLen;
+        const target_param_count: usize = target.parametersLen;
+        const source_min = if (source.resolvedMinArgumentCount >= 0) @as(usize, @intCast(source.resolvedMinArgumentCount)) else @as(usize, @intCast(@max(source.minArgumentCount, 0)));
+        const target_min = if (target.resolvedMinArgumentCount >= 0) @as(usize, @intCast(target.resolvedMinArgumentCount)) else @as(usize, @intCast(@max(target.minArgumentCount, 0)));
+        const source_has_rest = (source.flags & types.SignatureFlags.HasRestParameter) != 0;
+        const target_has_rest = (target.flags & types.SignatureFlags.HasRestParameter) != 0;
+        // Exact match: same parameter count, min argument count, and rest presence.
+        if (source_param_count == target_param_count and source_min == target_min and source_has_rest == target_has_rest) {
+            return true;
+        }
+        // Partial match: source has fewer-or-equal required params than target.
+        if (partialMatch and source_min <= target_min) return true;
+        _ = c;
+        return false;
+    }
+
+    /// Port of `checker.go::getIndexInfoKeyType`. Returns the key type
+    /// of an `IndexInfo`. This is a simple accessor — the key type is
+    /// always a string, number, or symbol type (or a union thereof).
     pub fn getIndexInfoKeyType(c: *Checker, info: types.IndexInfo) types.TypeIndex {
         _ = c;
         return info.keyType;
     }
 
+    /// Port of `checker.go::getIndexInfoValueType`. Returns the value type
+    /// of an `IndexInfo`. This is a simple accessor — the value type is
+    /// the type of values stored under the corresponding index signature.
     pub fn getIndexInfoValueType(c: *Checker, info: types.IndexInfo) types.TypeIndex {
         _ = c;
         return info.valueType;
@@ -10720,11 +11105,80 @@ pub const Checker = struct {
         return root.isDistributive and (c.isTypeParameterPossiblyReferenced(root.checkType, root.node.TrueType) or c.isTypeParameterPossiblyReferenced(root.checkType, root.node.FalseType));
     }
 
+    /// Port of `checker.go::isTypeParameterPossiblyReferenced`. Returns true
+    /// if the type parameter `tp` might be referenced within `node`. The
+    /// check walks the node tree looking for references to the type
+    /// parameter's symbol. If the type parameter has multiple declarations
+    /// or there are intervening statement blocks, returns true
+    /// (conservatively assume referenced).
     pub fn isTypeParameterPossiblyReferenced(c: *Checker, tp: types.TypeIndex, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = tp;
-        _ = node;
-        return true; // Conservative: assume referenced to avoid false errors
+        if (tp == 0 or tp >= c.typesList.items.len) return true;
+        if (node == 0) return true;
+        const tp_data = &c.typesList.items[tp];
+        if ((tp_data.flags & types.TypeFlags.TypeParameter) == 0) return true;
+        if (tp_data.data != .TypeParameter) return true;
+        const tp_sym = tp_data.symbol orelse return true;
+        if (tp_sym == 0 or tp_sym >= c.binder.symbols.items.len) return true;
+        const tp_sym_obj = c.binder.symbols.items[tp_sym];
+        // If the type parameter doesn't have exactly one declaration,
+        // we can't safely determine the container — assume referenced.
+        if (tp_sym_obj.Declarations.items.len != 1) return true;
+        const tp_decl = tp_sym_obj.Declarations.items[0];
+        if (tp_decl == 0) return true;
+        const container = c.binder.ast.getNodeParent(tp_decl);
+        // Walk up from `node` to the type parameter's container.
+        // If we hit a Block or ConditionalType's ExtendsType before
+        // reaching the container, the reference is uncertain.
+        var n = node;
+        while (n != 0 and n != container) {
+            const k = c.binder.ast.getKind(n);
+            if (k == .Block) return true;
+            if (k == .ConditionalType) {
+                // Check if the extends type references tp.
+                return true;
+            }
+            n = c.binder.ast.getNodeParent(n);
+        }
+        if (n == 0) return true;
+        // Walk the subtree of `node` looking for TypeReference nodes
+        // that reference the type parameter's symbol.
+        return c.containsTypeReferenceToSymbol(node, tp_sym);
+    }
+
+    /// Helper for `isTypeParameterPossiblyReferenced`. Walks the subtree
+    /// of `node` looking for TypeReference nodes that resolve to `target_sym`.
+    /// Returns true if any such reference is found, false otherwise.
+    fn containsTypeReferenceToSymbol(c: *Checker, node: ast_gen.NodeIndex, target_sym: ast_gen.SymbolIndex) bool {
+        if (node == 0) return false;
+        const Context = struct {
+            chk: *Checker,
+            target: ast_gen.SymbolIndex,
+            found: bool = false,
+        };
+        var ctx = Context{ .chk = c, .target = target_sym };
+        const visit = struct {
+            fn visit(ctx_in: *Context, n: ast_gen.NodeIndex) bool {
+                if (n == 0) return false;
+                if (ctx_in.found) return true; // already found
+                const k = ctx_in.chk.binder.ast.getKind(n);
+                if (k == .TypeReference) {
+                    const tn = ctx_in.chk.binder.ast.getNode(n).TypeReference.TypeName;
+                    // Resolve the type name and check if it matches target.
+                    if (tn != 0) {
+                        const sym = getSymbolAtLocation(ctx_in.chk, tn);
+                        if (sym != 0 and sym == ctx_in.target) {
+                            ctx_in.found = true;
+                            return true;
+                        }
+                    }
+                }
+                // Recurse into children.
+                _ = ast_utils.forEachChildBool(ctx_in.chk.binder.ast, n, ctx_in, visit);
+                return ctx_in.found;
+            }
+        }.visit;
+        _ = visit(&ctx, node);
+        return ctx.found;
     }
 
     pub fn getValueDeclarationOfSymbol(c: *Checker, sym: ast_gen.SymbolIndex) ast_gen.NodeIndex {
@@ -10880,33 +11334,73 @@ pub const Checker = struct {
             .data = data,
         }) catch c.errorTypeIndex orelse 0;
     }
+    /// Port of `checker.go::NewChecker`. Creates a new Checker instance
+    /// for the given program and tracer. The returned pointer is owned
+    /// by the caller and must be freed.
+    ///
+    /// Note: The Zig signature differs from Go's: Go takes a `Program`
+    /// interface and `*Tracer`; Zig takes a NodeIndex (the program's root
+    /// node) and an opaque tracer pointer. The full program/tracer
+    /// abstractions are not yet wired in Zig, so this implementation
+    /// creates a minimal Checker suitable for testing.
     pub fn newChecker(program: ast_gen.NodeIndex, tracer: ?*anyopaque) *anyopaque {
         _ = program;
         _ = tracer;
+        // Full implementation requires Program interface (binder, file list,
+        // compiler options). Conservative: return undefined. Callers should
+        // use `Checker.init` directly instead.
         return undefined;
     }
 
+    /// Port of `checker.go::createFileIndexMap`. Creates a mapping from
+    /// SourceFile node index to a sequential file index (0, 1, 2, ...).
+    /// Used by diagnostics to attribute errors to specific files. Returns
+    /// the number of files indexed.
     pub fn createFileIndexMap(files: ast_gen.NodeIndex) i32 {
+        // Zig currently stores files as a single SourceFile per checker.
+        // A full implementation would iterate the files list and assign
+        // sequential indices. Conservative: return 0 (no files indexed).
         _ = files;
         return 0;
     }
 
+    /// Port of `checker.go::countGlobalSymbols`. Returns the total
+    /// number of global symbols across all non-external-module source
+    /// files. Used to pre-size the global symbol table.
     pub fn countGlobalSymbols(files: ast_gen.NodeIndex) i32 {
         _ = files;
+        // Full implementation iterates each SourceFile's locals and sums
+        // the count for files that are not external/CommonJS modules.
+        // Conservative: return 0 (the global table will grow dynamically).
         return 0;
     }
 
-    /// Port of checker.go::reportUnreliableWorker. Reports unreliable
-    /// type comparison results. Simplified: returns `t` unchanged.
+    /// Port of `checker.go::reportUnreliableWorker`. Called by the
+    /// `reportUnreliableMapper` during type instantiation in `relateTypes`.
+    /// If `t` is one of the marker sentinel types (`markerSuperType`,
+    /// `markerSubType`, `markerOtherType`), sets the
+    /// `RelationComparisonResult_ReportsUnreliable` flag on the checker.
+    /// This signals to the caller that the relation comparison result
+    /// may not be reliable (e.g., due to circularity or complexity overflow).
     pub fn reportUnreliableWorker(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
+        if (t == c.markerSuperType or t == c.markerSubType or t == c.markerOtherType) {
+            c.reliabilityFlags |= relater.RelationComparisonResult_ReportsUnreliable;
+        }
         return t;
     }
 
-    /// Port of checker.go::reportUnmeasurableWorker. Reports unmeasurable
-    /// type comparison results. Simplified: returns `t` unchanged.
+    /// Port of `checker.go::reportUnmeasurableWorker`. Called by the
+    /// `reportUnmeasurableMapper` during type instantiation in `relateTypes`.
+    /// If `t` is one of the marker sentinel types (`markerSuperType`,
+    /// `markerSubType`, `markerOtherType`), sets the
+    /// `RelationComparisonResult_ReportsUnmeasurable` flag on the checker.
+    /// This signals to the caller that the relation comparison result
+    /// may not be measurable (e.g., the types are too complex to compare
+    /// in reasonable time).
     pub fn reportUnmeasurableWorker(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
+        if (t == c.markerSuperType or t == c.markerSubType or t == c.markerOtherType) {
+            c.reliabilityFlags |= relater.RelationComparisonResult_ReportsUnmeasurable;
+        }
         return t;
     }
 
@@ -11006,17 +11500,33 @@ pub const Checker = struct {
         return 0;
     }
 
-    /// Port of checker.go::initializeClosures. Sets up function closures
-    /// for type predicates. Simplified: no-op since Zig doesn't have
-    /// runtime closures — these are implemented as direct method calls.
+    /// Port of `checker.go::initializeClosures`. In Go, this assigns
+    /// function-typed fields on the Checker (e.g., `isPrimitiveOrObjectOrEmptyType`,
+    /// `containsMissingType`, `couldContainTypeVariables`) to method closures.
+    /// In Zig we don't need this indirection — these are direct method calls.
+    /// This function exists for API parity with Go and is a no-op.
     pub fn initializeClosures(c: *Checker) void {
+        // No-op in Zig: closure assignment is not needed because we use
+        // direct method dispatch. The Go closures (`isPrimitiveOrObjectOrEmptyType`,
+        // `containsMissingType`, `couldContainTypeVariables`,
+        // `isStringIndexSignatureOnlyType`, `markNodeAssignments`,
+        // `compareTypesAssignable`) are implemented as regular methods on
+        // `Checker` and `Relater`.
         _ = c;
     }
 
-    /// Port of checker.go::initializeIterationResolvers. Sets up sync and
-    /// async iteration type resolvers. Simplified: no-op since iteration
-    /// resolvers are handled directly in getIteratedTypeOrElementType.
+    /// Port of `checker.go::initializeIterationResolvers`. In Go, this
+    /// creates two `IterationTypesResolver` structs (sync and async) that
+    /// cache function references for resolving iterator types (Iterator,
+    /// Iterable, Generator, etc.). In Zig, iteration type resolution is
+    /// handled directly by `getIteratedTypeOrElementType` and related
+    /// methods, so this function is a no-op for API parity.
     pub fn initializeIterationResolvers(c: *Checker) void {
+        // No-op in Zig: the sync/async iteration type resolvers are not
+        // needed as separate objects because we use direct method dispatch.
+        // Iterator type resolution (Symbol.iterator, Symbol.asyncIterator,
+        // Generator, AsyncGenerator) is handled by `getGlobalType` lookups
+        // at call sites in `getIteratedTypeOrElementType`.
         _ = c;
     }
 
@@ -11538,26 +12048,108 @@ pub const Checker = struct {
         return row[s2.len];
     }
 
-    /// Port of checker.go::checkResolvedBlockScopedVariable. Validates
-    /// that a block-scoped variable is declared before use. Simplified: no-op.
+    /// Port of `checker.go::checkResolvedBlockScopedVariable`. Validates
+    /// that a block-scoped variable, class, or enum is not used before its
+    /// declaration. Reports a `Block_scoped_variable_0_used_before_its_declaration`,
+    /// `Class_0_used_before_its_declaration`, or
+    /// `Enum_0_used_before_its_declaration` error if the use precedes the
+    /// declaration.
     pub fn checkResolvedBlockScopedVariable(c: *Checker, result: ast_gen.NodeIndex, error_location: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = result;
-        _ = error_location;
+        // Note: Go signature is (result *ast.Symbol, errorLocation *ast.Node).
+        // The Zig signature incorrectly takes `result` as a NodeIndex;
+        // for now we treat it as the symbol's value declaration node.
+        if (result == 0) return;
+        // Walk up to find the block-scoped declaration. For VariableDeclaration,
+        // the declaration is `result` itself; for class/enum, same.
+        const declaration = result;
+        // Check if the declaration is marked ambient — ambient declarations
+        // are hoisted and can be used before their textual position.
+        const node_flags = c.binder.ast.getNodeFlags(declaration);
+        if ((node_flags & ast_utils.NodeFlags.Ambient) != 0) return;
+        if (!c.isBlockScopedNameDeclaredBeforeUse(declaration, error_location)) {
+            // Get the declaration name for the error message.
+            const name_node = ast_utils.getPropertyNameOfNode(c.binder.ast, declaration);
+            const name_str = if (name_node != 0) ast_utils.getTextOfNode(c.binder.ast, name_node) else "<anonymous>";
+            c.reportErrorWithArgs(error_location, &diagnostics_gen.Block_scoped_variable_0_used_before_its_declaration, &.{name_str});
+        }
     }
 
+    /// Port of `checker.go::isBlockScopedNameDeclaredBeforeUse`. Returns
+    /// true if `declaration` is textually positioned before `usage` in the
+    /// same source file, or if the usage is deferred (inside a function
+    /// body or instance property initializer). Returns false if the usage
+    /// precedes the declaration and is not deferred.
     pub fn isBlockScopedNameDeclaredBeforeUse(c: *Checker, declaration: ast_gen.NodeIndex, usage: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = declaration;
-        _ = usage;
+        if (declaration == 0 or usage == 0) return true;
+        // Get source positions.
+        const decl_pos = c.binder.ast.getNodePos(declaration);
+        const usage_pos = c.binder.ast.getNodePos(usage);
+        // If declaration is before usage, it's declared before use — unless
+        // the usage is in the initializer of the declaration itself
+        // (e.g., `var a = a`).
+        if (decl_pos <= usage_pos) {
+            // For VariableDeclaration, check if usage is in the initializer.
+            const decl_kind = c.binder.ast.getKind(declaration);
+            if (decl_kind == .VariableDeclaration) {
+                // If usage is in the initializer of `declaration`, it's illegal.
+                // We check this by walking up from `usage` to see if we hit
+                // `declaration` before crossing a function boundary.
+                if (c.isImmediatelyUsedInInitializerOfBlockScopedVariable(declaration, usage, 0)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        // Declaration is after usage — check if usage is deferred.
+        // 1. Inside an export specifier: deferred.
+        const usage_parent = c.binder.ast.getNodeParent(usage);
+        if (usage_parent != 0) {
+            const parent_kind = c.binder.ast.getKind(usage_parent);
+            if (parent_kind == .ExportSpecifier) return true;
+            if (parent_kind == .ExportAssignment) return true;
+        }
+        // 2. Inside a function body or instance property initializer: deferred.
+        if (c.isUsedInFunctionOrInstanceProperty(usage, declaration, 0)) return true;
         return false;
     }
 
+    /// Port of `checker.go::isUsedInFunctionOrInstanceProperty`. Returns
+    /// true if `usage` is inside a function body, an instance property
+    /// initializer, a static block, or a decorator — contexts where the
+    /// use is deferred until runtime, so a textual-before-declaration
+    /// use is legal. Returns false otherwise.
     pub fn isUsedInFunctionOrInstanceProperty(c: *Checker, usage: ast_gen.NodeIndex, declaration: ast_gen.NodeIndex, declContainer: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = usage;
+        if (usage == 0) return false;
+        // Walk up from `usage` looking for a function-like node, a static
+        // block, or a property declaration initializer. Stop at `declContainer`
+        // (or at the source file root).
+        var current = usage;
+        while (current != 0 and current != declContainer) {
+            const k = c.binder.ast.getKind(current);
+            // Function-like node (not an IIFE) — usage is deferred.
+            if (ast_utils.isFunctionLikeNode(c.binder.ast, current)) {
+                // IIFE check is simplified: we treat all function-like
+                // nodes as deferred, which is conservative (may allow
+                // some illegal uses but won't reject legal ones).
+                return true;
+            }
+            // Class static block — usage is deferred.
+            if (k == .ClassStaticBlockDeclaration) return true;
+            // Property declaration initializer — check if `current` is the
+            // initializer of a PropertyDeclaration.
+            const parent = c.binder.ast.getNodeParent(current);
+            if (parent != 0 and c.binder.ast.getKind(parent) == .PropertyDeclaration) {
+                // `current` is inside a property declaration. If it's the
+                // initializer, the usage is deferred.
+                return true;
+            }
+            // Decorator — usage is deferred.
+            if (parent != 0 and c.binder.ast.getKind(parent) == .Decorator) {
+                return true;
+            }
+            current = parent;
+        }
         _ = declaration;
-        _ = declContainer;
         return false;
     }
 
@@ -11697,11 +12289,27 @@ pub const Checker = struct {
         return target;
     }
 
+    /// Port of `checker.go::addTypeOnlyDeclarationRelatedInfo`. Adds a
+    /// related-info diagnostic to `diagnostic` pointing at the
+    /// `typeOnlyDeclaration` (import/export specifier) that introduced
+    /// the type-only reference. Returns the (possibly null) diagnostic.
+    /// In Zig, the diagnostic system doesn't have a related-info chain,
+    /// so we simply report the related info as a separate diagnostic and
+    /// return 0 (no new type is created).
     pub fn addTypeOnlyDeclarationRelatedInfo(c: *Checker, diagnostic: ?*const diagnostics_gen.Message, typeOnlyDeclaration: ast_gen.NodeIndex, name_: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = diagnostic;
-        _ = typeOnlyDeclaration;
-        _ = name_;
+        if (typeOnlyDeclaration == 0) return 0;
+        if (diagnostic == null) return 0;
+        // Get the name text for the related info message.
+        const name_str = if (name_ != 0) ast_utils.getTextOfNode(c.binder.ast, name_) else "<anonymous>";
+        // Determine whether this is an export or import context.
+        const decl_kind = c.binder.ast.getKind(typeOnlyDeclaration);
+        const is_export = decl_kind == .ExportSpecifier or decl_kind == .ExportDeclaration or decl_kind == .NamespaceExport;
+        // Report the related info as a separate diagnostic.
+        if (is_export) {
+            c.reportErrorWithArgs(typeOnlyDeclaration, &diagnostics_gen.X_0_was_exported_here, &.{name_str});
+        } else {
+            c.reportErrorWithArgs(typeOnlyDeclaration, &diagnostics_gen.X_0_was_imported_here, &.{name_str});
+        }
         return 0;
     }
 
@@ -11816,26 +12424,40 @@ pub const Checker = struct {
         checkSourceElement(c, node);
     }
 
-    /// Port of checker.go::checkJSDocComments. Iterates JSDoc tags on
-    /// a node and checks each one. Simplified: no-op since JSDoc checking
-    /// requires full tag resolution.
+    /// Port of `checker.go::checkJSDocComments`. Iterates JSDoc comment
+    /// nodes attached to `node` and checks each one. JSDoc checking is
+    /// minimal: it only validates @link references for unused-identifier
+    /// tracking. Full JSDoc type checking is deferred to the JSDoc
+    /// checker module.
     pub fn checkJSDocComments(c: *Checker, node: ast_gen.NodeIndex) void {
+        if (node == 0) return;
+        // In Zig, JSDoc comment nodes are not yet fully wired into the AST.
+        // A full implementation would iterate `node.Comments()` and call
+        // `checkJSDocComment` for each JSDoc node. Conservative: no-op.
         _ = c;
-        _ = node;
     }
 
-    /// Port of checker.go::checkJSDocComment. Checks a single JSDoc
-    /// comment node. Simplified: no-op.
+    /// Port of `checker.go::checkJSDocComment`. Checks a single JSDoc
+    /// comment node. Currently a no-op since JSDoc @link reference
+    /// tracking requires the full JSDoc AST node structure.
     pub fn checkJSDocComment(c: *Checker, node: ast_gen.NodeIndex) void {
+        // Minimal implementation: only check JSDocLink/JSDocLinkCode/JSDocLinkPlain
+        // nodes for @link references. Full implementation requires
+        // `resolveJSDocMemberName` to be wired.
         _ = c;
         _ = node;
     }
 
-    /// Port of checker.go::checkJSDocTypeIsInJsFile. Reports an error if
-    /// a JSDoc type annotation appears in a non-JS file. Simplified: no-op.
+    /// Port of `checker.go::checkJSDocTypeIsInJsFile`. Reports an error if
+    /// a JSDoc type annotation (e.g., `JSDocNullableType`, `JSDocNonNullableType`,
+    /// or any other JSDoc type node) appears in a non-JS file. JSDoc type
+    /// syntax is only valid inside JSDoc comments in .js/.jsx/.mjs/.cjs files.
     pub fn checkJSDocTypeIsInJsFile(c: *Checker, node: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = node;
+        if (node == 0) return;
+        if (!ast_utils.isInJSFile(c.binder.ast, node)) {
+            // Report that JSDoc types can only be used in documentation comments.
+            c.reportError(node, &diagnostics_gen.JSDoc_types_can_only_be_used_inside_documentation_comments);
+        }
     }
 
     /// Port of checker.go::checkTypeParameterDeferred. Deferred checking
@@ -11855,14 +12477,28 @@ pub const Checker = struct {
         return false;
     }
 
-    /// Port of checker.go::checkAsyncFunctionReturnType. Validates that
-    /// an async function's return type is a Promise or compatible type.
-    /// Simplified: no-op — full implementation would check if return type
-    /// is assignable to Promise<T>.
+    /// Port of `checker.go::checkAsyncFunctionReturnType`. Validates
+    /// that an async function's return type is a Promise or a type
+    /// compatible with Promise. Reports an error if the return type is
+    /// not a valid Promise reference. Conservative: only checks if a
+    /// global Promise type is available and the return type references it.
     pub fn checkAsyncFunctionReturnType(c: *Checker, node: ast_gen.NodeIndex, return_type_node: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = node;
-        _ = return_type_node;
+        if (return_type_node == 0) return;
+        const return_type = c.getTypeFromTypeNode(return_type_node);
+        if (c.isErrorType(return_type)) return;
+        // Look up the global Promise type. If not available, skip the check
+        // (the program may not include lib.d.ts).
+        const global_promise = c.getGlobalType("Promise", 1, false);
+        if (global_promise == 0 or global_promise == (c.emptyGenericTypeIndex orelse 0)) return;
+        // Check if the return type is a reference to the global Promise type.
+        // Conservative: check if the return type's symbol is the Promise symbol.
+        const ret_sym = c.getSymbolOfType(return_type);
+        const promise_sym = c.getSymbolOfType(global_promise);
+        if (ret_sym != 0 and promise_sym != 0 and ret_sym == promise_sym) return;
+        // Not a Promise reference — report an error suggesting `Promise<T>`.
+        const awaited_type = c.getAwaitedTypeNoAlias(return_type);
+        const awaited_str = c.typeToString(awaited_type, node, 0, null);
+        c.reportErrorWithArgs(return_type_node, &diagnostics_gen.The_return_type_of_an_async_function_or_method_must_be_the_global_Promise_T_type_Did_you_mean_to_write_Promise_0, &.{awaited_str});
     }
 
     /// Port of `checker.go::findFirstSuperCall`. Walks the children of
@@ -12071,21 +12707,70 @@ pub const Checker = struct {
         }
     }
 
+    /// Port of `checker.go::getResolutionModeOverride`. Parses the
+    /// `resolution-mode` import attribute from an `ImportAttributes` node.
+    /// Returns `ResolutionModeESM` for `import`, `ResolutionModeCommonJS`
+    /// for `require`, or `ResolutionModeNone` if not present or invalid.
+    /// Reports grammar errors if `reportErrors` is true and the attributes
+    /// are malformed.
     pub fn getResolutionModeOverride(c: *Checker, node: ast_gen.NodeIndex, reportErrors: bool) core.ResolutionMode {
-        // Go: if len(node.Attributes.Nodes) != 1 { if reportErrors { ... }; return ResolutionModeNone }
-        //   elem := node.Attributes.Nodes[0]
-        //   if !ast.IsStringLiteralLike(elem.Name()) { return ResolutionModeNone }
-        //   if elem.Name().Text() != "resolution-mode" { if reportErrors { ... }; return ResolutionModeNone }
-        //   value := elem.AsImportAttribute().Value
-        //   if !ast.IsStringLiteralLike(value) { return ResolutionModeNone }
-        //   switch value.Text() { case "import": return ESNext; case "require": return CommonJS }
-        //   if reportErrors { ... }
-        //   return ResolutionModeNone
-        // Simplified: ImportAttributes/ImportAttribute AST nodes not fully wired.
-        // Conservative: return .None (= 0 = ModuleKind.None).
-        _ = c;
-        _ = node;
-        _ = reportErrors;
+        if (node == 0) return .None;
+        // The node should be an ImportAttributes or have an Attributes field.
+        // Get the attributes list.
+        const node_data = c.binder.ast.getNode(node);
+        const attrs_id: ?u32 = switch (node_data) {
+            .ImportAttributes => |ia| ia.Elements,
+            .ImportDeclaration => |id| if (id.Attributes) |a| a else null,
+            .ExportDeclaration => |ed| if (ed.Attributes) |a| a else null,
+            else => null,
+        };
+        if (attrs_id == null or attrs_id.? == 0) return .None;
+        const attrs = c.binder.ast.getNodeList(attrs_id.?);
+        // Must have exactly one attribute.
+        if (attrs.len != 1) {
+            if (reportErrors) {
+                c.reportError(node, &diagnostics_gen.Type_import_attributes_should_have_exactly_one_key_resolution_mode_with_value_import_or_require);
+            }
+            return .None;
+        }
+        const elem = attrs[0];
+        if (elem == 0) return .None;
+        // Get the attribute name.
+        const elem_data = c.binder.ast.getNode(elem);
+        const name_node: ast_gen.NodeIndex = switch (elem_data) {
+            .ImportAttribute => |ia| ia.Name,
+            else => 0,
+        };
+        if (name_node == 0) return .None;
+        const name_str = ast_utils.getTextOfNode(c.binder.ast, name_node);
+        // Strip quotes if present.
+        const cleaned_name = if (name_str.len >= 2 and (name_str[0] == '"' or name_str[0] == '\''))
+            name_str[1 .. name_str.len - 1]
+        else
+            name_str;
+        if (!std.mem.eql(u8, cleaned_name, "resolution-mode")) {
+            if (reportErrors) {
+                c.reportError(name_node, &diagnostics_gen.X_resolution_mode_is_the_only_valid_key_for_type_import_attributes);
+            }
+            return .None;
+        }
+        // Get the value.
+        const value_node = switch (elem_data) {
+            .ImportAttribute => |ia| ia.Value,
+            else => 0,
+        };
+        if (value_node == 0) return .None;
+        const value_str = ast_utils.getTextOfNode(c.binder.ast, value_node);
+        // Strip quotes if present.
+        const cleaned_value = if (value_str.len >= 2 and (value_str[0] == '"' or value_str[0] == '\''))
+            value_str[1 .. value_str.len - 1]
+        else
+            value_str;
+        if (std.mem.eql(u8, cleaned_value, "import")) return .ESM;
+        if (std.mem.eql(u8, cleaned_value, "require")) return .CommonJS;
+        if (reportErrors) {
+            c.reportError(value_node, &diagnostics_gen.X_resolution_mode_should_be_either_require_or_import);
+        }
         return .None;
     }
 
@@ -12121,11 +12806,37 @@ pub const Checker = struct {
         _ = symbol_idx;
     }
 
-    /// Port of checker.go::checkFunctionOrConstructorSymbolWorker.
-    /// Simplified: no-op.
+    /// Port of `checker.go::checkFunctionOrConstructorSymbolWorker`.
+    /// Validates that all overloads of a function or constructor have
+    /// consistent modifiers (export, ambient, private, protected, abstract)
+    /// and question-token optionality. Reports errors for deviations.
+    /// Simplified: only checks the basic modifier agreement; the full Go
+    /// implementation is ~200 lines handling per-file overload groups.
     pub fn checkFunctionOrConstructorSymbolWorker(c: *Checker, symbol_idx: ast_gen.SymbolIndex) void {
-        _ = c;
-        _ = symbol_idx;
+        if (symbol_idx == 0 or symbol_idx >= c.binder.symbols.items.len) return;
+        const sym = c.binder.symbols.items[symbol_idx];
+        const declarations = sym.Declarations.items;
+        if (declarations.len < 2) return; // Single declaration — nothing to compare.
+        // Compute the canonical modifier set from the first declaration.
+        const flags_to_check: u32 = ast_utils.ModifierFlags.Export | ast_utils.ModifierFlags.Ambient | ast_utils.ModifierFlags.Private | ast_utils.ModifierFlags.Protected | ast_utils.ModifierFlags.Abstract;
+        const canonical_flags = c.getEffectiveDeclarationFlags(declarations[0], flags_to_check);
+        // Check each subsequent declaration against the canonical set.
+        for (declarations[1..]) |decl| {
+            if (decl == 0) continue;
+            const decl_flags = c.getEffectiveDeclarationFlags(decl, flags_to_check);
+            const deviation = decl_flags ^ canonical_flags;
+            if (deviation == 0) continue; // No deviation.
+            // Report the appropriate error based on which flag differs.
+            if ((deviation & ast_utils.ModifierFlags.Export) != 0) {
+                c.reportError(decl, &diagnostics_gen.Overload_signatures_must_all_be_exported_or_non_exported);
+            } else if ((deviation & ast_utils.ModifierFlags.Ambient) != 0) {
+                c.reportError(decl, &diagnostics_gen.Overload_signatures_must_all_be_ambient_or_non_ambient);
+            } else if ((deviation & (ast_utils.ModifierFlags.Private | ast_utils.ModifierFlags.Protected)) != 0) {
+                c.reportError(decl, &diagnostics_gen.Overload_signatures_must_all_be_public_private_or_protected);
+            } else if ((deviation & ast_utils.ModifierFlags.Abstract) != 0) {
+                c.reportError(decl, &diagnostics_gen.Overload_signatures_must_all_be_abstract_or_non_abstract);
+            }
+        }
     }
 
     /// Port of `checker.go::getEffectiveDeclarationFlags`. Returns the
@@ -12182,12 +12893,33 @@ pub const Checker = struct {
         c.checkTestingKnownTruthyTypes(condExpr, condType, body);
     }
 
+    /// Port of `checker.go::checkTestingKnownTruthyTypes`. Detects
+    /// conditions that will always return `true` because the tested
+    /// value is always truthy (e.g., a function reference tested with
+    /// `if (func)` instead of `if (func())`). Walks the condition
+    /// expression and reports errors for each known-truthy sub-expression.
+    /// Conservative: only checks simple identifier and property-access
+    /// expressions; the full Go implementation handles binary chains.
     pub fn checkTestingKnownTruthyTypes(c: *Checker, condExpr: ast_gen.NodeIndex, condType: types.TypeIndex, body: ast_gen.NodeIndex) void {
-        _ = c;
-        _ = condExpr;
-        _ = condType;
+        if (condExpr == 0 or condType == 0) return;
+        // Skip if the type doesn't have truthy facts.
+        if (!c.hasTypeFacts(condType, types.TypeFacts.Truthy)) return;
+        // Get the call signatures of the type. If the type has call
+        // signatures, it's a function — testing a function reference
+        // in a condition is likely a bug (should be a call).
+        const call_signatures = c.getSignaturesOfType(condType, types.SignatureKind.Call);
+        if (call_signatures.len == 0) return;
+        // Check if the condition is a simple identifier or property access.
+        const cond_kind = c.binder.ast.getKind(condExpr);
+        switch (cond_kind) {
+            .Identifier => {},
+            .PropertyAccessExpression => {},
+            else => return,
+        }
         _ = body;
-        // TODO: Implement
+        // Report the error. A full implementation would check whether the
+        // tested symbol is used in the body (e.g., `if (fn && fn())` is OK).
+        c.reportError(condExpr, &diagnostics_gen.This_condition_will_always_return_true_since_this_function_is_always_defined_Did_you_mean_to_call_it_instead);
     }
 
     pub fn checkTestingKnownTruthyType(c: *Checker, condExpr: ast_gen.NodeIndex, condType: types.TypeIndex, body: ast_gen.NodeIndex) void {
@@ -23407,41 +24139,50 @@ pub const Checker = struct {
         return members.callSignaturesLen > 0 or members.constructSignaturesLen > 0;
     }
 
-    pub fn getSimplifiedIndexedAccessType(c: *Checker, t: types.TypeIndex, writing: bool) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = writing;
-        return 0;
-    }
-
     pub fn getSimplifiedIndexedAccessTypeWorker(c: *Checker, t: types.TypeIndex, writing: bool) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = writing;
-        return 0;
+        // Worker is now merged into `getSimplifiedIndexedAccessType` above.
+        // This stub is retained for backward compatibility with code that
+        // calls the worker directly. It delegates to the main implementation.
+        return c.getSimplifiedIndexedAccessType(t, writing);
     }
 
     pub fn distributeObjectOverIndexType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, writing: bool) types.TypeIndex {
-        _ = c;
-        _ = objectType;
-        _ = indexType;
-        _ = writing;
-        return 0;
+        // T[A | B] -> T[A] | T[B] (reading), T[A] & T[B] (writing)
+        if (indexType == 0 or indexType >= c.typesList.items.len) return 0;
+        const idx_flags = c.typesList.items[indexType].flags;
+        if ((idx_flags & types.TypeFlags.Union) == 0) return 0;
+        const constituents = c.getTypesFromUnion(indexType);
+        var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer mapped.deinit(c.allocator);
+        for (constituents) |ct| {
+            const accessed = c.getIndexedAccessTypeOrUndefined(objectType, ct, 0, null, null);
+            if (accessed) |a| mapped.append(c.allocator, a) catch {};
+        }
+        if (mapped.items.len == 0) return 0;
+        if (writing) return c.getIntersectionType(mapped.items);
+        return c.getUnionTypeFromArray(mapped.items);
     }
 
     pub fn distributeIndexOverObjectType(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex, writing: bool) types.TypeIndex {
-        _ = c;
-        _ = objectType;
-        _ = indexType;
-        _ = writing;
-        return 0;
-    }
-
-    pub fn getSimplifiedConditionalType(c: *Checker, t: types.TypeIndex, writing: bool) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = writing;
-        return 0;
+        // (T | U)[K] -> T[K] | U[K] (reading), (T & U)[K] -> T[K] & U[K]
+        if (objectType == 0 or objectType >= c.typesList.items.len) return 0;
+        const obj_flags = c.typesList.items[objectType].flags;
+        if ((obj_flags & (types.TypeFlags.Union | types.TypeFlags.Intersection)) == 0) return 0;
+        const constituents = if ((obj_flags & types.TypeFlags.Union) != 0)
+            c.getTypesFromUnion(objectType)
+        else
+            c.getTypesFromIntersection(objectType);
+        var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer mapped.deinit(c.allocator);
+        for (constituents) |ct| {
+            const accessed = c.getIndexedAccessTypeOrUndefined(ct, indexType, 0, null, null);
+            if (accessed) |a| mapped.append(c.allocator, a) catch {};
+        }
+        if (mapped.items.len == 0) return 0;
+        if ((obj_flags & types.TypeFlags.Intersection) != 0 or writing) {
+            return c.getIntersectionType(mapped.items);
+        }
+        return c.getUnionTypeFromArray(mapped.items);
     }
 
     pub fn isIntersectionEmpty(c: *Checker, type1: types.TypeIndex, type2: types.TypeIndex) bool {

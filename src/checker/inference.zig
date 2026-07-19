@@ -102,7 +102,7 @@ pub fn inferFromTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: t
     }
     if (targetFlags & types.ObjectFlags.Mapped != 0 and c.getNameTypeFromMappedType(target) == null) {
         const constraintType = c.getConstraintTypeFromMappedType(target);
-        if (try inferToMappedType(c, n_idx, source, target, constraintType.?)) {
+        if (try inferToMappedType(c, n_idx, source, target, constraintType)) {
             return;
         }
     }
@@ -209,7 +209,7 @@ pub fn inferFromTypes(c: *checker.Checker, n_idx: InferenceStateIndex, source: t
     try inferFromIndexTypes(c, n_idx, source, target);
 }
 
-pub fn inferFromTypeArguments(c: *checker.Checker, n_idx: InferenceStateIndex, sourceTypes: []const types.TypeIndex, targetTypes: []const types.TypeIndex, variances: []const u32) !void {
+pub fn inferFromTypeArguments(c: *checker.Checker, n_idx: InferenceStateIndex, sourceTypes: []const types.TypeIndex, targetTypes: []const types.TypeIndex, variances: []const u8) !void {
     const len = @min(sourceTypes.len, targetTypes.len);
     for (0..len) |i| {
         if (i < variances.len and (variances[i] & 3) == 2) { // VarianceFlagsContravariant == 2
