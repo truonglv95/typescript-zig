@@ -4819,6 +4819,24 @@ pub const Checker = struct {
                 }
                 return widened_type;
             },
+            .ShorthandPropertyAssignment => |spa| {
+                // For shorthand property `{ name }`, the property's type is
+                // the type of the outer-scope variable `name`. Resolve the
+                // variable by name and get its type.
+                const name_text = if (spa.name != 0) ast_utils.getTextOfNode(self.binder.ast, spa.name) else "";
+                if (name_text.len > 0) {
+                    const outer_sym = resolveName(self, spa.name, name_text, symbol.SymbolFlags.Value, null, false, false);
+                    if (outer_sym != 0 and outer_sym != self.unknownSymbol) {
+                        const t = self.getTypeOfSymbol(outer_sym) catch 0;
+                        if (t != 0) return t;
+                    }
+                }
+                // Fallback: if there's an ObjectAssignmentInitializer, use it.
+                if (spa.ObjectAssignmentInitializer) |initExpr| {
+                    return try self.checkExpressionAdHoc(initExpr);
+                }
+                return try self.getAnyType();
+            },
             .PropertySignature => |ps| {
                 if (ps.Type) |typeNode| {
                     if (typeNode != 0) return try self.getTypeOfNode(typeNode);
