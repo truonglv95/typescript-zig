@@ -1343,9 +1343,12 @@ pub const Checker = struct {
         var constructSymbol: ?ast_gen.SymbolIndex = null;
         var indexSymbol: ?ast_gen.SymbolIndex = null;
 
+        // First pass: collect all named members so we can sort them.
+        var collected = std.ArrayListUnmanaged(struct { name: []const u8, sym: ast_gen.SymbolIndex }).empty;
+        defer collected.deinit(c.allocator);
         while (it.next()) |entry| {
             if (c.isNamedMember(entry.value_ptr.*, entry.key_ptr.*)) {
-                c.resolvedPropertiesPool.append(c.allocator, entry.value_ptr.*) catch {};
+                collected.append(c.allocator, .{ .name = entry.key_ptr.*, .sym = entry.value_ptr.* }) catch {};
             }
             if (std.mem.eql(u8, entry.key_ptr.*, "__call")) {
                 callSymbol = entry.value_ptr.*;
@@ -1356,6 +1359,37 @@ pub const Checker = struct {
             {
                 indexSymbol = entry.value_ptr.*;
             }
+        }
+        // Sort members in source order using each symbol's first declaration
+        // position. This matches Go's behavior: members are emitted in the
+        // order they were declared in source, not in hash-map iteration order.
+        // For numeric keys like "0" and "1", this preserves source order
+        // rather than lexicographic hash order.
+        const SortItem = struct { name: []const u8, sym: ast_gen.SymbolIndex, pos: u32 };
+        var sortable = std.ArrayListUnmanaged(SortItem).empty;
+        defer sortable.deinit(c.allocator);
+        for (collected.items) |entry| {
+            const pos: u32 = blk: {
+                if (entry.sym != 0 and entry.sym < c.binder.symbols.items.len) {
+                    const sym_obj = c.binder.symbols.items[entry.sym];
+                    if (sym_obj.Declarations.items.len > 0) {
+                        const decl = sym_obj.Declarations.items[0];
+                        if (decl != 0 and decl < c.binder.ast.positions.items.len) {
+                            break :blk c.binder.ast.positions.items[decl].pos;
+                        }
+                    }
+                }
+                break :blk std.math.maxInt(u32);
+            };
+            sortable.append(c.allocator, .{ .name = entry.name, .sym = entry.sym, .pos = pos }) catch {};
+        }
+        std.mem.sort(SortItem, sortable.items, {}, struct {
+            fn lessThan(_: void, a: SortItem, b: SortItem) bool {
+                return a.pos < b.pos;
+            }
+        }.lessThan);
+        for (sortable.items) |entry| {
+            c.resolvedPropertiesPool.append(c.allocator, entry.sym) catch {};
         }
         members.propertiesStart = @intCast(startProperties);
         members.propertiesLen = @intCast(c.resolvedPropertiesPool.items.len - startProperties);
