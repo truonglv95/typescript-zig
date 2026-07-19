@@ -22300,19 +22300,24 @@ pub const Checker = struct {
         return type_resolution_pkg.getTypeFromArrayOrTupleTypeNode(c, node_idx);
     }
 
-    pub fn isVariadicTupleElement(c: *Checker, node: ast_gen.NodeIndex) bool {        _ = c;
-        _ = node;
-        return false;
+    pub fn isVariadicTupleElement(c: *Checker, node: ast_gen.NodeIndex) bool {
+        if (node == 0) return false;
+        return c.binder.ast.getKind(node) == .RestType;
     }
 
-    pub fn getArrayOrTupleTargetType(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {        _ = c;
-        _ = node;
-        return 0;
+    pub fn getArrayOrTupleTargetType(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        if (node == 0) return 0;
+        if (node >= c.typesList.items.len) return 0;
+        const ty = c.typesList.items[node];
+        if ((ty.objectFlags & types.ObjectFlags.Reference) == 0) return 0;
+        if (ty.data != .Object) return 0;
+        return ty.data.Object.target orelse 0;
     }
 
-    pub fn isReadonlyTypeOperator(c: *Checker, node: ast_gen.NodeIndex) bool {        _ = c;
-        _ = node;
-        return false;
+    pub fn isReadonlyTypeOperator(c: *Checker, node: ast_gen.NodeIndex) bool {
+        if (node == 0) return false;
+        if (c.binder.ast.getKind(node) != .TypeOperator) return false;
+        return c.binder.ast.getNode(node).TypeOperator.Operator == @intFromEnum(ast.SyntaxKind.ReadonlyKeyword);
     }
 
     pub fn getTypeFromNamedTupleTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
@@ -22323,9 +22328,10 @@ pub const Checker = struct {
         return type_resolution_pkg.getTypeFromRestTypeNode(c, node_idx);
     }
 
-    pub fn getArrayElementTypeNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {        _ = c;
-        _ = node;
-        return 0;
+    pub fn getArrayElementTypeNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        if (node == 0) return 0;
+        if (c.binder.ast.getKind(node) != .ArrayType) return 0;
+        return c.binder.ast.getNode(node).ArrayType.ElementType;
     }
 
     pub fn getTypeFromOptionalTypeNode(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeIndex {
