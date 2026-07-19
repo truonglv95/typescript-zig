@@ -498,6 +498,9 @@ pub const NodeBuilderImpl = struct {
         if (b.c.serializationLevel >= 20) return 0;
         b.c.serializationLevel += 1;
         defer b.c.serializationLevel -= 1;
+        // Mark this type as visited for cycle detection.
+        b.ctx.visitedTypes.put(b.c.allocator, t, {}) catch {};
+        defer _ = b.ctx.visitedTypes.remove(t);
         const members = b.c.resolveStructuredTypeMembers(t);
         const properties = b.c.resolvedPropertiesPool.items[members.propertiesStart .. members.propertiesStart + members.propertiesLen];
 
@@ -557,6 +560,13 @@ pub const NodeBuilderImpl = struct {
 
     pub fn typeToTypeNode(b: *NodeBuilderImpl, typ: types.TypeIndex) ast_gen.NodeIndex {
         if (typ == 0 or typ >= b.c.typesList.items.len) return 0;
+        // Cycle detection: if we've already visited this type during
+        // the current typeToString call, return anyType to break
+        // infinite recursion on self-referential types like
+        // `var a = { f: a }`.
+        if (b.ctx.visitedTypes.get(typ) != null) {
+            return createKeywordTypeNode(b, .AnyKeyword);
+        }
         if (primitiveTypeToTypeNode(b, typ)) |node| return node;
 
         const typeData = &b.c.typesList.items[typ];
