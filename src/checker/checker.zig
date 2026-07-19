@@ -19776,24 +19776,46 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getConstraintFromIndexedAccess(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getConstraintFromIndexedAccess(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Returns the constraint of an indexed access type. The constraint is
+        // the union of property types accessible via the index type.
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        if (c.typesList.items[t].data != .IndexedAccess) return 0;
+        const ia = c.typesList.items[t].data.IndexedAccess;
+        if (ia.constraint != 0) return ia.constraint;
+        // Compute constraint: get the apparent type of the object and look up
+        // the property type for the index type.
+        const apparent = c.getApparentType(ia.objectType);
+        if (apparent == 0) return 0;
+        return c.getPropertyTypeForIndexType(apparent, apparent, ia.indexType, ia.indexType, 0, 0);
     }
 
-    pub fn getConstraintFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getConstraintFromConditionalType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Returns the constraint of a conditional type. For distributive
+        // conditionals, the constraint is the check type's constraint.
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        if (c.typesList.items[t].data != .Conditional) return 0;
+        const cond = c.typesList.items[t].data.Conditional;
+        return c.getBaseConstraintOfType(cond.checkType);
     }
 
-    pub fn getDeclaredTypeOfClassOrInterface(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {        _ = c;
+    pub fn getDeclaredTypeOfClassOrInterface(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Note: signature is wrong in our codebase (should return TypeIndex).
+        // Conservative: returns 0.
+        _ = c;
         _ = symbol_;
         return 0;
     }
 
-    pub fn isThislessInterface(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {        _ = c;
-        _ = symbol_;
-        return false;
+    pub fn isThislessInterface(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        // Returns true if `symbol_` is an interface that doesn't reference `this`.
+        // Conservative: returns true (assume thisless).
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return false;
+        const sym = c.binder.symbols.items[symbol_];
+        if ((sym.Flags & symbol.SymbolFlags.Interface) == 0) return false;
+        // Full implementation requires walking the AST for `this` type references.
+        // Conservative: assume thisless.
+        return true;
     }
 
     pub fn isZero_stub() bool {        return false;
@@ -19980,68 +20002,75 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getTypeForBindingElementParent(c: *Checker, node: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {        _ = c;
-        _ = node;
+    pub fn getTypeForBindingElementParent(c: *Checker, node: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
         _ = checkMode;
+        if (node == 0) return 0;
+        // Get the parent binding pattern's type from its parent (VariableDeclaration).
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        const grandparent = c.binder.ast.getNodeParent(parent);
+        if (grandparent == 0) return 0;
+        // If grandparent is a VariableDeclaration, get its type.
+        if (c.binder.ast.getKind(grandparent) == .VariableDeclaration) {
+            return c.getTypeOfNode(grandparent) catch 0;
+        }
         return 0;
     }
 
-    pub fn getBindingElementTypeFromParentType(c: *Checker, declaration: ast_gen.NodeIndex, parentType: ast_gen.NodeIndex, noTupleBoundsCheck: bool) types.TypeIndex {        _ = c;
-        _ = declaration;
-        _ = parentType;
+    pub fn getBindingElementTypeFromParentType(c: *Checker, declaration: ast_gen.NodeIndex, parentType: ast_gen.NodeIndex, noTupleBoundsCheck: bool) types.TypeIndex {
         _ = noTupleBoundsCheck;
+        if (declaration == 0 or parentType == 0) return 0;
+        // Get the property name from the binding element.
+        const elem_data = c.binder.ast.getNode(declaration);
+        const property_name_node: ast_gen.NodeIndex = switch (elem_data) {
+            .BindingElement => |be| if (be.PropertyName) |pn| pn else be.name orelse 0,
+            else => 0,
+        };
+        if (property_name_node != 0) {
+            const name_str = ast_utils.getTextOfNode(c.binder.ast, property_name_node);
+            return c.getTypeOfPropertyOfType(parentType, name_str);
+        }
         return 0;
     }
 
-    pub fn getRestType(c: *Checker, source: types.TypeIndex, properties: ast_gen.NodeIndex, symbol_: ast_gen.SymbolIndex) types.TypeIndex {        _ = c;
-        _ = source;
-        _ = properties;
-        _ = symbol_;
-        return 0;
-    }
-
-    pub fn getFlowTypeOfDestructuring(c: *Checker, node: ast_gen.NodeIndex, declaredType: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = node;
-        _ = declaredType;
-        return 0;
-    }
-
-    pub fn getSyntheticElementAccess(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {        _ = c;
-        _ = node;
-        return 0;
-    }
-
-    pub fn getParentElementAccess(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {        _ = c;
-        _ = node;
-        return 0;
-    }
-
-    pub fn getTypeFromBindingPattern(c: *Checker, pattern: ast_gen.NodeIndex, includePatternInType: bool, reportErrors: bool) types.TypeIndex {        _ = c;
-        _ = pattern;
+    pub fn getTypeFromBindingPattern(c: *Checker, pattern: ast_gen.NodeIndex, includePatternInType: bool, reportErrors: bool) types.TypeIndex {
         _ = includePatternInType;
         _ = reportErrors;
+        if (pattern == 0) return 0;
+        const k = c.binder.ast.getKind(pattern);
+        if (k == .ObjectBindingPattern) {
+            return c.getTypeFromObjectBindingPattern(pattern, false, false);
+        }
+        if (k == .ArrayBindingPattern) {
+            return c.getTypeFromArrayBindingPattern(pattern, false, false);
+        }
         return 0;
     }
 
-    pub fn getTypeFromObjectBindingPattern(c: *Checker, pattern: ast_gen.NodeIndex, includePatternInType: bool, reportErrors: bool) types.TypeIndex {        _ = c;
-        _ = pattern;
+    pub fn getTypeFromObjectBindingPattern(c: *Checker, pattern: ast_gen.NodeIndex, includePatternInType: bool, reportErrors: bool) types.TypeIndex {
         _ = includePatternInType;
         _ = reportErrors;
-        return 0;
+        if (pattern == 0) return 0;
+        // Get the contextual type from the parent VariableDeclaration.
+        const parent = c.binder.ast.getNodeParent(pattern);
+        if (parent == 0) return 0;
+        return c.getContextualType(parent, 0);
     }
 
-    pub fn getTypeFromArrayBindingPattern(c: *Checker, pattern: ast_gen.NodeIndex, includePatternInType: bool, reportErrors: bool) types.TypeIndex {        _ = c;
-        _ = pattern;
+    pub fn getTypeFromArrayBindingPattern(c: *Checker, pattern: ast_gen.NodeIndex, includePatternInType: bool, reportErrors: bool) types.TypeIndex {
         _ = includePatternInType;
         _ = reportErrors;
-        return 0;
+        if (pattern == 0) return 0;
+        const parent = c.binder.ast.getNodeParent(pattern);
+        if (parent == 0) return 0;
+        return c.getContextualType(parent, 0);
     }
 
-    pub fn getTypeFromBindingElement(c: *Checker, element: types.TypeIndex, includePatternInType: bool, reportErrors: bool) types.TypeIndex {        _ = c;
-        _ = element;
+    pub fn getTypeFromBindingElement(c: *Checker, element: types.TypeIndex, includePatternInType: bool, reportErrors: bool) types.TypeIndex {
+        _ = c;
         _ = includePatternInType;
         _ = reportErrors;
-        return 0;
+        return element;
     }
 
     pub fn declarationBelongsToPrivateAmbientMember(c: *Checker, declaration: ast_gen.NodeIndex) bool {        _ = c;
