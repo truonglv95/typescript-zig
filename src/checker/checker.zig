@@ -25520,18 +25520,46 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getTypeOfPropertyOfContextualType`. Returns
+    /// the type of property `name_` on contextual type `t`. For union
+    /// contextual types, returns the union of property types on each
+    /// constituent. For other types, looks up the property.
     pub fn getTypeOfPropertyOfContextualType(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = name_;
-        return 0;
+        if (t == 0 or name_ == 0) return 0;
+        const name_str = ast_utils.getTextOfNode(c.binder.ast, name_);
+        // For union types, map over constituents.
+        if (t < c.typesList.items.len and (c.typesList.items[t].flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+            defer mapped.deinit(c.allocator);
+            for (constituents) |ct| {
+                const prop_type = c.getTypeOfPropertyOfType(ct, name_str);
+                if (prop_type != 0) mapped.append(c.allocator, prop_type) catch {};
+            }
+            if (mapped.items.len == 0) return 0;
+            return c.getUnionTypeFromArray(mapped.items);
+        }
+        return c.getTypeOfPropertyOfType(t, name_str);
     }
 
+    /// Port of `checker.go::getTypeOfPropertyOfContextualTypeEx`. Like
+    /// `getTypeOfPropertyOfContextualType`, but also takes a `nameType`
+    /// for computed property names. If `nameType` is provided, looks up
+    /// the index info instead of the named property.
     pub fn getTypeOfPropertyOfContextualTypeEx(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex, nameType: ?types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = name_;
-        _ = nameType;
+        if (t == 0) return 0;
+        // If nameType is provided, try index info lookup.
+        if (nameType) |nt| {
+            if (nt != 0) {
+                if (c.getApplicableIndexInfo(t, nt)) |info| {
+                    return info.valueType;
+                }
+            }
+        }
+        // Fall back to named property lookup.
+        if (name_ != 0) {
+            return c.getTypeOfPropertyOfContextualType(t, name_);
+        }
         return 0;
     }
 
@@ -25550,18 +25578,34 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::getTypeOfConcretePropertyOfContextualType`.
+    /// Returns the type of a concrete (non-mapped) property on contextual
+    /// type `t`. Looks up the property by name.
     pub fn getTypeOfConcretePropertyOfContextualType(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = name_;
-        return 0;
+        if (t == 0 or name_ == 0) return 0;
+        const name_str = ast_utils.getTextOfNode(c.binder.ast, name_);
+        return c.getTypeOfPropertyOfType(t, name_str);
     }
 
+    /// Port of `checker.go::getTypeFromIndexInfosOfContextualType`. Returns
+    /// the value type from the applicable index info of contextual type `t`
+    /// for the given property name (converted to a literal type).
     pub fn getTypeFromIndexInfosOfContextualType(c: *Checker, t: types.TypeIndex, name_: ast_gen.NodeIndex, nameType: ?types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = name_;
-        _ = nameType;
+        if (t == 0) return 0;
+        // Determine the key type for index lookup.
+        const key_type: types.TypeIndex = if (nameType) |nt| nt else blk: {
+            if (name_ == 0) break :blk 0;
+            const name_str = ast_utils.getTextOfNode(c.binder.ast, name_);
+            // Numeric name -> number literal, otherwise string literal.
+            if (std.fmt.parseFloat(f64, name_str) catch null != null) {
+                break :blk c.getNumberLiteralType(std.fmt.parseFloat(f64, name_str) catch 0.0);
+            }
+            break :blk c.getStringLiteralType(name_str);
+        };
+        if (key_type == 0) return 0;
+        if (c.getApplicableIndexInfo(t, key_type)) |info| {
+            return info.valueType;
+        }
         return 0;
     }
 
@@ -25571,18 +25615,33 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::appendContextualPropertyTypeConstituent`.
+    /// Appends `t` to the list of contextual property type constituents
+    /// and returns the resulting union. If `t` is 0, returns the existing
+    /// union. If the existing list is empty, returns `t`.
     pub fn appendContextualPropertyTypeConstituent(c: *Checker, types_: []const types.TypeIndex, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = types_;
-        _ = t;
-        return 0;
+        if (t == 0) {
+            if (types_.len == 0) return 0;
+            return c.getUnionTypeFromArray(types_);
+        }
+        if (types_.len == 0) return t;
+        // Append t to the array and return the union.
+        var arr = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer arr.deinit(c.allocator);
+        arr.appendSlice(c.allocator, types_) catch return t;
+        arr.append(c.allocator, t) catch return t;
+        return c.getUnionTypeFromArray(arr.items);
     }
 
+    /// Port of `checker.go::getApparentTypeOfContextualType`. Returns
+    /// the apparent type of the contextual type for `node`. The contextual
+    /// type comes from `getContextualType`; the apparent type is the
+    /// non-union, non-generic view of that type.
     pub fn getApparentTypeOfContextualType(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = contextFlags;
-        return 0;
+        if (node == 0) return 0;
+        const ctx_type = c.getContextualType(node, contextFlags);
+        if (ctx_type == 0) return 0;
+        return c.getApparentType(ctx_type);
     }
 
     pub fn len(d: ast_gen.NodeIndex) i32 {
@@ -25673,9 +25732,16 @@ pub const Checker = struct {
         }
     }
 
-    pub fn getInferenceContext(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
+    /// Port of `checker.go::getInferenceContext`. Returns the inference
+    /// context associated with a call expression. The inference context
+    /// is created during signature resolution and contains the inferred
+    /// type arguments. Returns 0 if no inference context is associated.
+    pub fn getInferenceContext(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+        if (node == 0) return 0;
+        // Look up the inference context by node. Conservative: return 0.
+        // A full implementation would maintain a map from call expression
+        // nodes to inference context indices.
         _ = c;
-        _ = node;
         return 0;
     }
 
@@ -25688,10 +25754,18 @@ pub const Checker = struct {
         return std.mem.eql(u8, text, "0n") or std.mem.eql(u8, text, "0");
     }
 
+    /// Port of `checker.go::convertAutoToAny`. Converts an `auto` type
+    /// (used in `const x = 0` where `x` has type `auto`) to `any`. The
+    /// `auto` type is a synthetic Any type with the `NonInferrableType`
+    /// object flag. Returns `anyType` for auto types, `t` otherwise.
     pub fn convertAutoToAny(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const ty = c.typesList.items[t];
+        // Check if this is the auto type (Any flag + NonInferrableType object flag).
+        if ((ty.flags & types.TypeFlags.Any) != 0 and (ty.objectFlags & types.ObjectFlags.NonInferrableType) != 0) {
+            return c.anyTypeIndex orelse t;
+        }
+        return t;
     }
 
     /// Port of checker.go::checkAwaitedType. Computes the awaited type
@@ -25912,16 +25986,54 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::isSomeSymbolAssigned`. Returns true if `rootDeclaration`
+    /// has a symbol assigned to it (either directly or via a binary assignment
+    /// declaration). Used to detect `module.exports = ...` patterns.
     pub fn isSomeSymbolAssigned(c: *Checker, rootDeclaration: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = rootDeclaration;
-        return false;
+        if (rootDeclaration == 0) return false;
+        // Check if the declaration has a symbol attached.
+        const sym = c.binder.ast.getNodeSymbol(rootDeclaration) orelse 0;
+        if (sym != 0) return true;
+        // Walk children looking for binary assignment declarations.
+        return c.isSomeSymbolAssignedWorker(rootDeclaration);
     }
 
+    /// Port of `checker.go::isSomeSymbolAssignedWorker`. Recursively walks
+    /// children of `node` looking for binary assignment declarations
+    /// (e.g., `module.exports = ...`). Returns true if any such declaration
+    /// is found.
     pub fn isSomeSymbolAssignedWorker(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        if (node == 0) return false;
+        // Check if this node is a BinaryExpression with an assignment declaration kind.
+        if (c.binder.ast.getKind(node) == .BinaryExpression) {
+            const decl_kind = ast_utils.getAssignmentDeclarationKind(c.binder.ast, node);
+            if (decl_kind != .None) return true;
+        }
+        // Walk children.
+        var found = false;
+        const Context = struct {
+            chk: *Checker,
+            result: *bool,
+        };
+        var ctx = Context{ .chk = c, .result = &found };
+        const visit = struct {
+            fn visit(ctx_in: Context, n: ast_gen.NodeIndex) bool {
+                if (n == 0) return false;
+                if (ctx_in.result.*) return true;
+                if (ctx_in.chk.binder.ast.getKind(n) == .BinaryExpression) {
+                    const decl_kind = ast_utils.getAssignmentDeclarationKind(ctx_in.chk.binder.ast, n);
+                    if (decl_kind != .None) {
+                        ctx_in.result.* = true;
+                        return true;
+                    }
+                }
+                _ = ast_utils.forEachChildBool(ctx_in.chk.binder.ast, n, ctx_in, visit);
+                return ctx_in.result.*;
+            }
+        }.visit;
+        _ = visit(ctx, node);
+        _ = &ctx;
+        return found;
     }
 
     pub fn getNarrowableTypeForReference(c: *Checker, t_param: types.TypeIndex, reference: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
