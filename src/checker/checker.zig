@@ -25060,6 +25060,21 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
     }
 
     if (ast_utils.isIdentifier(c.binder.ast, node)) {
+        // First, check if this Identifier is the `name` of a PropertyAccessExpression.
+        // In that case, the identifier is a property name reference (not a
+        // declaration name and not a free identifier), so we should NOT use
+        // resolveName — that would find a same-named variable in the outer
+        // scope. Instead, return 0 here so the caller can look up the
+        // property on the object's type.
+        {
+            const parent = c.binder.ast.getNodeParent(node);
+            if (parent != 0 and c.binder.ast.getNodeKind(parent) == .PropertyAccessExpression) {
+                const pae = c.binder.ast.getNode(parent).PropertyAccessExpression;
+                if (pae.name == node) {
+                    return 0;
+                }
+            }
+        }
         // First, check if this Identifier is the `name` of a declaration node
         // (PropertySignature, PropertyDeclaration, MethodDeclaration,
         // ShorthandPropertyAssignment, etc.). Property names inside
