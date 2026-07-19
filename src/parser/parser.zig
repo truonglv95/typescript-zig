@@ -3062,6 +3062,23 @@ pub const Parser = struct {
     /// Parse a type or type predicate (e.g., `x is number`).
     /// Type predicates can only appear in return type positions.
     pub fn parseTypeOrTypePredicate(self: *Parser) anyerror!ast_gen.NodeIndex {
+        // Check for `this is Type` type predicate.
+        if (self.token == kind.Kind.ThisKeyword) {
+            const savedState = self.mark();
+            const thisNode = try self.ast.pushNode(.{ .ThisType = .{ .Flags = 0 } });
+            self.nextToken(); // consume 'this'
+            if (self.token == kind.Kind.IsKeyword and !self.scanner.hasPrecedingLineBreak()) {
+                self.nextToken(); // consume 'is'
+                const typeNode = try self.parseType();
+                return self.ast.pushNode(.{ .TypePredicate = .{
+                    .Flags = 0,
+                    .AssertsModifier = null,
+                    .ParameterName = thisNode,
+                    .Type = typeNode,
+                } });
+            }
+            self.rewind(savedState);
+        }
         if (self.isIdentifier()) {
             const savedState = self.mark();
             const id = try self.parseIdentifier();

@@ -1277,6 +1277,58 @@ pub const FourslashTest = struct {
     /// Returns "?" if the given parameter symbol should be displayed as
     /// optional in quick info. Checks both the AST QuestionToken and the
     /// JSDoc `@param {type} [name]` bracketed-name syntax.
+    /// Renders a TypePredicate return type annotation (e.g., `x is T` or
+    /// `this is T`) as a display string. Returns null if the type node
+    /// is not a TypePredicate.
+    fn tryFormatTypePredicate(self: *FourslashTest, type_node: ast_gen.NodeIndex) ?[]const u8 {
+        const p = self.parser orelse return null;
+        const c = self.checker orelse return null;
+        if (type_node == 0 or p.ast.getNodeKind(type_node) != .TypePredicate) return null;
+        const tp = p.ast.getNode(type_node).TypePredicate;
+        const aa = self.arena.allocator();
+        var out = std.ArrayListUnmanaged(u8).empty;
+        // Check for `asserts` modifier.
+        if (tp.AssertsModifier) |am| {
+            if (am != 0) {
+                out.appendSlice(aa, "asserts ") catch {};
+            }
+        }
+        // Parameter name: `x` or `this`.
+        if (tp.ParameterName != 0) {
+            const pn_kind = p.ast.getNodeKind(tp.ParameterName);
+            if (pn_kind == .ThisType or pn_kind == .ThisKeyword) {
+                out.appendSlice(aa, "this") catch {};
+            } else {
+                const param_name = ast_utils.getTextOfNode(&p.ast, tp.ParameterName);
+                if (param_name.len > 0) {
+                    out.appendSlice(aa, param_name) catch {};
+                } else {
+                    // Fallback: check if it's an Identifier with text "this".
+                    if (pn_kind == .Identifier) {
+                        const id_text = p.ast.getNode(tp.ParameterName).Identifier.Text;
+                        out.appendSlice(aa, id_text) catch {};
+                    }
+                }
+            }
+        }
+        // Type after `is`.
+        if (tp.Type) |t| {
+            if (t != 0) {
+                out.appendSlice(aa, " is ") catch {};
+                const tp_type = c.getTypeFromTypeNode(t);
+                if (tp_type != 0) {
+                    const s = c.typeToString(tp_type, 0, 0, null);
+                    out.appendSlice(aa, s) catch {};
+                } else {
+                    // Fallback: use the type node's text.
+                    const text = ast_utils.getTextOfNode(&p.ast, t);
+                    out.appendSlice(aa, text) catch {};
+                }
+            }
+        }
+        return out.toOwnedSlice(aa) catch null;
+    }
+
     fn getParamOptionalMarker(self: *FourslashTest, param_sym: ast_gen.SymbolIndex) []const u8 {
         const c = self.checker orelse return "";
         const p = self.parser orelse return "";
@@ -2383,8 +2435,34 @@ pub const FourslashTest = struct {
                     out.appendSlice(aa, "): ") catch {};
 
                     const retType = c.getReturnTypeOfSignature(sig);
-                    const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
-                    out.appendSlice(aa, retTypeStr) catch {};
+                    // Check for TypePredicate return type.
+                    const sig_decl = c.signatures.items[display_sig_idx].declaration;
+                    var tp_node: ast_gen.NodeIndex = 0;
+                    if (sig_decl != 0) {
+                        const sd = p.ast.getNode(sig_decl);
+                        const tn: ?u32 = switch (sd) {
+                            .FunctionDeclaration => |f| f.Type,
+                            .MethodDeclaration => |m| m.Type,
+                            .CallSignature => |cs| cs.Type,
+                            else => null,
+                        };
+                        if (tn) |n| {
+                            if (n != 0 and p.ast.getNodeKind(n) == .TypePredicate) {
+                                tp_node = n;
+                            }
+                        }
+                    }
+                    if (tp_node != 0) {
+                        if (self.tryFormatTypePredicate(tp_node)) |tp_str| {
+                            out.appendSlice(aa, tp_str) catch {};
+                        } else {
+                            const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+                            out.appendSlice(aa, retTypeStr) catch {};
+                        }
+                    } else {
+                        const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
+                        out.appendSlice(aa, retTypeStr) catch {};
+                    }
 
                     // Append "(+N overload)" if there are additional visible signatures.
                     // Go's quickinfo displays the count of overloads beyond the first.
@@ -3079,6 +3157,33 @@ pub const FourslashTest = struct {
                         const is_named_type = (parent_obj.Flags & (symbol.SymbolFlags.Class | symbol.SymbolFlags.Interface | symbol.SymbolFlags.RegularEnum | symbol.SymbolFlags.ConstEnum)) != 0;
                         if (is_named_type and parent_obj.Name.len > 0) {
                             out.appendSlice(aa, parent_obj.Name) catch {};
+                            // Append type parameters if the class/interface has them.
+                            // E.g., `class Crate<T>` -> display as `Crate<T>`.
+                            if (parent_obj.Declarations.items.len > 0) {
+                                const parent_decl = parent_obj.Declarations.items[0];
+                                const parent_decl_data = p.ast.getNode(parent_decl);
+                                const tp_list: ?u32 = switch (parent_decl_data) {
+                                    .ClassDeclaration => |cd| cd.TypeParameters,
+                                    .InterfaceDeclaration => |id| id.TypeParameters,
+                                    else => null,
+                                };
+                                if (tp_list) |tpl| {
+                                    if (tpl != 0) {
+                                        const tp_nodes = p.ast.getNodeList(tpl);
+                                        if (tp_nodes.len > 0) {
+                                            out.appendSlice(aa, "<") catch {};
+                                            for (tp_nodes, 0..) |tp_node, i| {
+                                                if (i > 0) out.appendSlice(aa, ", ") catch {};
+                                                if (tp_node != 0) {
+                                                    const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
+                                                    out.appendSlice(aa, tp_name) catch {};
+                                                }
+                                            }
+                                            out.appendSlice(aa, ">") catch {};
+                                        }
+                                    }
+                                }
+                            }
                             out.appendSlice(aa, ".") catch {};
                         }
                     }
@@ -3099,21 +3204,37 @@ pub const FourslashTest = struct {
                 }
                 out.appendSlice(aa, "): ") catch {};
                 var retType = c.getReturnTypeOfSignature(sig);
-                // Fallback: if getReturnTypeOfSignature returned 0, try
-                // resolving from the method declaration's Type annotation.
-                if (retType == 0 and symObj.Declarations.items.len > 0) {
+                // Check for TypePredicate return type (e.g., `x is T`, `this is T`).
+                // If the return type annotation is a TypePredicate, render it
+                // specially instead of using typeToString (which returns "boolean").
+                var type_predicate_node: ast_gen.NodeIndex = 0;
+                if (symObj.Declarations.items.len > 0) {
                     const decl_node = symObj.Declarations.items[0];
                     const decl_data = p.ast.getNode(decl_node);
                     const type_node: ?u32 = switch (decl_data) {
                         .MethodDeclaration => |m| m.Type,
                         .MethodSignature => |m| m.Type,
                         .FunctionDeclaration => |f| f.Type,
+                        .CallSignature => |cs| cs.Type,
                         else => null,
                     };
                     if (type_node) |tn| {
                         if (tn != 0) {
-                            retType = c.getTypeFromTypeNode(tn);
+                            if (p.ast.getNodeKind(tn) == .TypePredicate) {
+                                type_predicate_node = tn;
+                            }
+                            // Fallback: if getReturnTypeOfSignature returned 0, try
+                            // resolving from the method declaration's Type annotation.
+                            if (retType == 0) {
+                                retType = c.getTypeFromTypeNode(tn);
+                            }
                         }
+                    }
+                }
+                if (type_predicate_node != 0) {
+                    if (self.tryFormatTypePredicate(type_predicate_node)) |tp_str| {
+                        out.appendSlice(aa, tp_str) catch {};
+                        return out.toOwnedSlice(aa) catch "";
                     }
                 }
                 const retTypeStr = if (retType != 0) c.typeToString(retType, 0, 0, null) else "any";
