@@ -15899,10 +15899,10 @@ pub const Checker = struct {
         return c.getNonNullableType(t);
     }
 
-    pub fn getInstantiationExpressionType(c: *Checker, exprType: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = exprType;
+    pub fn getInstantiationExpressionType(c: *Checker, exprType: types.TypeIndex, node: ast_gen.NodeIndex) types.TypeIndex {
+        _ = c;
         _ = node;
-        return 0;
+        return exprType;
     }
 
     /// Port of checker.go::checkNewTargetMetaProperty. Returns the type
@@ -21856,9 +21856,12 @@ pub const Checker = struct {
             (flags & types.TypeFlags.Instantiable) != 0;
     }
 
-    pub fn getConstraintDeclarationForMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getConstraintDeclarationForMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Returns the constraint declaration for a mapped type.
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Mapped) == 0) return 0;
+        const mapped = c.typesList.items[t].data.Mapped;
+        return mapped.declaration;
     }
 
     pub fn forEachMappedTypePropertyKeyTypeAndIndexSignatureKeyType(c: *Checker, t: types.TypeIndex, include: ast_gen.NodeIndex, stringsOnly: bool, cb: ast_gen.NodeIndex) types.TypeIndex {
@@ -23619,16 +23622,19 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getIndexTypeForGenericType(c: *Checker, t: types.TypeIndex, indexFlags: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = t;
+    pub fn getIndexTypeForGenericType(c: *Checker, t: types.TypeIndex, indexFlags: ast_gen.NodeIndex) types.TypeIndex {
         _ = indexFlags;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        // For generic types, the index type is the union of all property key types.
+        return c.getLiteralTypeFromProperties(t, types.TypeFlags.StringLike | types.TypeFlags.NumberLike, false);
     }
 
-    pub fn getIndexTypeForMappedType(c: *Checker, t: types.TypeIndex, indexFlags: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = t;
+    pub fn getIndexTypeForMappedType(c: *Checker, t: types.TypeIndex, indexFlags: ast_gen.NodeIndex) types.TypeIndex {
         _ = indexFlags;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Mapped) == 0) return 0;
+        // For mapped types, the index type is the constraint type.
+        return c.getConstraintTypeFromMappedType(t);
     }
 
     /// Port of `checker.go::getIndexedAccessTypeEx`. Returns the indexed
