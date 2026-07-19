@@ -3873,7 +3873,14 @@ pub const FourslashTest = struct {
             if (parent_sym != 0 and parent_sym < c.binder.symbols.items.len) {
                 const parent_obj = c.binder.symbols.items[parent_sym];
                 if (parent_obj.Name.len > 0) {
-                    out.appendSlice(aa, " in type ") catch {};
+                    // Go uses "in type Name" for type aliases, but "in Name"
+                    // (no "type" prefix) for classes and interfaces.
+                    const is_type_alias = (parent_obj.Flags & symbol.SymbolFlags.TypeAlias) != 0;
+                    if (is_type_alias) {
+                        out.appendSlice(aa, " in type ") catch {};
+                    } else {
+                        out.appendSlice(aa, " in ") catch {};
+                    }
                     out.appendSlice(aa, parent_obj.Name) catch {};
                     // Append parent's type parameters.
                     if (parent_obj.Declarations.items.len > 0) {
