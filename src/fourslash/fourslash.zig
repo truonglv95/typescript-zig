@@ -1805,7 +1805,7 @@ pub const FourslashTest = struct {
                                                 // Return the property type.
                                                 const tag_type = c.getTypeOfSymbol(tag_sym) catch 0;
                                                 if (tag_type != 0) {
-                                                    const tag_type_str = c.typeToString(tag_type, 0, 0, null);
+                                                    const tag_type_str = c.typeToString(tag_type, 0, HOVER_TYPE_FLAGS, null);
                                                     if (tag_type_str.len > 0) {
                                                         var out = std.ArrayListUnmanaged(u8).empty;
                                                         const aa = self.arena.allocator();
@@ -1821,8 +1821,21 @@ pub const FourslashTest = struct {
                                     }
                                 }
                             }
-                            // Fallback: return "any".
-                            return "any";
+                            // Fallback: Go always displays intrinsic element hover as
+                            // "(property) JSX.IntrinsicElements.<tag>: any" even when
+                            // the JSX namespace isn't resolvable at hover time (e.g.
+                            // when declared in a separate file via `declare namespace`).
+                            // The `div: any` line in the local declare-namespace may
+                            // fail resolveName because the namespace declaration is
+                            // module-scoped and resolveName only walks locals.
+                            {
+                                var out = std.ArrayListUnmanaged(u8).empty;
+                                const aa = self.arena.allocator();
+                                out.appendSlice(aa, "(property) JSX.IntrinsicElements.") catch {};
+                                out.appendSlice(aa, id_text) catch {};
+                                out.appendSlice(aa, ": any") catch {};
+                                return out.toOwnedSlice(aa) catch "";
+                            }
                         }
                     }
                 }
