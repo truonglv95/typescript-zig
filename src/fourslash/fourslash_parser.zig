@@ -67,7 +67,14 @@ pub fn parseTestData(allocator: std.mem.Allocator, content: []const u8) !*Parsed
                         var marker = try aa.create(Marker);
                         marker.name = markerName;
                         marker.position = cleanContent.items.len;
-                        try result.markerPositions.put(markerName, marker);
+                        // Don't overwrite an existing marker with the same name:
+                        // fourslash tests reuse marker names across edits, and
+                        // Go's parser keeps the FIRST occurrence's position.
+                        // Overwriting here would break tests that insert text
+                        // and then verify at the original marker position.
+                        if (result.markerPositions.get(markerName) == null) {
+                            try result.markerPositions.put(markerName, marker);
+                        }
                         i += 2 + endIdx + 2;
                         continue;
                     }
