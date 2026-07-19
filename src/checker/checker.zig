@@ -4916,6 +4916,11 @@ pub const Checker = struct {
                 }
                 return try self.getAnyType();
             },
+            .TypePredicate => {
+                // A type predicate (e.g., `x is T`, `this is T`) resolves
+                // to boolean type at the type level.
+                return try self.getBooleanType();
+            },
             .OptionalType => |ot| {
                 if (ot.Type != 0) return try self.getTypeOfNode(ot.Type);
                 return try self.getAnyType();
