@@ -4854,13 +4854,29 @@ pub const Checker = struct {
                     }
                 }
                 const init_type = try self.checkExpressionAdHoc(p.Initializer);
+                // If the initializer is a FunctionExpression or ArrowFunction,
+                // checkExpressionAdHoc may have created a Function type with
+                // returnType=any (because it doesn't check the body for return
+                // statements). Re-check via checkExpressionCachedEx which calls
+                // checkFunctionExpressionOrObjectLiteralMethod (which infers
+                // the return type from the body).
+                var effective_type = init_type;
+                if (p.Initializer != 0) {
+                    const init_kind = self.binder.ast.getNodeKind(p.Initializer);
+                    if (init_kind == .FunctionExpression or init_kind == .ArrowFunction) {
+                        const better_type = self.checkExpressionCachedEx(p.Initializer, CheckMode.Normal);
+                        if (better_type != 0 and better_type != (self.anyTypeIndex orelse 0)) {
+                            effective_type = better_type;
+                        }
+                    }
+                }
                 // Widen literal types for object literal properties.
                 // { name: 'bob' } -> name: string (not "bob")
                 // { age: 18 } -> age: number (not 18)
                 // { flag: true } -> flag: boolean (not true)
-                var widened_type = init_type;
-                if (init_type != 0 and init_type < self.typesList.items.len) {
-                    const f = self.typesList.items[init_type].flags;
+                var widened_type = effective_type;
+                if (effective_type != 0 and effective_type < self.typesList.items.len) {
+                    const f = self.typesList.items[effective_type].flags;
                     if ((f & types.TypeFlags.NumberLiteral) != 0) {
                         widened_type = try self.getNumberType();
                     } else if ((f & types.TypeFlags.StringLiteral) != 0) {
@@ -5245,8 +5261,10 @@ pub const Checker = struct {
                 if (fe.Type) |t| {
                     retType = try self.getTypeOfNode(t);
                 } else {
-                    retType = try self.getAnyType();
+                    // Infer from body if no explicit return type.
+                    retType = self.getReturnTypeFromBody(nodeIndex, CheckMode.Normal);
                 }
+                if (retType == 0) retType = try self.getAnyType();
 
                 var paramCount: u32 = 0;
                 if (fe.Parameters != 0) {
