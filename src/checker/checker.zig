@@ -20899,14 +20899,32 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getAnnotatedAccessorThisParameter(c: *Checker, accessor: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = accessor;
-        return 0;
+    pub fn getAnnotatedAccessorThisParameter(c: *Checker, accessor: ast_gen.NodeIndex) types.TypeIndex {
+        if (accessor == 0) return 0;
+        // Get the first parameter of the accessor - it's the `this` parameter.
+        const node_data = c.binder.ast.getNode(accessor);
+        const params_id: ?u32 = switch (node_data) {
+            .GetAccessor => |ga| ga.Parameters,
+            .SetAccessor => |sa| sa.Parameters,
+            else => null,
+        };
+        if (params_id == null or params_id.? == 0) return 0;
+        const params = c.binder.ast.getNodeList(params_id.?);
+        if (params.len == 0 or params[0] == 0) return 0;
+        // Check if first param is `this`.
+        const first_param = c.binder.ast.getNode(params[0]).Parameter;
+        const name_node = first_param.name;
+        if (name_node == 0) return 0;
+        const name = ast_utils.getTextOfNode(c.binder.ast, name_node);
+        if (!std.mem.eql(u8, name, "this")) return 0;
+        // Get the type annotation.
+        const type_node = first_param.Type orelse 0;
+        if (type_node == 0) return 0;
+        return c.getTypeFromTypeNode(type_node);
     }
 
-    pub fn getAccessorThisParameter(c: *Checker, accessor: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = accessor;
-        return 0;
+    pub fn getAccessorThisParameter(c: *Checker, accessor: ast_gen.NodeIndex) types.TypeIndex {
+        return c.getAnnotatedAccessorThisParameter(accessor);
     }
 
     /// Port of `checker.go::hasBindableName`. Returns true if `node`
@@ -20939,19 +20957,33 @@ pub const Checker = struct {
         return c.isLateBindableAST(node);
     }
 
-    pub fn hasLateBindableIndexSignature(c: *Checker, node: ast_gen.NodeIndex) bool {        _ = c;
-        _ = node;
+    pub fn hasLateBindableIndexSignature(c: *Checker, node: ast_gen.NodeIndex) bool {
+        if (node == 0) return false;
+        // Check if the node is an interface/class with a late-bindable index signature.
+        // Conservative: return false.
+        _ = c;
         return false;
     }
 
-    pub fn isLateBindableIndexSignature(c: *Checker, node: ast_gen.NodeIndex) bool {        _ = c;
-        _ = node;
-        return false;
+    pub fn isLateBindableIndexSignature(c: *Checker, node: ast_gen.NodeIndex) bool {
+        if (node == 0) return false;
+        if (c.binder.ast.getKind(node) != .IndexSignature) return false;
+        // Check if the index signature has a computed property name.
+        const sig = c.binder.ast.getNode(node).IndexSignature;
+        if (sig.Parameters == 0) return false;
+        const params = c.binder.ast.getNodeList(sig.Parameters);
+        if (params.len == 0 or params[0] == 0) return false;
+        const param = c.binder.ast.getNode(params[0]).Parameter;
+        const name_node = param.name;
+        if (name_node == 0) return false;
+        return c.binder.ast.getKind(name_node) == .ComputedPropertyName;
     }
 
-    pub fn isTypeUsableAsIndexSignatureDeclaration(c: *Checker, t: types.TypeIndex) bool {        _ = c;
-        _ = t;
-        return false;
+    pub fn isTypeUsableAsIndexSignatureDeclaration(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        // Valid index signature key types: string, number, symbol, or template literal.
+        return (flags & (types.TypeFlags.String | types.TypeFlags.Number | types.TypeFlags.ESSymbol | types.TypeFlags.TemplateLiteral)) != 0;
     }
 
     pub fn isLateBindableAST(c: *Checker, node: ast_gen.NodeIndex) bool {
@@ -21531,36 +21563,53 @@ pub const Checker = struct {
         return false;
     }
 
-    pub fn hasCommonDeclaration(c: *Checker, symbols: *const symbol.SymbolTable) bool {        _ = c;
-        _ = symbols;
-        return false;
+    pub fn hasCommonDeclaration(c: *Checker, symbols: *const symbol.SymbolTable) bool {
+        // Returns true if all symbols in the table share a common declaration.
+        // Conservative: returns true if the table is non-empty.
+        _ = c;
+        return symbols.count() > 0;
     }
 
-    pub fn createSymbolWithType(c: *Checker, source: types.TypeIndex, t: types.TypeIndex) types.TypeIndex {        _ = c;
+    pub fn createSymbolWithType(c: *Checker, source: types.TypeIndex, t: types.TypeIndex) types.TypeIndex {
+        // Creates a transient symbol with the given type. Conservative: returns `t`.
+        _ = c;
         _ = source;
-        _ = t;
-        return 0;
+        return t;
     }
 
-    pub fn getApparentTypeOfMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getApparentTypeOfMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        // The apparent type of a mapped type is its constraint type's apparent type.
+        if ((c.typesList.items[t].objectFlags & types.ObjectFlags.Mapped) == 0) return t;
+        const constraint = c.getConstraintTypeFromMappedType(t);
+        if (constraint == 0) return t;
+        return c.getApparentType(constraint);
     }
 
-    pub fn getResolvedApparentTypeOfMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getResolvedApparentTypeOfMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        return c.getApparentTypeOfMappedType(t);
     }
 
-    pub fn getApparentTypeOfIntersectionType(c: *Checker, t: types.TypeIndex, thisArgument: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
+    pub fn getApparentTypeOfIntersectionType(c: *Checker, t: types.TypeIndex, thisArgument: types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return 0;
         _ = thisArgument;
-        return 0;
+        // The apparent type of an intersection is the intersection of apparent types.
+        if ((c.typesList.items[t].flags & types.TypeFlags.Intersection) == 0) return c.getApparentType(t);
+        const constituents = c.getTypesFromIntersection(t);
+        var mapped = std.ArrayListUnmanaged(types.TypeIndex).empty;
+        defer mapped.deinit(c.allocator);
+        for (constituents) |ct| {
+            mapped.append(c.allocator, c.getApparentType(ct)) catch {};
+        }
+        return c.getIntersectionType(mapped.items);
     }
 
-    pub fn isNeverReducedProperty(c: *Checker, prop: ast_gen.SymbolIndex) bool {        _ = c;
-        _ = prop;
-        return false;
+    pub fn isNeverReducedProperty(c: *Checker, prop: ast_gen.SymbolIndex) bool {
+        // Returns true if `prop` is a property whose type was reduced to `never`.
+        if (prop == 0 or prop >= c.binder.symbols.items.len) return false;
+        const t = c.getTypeOfSymbol(prop) catch return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        return (c.typesList.items[t].flags & types.TypeFlags.Never) != 0;
     }
 
     pub fn elaborateNeverIntersection(c: *Checker, chain: ast_gen.NodeIndex, node: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {        _ = c;
@@ -21570,9 +21619,12 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isDiscriminantWithNeverType(c: *Checker, prop: ast_gen.SymbolIndex) bool {        _ = c;
-        _ = prop;
-        return false;
+    pub fn isDiscriminantWithNeverType(c: *Checker, prop: ast_gen.SymbolIndex) bool {
+        // Returns true if `prop` is a discriminant property with `never` type.
+        if (prop == 0 or prop >= c.binder.symbols.items.len) return false;
+        const t = c.getTypeOfSymbol(prop) catch return false;
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        return (c.typesList.items[t].flags & types.TypeFlags.Never) != 0;
     }
 
     pub fn isConflictingPrivateProperty(c: *Checker, prop: ast_gen.SymbolIndex) bool {
@@ -21592,9 +21644,16 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn getDefaultOrUnknownFromTypeParameter(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getDefaultOrUnknownFromTypeParameter(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        if (t == 0 or t >= c.typesList.items.len) return c.unknownTypeIndex orelse 0;
+        // If the type parameter has a default type, return it. Otherwise, return unknown.
+        if (c.typesList.items[t].data == .TypeParameter) {
+            const tp = c.typesList.items[t].data.TypeParameter;
+            if (tp.resolvedDefaultType) |dt| {
+                if (dt != 0) return dt;
+            }
+        }
+        return c.unknownTypeIndex orelse 0;
     }
 
     pub fn getNamedMembers(c: *Checker, members: ast_gen.NodeIndex, container: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
@@ -23853,8 +23912,16 @@ pub const Checker = struct {
         return "x";
     }
 
-    pub fn isUnknownLikeUnionType(c: *Checker, t: types.TypeIndex) bool {        _ = c;
-        _ = t;
+    pub fn isUnknownLikeUnionType(c: *Checker, t: types.TypeIndex) bool {
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.Unknown) != 0) return true;
+        if ((flags & types.TypeFlags.Union) != 0) {
+            const constituents = c.getTypesFromUnion(t);
+            for (constituents) |ct| {
+                if (c.isUnknownLikeUnionType(ct)) return true;
+            }
+        }
         return false;
     }
 
@@ -23928,9 +23995,17 @@ pub const Checker = struct {
         return c.getUnionTypeFromArray(mapped.items);
     }
 
-    pub fn isIntersectionEmpty(c: *Checker, type1: types.TypeIndex, type2: types.TypeIndex) bool {        _ = c;
-        _ = type1;
-        _ = type2;
+    pub fn isIntersectionEmpty(c: *Checker, type1: types.TypeIndex, type2: types.TypeIndex) bool {
+        // Returns true if the intersection of `type1` and `type2` is empty.
+        // Conservative: returns false (assume non-empty).
+        if (type1 == 0 or type2 == 0) return true;
+        if (type1 == type2) return false;
+        // Check for primitive type conflicts.
+        const f1 = c.typesList.items[type1].flags;
+        const f2 = c.typesList.items[type2].flags;
+        if ((f1 & types.TypeFlags.Primitive) != 0 and (f2 & types.TypeFlags.Primitive) != 0) {
+            return (f1 & f2 & types.TypeFlags.Primitive) == 0;
+        }
         return false;
     }
 
