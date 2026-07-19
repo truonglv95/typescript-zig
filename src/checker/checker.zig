@@ -27322,8 +27322,12 @@ pub fn checkThisExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeI
     while (container != 0) {
         const container_kind = c.binder.ast.getKind(container);
         switch (container_kind) {
+            .ArrowFunction => {
+                // Arrow functions don't have their own `this` — they
+                // inherit from the enclosing function. Continue walking up.
+            },
             .Constructor, .MethodDeclaration, .GetAccessor, .SetAccessor,
-            .FunctionDeclaration, .FunctionExpression, .ArrowFunction,
+            .FunctionDeclaration, .FunctionExpression,
             .CallSignature, .ConstructSignature, .MethodSignature,
             .FunctionType, .ConstructorType,
             => {
@@ -27418,7 +27422,20 @@ pub fn checkThisExpression(c: *Checker, node_idx: ast_gen.NodeIndex) types.TypeI
                     const sym = getSymbolOfNode(c, parent) orelse c.getSymbolOfDeclaration(parent);
                     if (sym != 0) {
                         const class_type = c.tryGetDeclaredTypeOfSymbol(sym);
-                        if (class_type != 0) return class_type;
+                        if (class_type != 0) {
+                            // Create a polymorphic `this` type that renders
+                            // as "this" in typeToString. The this type is a
+                            // TypeParameter with isThisType=true, constrained
+                            // to the class type.
+                            return c.createType(.{
+                                .flags = types.TypeFlags.TypeParameter,
+                                .objectFlags = types.ObjectFlags.Anonymous,
+                                .id = 0,
+                                .symbol = sym,
+                                .alias = null,
+                                .data = .{ .TypeParameter = .{ .isThisType = true } },
+                            }) catch class_type;
+                        }
                     }
                 }
                 break;
