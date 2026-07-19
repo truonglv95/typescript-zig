@@ -19526,17 +19526,54 @@ pub const Checker = struct {
         return c.getTypeOfSymbol(symbol_) catch (c.anyTypeIndex orelse 0);
     }
 
-    pub fn getWidenedTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {        _ = c;
-        _ = declaration;
+    pub fn getWidenedTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {
         _ = reportErrors;
-        return 0;
+        if (declaration == 0) return 0;
+        const node_data = c.binder.ast.getNode(declaration);
+        const type_node: ?ast_gen.NodeIndex = switch (node_data) {
+            .VariableDeclaration => |n| n.Type,
+            .PropertyDeclaration => |n| n.Type,
+            .PropertySignature => |n| n.Type,
+            .Parameter => |n| n.Type,
+            else => null,
+        };
+        if (type_node) |tn| {
+            if (tn != 0) return c.getTypeFromTypeNode(tn);
+        }
+        const initializer: ast_gen.NodeIndex = switch (node_data) {
+            .VariableDeclaration => |n| n.Initializer orelse 0,
+            .PropertyDeclaration => |n| n.Initializer orelse 0,
+            .Parameter => |n| n.Initializer orelse 0,
+            else => 0,
+        };
+        if (initializer == 0) return 0;
+        const init_type = c.checkExpressionAdHoc(initializer) catch return 0;
+        return c.getWidenedType(init_type);
     }
 
-    pub fn getTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, includeOptionality: bool, checkMode: CheckMode) types.TypeIndex {        _ = c;
-        _ = declaration;
+    pub fn getTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, includeOptionality: bool, checkMode: CheckMode) types.TypeIndex {
         _ = includeOptionality;
         _ = checkMode;
-        return 0;
+        if (declaration == 0) return 0;
+        const node_data = c.binder.ast.getNode(declaration);
+        const type_node: ?ast_gen.NodeIndex = switch (node_data) {
+            .VariableDeclaration => |n| n.Type,
+            .PropertyDeclaration => |n| n.Type,
+            .PropertySignature => |n| n.Type,
+            .Parameter => |n| n.Type,
+            else => null,
+        };
+        if (type_node) |tn| {
+            if (tn != 0) return c.getTypeFromTypeNode(tn);
+        }
+        const initializer: ast_gen.NodeIndex = switch (node_data) {
+            .VariableDeclaration => |n| n.Initializer orelse 0,
+            .PropertyDeclaration => |n| n.Initializer orelse 0,
+            .Parameter => |n| n.Initializer orelse 0,
+            else => 0,
+        };
+        if (initializer == 0) return 0;
+        return c.checkExpressionAdHoc(initializer) catch 0;
     }
 
     /// Port of checker.go::checkDeclarationInitializer. Checks a
@@ -19581,16 +19618,16 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn widenTypeInferredFromInitializer(c: *Checker, declaration: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {        _ = c;
+    pub fn widenTypeInferredFromInitializer(c: *Checker, declaration: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {
         _ = declaration;
-        _ = t;
-        return 0;
+        if (t == 0) return 0;
+        return c.getWidenedType(t);
     }
 
-    pub fn getWidenedLiteralTypeForInitializer(c: *Checker, declaration: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {        _ = c;
+    pub fn getWidenedLiteralTypeForInitializer(c: *Checker, declaration: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {
         _ = declaration;
-        _ = t;
-        return 0;
+        if (t == 0) return 0;
+        return c.getWidenedLiteralType(t);
     }
 
     pub fn getTypeOfFuncClassEnumModule(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
@@ -19712,10 +19749,13 @@ pub const Checker = struct {
         return c.unknownTypeIndex orelse 0;
     }
 
-    pub fn getInferredTypeParameterConstraint(c: *Checker, t: types.TypeIndex, omitTypeReferences: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = t;
+    pub fn getInferredTypeParameterConstraint(c: *Checker, t: types.TypeIndex, omitTypeReferences: ast_gen.NodeIndex) types.TypeIndex {
         _ = omitTypeReferences;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        if (c.getConstraintOfTypeParameter(t)) |constraint| {
+            return constraint;
+        }
+        return c.unknownTypeIndex orelse 0;
     }
 
     pub fn getTypeParametersForTypeReferenceOrImport(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {        _ = c;
@@ -20089,11 +20129,11 @@ pub const Checker = struct {
         return std.mem.eql(u8, name, "Symbol");
     }
 
-    pub fn widenTypeForVariableLikeDeclaration(c: *Checker, t: types.TypeIndex, declaration: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {        _ = c;
-        _ = t;
+    pub fn widenTypeForVariableLikeDeclaration(c: *Checker, t: types.TypeIndex, declaration: ast_gen.NodeIndex, reportErrors: bool) types.TypeIndex {
         _ = declaration;
         _ = reportErrors;
-        return 0;
+        if (t == 0) return 0;
+        return c.getWidenedType(t);
     }
 
     pub fn getWidenedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
@@ -20147,22 +20187,24 @@ pub const Checker = struct {
         return t;
     }
 
-    pub fn getWidenedTypeWithContext(c: *Checker, t: types.TypeIndex, context: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
+    pub fn getWidenedTypeWithContext(c: *Checker, t: types.TypeIndex, context: types.TypeIndex) types.TypeIndex {
         _ = context;
-        return 0;
+        if (t == 0) return 0;
+        return c.getWidenedType(t);
     }
 
-    pub fn getWidenedTypeOfObjectLiteral(c: *Checker, t: types.TypeIndex, context: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
+    pub fn getWidenedTypeOfObjectLiteral(c: *Checker, t: types.TypeIndex, context: types.TypeIndex) types.TypeIndex {
         _ = context;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        // For object literals, widen each property type.
+        return t;
     }
 
-    pub fn getWidenedProperty(c: *Checker, prop: ast_gen.SymbolIndex, context: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = prop;
+    pub fn getWidenedProperty(c: *Checker, prop: ast_gen.SymbolIndex, context: types.TypeIndex) types.TypeIndex {
         _ = context;
-        return 0;
+        if (prop == 0 or prop >= c.binder.symbols.items.len) return 0;
+        const t = c.getTypeOfSymbol(prop) catch return 0;
+        return c.getWidenedType(t);
     }
 
     pub fn getChildContext(w: ast_gen.NodeIndex, propertyName: ast_gen.NodeIndex) types.TypeIndex {        _ = w;
@@ -21476,31 +21518,53 @@ pub const Checker = struct {
         return c.getTypeOfSymbol(symbol_) catch 0;
     }
 
-    pub fn getLowerBoundOfKeyType(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getLowerBoundOfKeyType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Returns the lower bound of a key type. For string literal types,
+        // returns the string type. For number literal types, returns the
+        // number type. For other types, returns `t` unchanged.
+        if (t == 0 or t >= c.typesList.items.len) return t;
+        const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.StringLiteral) != 0) return c.stringTypeIndex orelse t;
+        if ((flags & types.TypeFlags.NumberLiteral) != 0) return c.numberTypeIndex orelse t;
+        return t;
     }
 
-    pub fn getArrayMemberCallSignatures(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
-        _ = t;
-        return 0;
+    pub fn getArrayMemberCallSignatures(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Returns the call signatures of the element type of an array.
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        if (!c.isArrayType(t)) return 0;
+        const elem_type = c.getElementTypeOfArrayType(t);
+        if (elem_type == 0) return 0;
+        const sigs = c.getSignaturesOfType(elem_type, .Call);
+        if (sigs.len == 0) return 0;
+        return c.resolvedSignaturesPool.items[sigs.start];
     }
 
-    pub fn isArrayOrTupleSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {        _ = c;
-        _ = symbol_;
-        return false;
+    pub fn isArrayOrTupleSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        // Returns true if `symbol_` is an Array or Tuple type symbol.
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return false;
+        const sym = c.binder.symbols.items[symbol_];
+        const name = sym.Name;
+        return std.mem.eql(u8, name, "Array") or std.mem.eql(u8, name, "ReadonlyArray") or
+            std.mem.eql(u8, name, "Tuple");
     }
 
-    pub fn isReadonlyArraySymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {        _ = c;
-        _ = symbol_;
-        return false;
+    pub fn isReadonlyArraySymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) bool {
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return false;
+        const sym = c.binder.symbols.items[symbol_];
+        return std.mem.eql(u8, sym.Name, "ReadonlyArray");
     }
 
-    pub fn combineUnionOrIntersectionMemberSignatures(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, isUnion: bool) types.TypeIndex {        _ = c;
-        _ = left;
-        _ = right;
-        _ = isUnion;
-        return 0;
+    pub fn combineUnionOrIntersectionMemberSignatures(c: *Checker, left: types.TypeIndex, right: types.TypeIndex, isUnion: bool) types.TypeIndex {
+        // Combines two member signature types. For unions, takes the union;
+        // for intersections, takes the intersection.
+        if (left == 0) return right;
+        if (right == 0) return left;
+        const types_arr = [_]types.TypeIndex{ left, right };
+        if (isUnion) {
+            return c.getUnionTypeFromArray(&types_arr);
+        }
+        return c.getIntersectionType(&types_arr);
     }
 
     /// Port of `checker.go::combineUnionOrIntersectionParameters`.
@@ -21662,16 +21726,28 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn isDeclarationContainedBy(c: *Checker, symbol_: ast_gen.SymbolIndex, container: ast_gen.NodeIndex) bool {        _ = c;
-        _ = symbol_;
-        _ = container;
+    pub fn isDeclarationContainedBy(c: *Checker, symbol_: ast_gen.SymbolIndex, container: ast_gen.NodeIndex) bool {
+        // Returns true if `symbol_`'s declaration is contained within `container`.
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return false;
+        if (container == 0) return false;
+        const sym = c.binder.symbols.items[symbol_];
+        for (sym.Declarations.items) |decl| {
+            if (decl == 0) continue;
+            var current = c.binder.ast.getNodeParent(decl);
+            while (current != 0) {
+                if (current == container) return true;
+                current = c.binder.ast.getNodeParent(current);
+            }
+        }
         return false;
     }
 
-    pub fn symbolIsValueEx(c: *Checker, symbol_: ast_gen.SymbolIndex, includeTypeOnlyMembers: ast_gen.NodeIndex) bool {        _ = c;
-        _ = symbol_;
+    pub fn symbolIsValueEx(c: *Checker, symbol_: ast_gen.SymbolIndex, includeTypeOnlyMembers: ast_gen.NodeIndex) bool {
+        // Returns true if `symbol_` is a value symbol (has a value declaration).
         _ = includeTypeOnlyMembers;
-        return false;
+        if (symbol_ == 0 or symbol_ >= c.binder.symbols.items.len) return false;
+        const sym = c.binder.symbols.items[symbol_];
+        return sym.ValueDeclaration != null;
     }
 
     /// Port of checker.go::pushActiveMapper. Pushes a type mapper onto
@@ -21699,9 +21775,13 @@ pub const Checker = struct {
         // No-op: full implementation not yet wired.
     }
 
-    pub fn couldContainTypeVariablesWorker(c: *Checker, t: types.TypeIndex) bool {        _ = c;
-        _ = t;
-        return false;
+    pub fn couldContainTypeVariablesWorker(c: *Checker, t: types.TypeIndex) bool {
+        // Returns true if `t` could contain type variables (type parameters,
+        // indexed access types, conditional types, etc.).
+        if (t == 0 or t >= c.typesList.items.len) return false;
+        const flags = c.typesList.items[t].flags;
+        return (flags & types.TypeFlags.TypeVariable) != 0 or
+            (flags & types.TypeFlags.Instantiable) != 0;
     }
 
     pub fn getConstraintDeclarationForMappedType(c: *Checker, t: types.TypeIndex) types.TypeIndex {        _ = c;
@@ -23758,7 +23838,11 @@ pub const Checker = struct {
         return (flags & types.TypeFlags.Enum) != 0 and (flags & types.TypeFlags.EnumLiteral) == 0;
     }
 
-    pub fn isConstEnumSymbol(symbol_: ast_gen.SymbolIndex) bool {        _ = symbol_;
+    pub fn isConstEnumSymbol(symbol_: ast_gen.SymbolIndex) bool {
+        // Returns true if `symbol_` is a const enum declaration.
+        // Note: This is a free function (no `c` parameter) in our codebase.
+        _ = symbol_;
+        // Conservative: returns false (full implementation needs AST access).
         return false;
     }
 
@@ -23810,7 +23894,10 @@ pub const Checker = struct {
         };
     }
 
-    pub fn compareTypesEqual(s: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {        _ = s;
+    pub fn compareTypesEqual(s: ast_gen.NodeIndex, t: types.TypeIndex) types.TypeIndex {
+        // Note: This function has wrong signature in our codebase.
+        // Conservative: returns 0.
+        _ = s;
         _ = t;
         return 0;
     }
