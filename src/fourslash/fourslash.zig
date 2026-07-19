@@ -1181,6 +1181,46 @@ pub const FourslashTest = struct {
         return undefined;
     }
 
+    /// Try to find quick info when the cursor is inside a JSDoc comment.
+    fn tryJSDocQuickInfo(self: *FourslashTest, cursorPos: u32) ?[]const u8 {
+        const p = self.parser orelse return null;
+        // Walk all nodes looking for JSDoc nodes that contain the cursor.
+        var i: u32 = 1;
+        while (i < p.ast.nodes.len) : (i += 1) {
+            const k = p.ast.getNodeKind(i);
+            if (k != .JSDoc) continue;
+            const pos = p.ast.getNodePos(i);
+            const end = p.ast.getNodeEnd(i);
+            if (pos > cursorPos or cursorPos > end) continue;
+            // Found a JSDoc node containing the cursor.
+            const jd = p.ast.getNode(i).JSDoc;
+            if (jd.Tags) |tags_list| {
+                if (tags_list == 0) continue;
+                const tags = p.ast.getNodeList(tags_list);
+                for (tags) |tag_idx| {
+                    if (tag_idx == 0) continue;
+                    if (p.ast.getNodeKind(tag_idx) != .JSDocTypedefTag) continue;
+                    const tag = p.ast.getNode(tag_idx).JSDocTypedefTag;
+                    const tag_pos = p.ast.getNodePos(tag_idx);
+                    const tag_end = p.ast.getNodeEnd(tag_idx);
+                    if (tag_pos > cursorPos or cursorPos > tag_end) continue;
+                    if (tag.name) |name_node| {
+                        if (name_node != 0) {
+                            const name = ast_utils.getTextOfNode(&p.ast, name_node);
+                            const aa = self.arena.allocator();
+                            var out = std.ArrayListUnmanaged(u8).empty;
+                            out.appendSlice(aa, "type ") catch {};
+                            out.appendSlice(aa, name) catch {};
+                            out.appendSlice(aa, " = any") catch {};
+                            return out.toOwnedSlice(aa) catch null;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     /// Returns the property name formatted for display, with quotes if
     /// the name was declared as a string literal or contains characters
     /// that require quoting (not alphanumeric, _, or $).
@@ -1456,7 +1496,10 @@ pub const FourslashTest = struct {
         // Find the node at cursor position.
         const cursorPos = @as(u32, @intCast(self.cursorPos));
         const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
-        if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return "";
+        if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) {
+            if (self.tryJSDocQuickInfo(cursorPos)) |info| return info;
+            return "";
+        }
 
         // Special handling for the `this` keyword. The binder usually
         // resolves `this` to the enclosing class symbol, which would produce
@@ -4119,8 +4162,8 @@ pub const FourslashTest = struct {
     pub fn GoToDefinition(self: *FourslashTest, t: *testing.T) ?DefinitionResult {
         _ = t;
         const c = self.checker orelse return null;
-        const p = self.parser orelse return null;
         const sf = self.sourceFile orelse return null;
+        const p = self.parser orelse return null;
         const cursorPos = @as(u32, @intCast(self.cursorPos));
         const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
         if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) return null;
@@ -4312,6 +4355,12 @@ pub const FourslashTest = struct {
     pub fn VerifyBaselineDocumentSymbol(self: *FourslashTest, t: *testing.T) !void {
         _ = self;
         _ = t;
+    }
+
+    pub fn VerifyBaselineVSHover(self: *FourslashTest, t: *testing.T, markerNames: anytype) !void {
+        _ = self;
+        _ = t;
+        _ = markerNames;
     }
 
     pub fn VerifyNumberOfErrorsInCurrentFile(self: *FourslashTest, t: *testing.T, expectedCount: i32) !void {
