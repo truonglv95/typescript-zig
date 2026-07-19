@@ -180,23 +180,23 @@ pub fn getAssignmentDeclarationKind(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeI
     const node = tree.getNode(nodeIndex);
     if (node != .BinaryExpression) return .None;
     const bin = node.BinaryExpression;
-    if (tree.getNodeKind(bin.operatorToken) != .EqualsToken) return .None;
+    if (tree.getNodeKind(bin.OperatorToken) != .EqualsToken) return .None;
 
-    if (tree.getNodeKind(bin.left) == .PropertyAccessExpression) {
-        const pae = tree.getNode(bin.left).PropertyAccessExpression;
-        if (pae.expression != 0) {
-            const expKind = tree.getNodeKind(pae.expression);
+    if (tree.getNodeKind(bin.Left) == .PropertyAccessExpression) {
+        const pae = tree.getNode(bin.Left).PropertyAccessExpression;
+        if (pae.Expression != 0) {
+            const expKind = tree.getNodeKind(pae.Expression);
             if (expKind == .Identifier) {
-                const idText = tree.getIdentifierText(pae.expression);
+                const idText = getTextOfNode(tree, pae.Expression);
                 if (std.mem.eql(u8, idText, "exports")) {
                     return .ExportsProperty;
                 }
             } else if (expKind == .PropertyAccessExpression) {
-                const inner = tree.getNode(pae.expression).PropertyAccessExpression;
-                if (inner.expression != 0 and tree.getNodeKind(inner.expression) == .Identifier) {
-                    const idText = tree.getIdentifierText(inner.expression);
+                const inner = tree.getNode(pae.Expression).PropertyAccessExpression;
+                if (inner.Expression != 0 and tree.getNodeKind(inner.Expression) == .Identifier) {
+                    const idText = getTextOfNode(tree, inner.Expression);
                     if (std.mem.eql(u8, idText, "module")) {
-                        const nameText = tree.getIdentifierText(inner.name);
+                        const nameText = getTextOfNode(tree, inner.name);
                         if (std.mem.eql(u8, nameText, "exports")) {
                             return .ExportsProperty;
                         }
@@ -214,13 +214,13 @@ pub fn isAliasSymbolDeclaration(tree: *ast_pkg.Ast, nodeIndex: ast_gen.NodeIndex
     switch (node) {
         .ImportEqualsDeclaration, .NamespaceExportDeclaration, .NamespaceImport, .NamespaceExport, .ImportSpecifier, .ExportSpecifier => return true,
         .ImportClause => |n| return n.name != 0,
-        .ExportAssignment => |n| return expressionIsAlias(tree, n.expression),
-        .VariableDeclaration => |n| return if (n.initializer != 0) isRequireCall(tree, n.initializer, true) else false,
-        .BindingElement => |n| return if (n.initializer != 0) isRequireCall(tree, n.initializer, true) else false,
+        .ExportAssignment => |n| return expressionIsAlias(tree, n.Expression),
+        .VariableDeclaration => |n| return if (n.Initializer != null and n.Initializer.? != 0) isRequireCall(tree, n.Initializer.?, true) else false,
+        .BindingElement => |n| return if (n.Initializer != null and n.Initializer.? != 0) isRequireCall(tree, n.Initializer.?, true) else false,
         .BinaryExpression => |n| {
             const assignmentKind = getAssignmentDeclarationKind(tree, nodeIndex);
             if (assignmentKind == .ModuleExports or assignmentKind == .ExportsProperty) {
-                return expressionIsAlias(tree, n.right);
+                return expressionIsAlias(tree, n.Right);
             }
             return false;
         },

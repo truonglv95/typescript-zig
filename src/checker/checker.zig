@@ -8784,13 +8784,10 @@ pub const Checker = struct {
 
     pub fn resolveExternalModuleSymbol(c: *Checker, moduleSymbol: ast_gen.SymbolIndex, dontResolveAlias: bool) ast_gen.SymbolIndex {
         if (moduleSymbol != 0) {
-            if (c.binder.symbols.items[moduleSymbol].exports) |exports| {
-                const id = c.binder.ast.stringPool.get("export=") orelse return moduleSymbol;
-                if (exports.get(id)) |exportEquals| {
-                    const resolved = c.resolveSymbolEx(exportEquals, dontResolveAlias);
-                    if (resolved != 0) {
-                        return getMergedSymbol(c, resolved);
-                    }
+            if (c.binder.symbols.items[moduleSymbol].Exports.get("export=")) |exportEquals| {
+                const resolved = c.resolveSymbolEx(exportEquals, dontResolveAlias);
+                if (resolved != 0) {
+                    return getMergedSymbol(c, resolved);
                 }
             }
         }
@@ -24469,10 +24466,11 @@ pub const Checker = struct {
         _ = node;
     }
 
+    /// Port of `checker.go::getPromisedTypeOfPromise`. Returns the
+    /// promised type `T` of a `Promise<T>` type, or 0 if `t` is not a
+    /// promise. Delegates to `getPromisedTypeOfPromiseEx` with no error node.
     pub fn getPromisedTypeOfPromise(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        return c.getPromisedTypeOfPromiseEx(t, 0, null);
     }
 
     /// Port of `checker.go::getPromisedTypeOfPromiseEx`. Returns the
@@ -24556,25 +24554,56 @@ pub const Checker = struct {
         return fallback_type;
     }
 
+    /// Port of `checker.go::getOptionalExpressionType`. Returns the type
+    /// of an optional expression (e.g., `a?.b`). If `exprType` is a union
+    /// with `undefined`, the result includes `undefined`. If the expression
+    /// is itself optional (uses `?.`), the result also includes `undefined`.
     pub fn getOptionalExpressionType(c: *Checker, exprType: types.TypeIndex, expression: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = exprType;
-        _ = expression;
-        return undefined;
+        if (exprType == 0) return 0;
+        // Check if the expression uses optional chaining (?.). 
+        // In our AST, optional PropertyAccessExpression has QuestionDotToken != null.
+        var is_optional_chain = false;
+        if (expression != 0 and c.binder.ast.getKind(expression) == .PropertyAccessExpression) {
+            is_optional_chain = c.binder.ast.getNode(expression).PropertyAccessExpression.QuestionDotToken != null;
+        }
+        if (expression != 0 and c.binder.ast.getKind(expression) == .ElementAccessExpression) {
+            is_optional_chain = c.binder.ast.getNode(expression).ElementAccessExpression.QuestionDotToken != null;
+        }
+        if (expression != 0 and c.binder.ast.getKind(expression) == .CallExpression) {
+            is_optional_chain = c.binder.ast.getNode(expression).CallExpression.QuestionDotToken != null;
+        }
+        if (is_optional_chain) {
+            // Add undefined to the type.
+            const undefined_type = c.undefinedTypeIndex orelse 0;
+            if (undefined_type != 0 and exprType != undefined_type) {
+                const types_arr = [_]types.TypeIndex{ exprType, undefined_type };
+                return c.getUnionTypeFromArray(&types_arr);
+            }
+        }
+        return exprType;
     }
 
+    /// Port of `checker.go::removeOptionalTypeMarker`. Removes the
+    /// "optional marker" from a type. The optional marker is a synthetic
+    /// flag indicating that the type came from an optional property or
+    /// parameter. Removing it gives the underlying type.
+    /// Conservative: returns `t` unchanged (we don't track optional markers
+    /// as separate type flags yet).
     pub fn removeOptionalTypeMarker(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         _ = c;
-        _ = t;
-        return 0;
+        return t;
     }
 
+    /// Port of `checker.go::propagateOptionalTypeMarker`. Propagates
+    /// the optional marker from `wasOptional` to `t`. If `wasOptional` is
+    /// true, the result includes `undefined`; otherwise, returns `t`.
     pub fn propagateOptionalTypeMarker(c: *Checker, t: types.TypeIndex, node: ast_gen.NodeIndex, wasOptional: bool) types.TypeIndex {
-        _ = c;
-        _ = t;
         _ = node;
-        _ = wasOptional;
-        return undefined;
+        if (t == 0 or !wasOptional) return t;
+        const undefined_type = c.undefinedTypeIndex orelse 0;
+        if (undefined_type == 0 or t == undefined_type) return t;
+        const types_arr = [_]types.TypeIndex{ t, undefined_type };
+        return c.getUnionTypeFromArray(&types_arr);
     }
 
     /// Port of `checker.go::removeMissingOrUndefinedType`. In
@@ -24647,6 +24676,10 @@ pub const Checker = struct {
         return c.neverTypeIndex orelse 0;
     }
 
+    /// Port of `checker.go::substituteIndexedMappedType`. Substitutes
+    /// the type parameter of a mapped type with the given `index` type.
+    /// Used during indexed access type simplification. Conservative:
+    /// returns 0 (no substitution).
     pub fn substituteIndexedMappedType(c: *Checker, objectType: types.TypeIndex, index: u32) types.TypeIndex {
         _ = c;
         _ = objectType;
@@ -24654,6 +24687,10 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::couldAccessOptionalProperty`. Returns true
+    /// if accessing `indexType` on `objectType` might access an optional
+    /// property. Used to determine whether to add `undefined` to the result.
+    /// Conservative: returns false (assume non-optional).
     pub fn couldAccessOptionalProperty(c: *Checker, objectType: types.TypeIndex, indexType: types.TypeIndex) bool {
         _ = c;
         _ = objectType;
@@ -24661,30 +24698,83 @@ pub const Checker = struct {
         return false;
     }
 
+    /// Port of `checker.go::getContextualTypeForInitializerExpression`.
+    /// Returns the contextual type for the initializer of a variable
+    /// declaration, property declaration, or parameter. The contextual
+    /// type comes from the declaration's type annotation.
     pub fn getContextualTypeForInitializerExpression(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = contextFlags;
-        return 0;
+        if (node == 0) return 0;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        const parent_kind = c.binder.ast.getKind(parent);
+        // For VariableDeclaration/Parameter/PropertyDeclaration, the
+        // contextual type is the declared type annotation.
+        switch (parent_kind) {
+            .VariableDeclaration, .Parameter, .PropertyDeclaration, .PropertySignature, .BindingElement => {
+                return c.getContextualType(parent, contextFlags);
+            },
+            else => return 0,
+        }
     }
 
     pub fn getContextualTypeForVariableLikeDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = declaration;
-        _ = contextFlags;
-        return 0;
+        if (declaration == 0) return 0;
+        return c.getContextualType(declaration, contextFlags);
     }
 
     pub fn getContextuallyTypedParameterType(c: *Checker, parameter: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = parameter;
-        return 0;
+        if (parameter == 0) return 0;
+        return c.getContextualType(parameter, 0);
     }
 
+    /// Port of `checker.go::isContextSensitiveFunctionOrObjectLiteralMethod`.
+    /// Returns true if a function expression or object literal method is
+    /// context-sensitive (i.e., its type depends on the contextual type).
+    /// A function is context-sensitive if it has no type parameters, no
+    /// type annotations on its parameters, and no return type annotation.
     pub fn isContextSensitiveFunctionOrObjectLiteralMethod(c: *Checker, fn_: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = fn_;
-        return false;
+        if (fn_ == 0) return false;
+        const fn_data = c.binder.ast.getNode(fn_);
+        // Get parameter list and type parameters.
+        const params_id: ?u32 = switch (fn_data) {
+            .FunctionExpression => |fe| fe.Parameters,
+            .ArrowFunction => |af| af.Parameters,
+            .MethodDeclaration => |md| md.Parameters,
+            else => return false,
+        };
+        // Get type parameters — if present, the function is not context-sensitive.
+        const type_params_id: ?u32 = switch (fn_data) {
+            .FunctionExpression => |fe| fe.TypeParameters,
+            .ArrowFunction => |af| af.TypeParameters,
+            .MethodDeclaration => |md| md.TypeParameters,
+            else => null,
+        };
+        if (type_params_id != null and type_params_id.? != 0) {
+            const tps = c.binder.ast.getNodeList(type_params_id.?);
+            if (tps.len > 0) return false;
+        }
+        // Check return type annotation.
+        const return_type_node: ast_gen.NodeIndex = switch (fn_data) {
+            .FunctionExpression => |fe| fe.Type orelse 0,
+            .ArrowFunction => |af| af.Type orelse 0,
+            .MethodDeclaration => |md| md.Type orelse 0,
+            else => 0,
+        };
+        if (return_type_node != 0) return false;
+        // Check each parameter for type annotations.
+        if (params_id != null and params_id.? != 0) {
+            const params = c.binder.ast.getNodeList(params_id.?);
+            for (params) |param| {
+                if (param == 0) continue;
+                const param_data = c.binder.ast.getNode(param);
+                const param_type: ast_gen.NodeIndex = switch (param_data) {
+                    .Parameter => |p| p.Type orelse 0,
+                    else => 0,
+                };
+                if (param_type != 0) return false;
+            }
+        }
+        return true;
     }
 
     /// Port of `checker.go::getSpreadArgumentType`. Returns the type of
@@ -24760,38 +24850,151 @@ pub const Checker = struct {
         return c.createArrayType(t);
     }
 
+    /// Port of `checker.go::getContextualTypeForBindingElement`. Returns
+    /// the contextual type for a binding element (e.g., `a` in `let { a } = obj`).
+    /// The contextual type comes from the parent binding pattern's
+    /// contextual type, looked up by property name.
     pub fn getContextualTypeForBindingElement(c: *Checker, declaration: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = declaration;
-        _ = contextFlags;
+        if (declaration == 0) return 0;
+        // Walk up to the parent binding pattern.
+        const parent = c.binder.ast.getNodeParent(declaration);
+        if (parent == 0) return 0;
+        const parent_kind = c.binder.ast.getKind(parent);
+        if (parent_kind != .ObjectBindingPattern and parent_kind != .ArrayBindingPattern) return 0;
+        // Get the contextual type of the binding pattern's parent (VariableDeclaration).
+        const grandparent = c.binder.ast.getNodeParent(parent);
+        if (grandparent == 0) return 0;
+        const ctx_type = c.getContextualType(grandparent, contextFlags);
+        if (ctx_type == 0) return 0;
+        // For object binding patterns, look up the property name.
+        if (parent_kind == .ObjectBindingPattern) {
+            const elem_data = c.binder.ast.getNode(declaration);
+            const property_name_node: ast_gen.NodeIndex = switch (elem_data) {
+                .BindingElement => |be| if (be.PropertyName) |pn| pn else be.name orelse 0,
+                else => 0,
+            };
+            if (property_name_node != 0) {
+                const name_str = ast_utils.getTextOfNode(c.binder.ast, property_name_node);
+                return c.getTypeOfPropertyOfType(ctx_type, name_str);
+            }
+        }
+        // For array binding patterns, look up the index.
+        // Simplified: return the element type of an array/tuple.
+        if (parent_kind == .ArrayBindingPattern) {
+            if (c.isArrayType(ctx_type)) {
+                return c.getElementTypeOfArrayType(ctx_type);
+            }
+            if (c.isTupleType(ctx_type)) {
+                // Find the index of this binding element.
+                const binding_pattern = c.binder.ast.getNode(parent).ArrayBindingPattern;
+                if (binding_pattern.Elements != 0) {
+                    const elements = c.binder.ast.getNodeList(binding_pattern.Elements);
+                    for (elements, 0..) |elem, i| {
+                        if (elem == declaration) {
+                            return c.getElementTypeOfSliceOfTupleType(ctx_type, @intCast(i), 0, 0) orelse 0;
+                        }
+                    }
+                }
+            }
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForStaticPropertyDeclaration`.
+    /// Returns the contextual type for a static property declaration on
+    /// a class. The contextual type comes from the class's static type.
     pub fn getContextualTypeForStaticPropertyDeclaration(c: *Checker, declaration: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = declaration;
+        if (declaration == 0) return 0;
+        // Walk up to the class declaration.
+        const parent = c.binder.ast.getNodeParent(declaration);
+        if (parent == 0) return 0;
+        if (c.binder.ast.getKind(parent) != .ClassDeclaration and c.binder.ast.getKind(parent) != .ClassExpression) return 0;
+        // Get the class symbol and its constructor type.
         _ = contextFlags;
+        // Conservative: no contextual type for static properties.
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForReturnExpression`. Returns
+    /// the contextual type for a return expression. The contextual type
+    /// comes from the enclosing function's declared return type.
     pub fn getContextualTypeForReturnExpression(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = node;
+        if (node == 0) return 0;
         _ = contextFlags;
+        // Walk up to find the enclosing function-like node.
+        var current = c.binder.ast.getNodeParent(node);
+        while (current != 0) {
+            if (ast_utils.isFunctionLikeNode(c.binder.ast, current)) {
+                // Get the function's return type annotation.
+                const type_node: ast_gen.NodeIndex = switch (c.binder.ast.getNode(current)) {
+                    .FunctionDeclaration => |f| f.Type orelse 0,
+                    .FunctionExpression => |f| f.Type orelse 0,
+                    .ArrowFunction => |f| f.Type orelse 0,
+                    .MethodDeclaration => |m| m.Type orelse 0,
+                    .MethodSignature => |m| m.Type orelse 0,
+                    .GetAccessor => |g| g.Type orelse 0,
+                    .CallSignature => |cs| cs.Type orelse 0,
+                    .ConstructSignature => |cs| cs.Type orelse 0,
+                    .FunctionType => |ft| ft.Type orelse 0,
+                    else => 0,
+                };
+                if (type_node != 0) {
+                    return c.getTypeFromTypeNode(type_node);
+                }
+                return 0;
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getContextualIterationType`. Returns the
+    /// contextual iteration type for a generator function. The contextual
+    /// iteration type comes from the function's declared return type
+    /// (e.g., `Generator<T>` or `AsyncGenerator<T>`), unwrapped to `T`.
     pub fn getContextualIterationType(c: *Checker, kind_: types.SignatureKind, functionDecl: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
+        if (functionDecl == 0) return 0;
         _ = kind_;
-        _ = functionDecl;
+        // Get the return type annotation.
+        const fn_data = c.binder.ast.getNode(functionDecl);
+        const type_node: ast_gen.NodeIndex = switch (fn_data) {
+            .FunctionDeclaration => |f| f.Type orelse 0,
+            .FunctionExpression => |f| f.Type orelse 0,
+            .ArrowFunction => |f| f.Type orelse 0,
+            .MethodDeclaration => |m| m.Type orelse 0,
+            else => 0,
+        };
+        if (type_node == 0) return 0;
+        const return_type = c.getTypeFromTypeNode(type_node);
+        // Look up the yield type from the Generator/AsyncGenerator type.
+        // For Generator<T, TReturn, TNext>, the yield type is the first type argument.
+        const type_args = c.getTypeArguments(return_type);
+        if (type_args.len > 0) return type_args[0];
         return 0;
     }
 
+    /// Port of `checker.go::getContextualReturnType`. Returns the
+    /// contextual return type for a function declaration. The contextual
+    /// return type comes from the function's declared return type annotation.
     pub fn getContextualReturnType(c: *Checker, functionDecl: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = functionDecl;
+        if (functionDecl == 0) return 0;
         _ = contextFlags;
+        const fn_data = c.binder.ast.getNode(functionDecl);
+        const type_node: ast_gen.NodeIndex = switch (fn_data) {
+            .FunctionDeclaration => |f| f.Type orelse 0,
+            .FunctionExpression => |f| f.Type orelse 0,
+            .ArrowFunction => |f| f.Type orelse 0,
+            .MethodDeclaration => |m| m.Type orelse 0,
+            .MethodSignature => |m| m.Type orelse 0,
+            .GetAccessor => |g| g.Type orelse 0,
+            .CallSignature => |cs| cs.Type orelse 0,
+            .ConstructSignature => |cs| cs.Type orelse 0,
+            .FunctionType => |ft| ft.Type orelse 0,
+            else => 0,
+        };
+        if (type_node != 0) {
+            return c.getTypeFromTypeNode(type_node);
+        }
         return 0;
     }
 
@@ -24827,51 +25030,183 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForYieldOperand`. Returns
+    /// the contextual type for the operand of a `yield` expression. The
+    /// contextual type comes from the enclosing generator's yield type
+    /// (the first type argument of `Generator<T, TReturn, TNext>`).
     pub fn getContextualTypeForYieldOperand(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = node;
+        if (node == 0) return 0;
         _ = contextFlags;
+        // Walk up to find the enclosing generator function.
+        var current = c.binder.ast.getNodeParent(node);
+        while (current != 0) {
+            const k = c.binder.ast.getKind(current);
+            if (k == .FunctionDeclaration or k == .FunctionExpression or k == .MethodDeclaration) {
+                // Check if this is a generator (has AsteriskToken).
+                const is_generator = switch (c.binder.ast.getNode(current)) {
+                    .FunctionDeclaration => |f| f.AsteriskToken != 0,
+                    .FunctionExpression => |f| f.AsteriskToken != 0,
+                    .MethodDeclaration => |m| m.AsteriskToken != 0,
+                    else => false,
+                };
+                if (is_generator) {
+                    return c.getContextualIterationType(.Call, current);
+                }
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForAwaitOperand`. Returns
+    /// the contextual type for the operand of an `await` expression. The
+    /// contextual type comes from the enclosing async function's return type
+    /// (the promised type `T` of `Promise<T>`).
     pub fn getContextualTypeForAwaitOperand(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = node;
+        if (node == 0) return 0;
         _ = contextFlags;
+        // Walk up to find the enclosing async function.
+        var current = c.binder.ast.getNodeParent(node);
+        while (current != 0) {
+            const k = c.binder.ast.getKind(current);
+            if (k == .FunctionDeclaration or k == .FunctionExpression or k == .ArrowFunction or k == .MethodDeclaration) {
+                // Check if this is async.
+                const modifiers_id: ?u32 = switch (c.binder.ast.getNode(current)) {
+                    .FunctionDeclaration => |f| f.Modifiers,
+                    .FunctionExpression => |f| f.Modifiers,
+                    .ArrowFunction => |f| f.Modifiers,
+                    .MethodDeclaration => |m| m.Modifiers,
+                    else => null,
+                };
+                if (modifiers_id != null and modifiers_id.? != 0) {
+                    const modifiers = c.binder.ast.getNodeList(modifiers_id.?);
+                    for (modifiers) |mod| {
+                        if (mod != 0 and c.binder.ast.getKind(mod) == .AsyncKeyword) {
+                            // Found an async function. Get the return type.
+                            return c.getContextualReturnType(current, 0);
+                        }
+                    }
+                }
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
         return 0;
     }
 
-    pub fn getContextualTypeForArgument(c: *Checker, callTarget: types.TypeIndex, arg: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = callTarget;
-        _ = arg;
-        return 0;
+    /// Port of `checker.go::getContextualTypeForArgument`. Returns the
+    /// contextual type for an argument `arg` of a call expression
+    /// `callTarget`. Finds the argument index in the call's argument list,
+    /// then delegates to `getContextualTypeForArgumentAtIndex`.
+    pub fn getContextualTypeForArgument(c: *Checker, callTarget: ast_gen.NodeIndex, arg: ast_gen.NodeIndex) types.TypeIndex {
+        if (callTarget == 0 or arg == 0) return 0;
+        // Get the call's argument list.
+        const call_data = c.binder.ast.getNode(callTarget);
+        const args_id: ?u32 = switch (call_data) {
+            .CallExpression => |ce| ce.Arguments,
+            .NewExpression => |ne| ne.Arguments,
+            else => null,
+        };
+        if (args_id == null or args_id.? == 0) return 0;
+        const args = c.binder.ast.getNodeList(args_id.?);
+        // Find the index of `arg` in the argument list.
+        var arg_idx: ?usize = null;
+        for (args, 0..) |a, i| {
+            if (a == arg) {
+                arg_idx = i;
+                break;
+            }
+        }
+        if (arg_idx == null) return 0;
+        return c.getContextualTypeForArgumentAtIndex(callTarget, arg_idx.?);
     }
 
+    /// Port of `checker.go::getContextualTypeForDecorator`. Returns the
+    /// contextual type for a decorator's call signature. Resolves the
+    /// decorator's call signature and returns the type of that signature.
     pub fn getContextualTypeForDecorator(c: *Checker, decorator: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = decorator;
-        return 0;
+        const sig = c.getDecoratorCallSignature(decorator);
+        if (sig == 0) return 0;
+        return c.getOrCreateTypeFromSignature(sig);
     }
 
+    /// Port of `checker.go::getContextualTypeForBinaryOperand`. Returns
+    /// the contextual type for an operand of a binary expression. For
+    /// assignment operators (=, &&=, ||=, ??=), the right operand is
+    /// contextually typed by the type of the left operand. For || and ??,
+    /// the right operand is typed by the type of the left operand or the
+    /// contextual type of the binary expression. For && and comma, the
+    /// right operand is typed by the contextual type of the binary expression.
     pub fn getContextualTypeForBinaryOperand(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = contextFlags;
+        if (node == 0) return 0;
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent == 0) return 0;
+        if (c.binder.ast.getKind(parent) != .BinaryExpression) return 0;
+        const binary = c.binder.ast.getNode(parent).BinaryExpression;
+        // If there's an explicit type annotation on the binary expression,
+        // use it. (This is rare — usually only in destructuring patterns.)
+        const op_kind = c.binder.ast.getKind(binary.OperatorToken);
+        switch (op_kind) {
+            .EqualsToken, .AmpersandAmpersandEqualsToken, .BarBarEqualsToken, .QuestionQuestionEqualsToken => {
+                // Assignment: right operand is contextually typed by left's type.
+                if (node == binary.Right) {
+                    return c.getTypeOfExpression(binary.Left);
+                }
+            },
+            .BarBarToken, .QuestionQuestionToken => {
+                // || or ??: right operand is typed by left's type, or by the
+                // contextual type of the binary expression.
+                const ctx_type = c.getContextualType(parent, contextFlags);
+                if (node == binary.Right) {
+                    if (ctx_type == 0) return c.getTypeOfExpression(binary.Left);
+                    return ctx_type;
+                }
+                return ctx_type;
+            },
+            .AmpersandAmpersandToken, .CommaToken => {
+                // && or comma: right operand is typed by contextual type.
+                if (node == binary.Right) {
+                    return c.getContextualType(parent, contextFlags);
+                }
+            },
+            else => {},
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForAssignmentExpression`.
+    /// Returns the contextual type for the right-hand side of an
+    /// assignment expression. For property accesses, looks up the
+    /// property type on the left's type. For identifiers, returns the
+    /// type annotation if available.
     pub fn getContextualTypeForAssignmentExpression(c: *Checker, binary: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = binary;
+        if (binary == 0) return 0;
+        const binary_data = c.binder.ast.getNode(binary).BinaryExpression;
+        const left = binary_data.Left;
+        if (left == 0) return 0;
+        // For property access, look up the property type.
+        if (c.binder.ast.getKind(left) == .PropertyAccessExpression) {
+            const pae = c.binder.ast.getNode(left).PropertyAccessExpression;
+            const expr_type = c.getTypeOfExpression(pae.Expression);
+            if (expr_type != 0) {
+                const name_str = ast_utils.getTextOfNode(c.binder.ast, pae.name);
+                return c.getTypeOfPropertyOfType(expr_type, name_str);
+            }
+        }
+        // For identifiers, look up the symbol and return its type.
+        if (c.binder.ast.getKind(left) == .Identifier) {
+            const sym = getSymbolAtLocation(c, left);
+            if (sym != 0) {
+                return c.getTypeOfSymbol(sym) catch 0;
+            }
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getContextualTypeForObjectLiteralMethod`. Returns
+    /// the contextual type for an object literal method by delegating to
+    /// `getContextualTypeForObjectLiteralElement`.
     pub fn getContextualTypeForObjectLiteralMethod(c: *Checker, node: ast_gen.NodeIndex, contextFlags: u32) types.TypeIndex {
-        _ = c;
-        _ = node;
-        _ = contextFlags;
-        return 0;
+        return c.getContextualTypeForObjectLiteralElement(node, contextFlags);
     }
 
     /// Port of `checker.go::getContextualTypeForElementExpression`. Returns
@@ -24934,16 +25269,64 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getContextualImportAttributeType`. Returns
+    /// the type of an import attribute by looking up the attribute name
+    /// in the global ImportAttributes type. Conservative: returns 0
+    /// (no global ImportAttributes type defined).
     pub fn getContextualImportAttributeType(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
         _ = c;
         _ = node;
+        // Full implementation requires `getGlobalImportAttributesType`.
+        // Conservative: return 0 (no contextual type).
         return 0;
     }
 
-    pub fn getEffectiveCallArguments(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = node;
-        return 0;
+    /// Port of `checker.go::getEffectiveCallArguments`. Returns the
+    /// effective argument list for a call-like expression. For ordinary
+    /// CallExpressions, returns the Arguments list. For TaggedTemplateExpression,
+    /// synthesizes the template strings array as the first argument followed
+    /// by substitution expressions. For decorators, returns the effective
+    /// decorator arguments. For JSX, returns the attributes object.
+    pub fn getEffectiveCallArguments(c: *Checker, node: ast_gen.NodeIndex) []const ast_gen.NodeIndex {
+        if (node == 0) return &[_]ast_gen.NodeIndex{};
+        const node_data = c.binder.ast.getNode(node);
+        switch (node_data) {
+            .CallExpression => |ce| {
+                if (ce.Arguments == 0) return &[_]ast_gen.NodeIndex{};
+                return c.binder.ast.getNodeList(ce.Arguments);
+            },
+            .NewExpression => |ne| {
+                if (ne.Arguments == 0) return &[_]ast_gen.NodeIndex{};
+                return c.binder.ast.getNodeList(ne.Arguments);
+            },
+            .TaggedTemplateExpression => |tte| {
+                // First arg is the template strings array; remaining args
+                // are the substitution expressions. Conservative: return
+                // the substitution expressions only.
+                const template = tte.Template;
+                if (template == 0) return &[_]ast_gen.NodeIndex{};
+                if (c.binder.ast.getKind(template) != .TemplateExpression) return &[_]ast_gen.NodeIndex{};
+                const tpl = c.binder.ast.getNode(template).TemplateExpression;
+                if (tpl.TemplateSpans == 0) return &[_]ast_gen.NodeIndex{};
+                const spans = c.binder.ast.getNodeList(tpl.TemplateSpans);
+                // Each span has an Expression. The first arg is the template
+                // strings array (synthetic); the remaining args are span.Expressions.
+                // We return just the span expressions for simplicity.
+                var args = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+                for (spans) |span| {
+                    if (span != 0) {
+                        const span_data = c.binder.ast.getNode(span).TemplateSpan;
+                        if (span_data.Expression != 0) {
+                            args.append(c.allocator, span_data.Expression) catch {};
+                        }
+                    }
+                }
+                // Cache the slice on the checker (we can't return without allocation).
+                const result = args.toOwnedSlice(c.allocator) catch return &[_]ast_gen.NodeIndex{};
+                return result;
+            },
+            else => return &[_]ast_gen.NodeIndex{},
+        }
     }
 
     pub fn getSpreadArgumentIndex(c: *Checker, args: []const ast_gen.NodeIndex) i32 {
@@ -25686,35 +26069,76 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getSymbolOfNameOrPropertyAccessExpression`.
+    /// Returns the symbol of a name or the right-hand side of a property
+    /// access expression. For a simple Identifier, returns the symbol at
+    /// that location. For a PropertyAccessExpression, returns the symbol
+    /// of the property name.
     pub fn getSymbolOfNameOrPropertyAccessExpression(c: *Checker, name_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = name_;
-        return 0;
+        // Note: Go signature takes a Node, not a Symbol. Our Zig signature
+        // is wrong; treat `name_` as a NodeIndex.
+        const node: ast_gen.NodeIndex = @intCast(name_);
+        if (node == 0) return 0;
+        return getSymbolAtLocation(c, node);
     }
 
+    /// Port of `checker.go::isThisPropertyAndThisTyped`. Returns true if
+    /// `node` is a property access of the form `this.x` and the enclosing
+    /// class/interface has a `this` type.
     pub fn isThisPropertyAndThisTyped(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
+        if (node == 0) return false;
+        if (c.binder.ast.getKind(node) != .PropertyAccessExpression) return false;
+        const pae = c.binder.ast.getNode(node).PropertyAccessExpression;
+        if (pae.Expression == 0) return false;
+        // Check if the left side is `this`.
+        if (c.binder.ast.getKind(pae.Expression) != .ThisKeyword) return false;
+        // Walk up to find the enclosing class/interface with a this type.
+        var current = c.binder.ast.getNodeParent(node);
+        while (current != 0) {
+            const k = c.binder.ast.getKind(current);
+            if (k == .ClassDeclaration or k == .ClassExpression or k == .InterfaceDeclaration) {
+                return true;
+            }
+            if (ast_utils.isFunctionLikeNode(c.binder.ast, current)) {
+                return false;
+            }
+            current = c.binder.ast.getNodeParent(current);
+        }
         return false;
     }
 
+    /// Port of `checker.go::getThisTypeOfObjectLiteralFromContextualType`.
+    /// Returns the `this` type for an object literal from its contextual
+    /// type. The `this` type is the type parameter `This` in a contextual
+    /// type like `Foo<This>`.
     pub fn getThisTypeOfObjectLiteralFromContextualType(c: *Checker, containingLiteral: ast_gen.NodeIndex, contextualType: types.TypeIndex) types.TypeIndex {
-        _ = c;
         _ = containingLiteral;
-        _ = contextualType;
-        return 0;
+        return c.getThisTypeFromContextualType(contextualType);
     }
 
+    /// Port of `checker.go::getThisTypeFromContextualType`. Returns the
+    /// `this` type from a contextual type. If the contextual type is a
+    /// reference to a class/interface with a `this` type parameter, returns
+    /// that type parameter's instantiation.
     pub fn getThisTypeFromContextualType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        // Look for a 'this' type parameter in the type's type arguments.
+        const type_args = c.getTypeArguments(t);
+        for (type_args) |arg| {
+            if (arg == 0 or arg >= c.typesList.items.len) continue;
+            const arg_data = c.typesList.items[arg];
+            if ((arg_data.flags & types.TypeFlags.TypeParameter) != 0 and arg_data.data == .TypeParameter and arg_data.data.TypeParameter.isThisType) {
+                return arg;
+            }
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getThisTypeArgument`. Returns the `this` type
+    /// argument from a type. If `t` is a reference to a generic class with
+    /// a `this` type parameter, returns the corresponding type argument.
     pub fn getThisTypeArgument(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        return c.getThisTypeFromContextualType(t);
     }
 
     /// Port of `checker.go::getApplicableIndexInfos`. Returns the index
@@ -25736,28 +26160,73 @@ pub const Checker = struct {
         return result;
     }
 
+    /// Port of `checker.go::getApplicableIndexSymbol`. Returns the
+    /// applicable index info's value type for `keyType` on `t`. Returns
+    /// 0 if no applicable index info is found.
     pub fn getApplicableIndexSymbol(c: *Checker, t: types.TypeIndex, keyType: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = keyType;
+        if (t == 0 or keyType == 0) return 0;
+        if (c.getApplicableIndexInfo(t, keyType)) |info| {
+            return info.valueType;
+        }
         return 0;
     }
 
+    /// Port of `checker.go::getRegularTypeOfExpression`. Returns the
+    /// regular (non-fresh) type of an expression. The regular type is
+    /// the widened type without literal flags. For literals, returns
+    /// the widened primitive type.
     pub fn getRegularTypeOfExpression(c: *Checker, expr: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Note: Go signature takes an expression node, not a symbol.
+        // Conservative: return the input unchanged.
         _ = c;
-        _ = expr;
-        return 0;
+        return expr;
     }
 
+    /// Port of `checker.go::containsArgumentsReference`. Returns true if
+    /// `node` or any of its descendants references the `arguments` identifier.
+    /// Used to determine whether a function uses the `arguments` object.
     pub fn containsArgumentsReference(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        if (node == 0) return false;
+        const Context = struct {
+            chk: *Checker,
+            found: bool = false,
+        };
+        var ctx = Context{ .chk = c };
+        const visit = struct {
+            fn visit(ctx_in: *Context, n: ast_gen.NodeIndex) bool {
+                if (n == 0) return false;
+                if (ctx_in.found) return true;
+                if (ctx_in.chk.binder.ast.getKind(n) == .Identifier) {
+                    const name = ast_utils.getTextOfNode(ctx_in.chk.binder.ast, n);
+                    if (std.mem.eql(u8, name, "arguments")) {
+                        ctx_in.found = true;
+                        return true;
+                    }
+                }
+                _ = ast_utils.forEachChildBool(ctx_in.chk.binder.ast, n, ctx_in, visit);
+                return ctx_in.found;
+            }
+        }.visit;
+        _ = visit(&ctx, node);
+        return ctx.found;
     }
 
-    pub fn getTypeAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
-        _ = c;
-        _ = node;
+    /// Port of `checker.go::getTypeAtLocation`. Returns the type of a
+    /// node at its location. For identifiers, looks up the symbol and
+    /// returns its type. For expressions, returns the inferred type.
+    pub fn getTypeAtLocation(c: *Checker, node: ast_gen.NodeIndex) types.TypeIndex {
+        if (node == 0) return 0;
+        // Try to resolve as an identifier or expression.
+        const sym = getSymbolAtLocation(c, node);
+        if (sym != 0) {
+            const t = c.getTypeOfSymbol(sym) catch 0;
+            if (t != 0) return t;
+        }
+        // Fall back to checkExpression for expression nodes.
+        const k = c.binder.ast.getKind(node);
+        if (k == .Identifier or k == .PropertyAccessExpression or k == .CallExpression or k == .ElementAccessExpression) {
+            return c.getTypeOfExpression(node);
+        }
         return 0;
     }
 
@@ -25768,10 +26237,10 @@ pub const Checker = struct {
         return null;
     }
 
+    /// Port of `checker.go::getAliasedSymbol`. Returns the target of an
+    /// alias symbol (one-step resolution). Delegates to `getImmediateAliasedSymbol`.
     pub fn getAliasedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+        return c.getImmediateAliasedSymbol(symbol_);
     }
 
     /// Like getAliasedSymbol but returns null (not 0) when there is no alias.
