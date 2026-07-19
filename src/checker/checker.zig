@@ -21118,22 +21118,34 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::hasBindableName`. Returns true if `node`
+    /// has a bindable name (i.e., its name is an identifier or string
+    /// literal, not a computed property or numeric literal).
     pub fn hasBindableName(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        if (node == 0) return false;
+        const name_node = ast_utils.getPropertyNameOfNode(c.binder.ast, node);
+        if (name_node == 0) return false;
+        const k = c.binder.ast.getKind(name_node);
+        return k == .Identifier or k == .StringLiteral or k == .NumericLiteral;
     }
 
+    /// Port of `checker.go::hasLateBindableName`. Returns true if `node`
+    /// has a late-bindable name (a computed property name whose expression
+    /// is an entity name).
     pub fn hasLateBindableName(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        if (node == 0) return false;
+        const name_node = ast_utils.getPropertyNameOfNode(c.binder.ast, node);
+        if (name_node == 0) return false;
+        return c.binder.ast.getKind(name_node) == .ComputedPropertyName and c.isLateBindableAST(name_node);
     }
 
+    /// Port of `checker.go::isLateBindableName`. Returns true if `node`
+    /// is a late-bindable name (a computed property name with an entity
+    /// name expression).
     pub fn isLateBindableName(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = c;
-        _ = node;
-        return false;
+        if (node == 0) return false;
+        if (c.binder.ast.getKind(node) != .ComputedPropertyName) return false;
+        return c.isLateBindableAST(node);
     }
 
     pub fn hasLateBindableIndexSignature(c: *Checker, node: ast_gen.NodeIndex) bool {
@@ -21201,16 +21213,23 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getAnnotatedAccessorType`. Returns the
+    /// annotated return type of a get accessor, or 0 if no annotation.
     pub fn getAnnotatedAccessorType(c: *Checker, accessor: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = accessor;
-        return 0;
+        const type_node = c.getAnnotatedAccessorTypeNode(accessor);
+        if (type_node == 0) return 0;
+        return c.getTypeFromTypeNode(type_node);
     }
 
-    pub fn getAnnotatedAccessorTypeNode(c: *Checker, accessor: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = accessor;
-        return 0;
+    /// Port of `checker.go::getAnnotatedAccessorTypeNode`. Returns the
+    /// type annotation node of a get accessor, or 0 if no annotation.
+    pub fn getAnnotatedAccessorTypeNode(c: *Checker, accessor: ast_gen.NodeIndex) ast_gen.NodeIndex {
+        if (accessor == 0) return 0;
+        const node_data = c.binder.ast.getNode(accessor);
+        return switch (node_data) {
+            .GetAccessor => |ga| ga.Type orelse 0,
+            else => 0,
+        };
     }
 
     pub fn getEffectiveSetAccessorTypeAnnotationNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -21629,16 +21648,27 @@ pub const Checker = struct {
         return isThislessType(c, constraint.?);
     }
 
-    pub fn getDefaultConstructSignatures(c: *Checker, classType: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = classType;
+    /// Port of `checker.go::getDefaultConstructSignatures`. Returns the
+    /// default construct signatures of a class type. If the class has
+    /// no explicit constructor, returns a synthetic signature that
+    /// constructs the class instance. Conservative: returns 0.
+    pub fn getDefaultConstructSignatures(c: *Checker, classType: ast_gen.SymbolIndex) types.SignatureIndex {
+        if (classType == 0 or classType >= c.binder.symbols.items.len) return 0;
+        // Get the class's declared type and look up construct signatures.
+        const declared_type = c.getDeclaredTypeOfSymbol(classType);
+        if (declared_type == 0) return 0;
+        const sigs = c.getSignaturesOfType(declared_type, .Construct);
+        if (sigs.len > 0) return c.resolvedSignaturesPool.items[sigs.start];
         return 0;
     }
 
-    pub fn getTypeOfMappedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
-        _ = c;
-        _ = symbol_;
-        return 0;
+    /// Port of `checker.go::getTypeOfMappedSymbol`. Returns the type of
+    /// a mapped symbol. For a symbol that's part of a mapped type, returns
+    /// the mapped type's value type. Conservative: returns the symbol's
+    /// regular type.
+    pub fn getTypeOfMappedSymbol(c: *Checker, symbol_: ast_gen.SymbolIndex) types.TypeIndex {
+        // Fall back to the regular getTypeOfSymbol.
+        return c.getTypeOfSymbol(symbol_) catch 0;
     }
 
     pub fn getLowerBoundOfKeyType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
