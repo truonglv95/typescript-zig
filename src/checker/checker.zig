@@ -7101,6 +7101,11 @@ pub const Checker = struct {
                     if (inferred_t != 0) {
                         return inferred_t;
                     }
+                    // Type parameter is in the inferred map but has value 0
+                    // (inference failed). Return unknown instead of leaving
+                    // the type parameter unchanged. This matches Go's
+                    // behavior when type arguments can't be inferred.
+                    return self.unknownTypeIndex orelse (self.anyTypeIndex orelse 0);
                 }
                 // Fallback: try matching by name. The TypeParameter symbol in
                 // the return type may differ from the one in the inferred map
@@ -7118,6 +7123,8 @@ pub const Checker = struct {
                                 if (entry.value_ptr.* != 0) {
                                     return entry.value_ptr.*;
                                 }
+                                // Found by name but value is 0 (not inferred).
+                                return self.unknownTypeIndex orelse (self.anyTypeIndex orelse 0);
                             }
                         }
                     }
