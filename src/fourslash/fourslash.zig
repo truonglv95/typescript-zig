@@ -1547,10 +1547,49 @@ pub const FourslashTest = struct {
 
         // Find the node at cursor position.
         const cursorPos = @as(u32, @intCast(self.cursorPos));
-        const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+        var node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
+        // If the cursor is between tokens (e.g., between @ and the
+        // decorator name), try nearby positions.
+        if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) {
+            if (cursorPos > 0) {
+                const prev_node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos - 1);
+                if (prev_node != 0 and p.ast.getNodeKind(prev_node) != .SourceFile) {
+                    node = prev_node;
+                }
+            }
+            if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) {
+                const next_node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos + 1);
+                if (next_node != 0 and p.ast.getNodeKind(next_node) != .SourceFile) {
+                    node = next_node;
+                }
+            }
+        }
         if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) {
             if (self.tryJSDocQuickInfo(cursorPos)) |info| return info;
             return "";
+        }
+
+        // If the node is an ExpressionStatement, descend to its Expression.
+        if (p.ast.getNodeKind(node) == .ExpressionStatement) {
+            const expr = p.ast.getNode(node).ExpressionStatement.Expression;
+            if (expr != 0) node = expr;
+        }
+        // If the node is a VariableStatement, try to find the VariableDeclaration
+        // at the cursor position.
+        if (p.ast.getNodeKind(node) == .VariableStatement) {
+            const decl_list = p.ast.getNode(node).VariableStatement.DeclarationList;
+            if (decl_list != 0) {
+                const decls = p.ast.getNodeList(decl_list);
+                for (decls) |decl| {
+                    if (decl == 0) continue;
+                    const pos = p.ast.getNodePos(decl);
+                    const end = p.ast.getNodeEnd(decl);
+                    if (pos <= cursorPos and cursorPos <= end) {
+                        node = decl;
+                        break;
+                    }
+                }
+            }
         }
 
         // Special handling for the `this` keyword. The binder usually
