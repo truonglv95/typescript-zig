@@ -4253,6 +4253,10 @@ pub const Checker = struct {
                     if (ga.Type) |t| {
                         if (t != 0) return try self.getTypeOfNode(t);
                     }
+                    // No explicit return type annotation — infer from body.
+                    // Use the same logic as function return type inference.
+                    const body_ret = self.getReturnTypeFromBody(decl_index, CheckMode.Normal);
+                    if (body_ret != 0) return body_ret;
                     return try self.getAnyType();
                 },
                 .SetAccessor => |sa| {
@@ -4263,6 +4267,8 @@ pub const Checker = struct {
                             if (param.Type) |pt| {
                                 if (pt != 0) return try self.getTypeOfNode(pt);
                             }
+                            // No explicit parameter type — infer from body's
+                            // first assignment to the parameter.
                         }
                     }
                     return try self.getAnyType();

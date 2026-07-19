@@ -584,14 +584,40 @@ pub const NodeBuilderImpl = struct {
             const prop_type = b.c.getTypeOfSymbol(prop) catch 0;
             const type_node = if (prop_type != 0) b.typeToTypeNode(prop_type) else createKeywordTypeNode(b, .AnyKeyword);
             const optional = (b.c.getSymbolFlags(prop) & sym_mod.SymbolFlags.Optional) != 0;
+            // Detect readonly: either the symbol has CheckFlags.Readonly set
+            // (e.g., a property with only a getter), or it has the `readonly`
+            // modifier on its declaration, or it's an accessor with only a
+            // getter.
+            const is_readonly = b.c.isReadonlySymbol(prop) or
+                blk: {
+                    const sym_obj = b.c.binder.symbols.items[prop];
+                    for (sym_obj.Declarations.items) |decl| {
+                        if (decl != 0) {
+                            const decl_data = b.c.binder.ast.getNode(decl);
+                            const mods: u32 = switch (decl_data) {
+                                .PropertySignature => |n| n.modifierFlags,
+                                .PropertyDeclaration => |n| n.modifierFlags,
+                                else => 0,
+                            };
+                            if ((mods & @import("../ast/ast_utils.zig").ModifierFlags.Readonly) != 0) break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
             const name_node = createPropertyNameNode(b, b.c.getSymbolName(prop));
             var f = factory(b);
+            const readonly_token = if (is_readonly) f.newToken(.{ .ReadonlyKeyword = {} }) else null;
+            var mods_list: ?u32 = null;
+            if (readonly_token != null) {
+                const mods_arr = [_]u32{readonly_token.?};
+                mods_list = b.c.binder.ast.pushNodeList(&mods_arr) catch 0;
+            }
             const member = b.c.binder.ast.pushNode(.{
                 .PropertySignature = .{
                     .Flags = synthesizedFlags(),
                     .Symbol = 0,
-                    .modifiers = null,
-                    .modifierFlags = 0,
+                    .modifiers = mods_list,
+                    .modifierFlags = if (is_readonly) @import("../ast/ast_utils.zig").ModifierFlags.Readonly else 0,
                     .name = name_node,
                     .PostfixToken = if (optional) f.newToken(.{ .QuestionToken = {} }) else null,
                     .Type = type_node,

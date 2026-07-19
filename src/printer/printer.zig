@@ -2530,7 +2530,18 @@ pub const Printer = struct {
     pub fn emitTokenNode(self: *Printer, tokenIndexOpt: ?u32) anyerror!void {
         if (tokenIndexOpt) |tokenIndex| {
             const tokenKind = std.meta.activeTag(self.tree.getNode(tokenIndex));
-            _ = try self.emitToken(tokenKind, 0, .Punctuation, tokenIndex);
+            // Use Keyword write kind for keyword tokens, Punctuation for
+            // punctuation tokens. This affects trailing space handling —
+            // keywords need a trailing space which is added by the modifier
+            // list printer (SpaceAfterList flag).
+            const ast_kind = @import("../ast/kind.zig");
+            const k = @intFromEnum(tokenKind);
+            const is_keyword = k >= @intFromEnum(ast_kind.Kind.AbstractKeyword) and k <= @intFromEnum(ast_kind.Kind.YieldKeyword);
+            if (is_keyword) {
+                _ = try self.emitToken(tokenKind, 0, .Keyword, tokenIndex);
+            } else {
+                _ = try self.emitToken(tokenKind, 0, .Punctuation, tokenIndex);
+            }
         }
     }
     pub fn writeLineOrSpace(self: *Printer, parent: u32, node1: u32, node2: u32) anyerror!void {
