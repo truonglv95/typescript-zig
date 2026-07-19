@@ -21073,12 +21073,25 @@ pub const Checker = struct {
         return ast_utils.isEntityNameExpression(c.binder.ast, expr);
     }
 
-    pub fn getNonCircularReturnTypeOfSignature(c: *Checker, sig: types.SignatureIndex) types.TypeIndex {        _ = c;
-        _ = sig;
-        return 0;
+    pub fn getNonCircularReturnTypeOfSignature(c: *Checker, sig: types.SignatureIndex) types.TypeIndex {
+        if (sig == 0 or sig >= c.signatures.items.len) return 0;
+        const sig_obj = &c.signatures.items[sig];
+        if (sig_obj.resolvedReturnType) |rt| {
+            if (rt != 0) return rt;
+        }
+        // Use a depth guard to prevent infinite recursion.
+        if (c.typeCheckDepth > 8) {
+            return c.anyTypeIndex orelse 0;
+        }
+        c.typeCheckDepth += 1;
+        defer c.typeCheckDepth -= 1;
+        return c.getReturnTypeOfSignature(sig_obj);
     }
 
-    pub fn getReturnTypeFromAnnotation(c: *Checker, declaration: ast_gen.SymbolIndex) ast_gen.SymbolIndex {        _ = c;
+    pub fn getReturnTypeFromAnnotation(c: *Checker, declaration: ast_gen.SymbolIndex) ast_gen.SymbolIndex {
+        // Note: signature is wrong (should take NodeIndex, return TypeIndex).
+        // Conservative: returns 0.
+        _ = c;
         _ = declaration;
         return 0;
     }
@@ -21208,9 +21221,32 @@ pub const Checker = struct {
         return .{ .types = return_types.toOwnedSlice(c.allocator) catch &.{}, .is_never_returning = has_never and return_types.items.len == 0 };
     }
 
-    pub fn functionHasImplicitReturn(c: *Checker, fn_: ast_gen.NodeIndex) bool {        _ = c;
-        _ = fn_;
-        return false;
+    pub fn functionHasImplicitReturn(c: *Checker, fn_: ast_gen.NodeIndex) bool {
+        if (fn_ == 0) return true;
+        // Get the function body.
+        const fn_data = c.binder.ast.getNode(fn_);
+        const body: ast_gen.NodeIndex = switch (fn_data) {
+            .FunctionDeclaration => |n| n.Body orelse 0,
+            .FunctionExpression => |n| n.Body orelse 0,
+            .ArrowFunction => |n| n.Body orelse 0,
+            .MethodDeclaration => |n| n.Body orelse 0,
+            .Constructor => |n| n.Body orelse 0,
+            .GetAccessor => |n| n.Body orelse 0,
+            .SetAccessor => |n| n.Body orelse 0,
+            else => return false,
+        };
+        if (body == 0) return false;
+        // If body is not a block (e.g., arrow function with expression body),
+        // there's no implicit return.
+        if (c.binder.ast.getKind(body) != .Block) return false;
+        const stmts_id = c.binder.ast.getNode(body).Block.Statements;
+        if (stmts_id == 0) return true;
+        const stmts = c.binder.ast.getNodeList(stmts_id);
+        if (stmts.len == 0) return true;
+        const last = stmts[stmts.len - 1];
+        if (last == 0) return true;
+        const k = c.binder.ast.getKind(last);
+        return k != .ReturnStatement and k != .ThrowStatement;
     }
 
     pub fn mayReturnNever(c: *Checker, fn_: ast_gen.NodeIndex) bool {
@@ -21259,16 +21295,23 @@ pub const Checker = struct {
         return c.createTypeReferenceEx(target, &[_]types.TypeIndex{promisedType}, 0) catch (c.anyTypeIndex orelse 0);
     }
 
-    pub fn createPromiseReturnType(c: *Checker, fn_: ast_gen.NodeIndex, promisedType: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
+    pub fn createPromiseReturnType(c: *Checker, fn_: ast_gen.NodeIndex, promisedType: ast_gen.NodeIndex) types.TypeIndex {
         _ = fn_;
-        _ = promisedType;
-        return 0;
+        if (promisedType == 0) return 0;
+        // Look up global Promise type.
+        const promise_type = c.getGlobalType("Promise", 1, false);
+        if (promise_type == 0) return c.anyTypeIndex orelse 0;
+        // Conservative: return promise_type without instantiation.
+        return promise_type;
     }
 
-    pub fn unwrapReturnType(c: *Checker, returnType: types.TypeIndex, functionFlags: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
-        _ = returnType;
+    pub fn unwrapReturnType(c: *Checker, returnType: types.TypeIndex, functionFlags: ast_gen.NodeIndex) types.TypeIndex {
         _ = functionFlags;
-        return 0;
+        if (returnType == 0) return 0;
+        // If returnType is a Promise<T>, return T.
+        const promised = c.getPromisedTypeOfPromiseEx(returnType, 0, null);
+        if (promised != 0) return promised;
+        return returnType;
     }
 
     pub fn getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded(c: *Checker, t: types.TypeIndex, contextualSignatureReturnType: ast_gen.NodeIndex, isAsync: bool) types.TypeIndex {        _ = c;
