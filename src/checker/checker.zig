@@ -25046,6 +25046,43 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
     }
 
     if (ast_utils.isIdentifier(c.binder.ast, node)) {
+        // First, check if this Identifier is the `name` of a declaration node
+        // (PropertySignature, PropertyDeclaration, MethodDeclaration,
+        // ShorthandPropertyAssignment, etc.). Property names inside
+        // interface/class/object-literal declarations are declarations,
+        // not references, so resolveName shouldn't be used for them.
+        // Doing this FIRST avoids returning the outer-scope symbol for
+        // shorthand property names like `{ name1 }` (which would otherwise
+        // resolve `name1` to the outer `var name1` instead of the property).
+        const parent = c.binder.ast.getNodeParent(node);
+        if (parent != 0) {
+            const parent_data = c.binder.ast.getNode(parent);
+            const is_name_of_decl = switch (parent_data) {
+                .PropertySignature => |n| n.name == node,
+                .PropertyDeclaration => |n| n.name == node,
+                .MethodDeclaration => |n| n.name == node,
+                .MethodSignature => |n| n.name == node,
+                .GetAccessor => |n| n.name == node,
+                .SetAccessor => |n| n.name == node,
+                .PropertyAssignment => |n| n.name == node,
+                .ShorthandPropertyAssignment => |n| n.name == node,
+                .EnumMember => |n| n.name == node,
+                .BindingElement => |n| n.name == node,
+                .VariableDeclaration => |n| n.name == node,
+                .Parameter => |n| n.name == node,
+                .FunctionDeclaration => |n| n.name orelse 0 == node,
+                .ClassDeclaration => |n| n.name orelse 0 == node,
+                .InterfaceDeclaration => |n| n.name == node,
+                .TypeAliasDeclaration => |n| n.name == node,
+                .EnumDeclaration => |n| n.name == node,
+                .ModuleDeclaration => |n| n.name == node,
+                else => false,
+            };
+            if (is_name_of_decl) {
+                const decl_sym = c.getSymbolOfDeclaration(parent);
+                if (decl_sym != 0) return decl_sym;
+            }
+        }
         const sym = getResolvedSymbol(c, node);
         if (sym != 0 and sym != c.unknownSymbol) {
             return sym;
@@ -25071,39 +25108,6 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
             const type_sym = resolveName(c, node, name, symbol.SymbolFlags.Type, null, false, false);
             if (type_sym != 0 and type_sym != c.unknownSymbol) {
                 return type_sym;
-            }
-        }
-        // Fallback: if this Identifier is the `name` of a declaration node
-        // (PropertySignature, PropertyDeclaration, MethodDeclaration, etc.),
-        // return the declaration's symbol directly. Property names inside
-        // interface/class declarations are declarations, not references, so
-        // resolveName won't find them in the scope chain.
-        const parent = c.binder.ast.getNodeParent(node);
-        if (parent != 0) {
-            const parent_data = c.binder.ast.getNode(parent);
-            const is_name_of_decl = switch (parent_data) {
-                .PropertySignature => |n| n.name == node,
-                .PropertyDeclaration => |n| n.name == node,
-                .MethodDeclaration => |n| n.name == node,
-                .MethodSignature => |n| n.name == node,
-                .GetAccessor => |n| n.name == node,
-                .SetAccessor => |n| n.name == node,
-                .PropertyAssignment => |n| n.name == node,
-                .EnumMember => |n| n.name == node,
-                .BindingElement => |n| n.name == node,
-                .VariableDeclaration => |n| n.name == node,
-                .Parameter => |n| n.name == node,
-                .FunctionDeclaration => |n| n.name orelse 0 == node,
-                .ClassDeclaration => |n| n.name orelse 0 == node,
-                .InterfaceDeclaration => |n| n.name == node,
-                .TypeAliasDeclaration => |n| n.name == node,
-                .EnumDeclaration => |n| n.name == node,
-                .ModuleDeclaration => |n| n.name == node,
-                else => false,
-            };
-            if (is_name_of_decl) {
-                const decl_sym = c.getSymbolOfDeclaration(parent);
-                if (decl_sym != 0) return decl_sym;
             }
         }
     }
