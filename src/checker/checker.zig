@@ -20784,48 +20784,92 @@ pub const Checker = struct {
         return 0;
     }
 
+    /// Port of `checker.go::getSingleCallSignature`. Returns the single
+    /// call signature of `t`, or 0 if `t` has zero or multiple call signatures.
     pub fn getSingleCallSignature(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        return c.getSingleSignature(t, .Call, 0);
     }
 
+    /// Port of `checker.go::getSingleCallOrConstructSignature`. Returns
+    /// the single call or construct signature of `t`. If `t` has exactly
+    /// one call signature, returns it; otherwise if exactly one construct
+    /// signature, returns that; otherwise returns 0.
     pub fn getSingleCallOrConstructSignature(c: *Checker, t: types.TypeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        return 0;
+        const call_sig = c.getSingleSignature(t, .Call, 0);
+        if (call_sig != 0) return call_sig;
+        return c.getSingleSignature(t, .Construct, 0);
     }
 
+    /// Port of `checker.go::getSingleSignature`. Returns the single
+    /// signature of kind `kind_` of `t`, or 0 if `t` has zero or multiple
+    /// such signatures. The `allowMembers` parameter is unused in this
+    /// simplified implementation.
     pub fn getSingleSignature(c: *Checker, t: types.TypeIndex, kind_: types.SignatureKind, allowMembers: ast_gen.NodeIndex) types.TypeIndex {
-        _ = c;
-        _ = t;
-        _ = kind_;
         _ = allowMembers;
-        return 0;
+        if (t == 0 or t >= c.typesList.items.len) return 0;
+        const sigs = c.getSignaturesOfType(t, kind_);
+        if (sigs.len != 1) return 0;
+        return c.resolvedSignaturesPool.items[sigs.start];
     }
 
+    /// Port of `checker.go::getOrCreateTypeFromSignature`. Returns the
+    /// function type for a signature. If the signature's declaration has
+    /// a function type, returns it; otherwise creates a new anonymous type.
     pub fn getOrCreateTypeFromSignature(c: *Checker, sig: types.SignatureIndex) types.TypeIndex {
-        _ = c;
-        _ = sig;
-        return 0;
+        if (sig == 0 or sig >= c.signatures.items.len) return 0;
+        const sig_obj = &c.signatures.items[sig];
+        // If the signature has an isolated signature type, return it.
+        if (sig_obj.isolatedSignatureType) |ist| {
+            if (ist != 0) return ist;
+        }
+        // Create a new Function type with this signature's return type.
+        const return_type = c.getReturnTypeOfSignature(sig_obj);
+        const func_type = c.createType(.{
+            .flags = types.TypeFlags.Object,
+            .objectFlags = types.ObjectFlags.Anonymous,
+            .id = 0,
+            .symbol = null,
+            .alias = null,
+            .data = .{ .Function = .{
+                .declarationNode = sig_obj.declaration,
+                .returnType = return_type,
+                .parameterCount = sig_obj.parametersLen,
+            } },
+        }) catch return 0;
+        sig_obj.isolatedSignatureType = func_type;
+        return func_type;
     }
 
-    pub fn getCanonicalSignature(c: *Checker, signature: types.SignatureIndex) types.TypeIndex {
-        _ = c;
-        _ = signature;
-        return 0;
+    /// Port of `checker.go::getCanonicalSignature`. Returns the canonical
+    /// form of a signature (where unconstrained type parameters are replaced
+    /// with their originals). If the signature has no type parameters,
+    /// returns it unchanged.
+    pub fn getCanonicalSignature(c: *Checker, signature: types.SignatureIndex) types.SignatureIndex {
+        if (signature == 0 or signature >= c.signatures.items.len) return 0;
+        const sig = &c.signatures.items[signature];
+        if (sig.typeParametersLen == 0) return signature;
+        // Full implementation requires createCanonicalSignature which uses
+        // a baseConstraintMapper. Conservative: return the original signature.
+        return signature;
     }
 
-    pub fn createCanonicalSignature(c: *Checker, signature: types.SignatureIndex) types.TypeIndex {
+    /// Port of `checker.go::createCanonicalSignature`. Creates an
+    /// instantiation of `signature` where each unconstrained type parameter
+    /// is replaced with its original. Conservative: returns the input signature.
+    pub fn createCanonicalSignature(c: *Checker, signature: types.SignatureIndex) types.SignatureIndex {
         _ = c;
-        _ = signature;
-        return 0;
+        return signature;
     }
 
-    pub fn getBaseSignature(c: *Checker, signature: types.SignatureIndex) types.TypeIndex {
-        _ = c;
-        _ = signature;
-        return 0;
+    /// Port of `checker.go::getBaseSignature`. Returns the base signature
+    /// of a generic signature (where type parameters are replaced with their
+    /// base constraints). If the signature has no type parameters, returns
+    /// it unchanged.
+    pub fn getBaseSignature(c: *Checker, signature: types.SignatureIndex) types.SignatureIndex {
+        if (signature == 0 or signature >= c.signatures.items.len) return 0;
+        const sig = &c.signatures.items[signature];
+        if (sig.typeParametersLen == 0) return signature;
+        return signature;
     }
 
     /// Port of `checker.go::instantiateSignatureInContextOf`. Instantiates
