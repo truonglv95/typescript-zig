@@ -1845,75 +1845,130 @@ pub const FourslashTest = struct {
         // `<div></div>`, return "any" if JSX.IntrinsicElements isn't defined
         // or doesn't have the tag. This handles the common case of JSX in .tsx
         // files without React types loaded.
-        if (node_kind == .Identifier) {
-            const parent = p.ast.getNodeParent(node);
-            if (parent != 0) {
-                const parent_kind = p.ast.getNodeKind(parent);
-                if (parent_kind == .JsxOpeningElement or parent_kind == .JsxClosingElement or parent_kind == .JsxSelfClosingElement) {
-                    // Get the tag name. For simple identifiers like `div`, the
-                    // tag name is the identifier itself.
-                    const tag_name_expr = if (parent_kind == .JsxOpeningElement)
-                        p.ast.getNode(parent).JsxOpeningElement.TagName
-                    else if (parent_kind == .JsxClosingElement)
-                        p.ast.getNode(parent).JsxClosingElement.TagName
-                    else
-                        p.ast.getNode(parent).JsxSelfClosingElement.TagName;
-                    if (tag_name_expr == node) {
-                        // Try to resolve JSX.IntrinsicElements[tag].
-                        // If not found, return "any".
-                        const id_text = p.ast.getNode(node).Identifier.Text;
-                        // JSX intrinsic elements start with a lowercase letter.
-                        // Class-based elements (uppercase) should fall through
-                        // to normal symbol resolution.
-                        const is_intrinsic = id_text.len > 0 and
-                            ((id_text[0] >= 'a' and id_text[0] <= 'z') or id_text[0] == '-' or id_text[0] == ':');
-                        if (!is_intrinsic) {
-                            // Fall through to normal symbol resolution.
-                        } else {
-                            // Look for JSX.IntrinsicElements global symbol.
-                            const jsx_sym = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Namespace, null, false, false);
-                            if (jsx_sym != 0 and jsx_sym != c.unknownSymbol) {
-                                // Get IntrinsicElements member.
-                                if (c.binder.symbolMembers.getPtr(jsx_sym)) |members| {
-                                    if (members.get("IntrinsicElements")) |ie_sym| {
-                                        // Get the type of IntrinsicElements and look up the tag.
-                                        const ie_type = c.getTypeOfSymbol(ie_sym) catch 0;
-                                        if (ie_type != 0) {
-                                            if (c.getPropertyOfType(ie_type, id_text)) |tag_sym| {
-                                                // Return the property type.
-                                                const tag_type = c.getTypeOfSymbol(tag_sym) catch 0;
-                                                if (tag_type != 0) {
-                                                    const tag_type_str = c.typeToString(tag_type, 0, HOVER_TYPE_FLAGS, null);
-                                                    if (tag_type_str.len > 0) {
-                                                        var out = std.ArrayListUnmanaged(u8).empty;
-                                                        const aa = self.arena.allocator();
-                                                        out.appendSlice(aa, "(property) JSX.IntrinsicElements.") catch {};
+        // Also handles JsxNamespacedName like `foo:bar`.
+        if (node_kind == .Identifier or node_kind == .JsxNamespacedName) {
+            // Walk up parent chain to find a JsxOpeningElement/JsxClosingElement/
+            // JsxSelfClosingElement. The Identifier might be nested inside a
+            // JsxNamespacedName (e.g., `foo:bar` -> Identifier `foo` and `bar`
+            // are children of JsxNamespacedName, which is the TagName of
+            // JsxSelfClosingElement).
+            var jsx_parent: ast_gen.NodeIndex = 0;
+            var jsx_tag_name_expr: ast_gen.NodeIndex = 0;
+            {
+                var cur = node;
+                while (cur != 0) {
+                    const cur_parent = p.ast.getNodeParent(cur);
+                    if (cur_parent == 0) break;
+                    const cur_parent_kind = p.ast.getNodeKind(cur_parent);
+                    if (cur_parent_kind == .JsxOpeningElement or cur_parent_kind == .JsxClosingElement or cur_parent_kind == .JsxSelfClosingElement) {
+                        jsx_parent = cur_parent;
+                        jsx_tag_name_expr = cur; // cur is the TagName of the JSX element.
+                        break;
+                    }
+                    cur = cur_parent;
+                }
+            }
+            if (jsx_parent != 0) {
+                const parent_kind = p.ast.getNodeKind(jsx_parent);
+                _ = parent_kind;
+                const tag_name_expr = jsx_tag_name_expr;
+                // For JsxNamespacedName, the cursor might be on the
+                // namespace or the name part. We handle the case where
+                // the cursor is on the whole JsxNamespacedName node.
+                const is_tag_node = tag_name_expr == node or
+                    (node_kind == .Identifier and tag_name_expr != 0 and
+                     p.ast.getNodeKind(tag_name_expr) == .JsxNamespacedName and
+                     (p.ast.getNode(tag_name_expr).JsxNamespacedName.Namespace == node or
+                      p.ast.getNode(tag_name_expr).JsxNamespacedName.name == node));
+                if (is_tag_node) {
+                    // Build the full tag text: for `foo:bar`, this is "foo:bar".
+                    // For a simple Identifier, this is the identifier text.
+                    var id_text: []const u8 = "";
+                    // If the tag_name_expr is a JsxNamespacedName, use its
+                    // full text (e.g., "foo:bar") regardless of whether the
+                    // cursor is on the namespace or name part.
+                    if (tag_name_expr != 0 and p.ast.getNodeKind(tag_name_expr) == .JsxNamespacedName) {
+                        const jsn = p.ast.getNode(tag_name_expr).JsxNamespacedName;
+                        const ns_text = if (jsn.Namespace != 0) ast_utils.getTextOfNode(&p.ast, jsn.Namespace) else "";
+                        const name_text = if (jsn.name != 0) ast_utils.getTextOfNode(&p.ast, jsn.name) else "";
+                        const aa = self.arena.allocator();
+                        id_text = std.fmt.allocPrint(aa, "{s}:{s}", .{ ns_text, name_text }) catch "";
+                    } else if (node_kind == .JsxNamespacedName) {
+                        const jsn = p.ast.getNode(node).JsxNamespacedName;
+                        const ns_text = if (jsn.Namespace != 0) ast_utils.getTextOfNode(&p.ast, jsn.Namespace) else "";
+                        const name_text = if (jsn.name != 0) ast_utils.getTextOfNode(&p.ast, jsn.name) else "";
+                        const aa = self.arena.allocator();
+                        id_text = std.fmt.allocPrint(aa, "{s}:{s}", .{ ns_text, name_text }) catch "";
+                    } else {
+                        id_text = p.ast.getNode(node).Identifier.Text;
+                    }
+                    const is_namespaced = tag_name_expr != 0 and p.ast.getNodeKind(tag_name_expr) == .JsxNamespacedName;
+                    // JSX intrinsic elements start with a lowercase letter.
+                    // Class-based elements (uppercase) should fall through
+                    // to normal symbol resolution.
+                    const is_intrinsic = id_text.len > 0 and
+                        ((id_text[0] >= 'a' and id_text[0] <= 'z') or id_text[0] == '-' or id_text[0] == ':');
+                    if (!is_intrinsic) {
+                        // Fall through to normal symbol resolution.
+                    } else {
+                        // Look for JSX.IntrinsicElements global symbol.
+                        const jsx_sym = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Namespace, null, false, false);
+                        if (jsx_sym != 0 and jsx_sym != c.unknownSymbol) {
+                            // Get IntrinsicElements member.
+                            if (c.binder.symbolMembers.getPtr(jsx_sym)) |members| {
+                                if (members.get("IntrinsicElements")) |ie_sym| {
+                                    // Get the type of IntrinsicElements and look up the tag.
+                                    const ie_type = c.getTypeOfSymbol(ie_sym) catch 0;
+                                    if (ie_type != 0) {
+                                        if (c.getPropertyOfType(ie_type, id_text)) |tag_sym| {
+                                            // Return the property type.
+                                            const tag_type = c.getTypeOfSymbol(tag_sym) catch 0;
+                                            if (tag_type != 0) {
+                                                const tag_type_str = c.typeToString(tag_type, 0, HOVER_TYPE_FLAGS, null);
+                                                if (tag_type_str.len > 0) {
+                                                    var out = std.ArrayListUnmanaged(u8).empty;
+                                                    const aa = self.arena.allocator();
+                                                    out.appendSlice(aa, "(property) JSX.IntrinsicElements") catch {};
+                                                    // Use quoted form for namespaced names: ["foo:bar"].
+                                                    if (is_namespaced) {
+                                                        out.appendSlice(aa, "[\"") catch {};
                                                         out.appendSlice(aa, id_text) catch {};
-                                                        out.appendSlice(aa, ": ") catch {};
-                                                        out.appendSlice(aa, tag_type_str) catch {};
-                                                        return out.toOwnedSlice(aa) catch "";
+                                                        out.appendSlice(aa, "\"]") catch {};
+                                                    } else {
+                                                        out.appendSlice(aa, ".") catch {};
+                                                        out.appendSlice(aa, id_text) catch {};
                                                     }
+                                                    out.appendSlice(aa, ": ") catch {};
+                                                    out.appendSlice(aa, tag_type_str) catch {};
+                                                    return out.toOwnedSlice(aa) catch "";
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                            // Fallback: Go always displays intrinsic element hover as
-                            // "(property) JSX.IntrinsicElements.<tag>: any" even when
-                            // the JSX namespace isn't resolvable at hover time (e.g.
-                            // when declared in a separate file via `declare namespace`).
-                            // The `div: any` line in the local declare-namespace may
-                            // fail resolveName because the namespace declaration is
-                            // module-scoped and resolveName only walks locals.
-                            {
-                                var out = std.ArrayListUnmanaged(u8).empty;
-                                const aa = self.arena.allocator();
-                                out.appendSlice(aa, "(property) JSX.IntrinsicElements.") catch {};
+                        }
+                        // Fallback: Go always displays intrinsic element hover as
+                        // "(property) JSX.IntrinsicElements.<tag>: any" even when
+                        // the JSX namespace isn't resolvable at hover time (e.g.
+                        // when declared in a separate file via `declare namespace`).
+                        // The `div: any` line in the local declare-namespace may
+                        // fail resolveName because the namespace declaration is
+                        // module-scoped and resolveName only walks locals.
+                        {
+                            var out = std.ArrayListUnmanaged(u8).empty;
+                            const aa = self.arena.allocator();
+                            out.appendSlice(aa, "(property) JSX.IntrinsicElements") catch {};
+                            if (is_namespaced) {
+                                out.appendSlice(aa, "[\"") catch {};
                                 out.appendSlice(aa, id_text) catch {};
-                                out.appendSlice(aa, ": any") catch {};
-                                return out.toOwnedSlice(aa) catch "";
+                                out.appendSlice(aa, "\"]") catch {};
+                            } else {
+                                out.appendSlice(aa, ".") catch {};
+                                out.appendSlice(aa, id_text) catch {};
                             }
+                            out.appendSlice(aa, ": any") catch {};
+                            return out.toOwnedSlice(aa) catch "";
                         }
                     }
                 }
