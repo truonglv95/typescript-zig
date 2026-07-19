@@ -58,7 +58,7 @@ pub fn parseTestData(allocator: std.mem.Allocator, content: []const u8) !*Parsed
                     // Check if it's a valid Fourslash marker (alphanumeric/underscore or empty)
                     var isValid = true;
                     for (markerName) |c| {
-                        if (!std.ascii.isAlphanumeric(c) and c != '_') {
+                        if (!std.ascii.isAlphanumeric(c) and c != '_' and c != '$') {
                             isValid = false;
                             break;
                         }
