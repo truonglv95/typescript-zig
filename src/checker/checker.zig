@@ -28538,6 +28538,42 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
     }
 
     if (isNew) {
+        // Check if the target expression resolves to a type-only symbol
+        // (interface, type alias). When `new Foo(3)` is called where `Foo`
+        // is an interface, the result should be `any` because interfaces
+        // don't have value declarations.
+        const target_expr = c.binder.ast.getNode(node_idx).NewExpression.Expression;
+        if (target_expr != 0 and c.binder.ast.getKind(target_expr) == .Identifier) {
+            const sym = getSymbolAtLocation(c, target_expr);
+            if (sym != 0 and sym < c.binder.symbols.items.len) {
+                const sym_flags = c.binder.symbols.items[sym].Flags;
+                if ((sym_flags & (symbol.SymbolFlags.Interface | symbol.SymbolFlags.TypeAlias)) != 0 and
+                    c.binder.symbols.items[sym].ValueDeclaration == null)
+                {
+                    if (c.noImplicitAny) {
+                        c.reportError(node_idx, &diagnostics_gen.X_new_expression_whose_target_lacks_a_construct_signature_implicitly_has_an_any_type);
+                    }
+                    return c.anyTypeIndex orelse 0;
+                }
+            }
+        }
+        // Also check the target type: if it's an interface type (not a class),
+        // return any. This handles cases where the symbol resolution doesn't
+        // find the type-only symbol.
+        const target_type = c.checkExpressionAdHoc(target_expr) catch 0;
+        if (target_type != 0 and target_type < c.typesList.items.len) {
+            const obj_flags = c.typesList.items[target_type].objectFlags;
+            if ((obj_flags & types.ObjectFlags.Interface) != 0 and (obj_flags & types.ObjectFlags.Class) == 0) {
+                if (c.noImplicitAny) {
+                    c.reportError(node_idx, &diagnostics_gen.X_new_expression_whose_target_lacks_a_construct_signature_implicitly_has_an_any_type);
+                }
+                return c.anyTypeIndex orelse 0;
+            }
+        }
+        // Guard: if signature is 0 or out of bounds, return any.
+        if (signature == 0 or signature >= c.signatures.items.len) {
+            return c.anyTypeIndex orelse 0;
+        }
         const declaration = c.signatures.items[signature].declaration;
         if (declaration != 0 and c.binder.ast.getKind(declaration) != .Constructor and c.binder.ast.getKind(declaration) != .ConstructSignature and c.binder.ast.getKind(declaration) != .ConstructorType) {
             if (c.noImplicitAny) {
