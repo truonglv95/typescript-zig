@@ -1932,7 +1932,9 @@ pub const FourslashTest = struct {
 
         // Special handling for module specifiers in import/export statements.
         // When hovering on the string literal in `import { foo } from "./path"`,
-        // display `module "./path"`.
+        // display `module a` (the imported module's local symbol name) when
+        // there is a resolved module symbol; otherwise fall back to
+        // `module "./path"`.
         if (p.ast.getNodeKind(node) == .StringLiteral) {
             const parent = p.ast.getNodeParent(node);
             if (parent != 0) {
@@ -1941,17 +1943,56 @@ pub const FourslashTest = struct {
                     pk == .ExternalModuleReference or
                     pk == .ImportEqualsDeclaration)
                 {
-                    const text = ast_utils.getTextOfNode(&p.ast, node);
-                    // Strip quotes.
-                    const cleaned = if (text.len >= 2 and (text[0] == '"' or text[0] == '\''))
-                        text[1 .. text.len - 1]
-                    else
-                        text;
+                    // Try to resolve the module symbol. For
+                    // `import a = require("./AA/BB")`, the local symbol is
+                    // `a` (a value module). For `import {x} from "./path"`,
+                    // the module symbol is the imported file's symbol.
+                    var module_name: []const u8 = "";
+                    if (pk == .ImportEqualsDeclaration) {
+                        // The ImportEqualsDeclaration has a name (the local
+                        // binding). Use that.
+                        const ied = p.ast.getNode(parent).ImportEqualsDeclaration;
+                        if (ied.name != 0) {
+                            module_name = ast_utils.getTextOfNode(&p.ast, ied.name);
+                        }
+                    } else if (pk == .ExternalModuleReference) {
+                        // import a = require("path")  — name is on parent
+                        // ImportEqualsDeclaration.
+                        const grandparent = p.ast.getNodeParent(parent);
+                        if (grandparent != 0 and p.ast.getNodeKind(grandparent) == .ImportEqualsDeclaration) {
+                            const ied = p.ast.getNode(grandparent).ImportEqualsDeclaration;
+                            if (ied.name != 0) {
+                                module_name = ast_utils.getTextOfNode(&p.ast, ied.name);
+                            }
+                        }
+                    }
+                    // Also try resolving the module specifier to get the
+                    // module symbol's name from the resolved file.
+                    if (module_name.len == 0) {
+                        const text = ast_utils.getTextOfNode(&p.ast, node);
+                        const cleaned = if (text.len >= 2 and (text[0] == '"' or text[0] == '\''))
+                            text[1 .. text.len - 1]
+                        else
+                            text;
+                        // Try to resolve the module to a symbol.
+                        const mod_sym = c.resolveExternalModuleName(node, node, true);
+                        if (mod_sym != 0 and mod_sym < c.binder.symbols.items.len) {
+                            module_name = c.binder.symbols.items[mod_sym].Name;
+                        }
+                        if (module_name.len == 0) {
+                            // Fall back to the path.
+                            var out = std.ArrayListUnmanaged(u8).empty;
+                            const aa = self.arena.allocator();
+                            out.appendSlice(aa, "module \"") catch {};
+                            out.appendSlice(aa, cleaned) catch {};
+                            out.appendSlice(aa, "\"") catch {};
+                            return out.toOwnedSlice(aa) catch "";
+                        }
+                    }
                     var out = std.ArrayListUnmanaged(u8).empty;
                     const aa = self.arena.allocator();
-                    out.appendSlice(aa, "module \"") catch {};
-                    out.appendSlice(aa, cleaned) catch {};
-                    out.appendSlice(aa, "\"") catch {};
+                    out.appendSlice(aa, "module ") catch {};
+                    out.appendSlice(aa, module_name) catch {};
                     return out.toOwnedSlice(aa) catch "";
                 }
             }
