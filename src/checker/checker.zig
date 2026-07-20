@@ -2606,6 +2606,8 @@ pub const Checker = struct {
                         .MethodSignature => |m| { params_id = m.Parameters; tp_list = m.TypeParameters; },
                         .CallSignature => |cs| { params_id = cs.Parameters; tp_list = cs.TypeParameters; },
                         .ConstructSignature => |cs| { params_id = cs.Parameters; tp_list = cs.TypeParameters; },
+                        .FunctionType => |ft| { params_id = ft.Parameters; tp_list = ft.TypeParameters; },
+                        .ConstructorType => |ct| { params_id = ct.Parameters; tp_list = ct.TypeParameters; },
                         else => {},
                     }
                     var buf = std.ArrayListUnmanaged(u8).empty;

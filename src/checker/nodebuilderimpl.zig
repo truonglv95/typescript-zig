@@ -735,6 +735,11 @@ pub const NodeBuilderImpl = struct {
                         return 0;
                     }
                 }
+                // FunctionType and ConstructorType nodes should also use
+                // the (params) => retType rendering.
+                if (decl_kind == .FunctionType or decl_kind == .ConstructorType) {
+                    return 0;
+                }
             }
         }
 
