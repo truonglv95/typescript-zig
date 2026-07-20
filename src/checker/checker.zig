@@ -28260,7 +28260,91 @@ pub fn checkWhileStatement(c: *Checker, node_idx: ast_gen.NodeIndex) void {
 }
 pub fn checkPropertyAssignment(c: *Checker, node_idx: ast_gen.NodeIndex) void {
     const pa = c.binder.ast.nodes.get(node_idx).PropertyAssignment;
+    // Get the contextual type from the parent object literal.
+    // For `var o: Foo = { bar: function(xy) {} }`, the contextual type
+    // of the object literal is `Foo`, and the property `bar` has type
+    // `(xy: string, options?: FooOptions) => void`. The function expression's
+    // parameters should be typed from this contextual type.
     if (pa.Initializer != 0) {
+        const init_kind = c.binder.ast.getKind(pa.Initializer);
+        if (init_kind == .FunctionExpression or init_kind == .ArrowFunction) {
+            // Get the parent object literal expression.
+            const parent = c.binder.ast.getNodeParent(node_idx);
+            if (parent != 0 and c.binder.ast.getKind(parent) == .ObjectLiteralExpression) {
+                // Get the contextual type of the object literal.
+                const ctx_type = c.getContextualType(parent, 0);
+                if (ctx_type != 0) {
+                    // Get the property name.
+                    const name_node = ast_utils.getPropertyNameOfNode(c.binder.ast, node_idx);
+                    if (name_node != 0) {
+                        const prop_name = ast_utils.getTextOfNode(c.binder.ast, name_node);
+                        // Look up the property in the contextual type.
+                        if (c.getPropertyOfType(ctx_type, prop_name)) |prop_sym| {
+                            const prop_type = c.getTypeOfSymbol(prop_sym) catch 0;
+                            if (prop_type != 0 and prop_type < c.typesList.items.len) {
+                                const prop_data = c.typesList.items[prop_type];
+                                if (prop_data.data == .Function) {
+                                    // The property type is a Function type. Use its
+                                    // declaration to extract parameter types and set
+                                    // up the function expression's parameters.
+                                    const fn_decl = prop_data.data.Function.declarationNode;
+                                    if (fn_decl != 0 and fn_decl < c.binder.ast.nodes.len) {
+                                        const ctx_params_id: ?u32 = switch (c.binder.ast.getNode(fn_decl)) {
+                                            .FunctionDeclaration => |f| f.Parameters,
+                                            .FunctionExpression => |f| f.Parameters,
+                                            .ArrowFunction => |f| f.Parameters,
+                                            .MethodDeclaration => |m| m.Parameters,
+                                            .MethodSignature => |m| m.Parameters,
+                                            .CallSignature => |cs| cs.Parameters,
+                                            .FunctionType => |ft| ft.Parameters,
+                                            else => null,
+                                        };
+                                        if (ctx_params_id != null and ctx_params_id.? != 0) {
+                                            const ctx_params = c.binder.ast.getNodeList(ctx_params_id.?);
+                                            // Get the function expression's parameters.
+                                            const fn_node_data = c.binder.ast.getNode(pa.Initializer);
+                                            const fn_params_id: ast_gen.NodeIndex = switch (fn_node_data) {
+                                                .FunctionExpression => |f| f.Parameters,
+                                                .ArrowFunction => |f| f.Parameters,
+                                                else => 0,
+                                            };
+                                            const fn_params = if (fn_params_id != 0) c.binder.ast.getNodeList(fn_params_id) else &[_]u32{};
+                                            const min_params = @min(ctx_params.len, fn_params.len);
+                                            for (0..min_params) |pi| {
+                                                const fn_param = fn_params[pi];
+                                                if (fn_param == 0) continue;
+                                                const fn_param_data = c.binder.ast.getNode(fn_param);
+                                                const fn_param_type_node: ?ast_gen.NodeIndex = switch (fn_param_data) {
+                                                    .Parameter => |p2| p2.Type,
+                                                    else => null,
+                                                };
+                                                if (fn_param_type_node != null and fn_param_type_node.? != 0) continue;
+                                                const ctx_param = ctx_params[pi];
+                                                if (ctx_param == 0) continue;
+                                                const ctx_param_data = c.binder.ast.getNode(ctx_param);
+                                                const ctx_param_type_node: ?ast_gen.NodeIndex = switch (ctx_param_data) {
+                                                    .Parameter => |p2| p2.Type,
+                                                    else => null,
+                                                };
+                                                if (ctx_param_type_node == null or ctx_param_type_node.? == 0) continue;
+                                                const ctx_param_type = c.getTypeOfNode(ctx_param_type_node.?) catch 0;
+                                                if (ctx_param_type == 0) continue;
+                                                const fn_param_sym = c.binder.ast.getNodeSymbol(fn_param) orelse 0;
+                                                if (fn_param_sym != 0 and fn_param_sym < c.binder.symbols.items.len) {
+                                                    var links = c.valueSymbolLinks.get(fn_param_sym) orelse types.ValueSymbolLinks{};
+                                                    links.resolvedType = ctx_param_type;
+                                                    c.valueSymbolLinks.put(c.allocator, fn_param_sym, links) catch {};
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         _ = checkExpression(c, pa.Initializer);
     }
 }
