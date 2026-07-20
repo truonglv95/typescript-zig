@@ -1962,8 +1962,8 @@ pub const Checker = struct {
     pub fn symbolIsValue(c: *Checker, symIdx: ast_gen.SymbolIndex) bool {
         if (symIdx == 0 or symIdx >= c.binder.symbols.items.len) return false;
         const flags = c.binder.symbols.items[symIdx].Flags;
-        // SymbolFlags.Value = 111551
-        if (flags & 111551 != 0) return true;
+        // SymbolFlags.Value includes Method, Property, Function, Class, etc.
+        if (flags & symbol.SymbolFlags.Value != 0) return true;
         // Alias resolution requires a full recursive resolveAlias implementation, skipping for now
         return false;
     }
@@ -28700,20 +28700,9 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                 }
             }
         }
-        // Also check the target type: if it's an interface type (not a class),
-        // return any. This handles cases where the symbol resolution doesn't
-        // find the type-only symbol.
-        const target_type = c.checkExpressionAdHoc(target_expr) catch 0;
-        if (target_type != 0 and target_type < c.typesList.items.len) {
-            const obj_flags = c.typesList.items[target_type].objectFlags;
-            if ((obj_flags & types.ObjectFlags.Interface) != 0 and (obj_flags & types.ObjectFlags.Class) == 0) {
-                if (c.noImplicitAny) {
-                    c.reportError(node_idx, &diagnostics_gen.X_new_expression_whose_target_lacks_a_construct_signature_implicitly_has_an_any_type);
-                }
-                return c.anyTypeIndex orelse 0;
-            }
-        }
         // Guard: if signature is 0 or out of bounds, return any.
+        // This handles cases where the target is an interface with no
+        // construct signatures (e.g., `new Foo(3)` where Foo is an interface).
         if (signature == 0 or signature >= c.signatures.items.len) {
             return c.anyTypeIndex orelse 0;
         }
@@ -28762,6 +28751,7 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
             .FunctionExpression => |f| f.TypeParameters orelse 0,
             .ArrowFunction => |f| f.TypeParameters orelse 0,
             .MethodDeclaration => |m| m.TypeParameters orelse 0,
+            .MethodSignature => |m| m.TypeParameters orelse 0,
             .CallSignature => |cs| cs.TypeParameters orelse 0,
             .ConstructSignature => |cs| cs.TypeParameters orelse 0,
             else => 0,
@@ -28776,6 +28766,7 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                     .FunctionExpression => |f| params_id = f.Parameters,
                     .ArrowFunction => |f| params_id = f.Parameters,
                     .MethodDeclaration => |m| params_id = m.Parameters,
+                    .MethodSignature => |m| params_id = m.Parameters,
                     .CallSignature => |cs| params_id = cs.Parameters,
                     .ConstructSignature => |cs| params_id = cs.Parameters,
                     else => {},
