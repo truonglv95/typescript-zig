@@ -11644,6 +11644,28 @@ pub const Checker = struct {
         _ = c.getNullType() catch {};
         _ = c.getUnknownType() catch {};
         _ = c.getNeverType() catch {};
+        // Initialize esSymbolType if not already set.
+        if (c.esSymbolTypeIndex == null) {
+            const idx = c.createType(.{
+                .flags = types.TypeFlags.ESSymbol,
+                .objectFlags = types.ObjectFlags.Anonymous,
+                .id = 0,
+                .symbol = null,
+                .alias = null,
+                .data = .{ .Intrinsic = .{ .intrinsicName = "symbol" } },
+            }) catch 0;
+            c.esSymbolTypeIndex = idx;
+        }
+        // Initialize stringNumberSymbolType = string | number | symbol.
+        if (c.stringNumberSymbolType == 0) {
+            const str_type = c.getStringType() catch 0;
+            const num_type = c.getNumberType() catch 0;
+            const sym_type = c.esSymbolTypeIndex orelse 0;
+            if (str_type != 0 and num_type != 0 and sym_type != 0) {
+                const types_arr = [_]types.TypeIndex{ str_type, num_type, sym_type };
+                c.stringNumberSymbolType = c.getUnionTypeFromArray(&types_arr);
+            }
+        }
         // Create a synthetic RegExp symbol for when lib.d.ts is not loaded.
         if (c.regExpSymbolIndex == null) {
             const sym_idx: ast_gen.SymbolIndex = @intCast(c.binder.symbols.items.len);
