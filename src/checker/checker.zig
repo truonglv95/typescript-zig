@@ -7900,6 +7900,22 @@ pub const Checker = struct {
             });
         }
 
+        // Array type: substitute the element type.
+        // This handles cases like `U[]` where U is a type parameter.
+        if (type_data.data == .Array) {
+            const new_elem = try self.substituteTypeParams(type_data.data.Array.elementType, inferred);
+            return try self.createType(.{
+                .flags = type_data.flags,
+                .objectFlags = type_data.objectFlags,
+                .id = 0,
+                .symbol = type_data.symbol,
+                .alias = null,
+                .data = .{ .Array = .{
+                    .elementType = new_elem,
+                } },
+            });
+        }
+
         // Anonymous object literal type with index signatures: substitute
         // each index info's value type. This handles cases like:
         //   interface BaseCollection<TItem> {
@@ -28759,6 +28775,8 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                     if (c.binder.ast.getKind(expression) == .PropertyAccessExpression) {
                         const pae = c.binder.ast.getNode(expression).PropertyAccessExpression;
                         obj_type = c.checkExpressionAdHoc(pae.Expression) catch 0;
+                        if (obj_type != 0 and obj_type < c.typesList.items.len) {
+                        }
                     }
                     if (obj_type != 0 and obj_type < c.typesList.items.len) {
                         const obj_data = c.typesList.items[obj_type];
