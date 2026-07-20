@@ -1799,6 +1799,33 @@ pub const FourslashTest = struct {
             }
         }
 
+        // Special handling for module specifiers in import/export statements.
+        // When hovering on the string literal in `import { foo } from "./path"`,
+        // display `module "./path"`.
+        if (p.ast.getNodeKind(node) == .StringLiteral) {
+            const parent = p.ast.getNodeParent(node);
+            if (parent != 0) {
+                const pk = p.ast.getNodeKind(parent);
+                if (pk == .ImportDeclaration or pk == .ExportDeclaration or
+                    pk == .ExternalModuleReference or
+                    pk == .ImportEqualsDeclaration)
+                {
+                    const text = ast_utils.getTextOfNode(&p.ast, node);
+                    // Strip quotes.
+                    const cleaned = if (text.len >= 2 and (text[0] == '"' or text[0] == '\''))
+                        text[1 .. text.len - 1]
+                    else
+                        text;
+                    var out = std.ArrayListUnmanaged(u8).empty;
+                    const aa = self.arena.allocator();
+                    out.appendSlice(aa, "module \"") catch {};
+                    out.appendSlice(aa, cleaned) catch {};
+                    out.appendSlice(aa, "\"") catch {};
+                    return out.toOwnedSlice(aa) catch "";
+                }
+            }
+        }
+
         // Special handling for the `this` keyword. The binder usually
         // resolves `this` to the enclosing class symbol, which would produce
         // "class Foo" — but Go's quick info formats `this` specially:
