@@ -28746,6 +28746,58 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                 const argumentsList = if (isNew) c.binder.ast.getNode(node_idx).NewExpression.Arguments else c.binder.ast.getNode(node_idx).CallExpression.Arguments;
                 const args = if ((argumentsList orelse 0) != 0) c.binder.ast.getNodeList(argumentsList.?) else &[_]u32{};
 
+                // Before two-phase inference, substitute the containing type's
+                // type parameters into the parameter types. For example, when
+                // calling `x.map(s => s.length)` where `x: WrappedArray<string>`,
+                // the method's parameter type `(value: T) => U` needs T substituted
+                // with `string` before we can infer U from the function expression.
+                var containing_inferred = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(c.allocator);
+                defer containing_inferred.deinit();
+                if (!isNew) {
+                    // Get the object type from the callee expression.
+                    var obj_type: types.TypeIndex = 0;
+                    if (c.binder.ast.getKind(expression) == .PropertyAccessExpression) {
+                        const pae = c.binder.ast.getNode(expression).PropertyAccessExpression;
+                        obj_type = c.checkExpressionAdHoc(pae.Expression) catch 0;
+                    }
+                    if (obj_type != 0 and obj_type < c.typesList.items.len) {
+                        const obj_data = c.typesList.items[obj_type];
+                        if ((obj_data.objectFlags & types.ObjectFlags.Reference) != 0 and
+                            obj_data.data == .Object)
+                        {
+                            const obj_ta = c.getTypeArguments(obj_type);
+                            const target = obj_data.data.Object.target orelse 0;
+                            if (target != 0 and target < c.typesList.items.len and obj_ta.len > 0) {
+                                const target_sym = c.typesList.items[target].symbol orelse 0;
+                                if (target_sym != 0 and target_sym < c.binder.symbols.items.len) {
+                                    const sym_obj = c.binder.symbols.items[target_sym];
+                                    if (sym_obj.Declarations.items.len > 0) {
+                                        const decl2 = sym_obj.Declarations.items[0];
+                                        const decl_data2 = c.binder.ast.getNode(decl2);
+                                        const tp_list: ?u32 = switch (decl_data2) {
+                                            .InterfaceDeclaration => |id| id.TypeParameters,
+                                            .ClassDeclaration => |cd| cd.TypeParameters,
+                                            else => null,
+                                        };
+                                        if (tp_list != null and tp_list.? != 0) {
+                                            const tp_nodes2 = c.binder.ast.getNodeList(tp_list.?);
+                                            if (tp_nodes2.len == obj_ta.len) {
+                                                for (tp_nodes2, 0..) |tp_node2, ti| {
+                                                    if (tp_node2 == 0) continue;
+                                                    const tp_sym2 = c.binder.ast.getNodeSymbol(tp_node2) orelse 0;
+                                                    if (tp_sym2 != 0) {
+                                                        containing_inferred.put(tp_sym2, obj_ta[ti]) catch {};
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Two-phase argument checking for generic inference:
                 // Phase 1: Check non-function arguments first to get their types.
                 // Phase 2: Use inferred types to contextually type function
@@ -28775,6 +28827,7 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                     if (tp_sym != 0) inferred.put(tp_sym, 0) catch {};
                 }
                 // Unify non-function argument types with parameter types.
+                // Substitute containing type's type parameters first.
                 const min_len1 = @min(params.len, args.len);
                 for (0..min_len1) |i| {
                     if (arg_types.items[i] == 0) continue;
@@ -28783,8 +28836,12 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                     const param = c.binder.ast.getNode(param_node).Parameter;
                     const param_type_node = param.Type orelse 0;
                     if (param_type_node == 0) continue;
-                    const param_type_idx = c.getTypeOfNode(param_type_node) catch 0;
+                    var param_type_idx = c.getTypeOfNode(param_type_node) catch 0;
                     if (param_type_idx == 0) continue;
+                    // Substitute containing type's type parameters.
+                    if (containing_inferred.count() > 0) {
+                        param_type_idx = c.substituteTypeParams(param_type_idx, &containing_inferred) catch param_type_idx;
+                    }
                     c.unifyTypes(param_type_idx, arg_types.items[i], &inferred) catch {};
                 }
 
@@ -28806,16 +28863,91 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                         arg_types.items[i] = c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0);
                         continue;
                     }
-                    const param_type_idx = c.getTypeOfNode(param_type_node) catch 0;
+                    var param_type_idx = c.getTypeOfNode(param_type_node) catch 0;
                     if (param_type_idx == 0) {
                         arg_types.items[i] = c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0);
                         continue;
                     }
-                    // Substitute inferred type parameters into the parameter type
+                    // Substitute containing type's type parameters first.
+                    if (containing_inferred.count() > 0) {
+                        param_type_idx = c.substituteTypeParams(param_type_idx, &containing_inferred) catch param_type_idx;
+                    }
+                    // Substitute inferred method type parameters into the parameter type
                     // to get the contextual type for the function expression.
                     const ctx_type = c.substituteTypeParams(param_type_idx, &inferred) catch param_type_idx;
+
+                    // If the parameter type is a Function type (e.g., `(value: T) => U`),
+                    // we need to extract and substitute its parameter types directly
+                    // because substituteTypeParams only handles the return type.
+                    if (ctx_type != 0 and ctx_type < c.typesList.items.len) {
+                        const ctx_data = c.typesList.items[ctx_type];
+                        if (ctx_data.data == .Function) {
+                            const ctx_decl = ctx_data.data.Function.declarationNode;
+                            if (ctx_decl != 0 and ctx_decl < c.binder.ast.nodes.len) {
+                                const ctx_params_id: ?u32 = switch (c.binder.ast.getNode(ctx_decl)) {
+                                    .FunctionDeclaration => |f| f.Parameters,
+                                    .FunctionExpression => |f| f.Parameters,
+                                    .ArrowFunction => |f| f.Parameters,
+                                    .MethodDeclaration => |m| m.Parameters,
+                                    .MethodSignature => |m| m.Parameters,
+                                    .CallSignature => |cs| cs.Parameters,
+                                    .FunctionType => |ft| ft.Parameters,
+                                    else => null,
+                                };
+                                if (ctx_params_id != null and ctx_params_id.? != 0) {
+                                    const ctx_params = c.binder.ast.getNodeList(ctx_params_id.?);
+                                    // Get the function expression's own parameters.
+                                    const fn_node_data = c.binder.ast.getNode(arg);
+                                    const fn_params_id: ast_gen.NodeIndex = switch (fn_node_data) {
+                                        .FunctionExpression => |f| f.Parameters,
+                                        .ArrowFunction => |f| f.Parameters,
+                                        else => 0,
+                                    };
+                                    const fn_params = if (fn_params_id != 0) c.binder.ast.getNodeList(fn_params_id) else &[_]u32{};
+                                    // For each parameter without a type annotation, set up
+                                    // the contextual type from the corresponding ctx parameter.
+                                    const min_params = @min(ctx_params.len, fn_params.len);
+                                    for (0..min_params) |pi| {
+                                        const fn_param = fn_params[pi];
+                                        if (fn_param == 0) continue;
+                                        const fn_param_data = c.binder.ast.getNode(fn_param);
+                                        const fn_param_type_node: ?ast_gen.NodeIndex = switch (fn_param_data) {
+                                            .Parameter => |p2| p2.Type,
+                                            else => null,
+                                        };
+                                        if (fn_param_type_node != null and fn_param_type_node.? != 0) continue;
+                                        const ctx_param = ctx_params[pi];
+                                        if (ctx_param == 0) continue;
+                                        const ctx_param_data = c.binder.ast.getNode(ctx_param);
+                                        const ctx_param_type_node: ?ast_gen.NodeIndex = switch (ctx_param_data) {
+                                            .Parameter => |p2| p2.Type,
+                                            else => null,
+                                        };
+                                        if (ctx_param_type_node == null or ctx_param_type_node.? == 0) continue;
+                                        var ctx_param_type = c.getTypeOfNode(ctx_param_type_node.?) catch 0;
+                                        if (ctx_param_type == 0) continue;
+                                        // Substitute containing type's type parameters.
+                                        if (containing_inferred.count() > 0) {
+                                            ctx_param_type = c.substituteTypeParams(ctx_param_type, &containing_inferred) catch ctx_param_type;
+                                        }
+                                        // Substitute inferred method type parameters.
+                                        if (inferred.count() > 0) {
+                                            ctx_param_type = c.substituteTypeParams(ctx_param_type, &inferred) catch ctx_param_type;
+                                        }
+                                        // Set up the function expression's parameter symbol.
+                                        const fn_param_sym = c.binder.ast.getNodeSymbol(fn_param) orelse 0;
+                                        if (fn_param_sym != 0 and fn_param_sym < c.binder.symbols.items.len) {
+                                            var links = c.valueSymbolLinks.get(fn_param_sym) orelse types.ValueSymbolLinks{};
+                                            links.resolvedType = ctx_param_type;
+                                            c.valueSymbolLinks.put(c.allocator, fn_param_sym, links) catch {};
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Check the function expression with the contextual type.
-                    // The contextual type will be used to type the function's parameters.
                     const fn_type = checkFunctionExpressionWithContextualType(c, arg, ctx_type) catch (c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0));
                     arg_types.items[i] = fn_type;
                     // Re-unify to capture return type inference from the function expression.
@@ -28824,6 +28956,14 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                     }
                 }
 
+                // Merge containing type's type parameters into inferred map
+                // for final substitution.
+                var cont_it = containing_inferred.iterator();
+                while (cont_it.next()) |entry| {
+                    if (entry.value_ptr.* != 0) {
+                        inferred.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                    }
+                }
                 finalReturnType = c.substituteTypeParams(returnType, &inferred) catch returnType;
 
                 // Also substitute the containing type's type parameters.
