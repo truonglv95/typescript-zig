@@ -6472,24 +6472,59 @@ pub const Checker = struct {
         if (unique.items.len == 1) return unique.items[0];
         // Sort union constituents to match Go's behavior. Go uses
         // slices.BinarySearchFunc with CompareTypes which sorts by:
-        // 1. Type flags value (ascending)
-        // 2. Type name (alphabetical) for same flags
-        // This ensures deterministic output like "string | number" not
-        // "number | string" (String=32 < Number=64).
+        // 1. getSortOrderFlags(t) — for enum-like unit types, returns
+        //    TypeFlagsEnum (1<<16); otherwise returns t.flags.
+        // 2. compareTypeNames — by alias.symbol name (or symbol for some
+        //    type kinds), then by alias type arguments.
+        // 3. Various data-specific comparisons (tuple elements, type args).
+        // 4. Type id (creation order) as final tiebreaker.
+        //
+        // For literal types this means string literals sort before number
+        // literals before boolean literals (StringLiteral=1<<10=1024,
+        // NumberLiteral=1<<11=2048, BooleanLiteral=1<<13=8192). For
+        // same-flag literals (e.g., multiple string literals), Go sorts by
+        // type id (creation order).
         std.mem.sort(types.TypeIndex, unique.items, self, struct {
+            fn getSortOrderFlags(ctx: *Checker, t: types.TypeIndex) u32 {
+                if (t >= ctx.typesList.items.len) return 0;
+                const f = ctx.typesList.items[t].flags;
+                // Enum-like unit types are sorted as if they were Enum.
+                if ((f & (types.TypeFlags.EnumLiteral | types.TypeFlags.Enum)) != 0 and (f & types.TypeFlags.Union) == 0) {
+                    return types.TypeFlags.Enum;
+                }
+                return f;
+            }
             fn lt(ctx: *Checker, a: types.TypeIndex, b: types.TypeIndex) bool {
                 if (a >= ctx.typesList.items.len or b >= ctx.typesList.items.len) return a < b;
-                const fa = ctx.typesList.items[a].flags;
-                const fb = ctx.typesList.items[b].flags;
-                // Use the same sort key as Go's getSortOrderFlags: just the flags value.
+                const fa = getSortOrderFlags(ctx, a);
+                const fb = getSortOrderFlags(ctx, b);
                 if (fa != fb) return fa < fb;
-                // Same flags — compare by symbol name.
-                const sa = ctx.typesList.items[a].symbol;
-                const sb = ctx.typesList.items[b].symbol;
-                if (sa != null and sb != null and sa.? < ctx.binder.symbols.items.len and sb.? < ctx.binder.symbols.items.len) {
-                    return std.mem.lessThan(u8, ctx.binder.symbols.items[sa.?].Name, ctx.binder.symbols.items[sb.?].Name);
+                // Same sort-order flags — compare by type name symbol.
+                const sa = getTypeNameSymbol(ctx, a);
+                const sb = getTypeNameSymbol(ctx, b);
+                if (sa != 0 and sb != 0 and sa < ctx.binder.symbols.items.len and sb < ctx.binder.symbols.items.len) {
+                    const na = ctx.binder.symbols.items[sa].Name;
+                    const nb = ctx.binder.symbols.items[sb].Name;
+                    if (!std.mem.eql(u8, na, nb)) {
+                        return std.mem.lessThan(u8, na, nb);
+                    }
+                } else if (sa != 0 and sb == 0) {
+                    return true;
+                } else if (sa == 0 and sb != 0) {
+                    return false;
                 }
+                // Same name (or both unnamed) — fall back to type id
+                // (creation order). This ensures deterministic ordering
+                // for literal types like "red" | "green" | "yellow".
                 return a < b;
+            }
+            fn getTypeNameSymbol(ctx: *Checker, t: types.TypeIndex) ast_gen.SymbolIndex {
+                if (t == 0 or t >= ctx.typesList.items.len) return 0;
+                const td = ctx.typesList.items[t];
+                if (td.alias) |a| return a.symbol;
+                if ((td.flags & (types.TypeFlags.TypeParameter | types.TypeFlags.StringMapping)) != 0) return td.symbol orelse 0;
+                if ((td.objectFlags & (types.ObjectFlags.ClassOrInterface | types.ObjectFlags.Reference)) != 0) return td.symbol orelse 0;
+                return 0;
             }
         }.lt);
         const start = @as(u32, @intCast(self.unionTypesPool.items.len));
