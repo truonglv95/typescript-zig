@@ -28801,6 +28801,27 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
             }
             return c.anyTypeIndex orelse 0;
         }
+        // Also check if the signature's declaration is a ConstructSignature
+        // from an interface. When calling `new Foo(3)` where Foo is an
+        // interface with construct signatures, the result should still be
+        // any (interfaces can't be instantiated at runtime).
+        if (declaration != 0) {
+            const decl_kind = c.binder.ast.getKind(declaration);
+            if (decl_kind == .ConstructSignature or decl_kind == .ConstructorType) {
+                // Check if the target symbol is an interface.
+                if (target_expr != 0 and c.binder.ast.getKind(target_expr) == .Identifier) {
+                    const sym = getSymbolAtLocation(c, target_expr);
+                    if (sym != 0 and sym < c.binder.symbols.items.len) {
+                        const sym_flags = c.binder.symbols.items[sym].Flags;
+                        if ((sym_flags & symbol.SymbolFlags.Interface) != 0 and
+                            c.binder.symbols.items[sym].ValueDeclaration == null)
+                        {
+                            return c.anyTypeIndex orelse 0;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (ast_utils.isInJSFile(c.binder.ast, node_idx) and c.isCommonJSRequire(node_idx)) {
@@ -29509,6 +29530,19 @@ pub fn checkIdentifier(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: Chec
             // anyType to break the cycle.
             if (c.resolvingSymbols.contains(symIndex)) {
                 return c.anyTypeIndex orelse 0;
+            }
+            // Check if this is a type-only symbol (interface, type alias)
+            // used as a value. Interfaces don't have value declarations,
+            // so using them as a value in a `new` expression should return any.
+            const sym_flags = c.binder.symbols.items[symIndex].Flags;
+            if ((sym_flags & (symbol.SymbolFlags.Interface | symbol.SymbolFlags.TypeAlias)) != 0 and
+                c.binder.symbols.items[symIndex].ValueDeclaration == null)
+            {
+                // Check if this identifier is the expression of a NewExpression.
+                const parent = c.binder.ast.getNodeParent(node_idx);
+                if (parent != 0 and c.binder.ast.getKind(parent) == .NewExpression) {
+                    return c.anyTypeIndex orelse 0;
+                }
             }
             const t = c.getTypeOfSymbol(symIndex) catch c.anyTypeIndex orelse 0;
             return t;
