@@ -237,6 +237,12 @@ pub const FourslashTest = struct {
     semanticTokenTypes: [][]const u8,
     semanticTokenModifiers: [][]const u8,
 
+    /// Tracks the AST node at the current cursor position. Set by
+    /// `getQuickInfoStringAtCursor` so downstream helpers (e.g.
+    /// `getParentQualifiedNamePrefixWithCtxType`) can walk the AST to
+    /// find the contextual type of the property access expression.
+    last_cursor_node: ast_gen.NodeIndex = 0,
+
     pub fn handleServerRequest(self: *FourslashTest, req: *lsproto.RequestMessage) *lsproto.ResponseMessage {
         _ = self;
         _ = req;
@@ -1316,6 +1322,12 @@ pub const FourslashTest = struct {
     /// type (class/interface/enum) or namespace.
     /// Walks the parent chain to handle nested namespaces like `M.N.A`.
     fn getParentQualifiedNamePrefix(self: *FourslashTest, sym: ast_gen.SymbolIndex) []const u8 {
+        // Delegate to the variant that accepts a contextual type so we can
+        // render generic instantiations as `B<string>` instead of `B<T>`.
+        return self.getParentQualifiedNamePrefixWithCtxType(sym, 0);
+    }
+
+    fn getParentQualifiedNamePrefixWithCtxType(self: *FourslashTest, sym: ast_gen.SymbolIndex, ctx_type: checker_module.types.TypeIndex) []const u8 {
         const c = self.checker orelse return "";
         if (sym == 0 or sym >= c.binder.symbols.items.len) return "";
         const sym_obj = c.binder.symbols.items[sym];
@@ -1334,40 +1346,153 @@ pub const FourslashTest = struct {
                 if (first_decl != 0 and p.ast.getNodeKind(first_decl) == .SourceFile) return "";
             }
         }
-        // Recurse: build grandparent prefix + parent.Name + "."
-        const grandparent_prefix = self.getParentQualifiedNamePrefix(parent_sym);
-        // Append type parameters if the parent has them.
+
+        // Determine the contextual type arguments to render for this parent.
+        // We try multiple sources in order:
+        //   1. Explicit `ctx_type` parameter (if it's a generic reference
+        //      whose target symbol matches `parent_sym`).
+        //   2. The property's `valueSymbolLinks.containingType` (set when
+        //      the property was accessed through a generic reference).
+        //   3. The grandparent's `valueSymbolLinks.containingType` chain.
+        //   4. Fall back to the declared type-parameter names (e.g., `B<T>`).
         var tp_str: []const u8 = "";
-        if (self.parser) |p| {
-            if (parent_obj.Declarations.items.len > 0) {
-                const parent_decl = parent_obj.Declarations.items[0];
-                const parent_decl_data = p.ast.getNode(parent_decl);
-                const tp_list: ?u32 = switch (parent_decl_data) {
-                    .ClassDeclaration => |cd| cd.TypeParameters,
-                    .InterfaceDeclaration => |id| id.TypeParameters,
-                    else => null,
-                };
-                if (tp_list) |tpl| {
-                    if (tpl != 0) {
-                        const tp_nodes = p.ast.getNodeList(tpl);
-                        if (tp_nodes.len > 0) {
-                            var buf = std.ArrayListUnmanaged(u8).empty;
-                            const aa = self.arena.allocator();
-                            buf.appendSlice(aa, "<") catch {};
-                            for (tp_nodes, 0..) |tp_node, i| {
-                                if (i > 0) buf.appendSlice(aa, ", ") catch {};
-                                if (tp_node != 0) {
-                                    const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
-                                    buf.appendSlice(aa, tp_name) catch {};
+        var use_ctx_args = false;
+
+        // Source 1: explicit ctx_type
+        if (ctx_type != 0 and ctx_type < c.typesList.items.len) {
+            const td = c.typesList.items[ctx_type];
+            if ((td.flags & checker_module.types.TypeFlags.Object) != 0 and
+                (td.objectFlags & checker_module.types.ObjectFlags.Reference) != 0 and
+                td.symbol != null and td.symbol.? == parent_sym)
+            {
+                const args = c.getTypeArguments(ctx_type);
+                if (args.len > 0) {
+                    var buf = std.ArrayListUnmanaged(u8).empty;
+                    const aa = self.arena.allocator();
+                    buf.appendSlice(aa, "<") catch {};
+                    for (args, 0..) |arg, i| {
+                        if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                        const s = if (arg != 0) c.typeToString(arg, 0, HOVER_TYPE_FLAGS, null) else "any";
+                        buf.appendSlice(aa, s) catch {};
+                    }
+                    buf.appendSlice(aa, ">") catch {};
+                    tp_str = buf.toOwnedSlice(aa) catch "";
+                    use_ctx_args = true;
+                }
+            }
+        }
+
+        // Source 2: sym's containingType
+        if (!use_ctx_args) {
+            if (c.valueSymbolLinks.get(sym)) |links| {
+                if (links.containingType) |ct_idx| {
+                    if (ct_idx != 0 and ct_idx < c.typesList.items.len) {
+                        const ct = c.typesList.items[ct_idx];
+                        if (ct.symbol != null and ct.symbol.? == parent_sym) {
+                            const args = c.getTypeArguments(ct_idx);
+                            if (args.len > 0) {
+                                var buf = std.ArrayListUnmanaged(u8).empty;
+                                const aa = self.arena.allocator();
+                                buf.appendSlice(aa, "<") catch {};
+                                for (args, 0..) |arg, i| {
+                                    if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                                    const s = if (arg != 0) c.typeToString(arg, 0, HOVER_TYPE_FLAGS, null) else "any";
+                                    buf.appendSlice(aa, s) catch {};
                                 }
+                                buf.appendSlice(aa, ">") catch {};
+                                tp_str = buf.toOwnedSlice(aa) catch "";
+                                use_ctx_args = true;
                             }
-                            buf.appendSlice(aa, ">") catch {};
-                            tp_str = buf.toOwnedSlice(aa) catch "";
                         }
                     }
                 }
             }
         }
+
+        // Source 3: Walk up symbolNodeLinks of the PAE/identifier node to
+        // find the object's type. This handles cases where the property
+        // symbol is shared across multiple instantiations and we need to
+        // know which instantiation the cursor is on.
+        if (!use_ctx_args) {
+            if (self.last_cursor_node != 0) {
+                const p = self.parser orelse null;
+                if (p) |pp| {
+                    // Walk up to find the PropertyAccessExpression containing
+                    // the cursor identifier.
+                    var cur_node: ast_gen.NodeIndex = self.last_cursor_node;
+                    while (cur_node != 0) {
+                        const k = pp.ast.getNodeKind(cur_node);
+                        if (k == .PropertyAccessExpression) {
+                            const pae = pp.ast.getNode(cur_node).PropertyAccessExpression;
+                            const obj_type = c.checkExpressionCached(pae.Expression);
+                            if (obj_type != 0 and obj_type < c.typesList.items.len) {
+                                const td = c.typesList.items[obj_type];
+                                if ((td.flags & checker_module.types.TypeFlags.Object) != 0 and
+                                    (td.objectFlags & checker_module.types.ObjectFlags.Reference) != 0 and
+                                    td.symbol != null and td.symbol.? == parent_sym)
+                                {
+                                    const args = c.getTypeArguments(obj_type);
+                                    if (args.len > 0) {
+                                        var buf = std.ArrayListUnmanaged(u8).empty;
+                                        const aa = self.arena.allocator();
+                                        buf.appendSlice(aa, "<") catch {};
+                                        for (args, 0..) |arg, i| {
+                                            if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                                            const s = if (arg != 0) c.typeToString(arg, 0, HOVER_TYPE_FLAGS, null) else "any";
+                                            buf.appendSlice(aa, s) catch {};
+                                        }
+                                        buf.appendSlice(aa, ">") catch {};
+                                        tp_str = buf.toOwnedSlice(aa) catch "";
+                                        use_ctx_args = true;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        const parent = pp.ast.getNodeParent(cur_node);
+                        if (parent == cur_node or parent == 0) break;
+                        cur_node = parent;
+                    }
+                }
+            }
+        }
+
+        // Source 4: declared type-parameter names from AST
+        if (!use_ctx_args) {
+            if (self.parser) |p| {
+                if (parent_obj.Declarations.items.len > 0) {
+                    const parent_decl = parent_obj.Declarations.items[0];
+                    const parent_decl_data = p.ast.getNode(parent_decl);
+                    const tp_list: ?u32 = switch (parent_decl_data) {
+                        .ClassDeclaration => |cd| cd.TypeParameters,
+                        .InterfaceDeclaration => |id| id.TypeParameters,
+                        else => null,
+                    };
+                    if (tp_list) |tpl| {
+                        if (tpl != 0) {
+                            const tp_nodes = p.ast.getNodeList(tpl);
+                            if (tp_nodes.len > 0) {
+                                var buf = std.ArrayListUnmanaged(u8).empty;
+                                const aa = self.arena.allocator();
+                                buf.appendSlice(aa, "<") catch {};
+                                for (tp_nodes, 0..) |tp_node, i| {
+                                    if (i > 0) buf.appendSlice(aa, ", ") catch {};
+                                    if (tp_node != 0) {
+                                        const tp_name = ast_utils.getTextOfNode(&p.ast, p.ast.getNode(tp_node).TypeParameter.name);
+                                        buf.appendSlice(aa, tp_name) catch {};
+                                    }
+                                }
+                                buf.appendSlice(aa, ">") catch {};
+                                tp_str = buf.toOwnedSlice(aa) catch "";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Recurse: build grandparent prefix + parent.Name + tp_str + "."
+        const grandparent_prefix = self.getParentQualifiedNamePrefixWithCtxType(parent_sym, 0);
         const aa = self.arena.allocator();
         return std.fmt.allocPrint(aa, "{s}{s}{s}.", .{ grandparent_prefix, parent_obj.Name, tp_str }) catch "";
     }
@@ -1681,6 +1806,12 @@ pub const FourslashTest = struct {
             if (self.tryJSDocQuickInfo(cursorPos)) |info| return info;
             return "";
         }
+
+        // Track the cursor node so downstream helpers can walk the AST to
+        // find the contextual type (e.g., for `b.bar` where `b: B<string>`,
+        // we need to know the cursor is on `bar` inside a PAE whose object
+        // expression has type `B<string>`).
+        self.last_cursor_node = node;
 
         // If the node is an ExpressionStatement, descend to its Expression.
         if (p.ast.getNodeKind(node) == .ExpressionStatement) {
@@ -4767,39 +4898,141 @@ pub const FourslashTest = struct {
 
         // Find the CallExpression (or NewExpression) that contains the cursor.
         const node = astnav.getTouchingPropertyName(sf, &p.ast, cursorPos);
-        const call_node = ast_utils.findAncestorKind(&p.ast, node, .CallExpression);
-        if (call_node == 0) {
+
+        // Walk up the AST collecting all enclosing CallExpressions. The
+        // innermost call (closest to the cursor) takes precedence; if it
+        // doesn't yield signatures, fall back to the outer call.
+        var call_candidates: [4]ast_gen.NodeIndex = .{ 0, 0, 0, 0 };
+        var call_count: usize = 0;
+        {
+            var cur: ast_gen.NodeIndex = node;
+            while (cur != 0 and call_count < call_candidates.len) {
+                const k = p.ast.getNodeKind(cur);
+                if (k == .CallExpression or k == .NewExpression) {
+                    call_candidates[call_count] = cur;
+                    call_count += 1;
+                }
+                const parent = p.ast.getNodeParent(cur);
+                if (parent == cur or parent == 0) break;
+                cur = parent;
+            }
+        }
+        if (call_count == 0) {
             std.log.warn("VerifySignatureHelp: no CallExpression found at cursor pos {}", .{cursorPos});
             return;
         }
-        const ce = p.ast.getNode(call_node).CallExpression;
 
-        // Get the callee's type/symbol.
-        const callee_type = c.checkExpressionCached(ce.Expression);
-        if (callee_type == 0) {
-            std.log.warn("VerifySignatureHelp: callee has no type", .{});
-            return;
+        // Iterate over call candidates from innermost to outermost. Use the
+        // first one that yields a valid signature whose name matches the
+        // expected Text's name prefix (or just the first one with signatures).
+        const expected_name_prefix = blk: {
+            const paren_idx = std.mem.indexOf(u8, expected.Text, "(") orelse expected.Text.len;
+            break :blk expected.Text[0..paren_idx];
+        };
+
+        var matched_call_node: ast_gen.NodeIndex = 0;
+        var matched_sigs = checker_module.types.Range{ .start = 0, .len = 0 };
+        var first_sigs = checker_module.types.Range{ .start = 0, .len = 0 };
+        for (call_candidates[0..call_count]) |call_node| {
+            if (call_node == 0) continue;
+            // Get expression + arguments from either CallExpression or NewExpression.
+            const call_kind = p.ast.getNodeKind(call_node);
+            var callee_expr: ast_gen.NodeIndex = 0;
+            var args_id: u32 = 0;
+            if (call_kind == .CallExpression) {
+                const ce = p.ast.getNode(call_node).CallExpression;
+                callee_expr = ce.Expression;
+                args_id = ce.Arguments;
+            } else if (call_kind == .NewExpression) {
+                const ne = p.ast.getNode(call_node).NewExpression;
+                callee_expr = ne.Expression;
+                args_id = ne.Arguments orelse 0;
+            } else continue;
+
+            const callee_type = c.checkExpressionCached(callee_expr);
+            if (callee_type == 0) continue;
+
+            var sigs = checker_module.types.Range{ .start = 0, .len = 0 };
+            if (callee_type < c.typesList.items.len) {
+                const sym = c.typesList.items[callee_type].symbol orelse 0;
+                if (sym != 0) {
+                    sigs = c.getSignaturesOfSymbol(sym);
+                }
+                if (sigs.len == 0) {
+                    sigs = c.getSignaturesOfType(callee_type, .Call);
+                }
+            }
+            if (sigs.len == 0) continue;
+
+            if (first_sigs.len == 0) first_sigs = sigs;
+
+            // Get the function name from the first signature.
+            const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
+            const sig = &c.signatures.items[sigIdx];
+            var fn_name: []const u8 = "";
+            if (sig.declaration != 0) {
+                const decl = p.ast.getNode(sig.declaration);
+                switch (decl) {
+                    .FunctionDeclaration => |fd| {
+                        if (fd.name) |nm| {
+                            if (nm != 0) fn_name = ast_utils.getTextOfNode(&p.ast, nm);
+                        }
+                    },
+                    .MethodDeclaration => |md| {
+                        if (md.name != 0) fn_name = ast_utils.getTextOfNode(&p.ast, md.name);
+                    },
+                    .FunctionExpression => |fe| {
+                        if (fe.name) |nm| {
+                            if (nm != 0) fn_name = ast_utils.getTextOfNode(&p.ast, nm);
+                        }
+                    },
+                    .ArrowFunction => {},
+                    else => {},
+                }
+                if (fn_name.len == 0 and p.ast.getNodeKind(callee_expr) == .PropertyAccessExpression) {
+                    const pae = p.ast.getNode(callee_expr).PropertyAccessExpression;
+                    if (pae.name != 0) fn_name = ast_utils.getTextOfNode(&p.ast, pae.name);
+                }
+            }
+
+            if (expected_name_prefix.len > 0 and std.mem.eql(u8, fn_name, expected_name_prefix)) {
+                matched_call_node = call_node;
+                matched_sigs = sigs;
+                break;
+            }
+            if (matched_call_node == 0) {
+                // Default to first call with signatures.
+                matched_call_node = call_node;
+                matched_sigs = sigs;
+            }
         }
 
-        // Find signatures: first try symbol-based lookup, then type-based lookup.
-        var sigs = checker_module.types.Range{ .start = 0, .len = 0 };
-        if (callee_type < c.typesList.items.len) {
-            const sym = c.typesList.items[callee_type].symbol orelse 0;
-            if (sym != 0) {
-                sigs = c.getSignaturesOfSymbol(sym);
-            }
-            if (sigs.len == 0) {
-                sigs = c.getSignaturesOfType(callee_type, .Call);
+        if (matched_call_node == 0) {
+            if (first_sigs.len > 0) {
+                matched_sigs = first_sigs;
+            } else {
+                std.log.warn("VerifySignatureHelp: no signatures found for callee at pos {}", .{cursorPos});
+                return;
             }
         }
 
-        if (sigs.len == 0) {
-            std.log.warn("VerifySignatureHelp: no signatures found for callee at pos {}", .{cursorPos});
-            return;
+        // Re-extract the chosen call's expression/arguments (handles both
+        // CallExpression and NewExpression).
+        const matched_call_kind = p.ast.getNodeKind(matched_call_node);
+        var callee_expr: ast_gen.NodeIndex = 0;
+        var args_id: u32 = 0;
+        if (matched_call_kind == .CallExpression) {
+            const ce = p.ast.getNode(matched_call_node).CallExpression;
+            callee_expr = ce.Expression;
+            args_id = ce.Arguments;
+        } else if (matched_call_kind == .NewExpression) {
+            const ne = p.ast.getNode(matched_call_node).NewExpression;
+            callee_expr = ne.Expression;
+            args_id = ne.Arguments orelse 0;
         }
 
         // Format the first signature as: name(params): retType
-        const sigIdx = c.resolvedSignaturesPool.items[sigs.start];
+        const sigIdx = c.resolvedSignaturesPool.items[matched_sigs.start];
         const sig = &c.signatures.items[sigIdx];
 
         // Get the function's name from its declaration.
@@ -4824,16 +5057,24 @@ pub const FourslashTest = struct {
                 else => {},
             }
             // For PropertyAccessExpression callee (e.g., obj.method(...)), use the property name.
-            if (fn_name.len == 0 and p.ast.getNodeKind(ce.Expression) == .PropertyAccessExpression) {
-                const pae = p.ast.getNode(ce.Expression).PropertyAccessExpression;
+            if (fn_name.len == 0 and p.ast.getNodeKind(callee_expr) == .PropertyAccessExpression) {
+                const pae = p.ast.getNode(callee_expr).PropertyAccessExpression;
                 if (pae.name != 0) fn_name = ast_utils.getTextOfNode(&p.ast, pae.name);
+            }
+        }
+
+        // For NewExpression, if the function name is still empty, use the
+        // constructor's class name (from the callee expression).
+        if (fn_name.len == 0 and matched_call_kind == .NewExpression) {
+            if (p.ast.getNodeKind(callee_expr) == .Identifier) {
+                fn_name = ast_utils.getTextOfNode(&p.ast, callee_expr);
             }
         }
 
         // Determine the argument index under the cursor (simplified: count commas before cursor).
         var arg_index: usize = 0;
-        if (ce.Arguments != 0) {
-            const args = p.ast.getNodeList(ce.Arguments);
+        if (args_id != 0) {
+            const args = p.ast.getNodeList(args_id);
             for (args) |arg| {
                 if (arg == 0) continue;
                 const arg_pos = p.ast.getNodePos(arg);
@@ -4885,8 +5126,8 @@ pub const FourslashTest = struct {
         }
 
         // Verify overloads count.
-        if (expected.OverloadsCount != 0 and expected.OverloadsCount != sigs.len) {
-            std.log.warn("VerifySignatureHelp overloads count mismatch: expected {d}, got {d}", .{ expected.OverloadsCount, sigs.len });
+        if (expected.OverloadsCount != 0 and expected.OverloadsCount != matched_sigs.len) {
+            std.log.warn("VerifySignatureHelp overloads count mismatch: expected {d}, got {d}", .{ expected.OverloadsCount, matched_sigs.len });
             return error.TestExpectedEqual;
         }
     }

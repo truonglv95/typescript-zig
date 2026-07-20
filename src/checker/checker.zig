@@ -1314,18 +1314,35 @@ pub const Checker = struct {
         // If the source has type parameters and this reference has type
         // arguments, we need to substitute type parameters in property types
         // with the corresponding type arguments when callers query property
-        // types. For now, we keep the same property symbols but cache an
-        // "instantiated type" hint on valueSymbolLinks.containingType so
-        // getTypeOfSymbol can later substitute using the type arguments.
-        //
-        // We don't override resolvedType (which is shared across all
-        // instantiations of the same source). Instead we just return the
-        // source's members as-is; downstream code (getTypeOfSymbol with
-        // containingType) handles substitution when needed.
+        // types. We don't override resolvedType (which is shared across all
+        // instantiations of the same source). Instead, we mark each property
+        // symbol's valueSymbolLinks.containingType = t so that
+        // getTypeOfSymbol can later substitute using the type arguments and
+        // so that downstream rendering can show `B<string>` instead of `B<T>`.
+        if (typeParametersLen > 0 and typeArgumentsLen > 0 and t != source) {
+            // Walk the source's declared properties and set containingType on
+            // each property symbol's valueSymbolLinks entry. This allows
+            // downstream code to know which instantiation the property came
+            // from. We do this lazily (only when actually queried) by setting
+            // it here for the resolved property set.
+            if (resolved.propertiesLen > 0) {
+                const props = c.resolvedPropertiesPool.items[resolved.propertiesStart .. resolved.propertiesStart + resolved.propertiesLen];
+                for (props) |prop_sym| {
+                    if (prop_sym == 0 or prop_sym >= c.binder.symbols.items.len) continue;
+                    var links_entry = c.valueSymbolLinks.getOrPut(c.allocator, prop_sym) catch continue;
+                    if (!links_entry.found_existing) {
+                        links_entry.value_ptr.* = .{};
+                    }
+                    // Only set containingType if not already set (avoid
+                    // overwriting a more specific synthetic containing type).
+                    if (links_entry.value_ptr.containingType == null or links_entry.value_ptr.containingType.? == 0) {
+                        links_entry.value_ptr.containingType = t;
+                    }
+                }
+            }
+        }
         _ = typeParametersStart;
-        _ = typeParametersLen;
         _ = typeArgumentsStart;
-        _ = typeArgumentsLen;
         outMembers.propertiesStart = resolved.propertiesStart;
         outMembers.propertiesLen = resolved.propertiesLen;
         outMembers.callSignaturesStart = resolved.callSignaturesStart;
@@ -1334,7 +1351,6 @@ pub const Checker = struct {
         outMembers.constructSignaturesLen = resolved.constructSignaturesLen;
         outMembers.indexInfosStart = resolved.indexInfosStart;
         outMembers.indexInfosLen = resolved.indexInfosLen;
-        _ = t;
     }
 
     /// Port of checker.go::resolveReverseMappedTypeMembers. Resolves
@@ -2091,6 +2107,13 @@ pub const Checker = struct {
             if (typ.symbol) |symIdx| {
                 if (self.binder.symbolMembers.getPtr(symIdx)) |members| {
                     if (members.get(name)) |propSymIdx| {
+                        // If the type is a generic reference (instantiation),
+                        // record the containing type on the property symbol
+                        // so downstream rendering can show `B<string>` instead
+                        // of `B<T>`.
+                        if ((typ.objectFlags & types.ObjectFlags.Reference) != 0 and tIdx != 0) {
+                            self.setContainingTypeOnSymbol(propSymIdx, tIdx);
+                        }
                         return propSymIdx;
                     }
                 }
@@ -2101,6 +2124,9 @@ pub const Checker = struct {
                     if ((sym_flags & (symbol.SymbolFlags.Enum | symbol.SymbolFlags.ValueModule | symbol.SymbolFlags.NamespaceModule | symbol.SymbolFlags.Module)) != 0) {
                         if (self.binder.symbolExports.getPtr(symIdx)) |exports| {
                             if (exports.get(name)) |propSymIdx| {
+                                if ((typ.objectFlags & types.ObjectFlags.Reference) != 0 and tIdx != 0) {
+                                    self.setContainingTypeOnSymbol(propSymIdx, tIdx);
+                                }
                                 return propSymIdx;
                             }
                         }
@@ -2120,6 +2146,21 @@ pub const Checker = struct {
             }
         }
         return null;
+    }
+
+    /// Sets `containingType` on a property symbol's valueSymbolLinks entry,
+    /// but only if it isn't already set to a non-zero value. This allows
+    /// downstream code to know which generic instantiation the property
+    /// was accessed through, so it can render `B<string>` instead of `B<T>`.
+    fn setContainingTypeOnSymbol(c: *Checker, sym: ast_gen.SymbolIndex, t: types.TypeIndex) void {
+        if (sym == 0) return;
+        var entry = c.valueSymbolLinks.getOrPut(c.allocator, sym) catch return;
+        if (!entry.found_existing) {
+            entry.value_ptr.* = .{};
+        }
+        if (entry.value_ptr.containingType == null or entry.value_ptr.containingType.? == 0) {
+            entry.value_ptr.containingType = t;
+        }
     }
 
     /// Look up a property by name through the type's index signature(s).
@@ -10858,16 +10899,21 @@ pub const Checker = struct {
         const targetId = c.getTargetType(target);
         // Guard: only access Object data if the target type is actually Object.
         if (c.typesList.items[targetId].data != .Object) return t;
-        var data = &c.typesList.items[targetId].data.Object;
         const key = getTypeInstantiationKey(typeArguments, newAlias, (objFlags & types.ObjectFlags.SingleSignatureType) != 0);
 
-        if (data.instantiations == null) {
-            data.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex).empty;
+        // NOTE: Do NOT hold a pointer into `c.typesList.items[targetId].data.Object`
+        // across the instantiation calls below. The instantiation routines append
+        // new types to `c.typesList`, which may reallocate the underlying slice
+        // and invalidate any such pointer. Always re-fetch the data pointer via
+        // index after a call that may grow `c.typesList`.
+
+        if (c.typesList.items[targetId].data.Object.instantiations == null) {
+            c.typesList.items[targetId].data.Object.instantiations = std.AutoHashMapUnmanaged(types.CacheHashKey, types.TypeIndex).empty;
             const targetKey = getTypeInstantiationKey(typeParameters.?, c.typesList.items[target].alias, false);
-            data.instantiations.?.put(c.allocator, targetKey, target) catch {};
+            c.typesList.items[targetId].data.Object.instantiations.?.put(c.allocator, targetKey, target) catch {};
         }
 
-        if (data.instantiations.?.get(key)) |result| {
+        if (c.typesList.items[targetId].data.Object.instantiations.?.get(key)) |result| {
             return result;
         }
 
@@ -10885,7 +10931,9 @@ pub const Checker = struct {
             result = c.instantiateAnonymousType(target, newMapper, newAlias);
         }
 
-        data.instantiations.?.put(c.allocator, key, result) catch {};
+        // Re-fetch the data pointer since the instantiation calls above may
+        // have reallocated `c.typesList.items`.
+        c.typesList.items[targetId].data.Object.instantiations.?.put(c.allocator, key, result) catch {};
 
         if ((c.typesList.items[result].flags & types.TypeFlags.ObjectFlagsType) != 0 and (c.typesList.items[result].objectFlags & types.ObjectFlags.CouldContainTypeVariablesComputed) == 0) {
             var resultCouldContainObjectFlags = false;
