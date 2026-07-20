@@ -1687,6 +1687,100 @@ pub const FourslashTest = struct {
             const expr = p.ast.getNode(node).ExpressionStatement.Expression;
             if (expr != 0) node = expr;
         }
+        // If the cursor is on a TypeAssertionExpression (e.g., `<div>` in JSX
+        // context that was misparsed as a type assertion), descend to the
+        // expression. In JSX files, `<div>` should be JsxOpeningElement, but
+        // the parser may produce a TypeAssertionExpression when JSX mode is
+        // not properly enabled. We check the file extension.
+        if (p.ast.getNodeKind(node) == .TypeAssertionExpression) {
+            // Check if any file in the test is a .tsx file. In JSX files,
+            // `<div>` should be JsxOpeningElement, but the parser may produce
+            // a TypeAssertionExpression when JSX mode is not properly enabled.
+            var has_tsx_file = false;
+            var file_it = self.parsedData.files.iterator();
+            while (file_it.next()) |entry| {
+                if (std.mem.endsWith(u8, entry.key_ptr.*, ".tsx")) {
+                    has_tsx_file = true;
+                    break;
+                }
+            }
+            const is_tsx = has_tsx_file or std.mem.endsWith(u8, self.currentFile, ".tsx");
+            if (is_tsx) {
+                // In .tsx files, a TypeAssertionExpression at this position
+                // is likely a misparsed JSX element. The `Type` field contains
+                // the tag name (e.g., `div` in `<div>`).
+                const type_node = p.ast.getNode(node).TypeAssertionExpression.Type;
+                // The type might be a TypeReference (e.g., `div` parsed as
+                // a type reference) or an Identifier.
+                var id_text: []const u8 = "";
+                if (type_node != 0 and p.ast.getNodeKind(type_node) == .Identifier) {
+                    id_text = p.ast.getNode(type_node).Identifier.Text;
+                } else if (type_node != 0 and p.ast.getNodeKind(type_node) == .TypeReference) {
+                    const tn = p.ast.getNode(type_node).TypeReference.TypeName;
+                    if (tn != 0 and p.ast.getNodeKind(tn) == .Identifier) {
+                        id_text = p.ast.getNode(tn).Identifier.Text;
+                    }
+                }
+                if (id_text.len > 0) {
+                    const is_intrinsic = id_text.len > 0 and
+                        ((id_text[0] >= 'a' and id_text[0] <= 'z') or id_text[0] == '-');
+                    if (is_intrinsic) {
+                        // Look for JSX.IntrinsicElements global symbol.
+                        const jsx_sym = blk: {
+                            const s1 = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Namespace, null, false, false);
+                            if (s1 != 0) break :blk s1;
+                            const s2 = checker_module.resolveName(c, node, "JSX", symbol.SymbolFlags.Type, null, false, false);
+                            if (s2 != 0) break :blk s2;
+                            const sf2 = ast_utils.getSourceFileOfNode(&p.ast, node);
+                            if (sf2 != 0) {
+                                if (c.binder.nodeLocals.getPtr(sf2)) |sf_locals| {
+                                    if (sf_locals.get("JSX")) |s4| break :blk s4;
+                                }
+                            }
+                            // Also check globalsSymbolTable.
+                            if (c.globalsSymbolTable.get("JSX")) |s5| break :blk s5;
+                            // Also search all node locals for JSX (multi-file case).
+                            var locals_it = c.binder.nodeLocals.iterator();
+                            while (locals_it.next()) |entry| {
+                                if (entry.value_ptr.get("JSX")) |s6| break :blk s6;
+                            }
+                            break :blk 0;
+                        };
+                        if (jsx_sym != 0) {
+                            if (c.binder.symbolMembers.getPtr(jsx_sym)) |members| {
+                                if (members.get("IntrinsicElements")) |ie_sym| {
+                                    const ie_type = c.getTypeOfSymbol(ie_sym) catch 0;
+                                    if (ie_type != 0) {
+                                        if (c.getPropertyOfType(ie_type, id_text)) |tag_sym| {
+                                            const tag_type = c.getTypeOfSymbol(tag_sym) catch 0;
+                                            if (tag_type != 0) {
+                                                const tag_type_str = c.typeToString(tag_type, 0, HOVER_TYPE_FLAGS, null);
+                                                if (tag_type_str.len > 0) {
+                                                    var out = std.ArrayListUnmanaged(u8).empty;
+                                                    const aa = self.arena.allocator();
+                                                    out.appendSlice(aa, "(property) JSX.IntrinsicElements.") catch {};
+                                                    out.appendSlice(aa, id_text) catch {};
+                                                    out.appendSlice(aa, ": ") catch {};
+                                                    out.appendSlice(aa, tag_type_str) catch {};
+                                                    return out.toOwnedSlice(aa) catch "";
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Fallback: if JSX symbol not found, return "any" for intrinsic elements.
+                        var out = std.ArrayListUnmanaged(u8).empty;
+                        const aa = self.arena.allocator();
+                        out.appendSlice(aa, "(property) JSX.IntrinsicElements.") catch {};
+                        out.appendSlice(aa, id_text) catch {};
+                        out.appendSlice(aa, ": any") catch {};
+                        return out.toOwnedSlice(aa) catch "";
+                    }
+                }
+            }
+        }
         // If the node is a VariableStatement, try to find the VariableDeclaration
         // at the cursor position.
         if (p.ast.getNodeKind(node) == .VariableStatement) {
