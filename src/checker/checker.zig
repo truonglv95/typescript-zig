@@ -4670,13 +4670,25 @@ pub const Checker = struct {
                 .JSTypeAliasDeclaration => |declaration| try self.getTypeOfNode(declaration.Type),
                 .GetAccessor => |ga| {
                     if (ga.Type) |t| {
-                        if (t != 0) return try self.getTypeOfNode(t);
+                        if (t != 0) {
+                            const rt = try self.getTypeOfNode(t);
+                            // Cache before returning.
+                            self.valueSymbolLinks.put(self.allocator, symIndex, .{ .resolvedType = rt }) catch {};
+                            return rt;
+                        }
                     }
                     // No explicit return type annotation — infer from body.
                     // Use the same logic as function return type inference.
                     const body_ret = self.getReturnTypeFromBody(decl_index, CheckMode.Normal);
-                    if (body_ret != 0) return body_ret;
-                    return try self.getAnyType();
+                    if (body_ret != 0) {
+                        self.valueSymbolLinks.put(self.allocator, symIndex, .{ .resolvedType = body_ret }) catch {};
+                        return body_ret;
+                    }
+                    // Final fallback: any. But cache it so we don't retry
+                    // (which could cause infinite loops in recursive types).
+                    const any_t = try self.getAnyType();
+                    self.valueSymbolLinks.put(self.allocator, symIndex, .{ .resolvedType = any_t }) catch {};
+                    return any_t;
                 },
                 .SetAccessor => |sa| {
                     if (sa.Parameters != 0) {
@@ -4684,13 +4696,19 @@ pub const Checker = struct {
                         if (params.len > 0 and params[0] != 0) {
                             const param = self.binder.ast.getNode(params[0]).Parameter;
                             if (param.Type) |pt| {
-                                if (pt != 0) return try self.getTypeOfNode(pt);
+                                if (pt != 0) {
+                                    const pt_type = try self.getTypeOfNode(pt);
+                                    self.valueSymbolLinks.put(self.allocator, symIndex, .{ .resolvedType = pt_type }) catch {};
+                                    return pt_type;
+                                }
                             }
                             // No explicit parameter type — infer from body's
                             // first assignment to the parameter.
                         }
                     }
-                    return try self.getAnyType();
+                    const any_t = try self.getAnyType();
+                    self.valueSymbolLinks.put(self.allocator, symIndex, .{ .resolvedType = any_t }) catch {};
+                    return any_t;
                 },
                 .TypeParameter => return try self.createType(.{
                     .flags = types.TypeFlags.TypeParameter,

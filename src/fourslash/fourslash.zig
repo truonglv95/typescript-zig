@@ -4035,7 +4035,19 @@ pub const FourslashTest = struct {
             }
             var out = std.ArrayListUnmanaged(u8).empty;
             const aa = self.arena.allocator();
-            out.appendSlice(aa, "(property) ") catch {};
+            // For GetAccessor/SetAccessor, use "(getter)" / "(setter)"
+            // prefix instead of "(property)" to match Go's display.
+            if ((symObj.Flags & symbol.SymbolFlags.GetAccessor) != 0 and
+                (symObj.Flags & symbol.SymbolFlags.SetAccessor) == 0)
+            {
+                out.appendSlice(aa, "(getter) ") catch {};
+            } else if ((symObj.Flags & symbol.SymbolFlags.SetAccessor) != 0 and
+                (symObj.Flags & symbol.SymbolFlags.GetAccessor) == 0)
+            {
+                out.appendSlice(aa, "(setter) ") catch {};
+            } else {
+                out.appendSlice(aa, "(property) ") catch {};
+            }
             // Try to find the parent symbol's name. Use the qualified name
             // (e.g., "M2.A") so properties inside namespaced types display
             // with the full namespace prefix.
