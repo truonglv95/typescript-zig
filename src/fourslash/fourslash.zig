@@ -4022,7 +4022,52 @@ pub const FourslashTest = struct {
                 }
                 break :blk false;
             });
-        if (is_method_like) {
+        // Special case: if the method is in an object literal whose contextual
+        // type is a mapped type with a non-function property type, display as
+        // a property instead of a method. E.g., `type M = { [K in 'one']: any };`
+        // with `const x: M = { one() {} }` should display `(property) one: any`.
+        var force_property = false;
+        if (is_method_like and symObj.Declarations.items.len > 0) {
+            const decl_node = symObj.Declarations.items[0];
+            if (decl_node != 0 and p.ast.getNodeKind(decl_node) == .MethodDeclaration) {
+                // Walk up to find the object literal.
+                var cur = p.ast.getNodeParent(decl_node);
+                while (cur != 0) {
+                    if (p.ast.getNodeKind(cur) == .ObjectLiteralExpression) {
+                        const ctx_type = c.getContextualType(cur, 0);
+                        if (ctx_type != 0 and ctx_type < c.typesList.items.len) {
+                            const obj_flags = c.typesList.items[ctx_type].objectFlags;
+                            if ((obj_flags & checker_module.types.ObjectFlags.Mapped) != 0) {
+                                // Look up the property in the contextual type.
+                                const prop_name = symObj.Name;
+                                if (c.getPropertyOfType(ctx_type, prop_name)) |ctx_prop| {
+                                    const ctx_prop_type = c.getTypeOfSymbol(ctx_prop) catch 0;
+                                    if (ctx_prop_type != 0 and ctx_prop_type < c.typesList.items.len) {
+                                        // If the contextual property type is NOT a function type,
+                                        // display as property.
+                                        const td = c.typesList.items[ctx_prop_type];
+                                        const is_function = td.data == .Function or
+                                            (c.getSignaturesOfType(ctx_prop_type, .Call).len > 0);
+                                        if (!is_function) {
+                                            force_property = true;
+                                        }
+                                    }
+                                } else {
+                                    // Mapped type with no resolved property — force property
+                                    // display since the mapped type's value type is not a function.
+                                    force_property = true;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    if (p.ast.getNodeKind(cur) == .SourceFile or p.ast.getNodeKind(cur) == .FunctionDeclaration or
+                        p.ast.getNodeKind(cur) == .FunctionExpression or p.ast.getNodeKind(cur) == .ArrowFunction) break;
+                    cur = p.ast.getNodeParent(cur);
+                }
+            }
+        }
+        if (is_method_like and !force_property) {
             var sigs = c.getSignaturesOfSymbol(sym);
             // Fallback: for synthetic union/intersection properties with the
             // Method flag but no own declarations (e.g., `x.f` where `x` is a
