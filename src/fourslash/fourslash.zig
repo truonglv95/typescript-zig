@@ -4902,6 +4902,11 @@ pub const FourslashTest = struct {
         // Walk up the AST collecting all enclosing CallExpressions. The
         // innermost call (closest to the cursor) takes precedence; if it
         // doesn't yield signatures, fall back to the outer call.
+        // HOWEVER: for cursor positions OUTSIDE all argument lists (e.g.,
+        // the callee identifier `bar` in `foo(bar(...))`), the innermost
+        // call's argument list doesn't contain the cursor — we should pick
+        // the OUTER call. We detect this by checking if the cursor is
+        // within the call's argument span.
         var call_candidates: [4]ast_gen.NodeIndex = .{ 0, 0, 0, 0 };
         var call_count: usize = 0;
         {
@@ -4930,6 +4935,34 @@ pub const FourslashTest = struct {
             break :blk expected.Text[0..paren_idx];
         };
 
+        // Helper: check if cursor is within a call's argument list span.
+        const cursorInArgs = struct {
+            fn call(ast_ptr: *const ast_gen.Ast, call_node: ast_gen.NodeIndex, pos: u32) bool {
+                const k = ast_ptr.getNodeKind(call_node);
+                var args_id: u32 = 0;
+                if (k == .CallExpression) {
+                    args_id = ast_ptr.getNode(call_node).CallExpression.Arguments;
+                } else if (k == .NewExpression) {
+                    args_id = ast_ptr.getNode(call_node).NewExpression.Arguments orelse 0;
+                } else return false;
+                if (args_id == 0) return false;
+                const args = ast_ptr.getNodeList(args_id);
+                if (args.len == 0) {
+                    // Empty arg list — check if cursor is between ( and ).
+                    const args_pos = ast_ptr.getNodePos(args_id);
+                    const args_end = ast_ptr.getNodeEnd(args_id);
+                    return pos >= args_pos and pos <= args_end;
+                }
+                // Cursor is in args if it's between the first arg's pos and
+                // the last arg's end. We also include the span between
+                // call_node's open paren and the first arg, and between the
+                // last arg and the close paren.
+                const first_pos = ast_ptr.getNodePos(args[0]);
+                const last_end = ast_ptr.getNodeEnd(args[args.len - 1]);
+                return pos >= first_pos and pos <= last_end;
+            }
+        }.call;
+
         var matched_call_node: ast_gen.NodeIndex = 0;
         var matched_sigs = checker_module.types.Range{ .start = 0, .len = 0 };
         var first_sigs = checker_module.types.Range{ .start = 0, .len = 0 };
@@ -4949,6 +4982,25 @@ pub const FourslashTest = struct {
                 args_id = ne.Arguments orelse 0;
             } else continue;
 
+            // Skip this call if the cursor is NOT within its argument list
+            // AND there's another enclosing call whose argument list DOES
+            // contain the cursor. This handles `foo(bar/*c*/(...))` where
+            // the cursor `c` is on `bar` (the callee of the inner call),
+            // not inside the inner call's argument list.
+            const cursor_in_this_call = cursorInArgs(&p.ast, call_node, cursorPos);
+            if (!cursor_in_this_call) {
+                // Check if any other candidate has the cursor in its args.
+                var has_better = false;
+                for (call_candidates[0..call_count]) |other_node| {
+                    if (other_node == 0 or other_node == call_node) continue;
+                    if (cursorInArgs(&p.ast, other_node, cursorPos)) {
+                        has_better = true;
+                        break;
+                    }
+                }
+                if (has_better) continue;
+            }
+
             const callee_type = c.checkExpressionCached(callee_expr);
             if (callee_type == 0) continue;
 
@@ -4959,7 +5011,13 @@ pub const FourslashTest = struct {
                     sigs = c.getSignaturesOfSymbol(sym);
                 }
                 if (sigs.len == 0) {
-                    sigs = c.getSignaturesOfType(callee_type, .Call);
+                    // For NewExpression, look up construct signatures; for
+                    // CallExpression, look up call signatures.
+                    if (call_kind == .NewExpression) {
+                        sigs = c.getSignaturesOfType(callee_type, .Construct);
+                    } else {
+                        sigs = c.getSignaturesOfType(callee_type, .Call);
+                    }
                 }
             }
             if (sigs.len == 0) continue;
