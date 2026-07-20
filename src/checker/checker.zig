@@ -7677,12 +7677,117 @@ pub const Checker = struct {
             }
         }
 
-        // Case 4: param and arg are both Function types — recurse on return types.
+        // Case 4: param and arg are both Function types — recurse on BOTH
+        // parameter types AND return types.
         // This handles cases like: param: (value: T) => U, arg: (s: string) => number
-        // We unify U with number to infer U = number.
+        // We unify T with string (contravariant) AND U with number (covariant).
         if (p.data == .Function and a.data == .Function) {
+            // Unify return types (covariant).
             try self.unifyTypes(p.data.Function.returnType, a.data.Function.returnType, inferred);
+            // Also try to unify parameter types. For function expressions
+            // passed as arguments, the arg's parameter types may not be
+            // resolved yet. We try to get them from the function's declaration.
+            const p_param_count = p.data.Function.parameterCount;
+            const a_param_count = a.data.Function.parameterCount;
+            if (p_param_count > 0 and a_param_count > 0 and p_param_count == a_param_count) {
+                // Try to get parameter types from the declaration nodes.
+                const p_decl = p.data.Function.declarationNode;
+                const a_decl = a.data.Function.declarationNode;
+                if (p_decl != 0 and a_decl != 0 and p_decl < self.binder.ast.nodes.len and a_decl < self.binder.ast.nodes.len) {
+                    const p_params_id: ?u32 = switch (self.binder.ast.getNode(p_decl)) {
+                        .FunctionDeclaration => |f| f.Parameters,
+                        .FunctionExpression => |f| f.Parameters,
+                        .ArrowFunction => |f| f.Parameters,
+                        .MethodDeclaration => |m| m.Parameters,
+                        .CallSignature => |cs| cs.Parameters,
+                        else => null,
+                    };
+                    const a_params_id: ?u32 = switch (self.binder.ast.getNode(a_decl)) {
+                        .FunctionDeclaration => |f| f.Parameters,
+                        .FunctionExpression => |f| f.Parameters,
+                        .ArrowFunction => |f| f.Parameters,
+                        .MethodDeclaration => |m| m.Parameters,
+                        .CallSignature => |cs| cs.Parameters,
+                        else => null,
+                    };
+                    if (p_params_id != null and p_params_id.? != 0 and
+                        a_params_id != null and a_params_id.? != 0)
+                    {
+                        const p_params = self.binder.ast.getNodeList(p_params_id.?);
+                        const a_params = self.binder.ast.getNodeList(a_params_id.?);
+                        const min_params = @min(p_params.len, a_params.len);
+                        for (0..min_params) |pi| {
+                            const pp = p_params[pi];
+                            const ap = a_params[pi];
+                            if (pp == 0 or ap == 0) continue;
+                            const pp_data = self.binder.ast.getNode(pp);
+                            const ap_data = self.binder.ast.getNode(ap);
+                            const pp_type_node: ?ast_gen.NodeIndex = switch (pp_data) {
+                                .Parameter => |p2| p2.Type,
+                                else => null,
+                            };
+                            const ap_type_node: ?ast_gen.NodeIndex = switch (ap_data) {
+                                .Parameter => |p2| p2.Type,
+                                else => null,
+                            };
+                            if (pp_type_node == null or pp_type_node.? == 0) continue;
+                            if (ap_type_node == null or ap_type_node.? == 0) continue;
+                            const pp_type = self.getTypeOfNode(pp_type_node.?) catch 0;
+                            const ap_type = self.getTypeOfNode(ap_type_node.?) catch 0;
+                            if (pp_type != 0 and ap_type != 0) {
+                                // Parameters are contravariant: unify arg param type
+                                // with param param type (reversed direction).
+                                try self.unifyTypes(ap_type, pp_type, inferred);
+                            }
+                        }
+                    }
+                }
+            }
             return;
+        }
+
+        // Case 5: param is a Union type containing a TypeParameter.
+        // E.g., param: T | undefined, arg: string → infer T = string.
+        if ((p.flags & types.TypeFlags.Union) != 0 and (a.flags & types.TypeFlags.Union) == 0) {
+            const constituents = self.getTypesFromUnion(param_type);
+            for (constituents) |ct| {
+                if (ct < self.typesList.items.len) {
+                    const ct_flags = self.typesList.items[ct].flags;
+                    if ((ct_flags & types.TypeFlags.TypeParameter) != 0) {
+                        try self.unifyTypes(ct, arg_type, inferred);
+                    }
+                }
+            }
+            return;
+        }
+
+        // Case 6: both param and arg are Union types — unify matching constituents.
+        if ((p.flags & types.TypeFlags.Union) != 0 and (a.flags & types.TypeFlags.Union) != 0) {
+            const p_constituents = self.getTypesFromUnion(param_type);
+            const a_constituents = self.getTypesFromUnion(arg_type);
+            const min_len = @min(p_constituents.len, a_constituents.len);
+            for (0..min_len) |i| {
+                try self.unifyTypes(p_constituents[i], a_constituents[i], inferred);
+            }
+            return;
+        }
+
+        // Case 7: param is a Tuple type, arg is a Tuple or Array type.
+        if ((p.flags & types.TypeFlags.Object) != 0 and (a.flags & types.TypeFlags.Object) != 0) {
+            if ((p.objectFlags & types.ObjectFlags.Tuple) != 0) {
+                const p_ta = self.getTypeArguments(param_type);
+                const a_ta = if ((a.objectFlags & types.ObjectFlags.Tuple) != 0)
+                    self.getTypeArguments(arg_type)
+                else if (self.isArrayType(arg_type))
+                    &[_]types.TypeIndex{self.getElementTypeOfArrayType(arg_type)}
+                else
+                    &[_]types.TypeIndex{};
+                const min_ta = @min(p_ta.len, a_ta.len);
+                for (0..min_ta) |i| {
+                    try self.unifyTypes(p_ta[i], a_ta[i], inferred);
+                }
+                return;
+            }
         }
     }
 
@@ -28640,14 +28745,86 @@ pub fn checkCallExpression(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: 
                 const params = if (params_id != 0) c.binder.ast.getNodeList(params_id) else &[_]u32{};
                 const argumentsList = if (isNew) c.binder.ast.getNode(node_idx).NewExpression.Arguments else c.binder.ast.getNode(node_idx).CallExpression.Arguments;
                 const args = if ((argumentsList orelse 0) != 0) c.binder.ast.getNodeList(argumentsList.?) else &[_]u32{};
-                // Build arg_types.
+
+                // Two-phase argument checking for generic inference:
+                // Phase 1: Check non-function arguments first to get their types.
+                // Phase 2: Use inferred types to contextually type function
+                // expression arguments, then check those.
                 var arg_types = std.ArrayListUnmanaged(types.TypeIndex).empty;
                 defer arg_types.deinit(c.allocator);
-                for (args) |arg| {
+                arg_types.resize(c.allocator, args.len) catch {};
+                for (arg_types.items) |*v| v.* = 0;
+
+                // Phase 1: Check non-function arguments.
+                for (args, 0..) |arg, i| {
+                    if (arg == 0) continue;
+                    const arg_kind = c.binder.ast.getKind(arg);
+                    // Skip function expressions for now — they need contextual typing.
+                    if (arg_kind == .ArrowFunction or arg_kind == .FunctionExpression) continue;
                     const arg_t = c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0);
-                    arg_types.append(c.allocator, arg_t) catch {};
+                    arg_types.items[i] = arg_t;
                 }
-                finalReturnType = c.inferAndSubstituteGenericTypes(sig_decl, params, args, arg_types.items, returnType) catch returnType;
+
+                // Preliminary inference from non-function arguments.
+                var inferred = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(c.allocator);
+                defer inferred.deinit();
+                // Initialize inferred map with type parameter symbols.
+                for (tp_nodes) |tp_node| {
+                    if (tp_node == 0) continue;
+                    const tp_sym = c.binder.ast.getNodeSymbol(tp_node) orelse 0;
+                    if (tp_sym != 0) inferred.put(tp_sym, 0) catch {};
+                }
+                // Unify non-function argument types with parameter types.
+                const min_len1 = @min(params.len, args.len);
+                for (0..min_len1) |i| {
+                    if (arg_types.items[i] == 0) continue;
+                    const param_node = params[i];
+                    if (c.binder.ast.getNodeKind(param_node) != .Parameter) continue;
+                    const param = c.binder.ast.getNode(param_node).Parameter;
+                    const param_type_node = param.Type orelse 0;
+                    if (param_type_node == 0) continue;
+                    const param_type_idx = c.getTypeOfNode(param_type_node) catch 0;
+                    if (param_type_idx == 0) continue;
+                    c.unifyTypes(param_type_idx, arg_types.items[i], &inferred) catch {};
+                }
+
+                // Phase 2: Check function expression arguments with contextual typing.
+                for (args, 0..) |arg, i| {
+                    if (arg == 0) continue;
+                    const arg_kind = c.binder.ast.getKind(arg);
+                    if (arg_kind != .ArrowFunction and arg_kind != .FunctionExpression) continue;
+                    // Get the parameter type for this argument.
+                    if (i >= params.len) {
+                        arg_types.items[i] = c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0);
+                        continue;
+                    }
+                    const param_node = params[i];
+                    if (c.binder.ast.getNodeKind(param_node) != .Parameter) continue;
+                    const param = c.binder.ast.getNode(param_node).Parameter;
+                    const param_type_node = param.Type orelse 0;
+                    if (param_type_node == 0) {
+                        arg_types.items[i] = c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0);
+                        continue;
+                    }
+                    const param_type_idx = c.getTypeOfNode(param_type_node) catch 0;
+                    if (param_type_idx == 0) {
+                        arg_types.items[i] = c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0);
+                        continue;
+                    }
+                    // Substitute inferred type parameters into the parameter type
+                    // to get the contextual type for the function expression.
+                    const ctx_type = c.substituteTypeParams(param_type_idx, &inferred) catch param_type_idx;
+                    // Check the function expression with the contextual type.
+                    // The contextual type will be used to type the function's parameters.
+                    const fn_type = checkFunctionExpressionWithContextualType(c, arg, ctx_type) catch (c.checkExpressionAdHoc(arg) catch (c.anyTypeIndex orelse 0));
+                    arg_types.items[i] = fn_type;
+                    // Re-unify to capture return type inference from the function expression.
+                    if (fn_type != 0 and fn_type < c.typesList.items.len) {
+                        c.unifyTypes(param_type_idx, fn_type, &inferred) catch {};
+                    }
+                }
+
+                finalReturnType = c.substituteTypeParams(returnType, &inferred) catch returnType;
 
                 // Also substitute the containing type's type parameters.
                 // For method calls like p1.then(cb) where p1: IPromise<string>,
@@ -28919,6 +29096,143 @@ pub fn checkElementAccessExpression(c: *Checker, node_idx: ast_gen.NodeIndex, ex
         } },
     }) catch (c.anyTypeIndex orelse 0);
 }
+
+/// Check a function expression (ArrowFunction or FunctionExpression) with
+/// a contextual type. The contextual type is used to type the function's
+/// parameters when they don't have explicit type annotations.
+/// Returns the Function type for the expression.
+pub fn checkFunctionExpressionWithContextualType(c: *Checker, node_idx: ast_gen.NodeIndex, ctx_type: types.TypeIndex) anyerror!types.TypeIndex {
+    if (node_idx == 0) return 0;
+    const node = c.binder.ast.getNode(node_idx);
+    const params_id: ast_gen.NodeIndex = switch (node) {
+        .FunctionExpression => |f| f.Parameters,
+        .ArrowFunction => |f| f.Parameters,
+        else => return c.checkExpressionAdHoc(node_idx) catch 0,
+    };
+
+    // If the contextual type is a Function type, extract its parameter types
+    // and use them to type the function expression's parameters.
+    if (ctx_type != 0 and ctx_type < c.typesList.items.len) {
+        const ctx_data = c.typesList.items[ctx_type];
+        if (ctx_data.data == .Function) {
+            // The contextual type is a function type. Get its declaration
+            // to find parameter types.
+            const ctx_decl = ctx_data.data.Function.declarationNode;
+            if (ctx_decl != 0 and ctx_decl < c.binder.ast.nodes.len) {
+                const ctx_params_id: ?u32 = switch (c.binder.ast.getNode(ctx_decl)) {
+                    .FunctionDeclaration => |f| f.Parameters,
+                    .FunctionExpression => |f| f.Parameters,
+                    .ArrowFunction => |f| f.Parameters,
+                    .MethodDeclaration => |m| m.Parameters,
+                    .MethodSignature => |m| m.Parameters,
+                    .CallSignature => |cs| cs.Parameters,
+                    .FunctionType => |ft| ft.Parameters,
+                    else => null,
+                };
+                if (ctx_params_id != null and ctx_params_id.? != 0) {
+                    const ctx_params = c.binder.ast.getNodeList(ctx_params_id.?);
+                    // Get the function expression's own parameters.
+                    const fn_params = if (params_id != 0) c.binder.ast.getNodeList(params_id) else &[_]u32{};
+                    // For each parameter without a type annotation, set up
+                    // the contextual type from the corresponding ctx parameter.
+                    const min_params = @min(ctx_params.len, fn_params.len);
+                    for (0..min_params) |i| {
+                        const fn_param = fn_params[i];
+                        if (fn_param == 0) continue;
+                        const fn_param_data = c.binder.ast.getNode(fn_param);
+                        const fn_param_type_node: ?ast_gen.NodeIndex = switch (fn_param_data) {
+                            .Parameter => |p| p.Type,
+                            else => null,
+                        };
+                        // Skip if the function expression's parameter already
+                        // has an explicit type annotation.
+                        if (fn_param_type_node != null and fn_param_type_node.? != 0) continue;
+                        // Get the contextual parameter's type.
+                        const ctx_param = ctx_params[i];
+                        if (ctx_param == 0) continue;
+                        const ctx_param_data = c.binder.ast.getNode(ctx_param);
+                        const ctx_param_type_node: ?ast_gen.NodeIndex = switch (ctx_param_data) {
+                            .Parameter => |p| p.Type,
+                            else => null,
+                        };
+                        if (ctx_param_type_node == null or ctx_param_type_node.? == 0) continue;
+                        const ctx_param_type = c.getTypeOfNode(ctx_param_type_node.?) catch 0;
+                        if (ctx_param_type == 0) continue;
+                        // Set up the function expression's parameter symbol
+                        // with the contextual type.
+                        const fn_param_sym = c.binder.ast.getNodeSymbol(fn_param) orelse 0;
+                        if (fn_param_sym != 0 and fn_param_sym < c.binder.symbols.items.len) {
+                            // Set the resolved type in valueSymbolLinks.
+                            var links = c.valueSymbolLinks.get(fn_param_sym) orelse types.ValueSymbolLinks{};
+                            links.resolvedType = ctx_param_type;
+                            c.valueSymbolLinks.put(c.allocator, fn_param_sym, links) catch {};
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Now check the function expression normally — the parameter symbols
+    // have been set up with contextual types.
+    checkFunctionParameters(c, params_id);
+
+    // Check the body.
+    switch (node) {
+        .FunctionExpression => |f| {
+            if (f.Body) |body| if (body != 0) checkSourceElement(c, body);
+        },
+        .ArrowFunction => |f| {
+            if (f.Body) |body| {
+                if (body != 0) {
+                    const body_kind = c.binder.ast.getNodeKind(body);
+                    if (body_kind == .Block) {
+                        checkSourceElement(c, body);
+                    } else {
+                        _ = c.checkExpressionCachedEx(body, CheckMode.Normal);
+                    }
+                }
+            }
+        },
+        else => {},
+    }
+
+    // Infer return type.
+    var ret_type: types.TypeIndex = 0;
+    switch (node) {
+        .FunctionExpression => |f| {
+            if (f.Type) |t| if (t != 0) { ret_type = c.getTypeOfNode(t) catch 0; };
+        },
+        .ArrowFunction => |f| {
+            if (f.Type) |t| if (t != 0) { ret_type = c.getTypeOfNode(t) catch 0; };
+        },
+        else => {},
+    }
+    if (ret_type == 0) {
+        ret_type = c.getReturnTypeFromBody(node_idx, CheckMode.Normal);
+    }
+    if (ret_type == 0) ret_type = c.anyTypeIndex orelse 0;
+
+    var param_count: u32 = 0;
+    if (params_id != 0) {
+        param_count = @intCast(c.binder.ast.getNodeList(params_id).len);
+    }
+
+    const sym = c.binder.ast.getNodeSymbol(node_idx) orelse 0;
+    return c.createType(.{
+        .flags = types.TypeFlags.Object,
+        .objectFlags = types.ObjectFlags.Anonymous,
+        .id = 0,
+        .symbol = sym,
+        .alias = null,
+        .data = .{ .Function = .{
+            .declarationNode = node_idx,
+            .returnType = ret_type,
+            .parameterCount = param_count,
+        } },
+    }) catch (c.anyTypeIndex orelse 0);
+}
+
 pub fn checkIdentifier(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
     _ = checkMode;
     const name = c.binder.ast.getNode(node_idx).Identifier.Text;
