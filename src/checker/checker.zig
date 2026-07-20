@@ -7495,6 +7495,7 @@ pub const Checker = struct {
             .FunctionExpression => |f| f.TypeParameters orelse 0,
             .ArrowFunction => |f| f.TypeParameters orelse 0,
             .MethodDeclaration => |m| m.TypeParameters orelse 0,
+            .MethodSignature => |m| m.TypeParameters orelse 0,
             .CallSignature => |cs| cs.TypeParameters orelse 0,
             .ConstructSignature => |cs| cs.TypeParameters orelse 0,
             else => 0,
