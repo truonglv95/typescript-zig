@@ -933,14 +933,34 @@ pub fn getTypeFromRestTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
 }
 
 fn checkExpressionWithTypeArguments(c: *Checker, node: NodeIndex) TypeIndex {
-    _ = c;
-    _ = node;
-    return 0;
+    // TypeQuery node: `typeof X` — resolve X as a value and return its type.
+    const tq = c.binder.ast.getNode(node).TypeQuery;
+    const expr_name = tq.ExprName;
+    if (expr_name == 0) return 0;
+
+    // Resolve the entity name to a symbol.
+    const sym_mod = @import("../ast/symbol.zig");
+    const meaning = sym_mod.SymbolFlags.Value | sym_mod.SymbolFlags.Namespace | sym_mod.SymbolFlags.Type;
+    const sym = c.resolveEntityName(expr_name, meaning, true, true, null);
+    if (sym == 0 or sym == c.unknownSymbol) {
+        // Try resolveName as fallback.
+        const name_text = ast_utils.getTextOfNode(c.binder.ast, expr_name);
+        const s = checker_mod.resolveName(c, null, name_text, sym_mod.SymbolFlags.Value, null, false, false);
+        if (s != 0 and s != c.unknownSymbol) {
+            return c.getTypeOfSymbol(s) catch 0;
+        }
+        return 0;
+    }
+
+    // Get the type of the symbol. For value symbols, this returns the
+    // value type. For namespace/module symbols, this returns the
+    // module instance type.
+    return c.getTypeOfSymbol(sym) catch 0;
 }
+
 fn getWidenedType(c: *Checker, t: TypeIndex) TypeIndex {
-    _ = c;
-    _ = t;
-    return 0;
+    if (t == 0) return 0;
+    return c.getWidenedType(t);
 }
 fn getArrayOrTupleTargetType(c: *Checker, node: NodeIndex) TypeIndex {
     const kind = c.binder.ast.getKind(node);
