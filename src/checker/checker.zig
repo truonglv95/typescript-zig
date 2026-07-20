@@ -7432,6 +7432,8 @@ pub const Checker = struct {
             .CallSignature => |n| n.Type orelse 0,
             .ConstructSignature => |n| n.Type orelse 0,
             .IndexSignature => |n| n.Type orelse 0,
+            .FunctionType => |n| n.Type orelse 0,
+            .ConstructorType => |n| n.Type orelse 0,
             else => 0,
         };
         if (type_node != 0) {

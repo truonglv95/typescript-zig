@@ -1044,15 +1044,51 @@ pub fn getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode(c: *Checker, node: 
         const alias = getAliasForTypeNode(c, node);
 
         const sym = getSymbolOfNode(c, node);
-        if (c.binder.ast.getKind(node) == .FunctionType) {
-            std.debug.print("\n[DEBUG] getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode: FunctionType sym={d}\n", .{sym});
-            if (sym != 0) {
-                const has_members = symbolHasMembers(c, sym);
-                std.debug.print("[DEBUG] symbolHasMembers={}\n", .{has_members});
-            }
-        }
-        if (sym == 0 or (!symbolHasMembers(c, sym) and alias == 0)) {
+        const node_kind = c.binder.ast.getKind(node);
 
+        // For FunctionType and ConstructorType nodes (e.g., `(a: U) => T`),
+        // create a Function type with the return type from the annotation.
+        if (node_kind == .FunctionType or node_kind == .ConstructorType) {
+            const ret_type_node: ?u32 = if (node_kind == .FunctionType)
+                c.binder.ast.getNode(node).FunctionType.Type
+            else
+                c.binder.ast.getNode(node).ConstructorType.Type;
+            const params_id: u32 = if (node_kind == .FunctionType)
+                c.binder.ast.getNode(node).FunctionType.Parameters
+            else
+                c.binder.ast.getNode(node).ConstructorType.Parameters;
+
+            var ret_type: TypeIndex = 0;
+            if (ret_type_node) |rtn| {
+                if (rtn != 0) {
+                    ret_type = getTypeFromTypeNode(c, rtn);
+                }
+            }
+            if (ret_type == 0) ret_type = c.anyTypeIndex orelse 0;
+
+            var param_count: u32 = 0;
+            if (params_id != 0) {
+                param_count = @intCast(c.binder.ast.getNodeList(params_id).len);
+            }
+
+            const result = c.createType(.{
+                .flags = types.TypeFlags.Object,
+                .objectFlags = types.ObjectFlags.Anonymous,
+                .id = 0,
+                .symbol = sym,
+                .alias = null,
+                .data = .{ .Function = .{
+                    .declarationNode = node,
+                    .returnType = ret_type,
+                    .parameterCount = param_count,
+                } },
+            }) catch (c.anyTypeIndex orelse 0);
+
+            entry.value_ptr.resolvedType = result;
+            return result;
+        }
+
+        if (sym == 0 or (!symbolHasMembers(c, sym) and alias == 0)) {
             entry.value_ptr.resolvedType = c.emptyTypeLiteralTypeIndex orelse c.errorTypeIndex orelse 0;
         } else {
             const t = newObjectType(c, types.ObjectFlags.Anonymous, sym);
