@@ -1808,6 +1808,8 @@ pub const FourslashTest = struct {
         // `as const` assertion: when hovering on `const` in `42 as const`,
         // display `type const = <literal value>`. The TypeReference has
         // TypeName = Identifier("const") and parent = AsExpression.
+        // Also handle the case where the parser parses `const` as an
+        // Identifier node with text "const" (rather than a TypeReference).
         if (node_kind == .TypeReference) {
             const tr = p.ast.getNode(node).TypeReference;
             if (tr.TypeName != 0 and p.ast.getNodeKind(tr.TypeName) == .Identifier) {
@@ -1820,6 +1822,55 @@ pub const FourslashTest = struct {
                             p.ast.getNode(parent).AsExpression.Expression
                         else
                             p.ast.getNode(parent).TypeAssertionExpression.Expression;
+                        if (expr != 0) {
+                            const expr_type = c.checkExpressionCached(expr);
+                            if (expr_type != 0) {
+                                const type_str = c.typeToString(expr_type, 0, 0, null);
+                                var out = std.ArrayListUnmanaged(u8).empty;
+                                const aa = self.arena.allocator();
+                                out.appendSlice(aa, "type const = ") catch {};
+                                out.appendSlice(aa, type_str) catch {};
+                                return out.toOwnedSlice(aa) catch "";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Also handle the case where `const` is parsed as an Identifier node
+        // (not a TypeReference). In `42 as const`, the parser may produce
+        // an Identifier with text "const" whose parent is a TypeReference
+        // whose parent is an AsExpression.
+        if (node_kind == .Identifier) {
+            const id_text = p.ast.getNode(node).Identifier.Text;
+            if (std.mem.eql(u8, id_text, "const")) {
+                const parent = p.ast.getNodeParent(node);
+                // Case 1: parent is AsExpression directly.
+                if (parent != 0 and (p.ast.getNodeKind(parent) == .AsExpression or p.ast.getNodeKind(parent) == .TypeAssertionExpression)) {
+                    const expr = if (p.ast.getNodeKind(parent) == .AsExpression)
+                        p.ast.getNode(parent).AsExpression.Expression
+                    else
+                        p.ast.getNode(parent).TypeAssertionExpression.Expression;
+                    if (expr != 0) {
+                        const expr_type = c.checkExpressionCached(expr);
+                        if (expr_type != 0) {
+                            const type_str = c.typeToString(expr_type, 0, 0, null);
+                            var out = std.ArrayListUnmanaged(u8).empty;
+                            const aa = self.arena.allocator();
+                            out.appendSlice(aa, "type const = ") catch {};
+                            out.appendSlice(aa, type_str) catch {};
+                            return out.toOwnedSlice(aa) catch "";
+                        }
+                    }
+                }
+                // Case 2: parent is TypeReference (const is TypeName), grandparent is AsExpression.
+                if (parent != 0 and p.ast.getNodeKind(parent) == .TypeReference) {
+                    const grandparent = p.ast.getNodeParent(parent);
+                    if (grandparent != 0 and (p.ast.getNodeKind(grandparent) == .AsExpression or p.ast.getNodeKind(grandparent) == .TypeAssertionExpression)) {
+                        const expr = if (p.ast.getNodeKind(grandparent) == .AsExpression)
+                            p.ast.getNode(grandparent).AsExpression.Expression
+                        else
+                            p.ast.getNode(grandparent).TypeAssertionExpression.Expression;
                         if (expr != 0) {
                             const expr_type = c.checkExpressionCached(expr);
                             if (expr_type != 0) {
