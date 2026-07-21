@@ -5013,8 +5013,61 @@ pub const FourslashTest = struct {
             }
         }
         if (call_count == 0) {
-            std.log.warn("VerifySignatureHelp: no CallExpression found at cursor pos {}", .{cursorPos});
-            return;
+            // Fallback: if getTouchingPropertyName returned the SourceFile
+            // (cursor between tokens), scan the AST for a CallExpression or
+            // NewExpression whose position range contains the cursor.
+            const FallbackFinder = struct {
+                ast_ref: *ast_module.Ast,
+                pos: u32,
+                found: ast_gen.NodeIndex = 0,
+                pub fn visitNode(ctx: *@This(), n: ast_gen.NodeIndex) anyerror!void {
+                    if (ctx.found != 0) return;
+                    if (n == 0) return;
+                    const k = ctx.ast_ref.getNodeKind(n);
+                    if (k == .CallExpression or k == .NewExpression) {
+                        const node_pos = ctx.ast_ref.getNodePos(n);
+                        const node_end = ctx.ast_ref.getNodeEnd(n);
+                        if (ctx.pos >= node_pos and ctx.pos <= node_end) {
+                            ctx.found = n;
+                            return;
+                        }
+                    }
+                    // Recurse into children.
+                    const F = @import("../ast/for_each_child.zig");
+                    F.forEachChild(ctx.ast_ref, n, ctx) catch {};
+                }
+                pub fn visitList(ctx: *@This(), list_idx: u32) anyerror!void {
+                    if (ctx.found != 0) return;
+                    if (list_idx == 0) return;
+                    const items = ctx.ast_ref.getNodeList(list_idx);
+                    for (items) |item| {
+                        if (item != 0) try ctx.visitNode(item);
+                        if (ctx.found != 0) return;
+                    }
+                }
+            };
+            var finder = FallbackFinder{ .ast_ref = &p.ast, .pos = cursorPos };
+            const F = @import("../ast/for_each_child.zig");
+            F.forEachChild(&p.ast, sf, &finder) catch {};
+            if (finder.found != 0) {
+                call_candidates[0] = finder.found;
+                call_count = 1;
+                // Also walk up from the found node to collect enclosing calls.
+                var cur = p.ast.getNodeParent(finder.found);
+                while (cur != 0 and call_count < call_candidates.len) {
+                    const k = p.ast.getNodeKind(cur);
+                    if (k == .CallExpression or k == .NewExpression) {
+                        call_candidates[call_count] = cur;
+                        call_count += 1;
+                    }
+                    const parent = p.ast.getNodeParent(cur);
+                    if (parent == cur or parent == 0) break;
+                    cur = parent;
+                }
+            } else {
+                std.log.warn("VerifySignatureHelp: no CallExpression found at cursor pos {}", .{cursorPos});
+                return;
+            }
         }
 
         // Iterate over call candidates from innermost to outermost. Use the
