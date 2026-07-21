@@ -3740,6 +3740,13 @@ pub const Parser = struct {
     pub fn isStartOfFunctionTypeOrConstructorType(self: *Parser) bool {
         if (self.token == kind.Kind.LessThanToken) return true;
         if (self.token == kind.Kind.NewKeyword) return true;
+        // JSDoc `function (params) => type` syntax — check that after
+        // `function` there's an open paren.
+        if (self.token == kind.Kind.FunctionKeyword) {
+            var tempScanner = self.scanner;
+            _ = tempScanner.scan(); // skip 'function'
+            return tempScanner.scan() == kind.Kind.OpenParenToken;
+        }
 
         if (self.token == kind.Kind.OpenParenToken) {
             var tempScanner = self.scanner;
@@ -3862,6 +3869,8 @@ pub const Parser = struct {
         }
 
         const isConstructorType = self.parseOptional(kind.Kind.NewKeyword);
+        // JSDoc `function (params) => type` — consume the `function` keyword.
+        _ = self.parseOptional(kind.Kind.FunctionKeyword);
         const typeParameters = try self.parseTypeParameters();
         const parameters = try self.parseParameters();
         var returnType: ?ast_gen.NodeIndex = null;
