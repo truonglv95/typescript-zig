@@ -747,6 +747,7 @@ pub const Checker = struct {
     /// Used to break infinite recursion in self-referential declarations
     /// like `var a = { f: a }`.
     resolvingSymbols: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, void) = .empty,
+    resolvingNodes: std.AutoHashMapUnmanaged(ast_gen.NodeIndex, void) = .empty,
     moduleSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ModuleSymbolLinks) = .empty,
     reverseMappedSymbolLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.ReverseMappedSymbolLinks) = .empty,
     lateBoundLinks: std.AutoHashMapUnmanaged(ast_gen.SymbolIndex, types.LateBoundLinks) = .empty,
@@ -15129,17 +15130,21 @@ pub const Checker = struct {
             c.typeNodeLinks.put(c.allocator, node_idx, .{}) catch {};
             linksPtr = c.typeNodeLinks.getPtr(node_idx);
         }
-        // Retry if cached as 0 — the adhoc fallback may have been
-        // unavailable during the first resolve attempt. But don't retry
-        // if cached as anyTypeIndex, as that causes infinite recursion
-        // for circular types (e.g., getter returning itself).
-        if (linksPtr.?.resolvedType == 0) {
+        // Always try to resolve if not cached, or if cached as 0 or any.
+        // For any results, use a recursion guard to prevent infinite loops.
+        if (linksPtr.?.resolvedType == 0 or linksPtr.?.resolvedType == (c.anyTypeIndex orelse 0)) {
+            // Use a recursion guard: if this node is already being resolved,
+            // return the cached value to break the cycle.
+            if (c.resolvingNodes.contains(node_idx)) {
+                return linksPtr.?.resolvedType;
+            }
+            c.resolvingNodes.put(c.allocator, node_idx, {}) catch {};
+            defer _ = c.resolvingNodes.remove(node_idx);
             const saveFlowLoopStack = c.flowLoopStack;
             c.flowLoopStack = .empty;
             const new_type = checkExpressionEx(c, node_idx, checkMode);
             c.flowLoopStack = saveFlowLoopStack;
-            // Only cache if we found a better type than 0 or any.
-            if (new_type != 0 and new_type != (c.anyTypeIndex orelse 0)) {
+            if (new_type != 0) {
                 linksPtr.?.resolvedType = new_type;
             }
         }
