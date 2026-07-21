@@ -1800,6 +1800,33 @@ pub const Checker = struct {
             if (resolved.callSignaturesLen > 0) {
                 return .{ .start = resolved.callSignaturesStart, .len = resolved.callSignaturesLen };
             }
+            // Fallback: for class types, look up the constructor signature
+            // via the class symbol's constructor declaration.
+            if (typeData.symbol) |sym| {
+                if (sym != 0 and sym < c.binder.symbols.items.len) {
+                    const sym_obj = c.binder.symbols.items[sym];
+                    // For class symbols, look for a Constructor declaration.
+                    for (sym_obj.Declarations.items) |decl| {
+                        if (decl != 0 and c.binder.ast.getNodeKind(decl) == .Constructor) {
+                            const sig_idx = c.getSignatureFromDeclaration(decl);
+                            if (sig_idx != 0) {
+                                const start = c.resolvedSignaturesPool.items.len;
+                                c.resolvedSignaturesPool.append(c.allocator, sig_idx) catch {};
+                                return .{ .start = @intCast(start), .len = 1 };
+                            }
+                        }
+                    }
+                    // Also check the symbol's members for Constructor.
+                    if (c.binder.symbolMembers.getPtr(sym)) |members| {
+                        if (members.get("constructor")) |ctor_sym| {
+                            if (ctor_sym != 0 and ctor_sym < c.binder.symbols.items.len) {
+                                const ctor_sigs = c.getSignaturesOfSymbol(ctor_sym);
+                                if (ctor_sigs.len > 0) return ctor_sigs;
+                            }
+                        }
+                    }
+                }
+            }
             // Fallback: walk the type's symbol declarations directly.
             if (typeData.symbol) |sym| {
                 if (sym != 0 and sym < c.binder.symbols.items.len) {
@@ -1834,7 +1861,36 @@ pub const Checker = struct {
             }
             return .{ .start = 0, .len = 0 };
         }
-        return .{ .start = resolved.constructSignaturesStart, .len = resolved.constructSignaturesLen };
+        // For Construct signatures:
+        if (resolved.constructSignaturesLen > 0) {
+            return .{ .start = resolved.constructSignaturesStart, .len = resolved.constructSignaturesLen };
+        }
+        // Fallback: for class types, look up constructor declarations.
+        if (typeData.symbol) |sym| {
+            if (sym != 0 and sym < c.binder.symbols.items.len) {
+                const sym_obj = c.binder.symbols.items[sym];
+                for (sym_obj.Declarations.items) |decl| {
+                    if (decl != 0 and c.binder.ast.getNodeKind(decl) == .Constructor) {
+                        const sig_idx = c.getSignatureFromDeclaration(decl);
+                        if (sig_idx != 0) {
+                            const start = c.resolvedSignaturesPool.items.len;
+                            c.resolvedSignaturesPool.append(c.allocator, sig_idx) catch {};
+                            return .{ .start = @intCast(start), .len = 1 };
+                        }
+                    }
+                }
+                // Also check members for constructor.
+                if (c.binder.symbolMembers.getPtr(sym)) |members| {
+                    if (members.get("constructor")) |ctor_sym| {
+                        if (ctor_sym != 0 and ctor_sym < c.binder.symbols.items.len) {
+                            const ctor_sigs = c.getSignaturesOfSymbol(ctor_sym);
+                            if (ctor_sigs.len > 0) return ctor_sigs;
+                        }
+                    }
+                }
+            }
+        }
+        return .{ .start = 0, .len = 0 };
     }
 
     pub fn appendSignatures(c: *Checker, signaturesStart: u32, signaturesLen: u32, newSignaturesStart: u32, newSignaturesLen: u32) types.Range {
