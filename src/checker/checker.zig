@@ -16436,7 +16436,7 @@ pub const Checker = struct {
             }
 
             if (indexInfo == null) {
-                const isUncheckedJS = false;
+                const isUncheckedJS = ast_utils.isInJSFile(c.binder.ast, node);
                 if (!isUncheckedJS and false) {
                     return c.anyTypeIndex orelse 0;
                 }
