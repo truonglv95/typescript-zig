@@ -5803,6 +5803,16 @@ pub const FourslashTest = struct {
         const count = self.getDiagnosticCount();
         if (count > 0) {
             std.log.warn("Expected no errors, but found {d}", .{count});
+            if (self.parser) |p| {
+                for (p.diagnostics.items) |diag| {
+                    std.log.warn("  [parser] {s}", .{diag.message.text});
+                }
+            }
+            if (self.binder) |b| {
+                for (b.diagnosticsList.items) |diag| {
+                    std.log.warn("  [binder] {s}", .{diag.message.text});
+                }
+            }
         }
     }
 

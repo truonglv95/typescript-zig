@@ -3113,7 +3113,12 @@ pub const Checker = struct {
     }
 
     pub fn isInJsFile(c: *Checker, node: ast_gen.NodeIndex) bool {
-        _ = node;
+        // Prefer the AST's SourceFile flag (set by the parser based on
+        // scriptKind). This is more reliable than checking the AST's
+        // fileName because fourslash tests use combined content where
+        // the fileName may be set to the last file but the current node
+        // may be in an earlier file.
+        if (ast_utils.isInJSFile(c.binder.ast, node)) return true;
         const ext = @import("../tspath/tspath.zig").tryGetExtensionFromPath(c.binder.ast.fileName);
         return std.mem.eql(u8, ext, ".js") or std.mem.eql(u8, ext, ".jsx") or std.mem.eql(u8, ext, ".mjs") or std.mem.eql(u8, ext, ".cjs");
     }
@@ -11984,6 +11989,12 @@ pub const Checker = struct {
     pub fn onFailedToResolveSymbol(c: *Checker, error_location: ast_gen.NodeIndex, name_node: ast_gen.NodeIndex, meaning: u32, name_not_found_message: ?*const diagnostics_gen.Message) void {
         if (name_node == 0) return;
         const name_text = ast_utils.getTextOfNode(c.binder.ast, name_node);
+        // Skip "Cannot find name" errors for Node.js globals (module,
+        // require, exports, etc.) in CommonJS mode or in JS files.
+        const is_commonjs = c.moduleKind == .CommonJS or c.moduleKind == .Node16 or c.moduleKind == .NodeNext;
+        if (isNodeGlobalName(name_text) and (is_commonjs or c.isInJsFile(error_location))) {
+            return;
+        }
         // Try spelling suggestions first.
         const suggestion = c.getSuggestedSymbolForNonexistentSymbol(error_location, name_text, meaning);
         if (suggestion != 0) {
