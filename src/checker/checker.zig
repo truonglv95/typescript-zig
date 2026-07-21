@@ -4730,17 +4730,15 @@ pub const Checker = struct {
     pub fn getTypeOfSymbol(self: *Checker, symIndex: u32) anyerror!u32 {
         // Recursion guard: check BEFORE cache. If we're already resolving
         // this symbol's type, return any to break infinite recursion
-        // (e.g. `var a = { f: a }`). The cache might have a partial/wrong
-        // result from a previous attempt that didn't have the guard.
+        // (e.g. `var a = { f: a }`, circular getter `get x() { return this.x }`).
         if (self.resolvingSymbols.contains(symIndex)) {
             return self.anyTypeIndex orelse 0;
         }
-        // Check cache, but don't return anyType from cache — retry
-        // to get a better type (the first pass may have missed types
-        // that weren't fully resolved yet).
+        // Check cache. Return anyType from cache too — retrying causes
+        // infinite recursion for circular types (getter returning itself).
         if (self.valueSymbolLinks.get(symIndex)) |links| {
             if (links.resolvedType) |resolved| {
-                if (resolved != (self.anyTypeIndex orelse 0)) return resolved;
+                return resolved;
             }
         }
         self.resolvingSymbols.put(self.allocator, symIndex, {}) catch {};
@@ -14969,9 +14967,11 @@ pub const Checker = struct {
             c.typeNodeLinks.put(c.allocator, node_idx, .{}) catch {};
             linksPtr = c.typeNodeLinks.getPtr(node_idx);
         }
-        // Retry if cached as 0 or any — the adhoc fallback may have been
-        // unavailable during the first resolve attempt.
-        if (linksPtr.?.resolvedType == 0 or linksPtr.?.resolvedType == (c.anyTypeIndex orelse 0)) {
+        // Retry if cached as 0 — the adhoc fallback may have been
+        // unavailable during the first resolve attempt. But don't retry
+        // if cached as anyTypeIndex, as that causes infinite recursion
+        // for circular types (e.g., getter returning itself).
+        if (linksPtr.?.resolvedType == 0) {
             const saveFlowLoopStack = c.flowLoopStack;
             c.flowLoopStack = .empty;
             const new_type = checkExpressionEx(c, node_idx, checkMode);
