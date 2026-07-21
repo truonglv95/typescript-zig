@@ -1246,11 +1246,46 @@ pub fn getTypeFromMappedTypeNode(c: *Checker, node: NodeIndex) TypeIndex {
             .typeParameter = 0,
             .templateType = 0,
         }};
-        // t.alias = getAliasForTypeNode(c, node)
         entry.value_ptr.resolvedType = t;
 
-        // Eagerly resolve the constraint type
-        _ = c.getConstraintTypeFromMappedType(t);
+        // Resolve the type parameter, constraint, and template type from
+        // the AST node.
+        const mapped_node = c.binder.ast.getNode(node).MappedType;
+        var tp_type: TypeIndex = 0;
+        var constraint_type: TypeIndex = 0;
+        var template_type: TypeIndex = 0;
+        var name_type: TypeIndex = 0;
+
+        const tp_node = mapped_node.TypeParameter;
+        if (tp_node != 0) {
+            const tp_sym = c.binder.ast.getNodeSymbol(tp_node) orelse 0;
+            if (tp_sym != 0) {
+                tp_type = c.getDeclaredTypeOfTypeParameter(tp_sym);
+                if (tp_type != 0) {
+                    if (c.getConstraintOfTypeParameter(tp_type)) |constraint| {
+                        if (constraint != 0) constraint_type = constraint;
+                    }
+                }
+            }
+        }
+        if (mapped_node.Type) |type_node| {
+            if (type_node != 0) {
+                template_type = getTypeFromTypeNode(c, type_node);
+            }
+        }
+        if (mapped_node.NameType) |name_node| {
+            if (name_node != 0) {
+                name_type = getTypeFromTypeNode(c, name_node);
+            }
+        }
+
+        // Now write back via mutable access.
+        if (c.typesList.items[t].data == .Mapped) {
+            if (tp_type != 0) c.typesList.items[t].data.Mapped.typeParameter = tp_type;
+            if (constraint_type != 0) c.typesList.items[t].data.Mapped.constraintType = constraint_type;
+            if (template_type != 0) c.typesList.items[t].data.Mapped.templateType = template_type;
+            if (name_type != 0) c.typesList.items[t].data.Mapped.nameType = name_type;
+        }
     }
     return entry.value_ptr.resolvedType;
 }
