@@ -4666,7 +4666,39 @@ pub const FourslashTest = struct {
                 }
             }
             out.appendSlice(aa, " = ") catch {};
-            out.appendSlice(aa, typeStr) catch {};
+            // If typeStr is "any" or "{}" but the type alias declaration's
+            // Type is a complex type node (keyof, indexed access, conditional,
+            // etc.), render the source text directly. This handles cases like
+            // `type A = keyof Foo` where the resolved type simplifies to any
+            // but the source text is the canonical form Go displays.
+            var display_type: []const u8 = typeStr;
+            if (symObj.Declarations.items.len > 0) {
+                const decl_node = symObj.Declarations.items[0];
+                if (p.ast.getNodeKind(decl_node) == .TypeAliasDeclaration) {
+                    const tad = p.ast.getNode(decl_node).TypeAliasDeclaration;
+                    const type_node = tad.Type;
+                    if (type_node != 0) {
+                        const tn_kind = p.ast.getNodeKind(type_node);
+                        const is_complex_type = switch (tn_kind) {
+                            .TypeOperator, .IndexedAccessType, .ConditionalType,
+                            .InferType, .MappedType, .TemplateLiteralType,
+                            .ImportType, .NamedTupleMember,
+                            => true,
+                            else => false,
+                        };
+                        const should_use_source = is_complex_type and
+                            (std.mem.eql(u8, typeStr, "any") or std.mem.eql(u8, typeStr, "{}"));
+                        if (should_use_source) {
+                            const src_pos = p.ast.getNodePos(type_node);
+                            const src_end = p.ast.getNodeEnd(type_node);
+                            if (src_pos > 0 and src_end > src_pos and src_end <= p.ast.sourceText.len) {
+                                display_type = p.ast.sourceText[src_pos..src_end];
+                            }
+                        }
+                    }
+                }
+            }
+            out.appendSlice(aa, display_type) catch {};
             return out.toOwnedSlice(aa) catch "";
         }
 

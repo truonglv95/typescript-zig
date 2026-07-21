@@ -3821,6 +3821,15 @@ pub const Checker = struct {
         if ((flags & types.TypeFlags.Conditional) != 0) {
             return c.getSimplifiedConditionalType(t, writing);
         }
+        // Index types (keyof T) simplify to their resolved index type.
+        // getIndexType returns a union of literal types from properties,
+        // but if it's still an Index type (e.g., because the target has
+        // no resolvable properties), try to resolve it now.
+        if ((flags & types.TypeFlags.Index) != 0) {
+            const target = c.getTargetTypeData(t).Index.target;
+            const resolved = c.getIndexType(target);
+            if (resolved != 0 and resolved != t) return resolved;
+        }
         return t;
     }
 
