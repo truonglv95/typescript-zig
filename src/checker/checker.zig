@@ -2201,6 +2201,32 @@ pub const Checker = struct {
             if (self.getPropertyFromIndexInfo(tIdx, name)) |prop| {
                 return prop;
             }
+            // For function types (types with call signatures but no
+            // properties), fall back to the global Function interface.
+            // In TypeScript, all function types inherit from Function,
+            // so they have apply, call, bind, prototype, arguments, etc.
+            if (self.getSignaturesOfType(tIdx, .Call).len > 0) {
+                if (self.getPropertyOfFunctionInterface(name)) |prop| {
+                    return prop;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// Looks up a property on the global Function interface (from lib.d.ts).
+    /// All function types inherit from Function, so they have properties
+    /// like apply, call, bind, prototype, arguments, etc.
+    fn getPropertyOfFunctionInterface(self: *Checker, name: []const u8) ?ast_gen.SymbolIndex {
+        // Look up "Function" in the global symbol table.
+        if (self.globalsSymbolTable.get("Function")) |func_sym| {
+            if (func_sym != 0 and func_sym < self.binder.symbols.items.len) {
+                // Get the declared type of the Function interface symbol.
+                const func_type = self.tryGetDeclaredTypeOfSymbol(func_sym);
+                if (func_type != 0 and func_type < self.typesList.items.len) {
+                    return self.getPropertyOfType(func_type, name);
+                }
+            }
         }
         return null;
     }
