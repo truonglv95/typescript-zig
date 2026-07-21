@@ -16639,6 +16639,13 @@ pub const Checker = struct {
 
             if (indexInfo == null) {
                 const isUncheckedJS = ast_utils.isInJSFile(c.binder.ast, node);
+                // For function types, fall back to Function interface.
+                if (c.getSignaturesOfType(apparentType, .Call).len > 0) {
+                    if (c.getPropertyOfFunctionInterface(rightName)) |p| {
+                        const fn_prop_type = c.getTypeOfSymbol(p) catch (c.anyTypeIndex orelse 0);
+                        return c.getFlowTypeOfAccessExpression(node, p, fn_prop_type, right, checkMode);
+                    }
+                }
                 if (!isUncheckedJS and false) {
                     return c.anyTypeIndex orelse 0;
                 }
