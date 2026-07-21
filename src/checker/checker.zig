@@ -2141,6 +2141,21 @@ pub const Checker = struct {
     pub fn getPropertyOfType(self: *Checker, tIdx: u32, name: []const u8) ?ast_gen.SymbolIndex {
         if (tIdx == 0 or tIdx >= self.typesList.items.len) return null;
         const typ = self.typesList.items[tIdx];
+        // For polymorphic `this` types, resolve to the class type before
+        // looking up properties. This allows `this.m()` inside a class
+        // method to find `m` on the class.
+        if ((typ.flags & types.TypeFlags.TypeParameter) != 0 and
+            typ.data == .TypeParameter and typ.data.TypeParameter.isThisType)
+        {
+            if (typ.symbol) |class_sym| {
+                const class_type = self.tryGetDeclaredTypeOfSymbol(class_sym);
+                if (class_type != 0 and class_type != tIdx) {
+                    if (self.getPropertyOfType(class_type, name)) |prop| {
+                        return prop;
+                    }
+                }
+            }
+        }
         if ((typ.flags & types.TypeFlags.UnionOrIntersection) != 0) {
             return self.getPropertyOfUnionOrIntersectionType(tIdx, name);
         }
@@ -3017,33 +3032,27 @@ pub const Checker = struct {
     }
 
     pub fn getApparentType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
+        // Check the ORIGINAL type for polymorphic `this` BEFORE calling
+        // getBaseConstraintOfType. getBaseConstraintOfType returns 0 for
+        // this types (no constraint resolved), which would set typ to
+        // unknownType and lose the this-type information.
+        if (t != 0 and t < c.typesList.items.len) {
+            const orig = c.typesList.items[t];
+            if ((orig.flags & types.TypeFlags.TypeParameter) != 0 and
+                orig.data == .TypeParameter and orig.data.TypeParameter.isThisType)
+            {
+                if (orig.symbol) |class_sym| {
+                    const class_type = c.tryGetDeclaredTypeOfSymbol(class_sym);
+                    if (class_type != 0) return class_type;
+                }
+            }
+        }
+
         var typ = t;
         const typeFlags = c.getTypeFlags(t);
         if ((typeFlags & types.TypeFlags.Instantiable) != 0) {
             typ = c.getBaseConstraintOfType(t);
             if (typ == 0) typ = c.unknownTypeIndex orelse 0;
-        }
-
-        // For polymorphic `this` types (TypeParameter with isThisType=true),
-        // the apparent type is the class type (stored on the symbol).
-        // This allows `this.m()` inside a class method to find `m` on the
-        // class.
-        if (typ != t and c.typesList.items[typ].flags & types.TypeFlags.TypeParameter != 0 and
-            c.typesList.items[typ].data == .TypeParameter and c.typesList.items[typ].data.TypeParameter.isThisType)
-        {
-            if (c.typesList.items[typ].symbol) |class_sym| {
-                const class_type = c.tryGetDeclaredTypeOfSymbol(class_sym);
-                if (class_type != 0) typ = class_type;
-            }
-        } else if (c.typesList.items[typ].flags & types.TypeFlags.TypeParameter != 0 and
-            c.typesList.items[typ].data == .TypeParameter and c.typesList.items[typ].data.TypeParameter.isThisType)
-        {
-            // Even if the this type wasn't reduced by getBaseConstraintOfType,
-            // resolve it to the class type so property access works.
-            if (c.typesList.items[typ].symbol) |class_sym| {
-                const class_type = c.tryGetDeclaredTypeOfSymbol(class_sym);
-                if (class_type != 0) typ = class_type;
-            }
         }
 
         const flags = c.getTypeFlags(typ);
