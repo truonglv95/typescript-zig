@@ -1893,12 +1893,29 @@ pub const Checker = struct {
                 // In TypeScript, classes without an explicit constructor
                 // have an implicit `constructor() {}`.
                 // BUT: only do this if the class truly has NO constructor
-                // in any of its declarations' member lists.
+                // in any of its declarations' member lists AND has no
+                // base class with a constructor (inherited constructors
+                // are handled by base type resolution).
                 if ((sym_obj.Flags & symbol.SymbolFlags.Class) != 0) {
                     var has_ctor = false;
+                    var has_base = false;
                     for (sym_obj.Declarations.items) |decl| {
                         if (decl != 0 and c.binder.ast.getNodeKind(decl) == .ClassDeclaration) {
                             const cd = c.binder.ast.getNode(decl).ClassDeclaration;
+                            if (cd.HeritageClauses) |hc| {
+                                if (hc != 0) {
+                                    for (c.binder.ast.getNodeList(hc)) |clause| {
+                                        if (clause != 0) {
+                                            const hcd = c.binder.ast.getNode(clause);
+                                            if (hcd == .HeritageClause) {
+                                                if (c.binder.ast.getKind(hcd.HeritageClause.Token) == kind.Kind.ExtendsKeyword) {
+                                                    has_base = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             if (cd.Members != 0) {
                                 for (c.binder.ast.getNodeList(cd.Members)) |mem| {
                                     if (mem != 0 and c.binder.ast.getNodeKind(mem) == .Constructor) {
@@ -1910,7 +1927,9 @@ pub const Checker = struct {
                         }
                         if (has_ctor) break;
                     }
-                    if (!has_ctor) {
+                    // Only create synthetic constructor if no explicit ctor
+                    // AND no base class (base class constructors are inherited).
+                    if (!has_ctor and !has_base) {
                         const sig_idx = c.createDefaultConstructorSignature(sym);
                         if (sig_idx != 0) {
                             const start = c.resolvedSignaturesPool.items.len;
