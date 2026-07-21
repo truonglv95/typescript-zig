@@ -2362,6 +2362,37 @@ pub const Parser = struct {
             dotDotDotToken = try self.ast.pushTokenNode(kind.Kind.DotDotDotToken);
         }
 
+        // In JSDoc function types, parameters can be just types without
+        // names: {function (string): void}. When inJSDocType is true and
+        // the current token is the start of a type (not an identifier),
+        // skip the parameter name and parse the type directly.
+        if (self.inJSDocType and self.isStartOfType() and self.token != kind.Kind.ThisKeyword) {
+            // JSDoc parameter: just a type, no name.
+            const paramType: ?ast_gen.NodeIndex = try self.parseType();
+            var questionToken2: ?ast_gen.NodeIndex = null;
+            if (self.parseOptional(kind.Kind.QuestionToken)) {
+                questionToken2 = try self.ast.pushTokenNode(kind.Kind.QuestionToken);
+            }
+            var initializer: ?ast_gen.NodeIndex = null;
+            if (self.parseOptional(kind.Kind.EqualsToken)) {
+                initializer = try @import("expression.zig").parseAssignmentExpressionOrHigher(self);
+            }
+            const result = try self.ast.pushNode(.{ .Parameter = .{
+                .Symbol = 0,
+                .Flags = 0,
+                .modifiers = modifiers,
+                .modifierFlags = modifierFlags,
+                .DotDotDotToken = dotDotDotToken,
+                .name = 0,
+                .QuestionToken = questionToken2,
+                .Type = paramType,
+                .Initializer = initializer,
+            } });
+            self.setNodeStartPos(result, param_start);
+            _ = try jsdoc.withJSDoc(self, result, jsdoc_info);
+            return result;
+        }
+
         // Handle `this` as a special parameter name (e.g., `this: T`)
         const paramName = if (self.token == kind.Kind.ThisKeyword) blk: {
             const this_start = self.scanner.state.tokenStart;
