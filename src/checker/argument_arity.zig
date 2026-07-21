@@ -232,9 +232,8 @@ pub fn getArgumentArityError(
     } else {
         // Too many arguments — span covers the excess args.
         if (max_count >= args_len) {
-            // Edge case: arg count actually matches param count (e.g. trailing
-            // comma confusion). Emit a generic message on the call node.
-            return makeDiagnostic(allocator, error_node, message, primary_args, head_message);
+            // Arg count matches or is within range — no error.
+            return null;
         }
         const source_file = ast_utils.getSourceFileOfNode(tree, node);
         const max_count_usize: usize = @intCast(max_count);
