@@ -6247,8 +6247,10 @@ pub const Checker = struct {
                         .FunctionExpression => |f| paramsId = f.Parameters,
                         .ArrowFunction => |f| paramsId = f.Parameters,
                         .MethodDeclaration => |m| paramsId = m.Parameters,
+                        .MethodSignature => |m| paramsId = m.Parameters,
                         .CallSignature => |cs| paramsId = cs.Parameters,
                         .ConstructSignature => |cs| paramsId = cs.Parameters,
+                        .Constructor => |ctor| paramsId = ctor.Parameters,
                         else => {},
                     }
 
@@ -16039,11 +16041,12 @@ pub const Checker = struct {
             c.reportErrorWithArgs(node, msg, &.{});
         } else if (signatures.len > 1) {
             c.reportError(node, &diagnostics_gen.No_overload_matches_this_call);
-        } else if (signatures.len == 1 and !ast_utils.isInJSFile(c.binder.ast, node)) {
-            // Single signature — report argument arity or type error.
-            // Skip in JS files (extra args go into `arguments`).
-            c.reportError(node, &diagnostics_gen.Expected_0_arguments_but_got_1);
         }
+        // For single signature, don't report a generic "Expected N arguments"
+        // error — the actual argument arity check is done by
+        // getArgumentArityError in resolveCall. Reporting here too causes
+        // false positives when resolveCall's arity check was skipped (e.g.,
+        // for inherited constructors).
     }
 
     /// Port of `checker.go::addImplementationSuccessElaboration`. Adds
