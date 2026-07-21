@@ -6028,6 +6028,13 @@ pub const Checker = struct {
                             if (utils.isJSLiteralType(self, &self.typesList.items[apparentType])) {
                                 return try self.getAnyType();
                             }
+                            // For function types, fall back to Function interface.
+                            if (self.getSignaturesOfType(apparentType, .Call).len > 0) {
+                                if (self.getPropertyOfFunctionInterface(propName)) |p| {
+                                    const propType = try self.getTypeOfSymbol(p);
+                                    return self.substituteTypeParamsForReference(objTypeIdx, propType);
+                                }
+                            }
 
                             // Skip property missing errors in unchecked JS
                             // files (when checkJs is false).
