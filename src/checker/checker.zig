@@ -16451,8 +16451,24 @@ pub const Checker = struct {
                     }
                     return c.anyTypeIndex orelse 0;
                 }
-                if (rightName.len > 0 and !c.checkAndReportErrorForExtendingInterface(node)) {
-                    c.reportNonexistentProperty(right, if (utils.isThisTypeParameter(c, leftType)) apparentType else leftType, isUncheckedJS);
+                if (rightName.len > 0 and !c.checkAndReportErrorForExtendingInterface(node) and !isUncheckedJS) {
+                    // Report "Property does not exist on type" for non-JS files.
+                    // In JS files, property access is allowed on any object.
+                    const report_type = if (utils.isThisTypeParameter(c, leftType)) apparentType else leftType;
+                    if (report_type != 0 and report_type < c.typesList.items.len) {
+                        const type_str = c.typeToString(report_type, 0, 0, null);
+                        var args_arr = c.allocator.alloc([]const u8, 2) catch {
+                            return c.errorTypeIndex orelse 0;
+                        };
+                        c.ownedDiagnosticArgs.append(c.allocator, args_arr) catch {};
+                        args_arr[0] = rightName;
+                        args_arr[1] = type_str;
+                        c.addDiagnostic(.{
+                            .nodeIndex = right,
+                            .message = &diagnostics_gen.Property_0_does_not_exist_on_type_1,
+                            .args = args_arr,
+                        });
+                    }
                 }
                 return c.errorTypeIndex orelse 0;
             }

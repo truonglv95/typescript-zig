@@ -5837,15 +5837,38 @@ pub const FourslashTest = struct {
             std.log.warn("Expected no errors, but found {d}", .{count});
             if (self.parser) |p| {
                 for (p.diagnostics.items) |diag| {
-                    std.log.warn("  [parser] {s}", .{diag.message.text});
+                    self.logDiagnostic("parser", diag.message.text, diag.args);
                 }
             }
             if (self.binder) |b| {
                 for (b.diagnosticsList.items) |diag| {
-                    std.log.warn("  [binder] {s}", .{diag.message.text});
+                    self.logDiagnostic("binder", diag.message.text, diag.args);
                 }
             }
         }
+    }
+
+    fn logDiagnostic(self: *FourslashTest, source: []const u8, text: []const u8, args: []const []const u8) void {
+        const aa = self.arena.allocator();
+        var out = std.ArrayListUnmanaged(u8).empty;
+        out.appendSlice(aa, "  [") catch {};
+        out.appendSlice(aa, source) catch {};
+        out.appendSlice(aa, "] ") catch {};
+        // Substitute {N} placeholders with args.
+        var i: usize = 0;
+        while (i < text.len) {
+            if (text[i] == '{' and i + 2 < text.len and text[i + 2] == '}') {
+                const idx = text[i + 1] - '0';
+                if (idx < args.len) {
+                    out.appendSlice(aa, args[idx]) catch {};
+                }
+                i += 3;
+            } else {
+                out.append(aa, text[i]) catch {};
+                i += 1;
+            }
+        }
+        std.log.warn("{s}", .{out.items});
     }
 
     fn getDiagnosticPos(self: *FourslashTest, diag: anytype) u32 {
