@@ -1418,6 +1418,48 @@ pub const Checker = struct {
         const constraint = c.getConstraintTypeFromMappedType(t);
         if (constraint != 0 and constraint < c.typesList.items.len) {
             const resolved = c.resolveStructuredTypeMembers(constraint);
+            // For each property from the constraint, create a synthetic
+            // property whose type is the mapped type's template type
+            // (substituted with the property's literal type as the
+            // type parameter). For the common case of
+            // `{ [K in keyof T]: U }`, every property's type becomes U.
+            if (resolved.propertiesLen > 0) {
+                const constraint_props = c.resolvedPropertiesPool.items[resolved.propertiesStart .. resolved.propertiesStart + resolved.propertiesLen];
+                const mapper = c.getTargetTypeData(t).Mapped.mapper;
+                const start = @as(u32, @intCast(c.resolvedPropertiesPool.items.len));
+                for (constraint_props) |prop_sym| {
+                    // For each property, use instantiateMappedTypeTemplate
+                    // to compute the property's type with the type parameter
+                    // substituted by the property's key literal type.
+                    const prop_key_literal = c.getLiteralTypeFromProperty(prop_sym, types.TypeFlags.StringLiteral | types.TypeFlags.NumberLiteral, false);
+                    var prop_type: types.TypeIndex = 0;
+                    if (prop_key_literal != 0) {
+                        prop_type = c.instantiateMappedTypeTemplate(t, prop_key_literal, false, mapper);
+                    }
+                    if (prop_type == 0) {
+                        prop_type = c.getTemplateTypeFromMappedType(t);
+                    }
+                    // Create a synthetic property symbol.
+                    const new_sym = c.createSyntheticPropertySymbol(
+                        symbol.SymbolFlags.Property | symbol.SymbolFlags.Transient,
+                        c.getSymbolName(prop_sym),
+                        types.CheckFlags.SyntheticProperty,
+                        prop_type,
+                        t,
+                    ) orelse continue;
+                    c.resolvedPropertiesPool.append(c.allocator, new_sym) catch {};
+                }
+                const props_len = @as(u32, @intCast(c.resolvedPropertiesPool.items.len)) - start;
+                members.propertiesStart = start;
+                members.propertiesLen = props_len;
+                members.callSignaturesStart = 0;
+                members.callSignaturesLen = 0;
+                members.constructSignaturesStart = 0;
+                members.constructSignaturesLen = 0;
+                members.indexInfosStart = 0;
+                members.indexInfosLen = 0;
+                return;
+            }
             members.* = resolved;
         }
     }
