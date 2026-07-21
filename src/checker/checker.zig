@@ -1888,9 +1888,42 @@ pub const Checker = struct {
                         }
                     }
                 }
+                // If no explicit constructor found, create a synthetic
+                // default constructor with 0 parameters for class types.
+                // In TypeScript, classes without an explicit constructor
+                // have an implicit `constructor() {}`.
+                if ((sym_obj.Flags & symbol.SymbolFlags.Class) != 0) {
+                    const sig_idx = c.createDefaultConstructorSignature(sym);
+                    if (sig_idx != 0) {
+                        const start = c.resolvedSignaturesPool.items.len;
+                        c.resolvedSignaturesPool.append(c.allocator, sig_idx) catch {};
+                        return .{ .start = @intCast(start), .len = 1 };
+                    }
+                }
             }
         }
         return .{ .start = 0, .len = 0 };
+    }
+
+    /// Creates a synthetic default constructor signature for a class
+    /// that has no explicit constructor. The signature has 0 parameters
+    /// and returns the class instance type.
+    fn createDefaultConstructorSignature(c: *Checker, class_sym: ast_gen.SymbolIndex) types.SignatureIndex {
+        const class_type = c.tryGetDeclaredTypeOfSymbol(class_sym);
+        if (class_type == 0) return 0;
+        const sig_idx: types.SignatureIndex = @intCast(c.signatures.items.len);
+        c.signatures.append(c.allocator, .{
+            .declaration = 0,
+            .typeParametersStart = 0,
+            .typeParametersLen = 0,
+            .parametersStart = 0,
+            .parametersLen = 0,
+            .resolvedReturnType = class_type,
+            .thisParameter = null,
+            .target = null,
+            .isolatedSignatureType = null,
+        }) catch return 0;
+        return sig_idx;
     }
 
     pub fn appendSignatures(c: *Checker, signaturesStart: u32, signaturesLen: u32, newSignaturesStart: u32, newSignaturesLen: u32) types.Range {
