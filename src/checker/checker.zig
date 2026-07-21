@@ -3024,6 +3024,28 @@ pub const Checker = struct {
             if (typ == 0) typ = c.unknownTypeIndex orelse 0;
         }
 
+        // For polymorphic `this` types (TypeParameter with isThisType=true),
+        // the apparent type is the class type (stored on the symbol).
+        // This allows `this.m()` inside a class method to find `m` on the
+        // class.
+        if (typ != t and c.typesList.items[typ].flags & types.TypeFlags.TypeParameter != 0 and
+            c.typesList.items[typ].data == .TypeParameter and c.typesList.items[typ].data.TypeParameter.isThisType)
+        {
+            if (c.typesList.items[typ].symbol) |class_sym| {
+                const class_type = c.tryGetDeclaredTypeOfSymbol(class_sym);
+                if (class_type != 0) typ = class_type;
+            }
+        } else if (c.typesList.items[typ].flags & types.TypeFlags.TypeParameter != 0 and
+            c.typesList.items[typ].data == .TypeParameter and c.typesList.items[typ].data.TypeParameter.isThisType)
+        {
+            // Even if the this type wasn't reduced by getBaseConstraintOfType,
+            // resolve it to the class type so property access works.
+            if (c.typesList.items[typ].symbol) |class_sym| {
+                const class_type = c.tryGetDeclaredTypeOfSymbol(class_sym);
+                if (class_type != 0) typ = class_type;
+            }
+        }
+
         const flags = c.getTypeFlags(typ);
         const objectFlags = c.getObjectFlags(typ);
 
@@ -16420,6 +16442,22 @@ pub const Checker = struct {
             if (prop == null) {
                 // Try looking up on the non-apparent type too.
                 prop = c.getPropertyOfType(leftType, rightName);
+            }
+            // For polymorphic `this` types, also try looking up the property
+            // on the class type (stored on the this type's symbol). This
+            // handles `this.m()` inside a class method where getApparentType
+            // didn't resolve the this type to the class type.
+            if (prop == null and leftType != 0 and leftType < c.typesList.items.len) {
+                const lt = c.typesList.items[leftType];
+                if ((lt.flags & types.TypeFlags.TypeParameter) != 0 and
+                    lt.data == .TypeParameter and lt.data.TypeParameter.isThisType and
+                    lt.symbol != null)
+                {
+                    const class_type = c.tryGetDeclaredTypeOfSymbol(lt.symbol.?);
+                    if (class_type != 0 and class_type != leftType) {
+                        prop = c.getPropertyOfType(class_type, rightName);
+                    }
+                }
             }
         }
 
