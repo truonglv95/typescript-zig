@@ -1892,12 +1892,31 @@ pub const Checker = struct {
                 // default constructor with 0 parameters for class types.
                 // In TypeScript, classes without an explicit constructor
                 // have an implicit `constructor() {}`.
+                // BUT: only do this if the class truly has NO constructor
+                // in any of its declarations' member lists.
                 if ((sym_obj.Flags & symbol.SymbolFlags.Class) != 0) {
-                    const sig_idx = c.createDefaultConstructorSignature(sym);
-                    if (sig_idx != 0) {
-                        const start = c.resolvedSignaturesPool.items.len;
-                        c.resolvedSignaturesPool.append(c.allocator, sig_idx) catch {};
-                        return .{ .start = @intCast(start), .len = 1 };
+                    var has_ctor = false;
+                    for (sym_obj.Declarations.items) |decl| {
+                        if (decl != 0 and c.binder.ast.getNodeKind(decl) == .ClassDeclaration) {
+                            const cd = c.binder.ast.getNode(decl).ClassDeclaration;
+                            if (cd.Members != 0) {
+                                for (c.binder.ast.getNodeList(cd.Members)) |mem| {
+                                    if (mem != 0 and c.binder.ast.getNodeKind(mem) == .Constructor) {
+                                        has_ctor = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (has_ctor) break;
+                    }
+                    if (!has_ctor) {
+                        const sig_idx = c.createDefaultConstructorSignature(sym);
+                        if (sig_idx != 0) {
+                            const start = c.resolvedSignaturesPool.items.len;
+                            c.resolvedSignaturesPool.append(c.allocator, sig_idx) catch {};
+                            return .{ .start = @intCast(start), .len = 1 };
+                        }
                     }
                 }
             }
