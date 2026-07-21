@@ -5286,11 +5286,20 @@ pub const FourslashTest = struct {
         }
 
         // Build signature text.
+        // For generic functions, try to use the resolved (instantiated)
+        // signature from getResolvedSignature. This substitutes type
+        // parameters with inferred types from the call arguments.
+        var resolved_sig = sig;
+        const resolved_sig_idx = c.getResolvedSignature(matched_call_node, null, .Normal);
+        if (resolved_sig_idx != 0 and resolved_sig_idx < c.signatures.items.len) {
+            resolved_sig = &c.signatures.items[resolved_sig_idx];
+        }
+
         var out = std.ArrayListUnmanaged(u8).empty;
         const aa = self.arena.allocator();
         out.appendSlice(aa, fn_name) catch {};
         out.appendSlice(aa, "(") catch {};
-        const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+        const params = c.signatureParameters.items[resolved_sig.parametersStart .. resolved_sig.parametersStart + resolved_sig.parametersLen];
         for (params, 0..) |paramSym, i| {
             if (i > 0) out.appendSlice(aa, ", ") catch {};
             const paramObj = c.binder.symbols.items[paramSym];
@@ -5301,7 +5310,7 @@ pub const FourslashTest = struct {
             out.appendSlice(aa, pStr) catch {};
         }
         out.appendSlice(aa, "): ") catch {};
-        const retType = c.getReturnTypeOfSignature(sig);
+        const retType = c.getReturnTypeOfSignature(resolved_sig);
         const retTypeStr = if (retType != 0) c.typeToString(retType, 0, HOVER_TYPE_FLAGS, null) else "any";
         out.appendSlice(aa, retTypeStr) catch {};
         const actual_text = out.toOwnedSlice(aa) catch "";
