@@ -4037,13 +4037,18 @@ pub const FourslashTest = struct {
             const aa = self.arena.allocator();
             // For GetAccessor/SetAccessor, use "(getter)" / "(setter)"
             // prefix instead of "(property)" to match Go's display.
-            if ((symObj.Flags & symbol.SymbolFlags.GetAccessor) != 0 and
-                (symObj.Flags & symbol.SymbolFlags.SetAccessor) == 0)
-            {
+            // When the symbol has both flags (both `get x()` and `set x()`),
+            // check which specific declaration the cursor is on.
+            var is_getter = (symObj.Flags & symbol.SymbolFlags.GetAccessor) != 0;
+            var is_setter = (symObj.Flags & symbol.SymbolFlags.SetAccessor) != 0;
+            if (is_getter and is_setter and hovered_decl != 0) {
+                const hovered_kind = p.ast.getNodeKind(hovered_decl);
+                is_getter = (hovered_kind == .GetAccessor);
+                is_setter = (hovered_kind == .SetAccessor);
+            }
+            if (is_getter and !is_setter) {
                 out.appendSlice(aa, "(getter) ") catch {};
-            } else if ((symObj.Flags & symbol.SymbolFlags.SetAccessor) != 0 and
-                (symObj.Flags & symbol.SymbolFlags.GetAccessor) == 0)
-            {
+            } else if (is_setter and !is_getter) {
                 out.appendSlice(aa, "(setter) ") catch {};
             } else {
                 out.appendSlice(aa, "(property) ") catch {};
@@ -4990,7 +4995,7 @@ pub const FourslashTest = struct {
 
         // Helper: check if cursor is within a call's argument list span.
         const cursorInArgs = struct {
-            fn call(ast_ptr: *const ast_gen.Ast, call_node: ast_gen.NodeIndex, pos: u32) bool {
+            fn call(ast_ptr: *ast_module.Ast, call_node: ast_gen.NodeIndex, pos: u32) bool {
                 const k = ast_ptr.getNodeKind(call_node);
                 var args_id: u32 = 0;
                 if (k == .CallExpression) {
@@ -5944,6 +5949,50 @@ pub fn getBaseFileNameFromTest(t: *testing.T) []const u8 {
     return "dummy";
 }
 
+/// Parses the `@module:` directive from fourslash test content and returns
+/// the corresponding ModuleKind. Defaults to CommonJS if not specified.
+fn parseModuleKind(content: []const u8) core_module.ModuleKind {
+    const tag = "@module: ";
+    if (std.mem.indexOf(u8, content, tag)) |start| {
+        const val_start = start + tag.len;
+        const line_end = std.mem.indexOfScalarPos(u8, content, val_start, '\n') orelse content.len;
+        const value = std.mem.trim(u8, content[val_start..line_end], " \t\r");
+        if (std.mem.eql(u8, value, "commonjs")) return .CommonJS;
+        if (std.mem.eql(u8, value, "amd")) return .AMD;
+        if (std.mem.eql(u8, value, "umd")) return .UMD;
+        if (std.mem.eql(u8, value, "system")) return .System;
+        if (std.mem.eql(u8, value, "es2015") or std.mem.eql(u8, value, "es6")) return .ES2015;
+        if (std.mem.eql(u8, value, "es2020")) return .ES2020;
+        if (std.mem.eql(u8, value, "es2022")) return .ES2022;
+        if (std.mem.eql(u8, value, "esnext")) return .ESNext;
+        if (std.mem.eql(u8, value, "node16")) return .Node16;
+        if (std.mem.eql(u8, value, "nodenext")) return .NodeNext;
+        if (std.mem.eql(u8, value, "preserve")) return .Preserve;
+    }
+    return .CommonJS;
+}
+
+/// Returns true if the test content does NOT contain `@<name>: false`.
+/// Used to parse directives like `@checkJs: false` / `@allowJs: false`.
+fn isFlagEnabled(content: []const u8, name: []const u8) bool {
+    // Look for `@<name>: false` (case-insensitive on the name part).
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, content, i, "@")) |at| {
+        i = at + 1;
+        const rest = content[at..];
+        if (rest.len < name.len + 2) continue;
+        if (!std.ascii.startsWithIgnoreCase(rest, name)) continue;
+        const after = rest[name.len..];
+        if (after.len < 2 or after[0] != ':') continue;
+        const trimmed = std.mem.trim(u8, after[1..], " \t\r");
+        const line_end = std.mem.indexOfScalar(u8, trimmed, '\n') orelse trimmed.len;
+        const value = std.mem.trim(u8, trimmed[0..line_end], " \t\r");
+        if (std.mem.eql(u8, value, "false")) return false;
+        if (std.mem.eql(u8, value, "true")) return true;
+    }
+    return true;
+}
+
 pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, content: []const u8) *FourslashTest {
     _ = t;
     _ = capabilities;
@@ -5998,6 +6047,9 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
         } else if (std.mem.endsWith(u8, f.currentFile, ".tsx")) {
             p.setScriptKind(.TSX);
         }
+        // Set the AST's fileName so isInJsFile()/isInJSFile() can detect
+        // JS files by extension.
+        p.ast.fileName = f.currentFile;
         f.sourceFile = p.parseSourceFile() catch unreachable;
         f.parser = p;
         
@@ -6022,12 +6074,13 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
             var c = aa.create(checker_module.Checker) catch unreachable;
             c.* = checker_module.Checker.init(aa, b);
             c.default_lib_binder = lib_binder;
-            c.checkJs = true;
-            c.allowJs = true;
+            c.checkJs = isFlagEnabled(content, "@checkJs");
+            c.allowJs = isFlagEnabled(content, "@allowJs");
             const is_strict = std.mem.indexOf(u8, content, "@strict: false") == null;
             c.strictNullChecks = is_strict;
             c.noImplicitAny = is_strict;
             c.useUnknownInCatchVariables = is_strict;
+            c.moduleKind = parseModuleKind(content);
             c.initializeChecker();
             // Check the lib file first so its types are available.
             c.checkSourceFile(null, lib_sf, false);
@@ -6036,12 +6089,13 @@ pub fn NewFourslash(t: *testing.T, capabilities: *lsproto.ClientCapabilities, co
         } else {
             var c = aa.create(checker_module.Checker) catch unreachable;
             c.* = checker_module.Checker.init(aa, b);
-            c.checkJs = true;
-            c.allowJs = true;
+            c.checkJs = isFlagEnabled(content, "@checkJs");
+            c.allowJs = isFlagEnabled(content, "@allowJs");
             const is_strict = std.mem.indexOf(u8, content, "@strict: false") == null;
             c.strictNullChecks = is_strict;
             c.noImplicitAny = is_strict;
             c.useUnknownInCatchVariables = is_strict;
+            c.moduleKind = parseModuleKind(content);
             c.initializeChecker();
             c.checkSourceFile(null, f.sourceFile.?, false);
             f.checker = c;

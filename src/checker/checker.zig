@@ -3059,19 +3059,15 @@ pub const Checker = struct {
         const is_any = type_index == any_type or (c.getTypeFlags(type_index) & types.TypeFlags.Any) != 0;
         if (!is_any) return;
 
+        // Only report implicit any as an error when noImplicitAny is true.
+        // The checkJs flag controls whether JS files are checked at all,
+        // not whether implicit any is an error.
+        if (!c.noImplicitAny) return;
+
         const param_name = getParameterDeclarationName(c, node) orelse return;
         const type_name = c.typeToString(type_index, node, 0, null);
-        const report_as_error = c.noImplicitAny or c.checkJs;
 
-        if (report_as_error) {
-            c.reportErrorWithArgs(node, &diagnostics_gen.Parameter_0_implicitly_has_an_1_type, &.{ param_name, type_name });
-        } else {
-            c.reportErrorWithArgs(
-                node,
-                &diagnostics_gen.Parameter_0_implicitly_has_an_1_type_but_a_better_type_may_be_inferred_from_usage,
-                &.{ param_name, type_name },
-            );
-        }
+        c.reportErrorWithArgs(node, &diagnostics_gen.Parameter_0_implicitly_has_an_1_type, &.{ param_name, type_name });
     }
 
     pub fn isInJsFile(c: *Checker, node: ast_gen.NodeIndex) bool {
@@ -5800,7 +5796,10 @@ pub const Checker = struct {
                                 return try self.getAnyType();
                             }
 
-                            if (shouldReportMissingPropertyError(self, objTypeIdx, assignmentKind)) {
+                            // Skip property missing errors in unchecked JS
+                            // files (when checkJs is false).
+                            const skip_due_to_js = self.isInJsFile(pae.name) and !self.checkJs;
+                            if (!skip_due_to_js and shouldReportMissingPropertyError(self, objTypeIdx, assignmentKind)) {
                                 var argsArr = self.allocator.alloc([]const u8, 2) catch unreachable;
                                 self.ownedDiagnosticArgs.append(self.allocator, argsArr) catch unreachable;
                                 argsArr[0] = propName;
@@ -6045,7 +6044,9 @@ pub const Checker = struct {
                         }
                     }
 
-                    if (args.len < minRequiredArgs) {
+                    // Skip argument arity errors in JS files.
+                    const skip_arity_js = ast_utils.isInJSFile(self.binder.ast, ce.Expression);
+                    if (!skip_arity_js and args.len < minRequiredArgs) {
                         var argsArr = self.allocator.alloc([]const u8, 2) catch unreachable;
                         argsArr[0] = try std.fmt.allocPrint(self.allocator, "{d}", .{minRequiredArgs});
                         argsArr[1] = try std.fmt.allocPrint(self.allocator, "{d}", .{args.len});
@@ -6055,7 +6056,7 @@ pub const Checker = struct {
                             .args = argsArr,
                         };
                         self.addDiagnostic(diag);
-                    } else if (args.len > params.len and !hasRestParam) {
+                    } else if (!skip_arity_js and args.len > params.len and !hasRestParam) {
                         var argsArr = self.allocator.alloc([]const u8, 2) catch unreachable;
                         argsArr[0] = try std.fmt.allocPrint(self.allocator, "{d}", .{params.len});
                         argsArr[1] = try std.fmt.allocPrint(self.allocator, "{d}", .{args.len});
@@ -15349,8 +15350,11 @@ pub const Checker = struct {
         };
         
         const args = if ((argumentsList orelse 0) != 0) c.binder.ast.getNodeList(argumentsList.?) else &[_]u32{};
-        
-        if (signatures.len == 1) {
+
+        // Skip argument arity checks in JS files. In JavaScript, functions
+        // accept any number of arguments (extra args go into `arguments`).
+        const is_js_file = ast_utils.isInJSFile(c.binder.ast, node);
+        if (signatures.len == 1 and !is_js_file) {
             const diag = @import("argument_arity.zig").getArgumentArityError(c, node, signatures, args, null);
             if (diag) |d| {
                 c.addDiagnostic(d);
@@ -15768,8 +15772,9 @@ pub const Checker = struct {
             c.reportErrorWithArgs(node, msg, &.{});
         } else if (signatures.len > 1) {
             c.reportError(node, &diagnostics_gen.No_overload_matches_this_call);
-        } else if (signatures.len == 1) {
+        } else if (signatures.len == 1 and !ast_utils.isInJSFile(c.binder.ast, node)) {
             // Single signature — report argument arity or type error.
+            // Skip in JS files (extra args go into `arguments`).
             c.reportError(node, &diagnostics_gen.Expected_0_arguments_but_got_1);
         }
     }
@@ -29618,7 +29623,10 @@ pub fn checkFunctionExpressionWithContextualType(c: *Checker, node_idx: ast_gen.
 pub fn checkIdentifier(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: CheckMode) types.TypeIndex {
     _ = checkMode;
     const name = c.binder.ast.getNode(node_idx).Identifier.Text;
-    if (isNodeGlobalName(name) and !c.hasNodeTypeDefinitions()) {
+    // Skip "Cannot find name" errors for Node.js globals (module, require,
+    // exports, etc.) in CommonJS mode or in JS files.
+    const is_commonjs = c.moduleKind == .CommonJS or c.moduleKind == .Node16 or c.moduleKind == .NodeNext;
+    if (isNodeGlobalName(name) and !c.hasNodeTypeDefinitions() and !is_commonjs and !c.isInJsFile(node_idx)) {
         c.reportErrorWithArgs(
             node_idx,
             &diagnostics_gen.Cannot_find_name_0_Do_you_need_to_install_type_definitions_for_node_Try_npm_i_save_dev_types_Slashnode_and_then_add_node_to_the_types_field_in_your_tsconfig,

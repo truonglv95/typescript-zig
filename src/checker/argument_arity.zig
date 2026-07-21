@@ -113,6 +113,10 @@ pub fn getArgumentArityError(
     const allocator = c.allocator;
     const tree = c.binder.ast;
 
+    // Skip argument arity errors in JS files. In JavaScript, functions
+    // accept any number of arguments (extra args go into `arguments`).
+    if (ast_utils.isInJSFile(tree, node)) return null;
+
     // 1. Spread element check — produces a dedicated diagnostic.
     const spread_index = getSpreadArgumentIndex(c, args);
     if (spread_index > -1) {
