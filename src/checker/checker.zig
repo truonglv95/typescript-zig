@@ -3682,6 +3682,17 @@ pub const Checker = struct {
         // The old Zig code called getApparentType which called back getBaseConstraintOfType
         // causing infinite recursion. Use getResolvedBaseConstraint (conservative: return 0).
         const flags = c.typesList.items[t].flags;
+        if ((flags & types.TypeFlags.TypeParameter) != 0) {
+            // For type parameters, resolve the constraint.
+            if (!c.pushTypeResolution(t, 0)) return 0; // circular
+            _ = c.popTypeResolution();
+            if (c.getConstraintOfTypeParameter(t)) |constraint| {
+                if (constraint != 0 and constraint != (c.noConstraintTypeIndex orelse 0)) {
+                    return constraint;
+                }
+            }
+            return 0;
+        }
         if (flags & (types.TypeFlags.InstantiableNonPrimitive | types.TypeFlags.UnionOrIntersection | types.TypeFlags.TemplateLiteral | types.TypeFlags.StringMapping) != 0) {
             // getResolvedBaseConstraint not fully wired; use pushTypeResolution guard
             // to prevent infinite recursion. Conservative: return 0 (no constraint).
@@ -5857,36 +5868,39 @@ pub const Checker = struct {
             // Property access
             .PropertyAccessExpression => |pae| {
                 const objTypeIdx = try self.checkExpressionAdHoc(pae.Expression);
+                // Use apparent type for property lookup so type parameter
+                // constraints and polymorphic `this` types are resolved.
+                const apparentType = self.getApparentType(objTypeIdx);
                 const propNodeData = self.binder.ast.getNode(pae.name);
                 if (std.meta.activeTag(propNodeData) == .Identifier) {
                     const propName = propNodeData.Identifier.Text;
-                    if (self.getPropertyOfType(objTypeIdx, propName)) |p| {
+                    if (self.getPropertyOfType(apparentType, propName)) |p| {
                         const propType = try self.getTypeOfSymbol(p);
                         return self.substituteTypeParamsForReference(objTypeIdx, propType);
                     }
 
-                    if (!self.isTypeAny(objTypeIdx)) {
-                        const objDataTag = std.meta.activeTag(self.typesList.items[objTypeIdx].data);
+                    if (!self.isTypeAny(apparentType)) {
+                        const objDataTag = std.meta.activeTag(self.typesList.items[apparentType].data);
                         if (objDataTag == .Array or objDataTag == .Tuple) {
                             return try self.getAnyType();
                         }
 
                         var indexInfo: ?types.IndexInfo = null;
                         const assignmentKind = utils.getAssignmentTargetKind(self.binder.ast, nodeIndex);
-                        if (assignmentKind == .None or !self.isGenericObjectType(objTypeIdx) or utils.isThisTypeParameter(self, objTypeIdx)) {
+                        if (assignmentKind == .None or !self.isGenericObjectType(apparentType) or utils.isThisTypeParameter(self, objTypeIdx)) {
                             const keyType = if (utils.isNumericLiteralName(propName)) self.numberTypeIndex orelse 0 else self.stringTypeIndex orelse 0;
-                            indexInfo = self.getIndexInfoOfType(objTypeIdx, keyType);
+                            indexInfo = self.getIndexInfoOfType(apparentType, keyType);
                         }
 
                         if (indexInfo == null) {
-                            if (utils.isJSLiteralType(self, &self.typesList.items[objTypeIdx])) {
+                            if (utils.isJSLiteralType(self, &self.typesList.items[apparentType])) {
                                 return try self.getAnyType();
                             }
 
                             // Skip property missing errors in unchecked JS
                             // files (when checkJs is false).
                             const skip_due_to_js = self.isInJsFile(pae.name) and !self.checkJs;
-                            if (!skip_due_to_js and shouldReportMissingPropertyError(self, objTypeIdx, assignmentKind)) {
+                            if (!skip_due_to_js and shouldReportMissingPropertyError(self, apparentType, assignmentKind)) {
                                 var argsArr = self.allocator.alloc([]const u8, 2) catch unreachable;
                                 self.ownedDiagnosticArgs.append(self.allocator, argsArr) catch unreachable;
                                 argsArr[0] = propName;
