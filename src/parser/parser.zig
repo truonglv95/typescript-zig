@@ -3741,11 +3741,14 @@ pub const Parser = struct {
         if (self.token == kind.Kind.LessThanToken) return true;
         if (self.token == kind.Kind.NewKeyword) return true;
         // JSDoc `function (params) => type` syntax — check that after
-        // `function` there's an open paren.
+        // `function` there's an open paren. Use mark/rewind for safety.
         if (self.token == kind.Kind.FunctionKeyword) {
-            var tempScanner = self.scanner;
-            _ = tempScanner.scan(); // skip 'function'
-            return tempScanner.scan() == kind.Kind.OpenParenToken;
+            return self.lookAhead(struct {
+                fn run(p: *Parser) bool {
+                    p.nextToken(); // consume 'function'
+                    return p.token == kind.Kind.OpenParenToken;
+                }
+            }.run);
         }
 
         if (self.token == kind.Kind.OpenParenToken) {

@@ -1283,7 +1283,13 @@ pub const Scanner = struct {
                     }
                 }
                 self.state.tokenValue = self.unescapeIdentifier(self.text[self.state.tokenStart..self.state.pos]);
-                self.state.token = kind.Kind.Identifier;
+                // Check if the identifier is a keyword (e.g., "function",
+                // "new", "typeof", etc.) so that JSDoc type expressions like
+                // {function (string): void} are parsed correctly.
+                self.state.token = kind.keywordFromString(self.state.tokenValue);
+                if (self.state.token == .Unknown) {
+                    self.state.token = kind.Kind.Identifier;
+                }
                 return self.state.token;
             },
             else => {
