@@ -28847,7 +28847,20 @@ pub fn checkExpressionEx(c: *Checker, node_idx: ast_gen.NodeIndex, checkMode: Ch
 
     // If checkExpressionWorker returned 0 or any, try the adhoc path
     // which has better resolution for certain patterns (e.g., generic calls).
-    if (t == 0 or t == (c.anyTypeIndex orelse 0)) {
+    // Also try adHoc for any[] when the node is a CallExpression (generic
+    // method calls like x.map(s => s.length) may return any[] instead of
+    // the properly inferred type).
+    const should_try_adhoc = t == 0 or t == (c.anyTypeIndex orelse 0) or blk: {
+        if (t == 0 or t >= c.typesList.items.len) break :blk false;
+        const node_kind = c.binder.ast.getNodeKind(node_idx);
+        if (node_kind != .CallExpression and node_kind != .NewExpression) break :blk false;
+        const td = c.typesList.items[t];
+        if ((td.flags & types.TypeFlags.Object) != 0 and td.data == .Array) {
+            break :blk td.data.Array.elementType == (c.anyTypeIndex orelse 0);
+        }
+        break :blk false;
+    };
+    if (should_try_adhoc) {
         const adhoc_t = c.checkExpressionAdHoc(node_idx) catch 0;
         if (adhoc_t != 0 and adhoc_t != (c.anyTypeIndex orelse 0)) {
             t = adhoc_t;
