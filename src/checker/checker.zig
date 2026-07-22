@@ -27270,6 +27270,48 @@ pub fn getSymbolAtLocation(c: *Checker, node: ast_gen.NodeIndex) ast_gen.SymbolI
             if (type_sym != 0 and type_sym != c.unknownSymbol) {
                 return type_sym;
             }
+            // Fallback: walk up the AST to find an enclosing node with type
+            // parameters (MethodSignature, MethodDeclaration, CallSignature,
+            // ConstructSignature, FunctionDeclaration, etc.) and look up
+            // the identifier name in the type parameter list.
+            var walker = c.binder.ast.getNodeParent(node);
+            while (walker != 0) {
+                const wk = c.binder.ast.getNodeKind(walker);
+                const tp_list: ?u32 = switch (c.binder.ast.getNode(walker)) {
+                    .MethodSignature => |m| m.TypeParameters,
+                    .MethodDeclaration => |m| m.TypeParameters,
+                    .CallSignature => |cs| cs.TypeParameters,
+                    .ConstructSignature => |cs| cs.TypeParameters,
+                    .FunctionDeclaration => |f| f.TypeParameters,
+                    .FunctionExpression => |f| f.TypeParameters,
+                    .ArrowFunction => |f| f.TypeParameters,
+                    .FunctionType => |ft| ft.TypeParameters,
+                    .ConstructorType => |ct| ct.TypeParameters,
+                    .TypeAliasDeclaration => |ta| ta.TypeParameters,
+                    .InterfaceDeclaration => |id| id.TypeParameters,
+                    .ClassDeclaration => |cd| cd.TypeParameters,
+                    else => null,
+                };
+                if (tp_list) |tpl| {
+                    if (tpl != 0) {
+                        const tp_nodes = c.binder.ast.getNodeList(tpl);
+                        for (tp_nodes) |tp_node| {
+                            if (tp_node == 0) continue;
+                            const tp_data = c.binder.ast.getNode(tp_node).TypeParameter;
+                            if (tp_data.name != 0) {
+                                const tp_name = ast_utils.getTextOfNode(c.binder.ast, tp_data.name);
+                                if (std.mem.eql(u8, tp_name, name)) {
+                                    const tp_sym = c.binder.ast.getNodeSymbol(tp_node) orelse 0;
+                                    if (tp_sym != 0) return tp_sym;
+                                }
+                            }
+                        }
+                    }
+                }
+                // Stop at SourceFile — don't walk above module level.
+                if (wk == .SourceFile) break;
+                walker = c.binder.ast.getNodeParent(walker);
+            }
         }
     }
 
