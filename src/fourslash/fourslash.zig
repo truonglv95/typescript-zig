@@ -4768,7 +4768,9 @@ pub const FourslashTest = struct {
                         switch (k) {
                             .TypeAliasDeclaration, .ClassDeclaration, .ClassExpression,
                             .InterfaceDeclaration, .FunctionDeclaration, .MethodDeclaration,
+                            .MethodSignature, .CallSignature, .ConstructSignature,
                             .FunctionExpression, .ArrowFunction, .Constructor,
+                            .FunctionType, .ConstructorType,
                             => {
                                 const cur_sym = p.ast.getNodeSymbol(cur) orelse 0;
                                 if (cur_sym != 0 and cur_sym < c.binder.symbols.items.len) {
