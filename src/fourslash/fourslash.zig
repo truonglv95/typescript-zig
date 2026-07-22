@@ -1803,8 +1803,55 @@ pub const FourslashTest = struct {
             }
         }
         if (node == 0 or p.ast.getNodeKind(node) == .SourceFile) {
-            if (self.tryJSDocQuickInfo(cursorPos)) |info| return info;
-            return "";
+            // Fallback: scan AST for a node whose position range contains
+            // the cursor, trying positions around cursorPos.
+            const FallbackFinder = struct {
+                ast_ref: *ast_module.Ast,
+                pos: u32,
+                found: ast_gen.NodeIndex = 0,
+                best_end: u32 = 0,
+                pub fn visitNode(ctx: *@This(), n: ast_gen.NodeIndex) anyerror!void {
+                    if (n == 0) return;
+                    const npos = ctx.ast_ref.getNodePos(n);
+                    const nend = ctx.ast_ref.getNodeEnd(n);
+                    if (npos == nend) return; // zero-width
+                    // Look for the deepest node that contains the cursor.
+                    if (npos <= ctx.pos and ctx.pos <= nend) {
+                        if (ctx.found == 0 or nend <= ctx.best_end) {
+                            ctx.found = n;
+                            ctx.best_end = nend;
+                            // Try to find a deeper child.
+                            const F = @import("../ast/for_each_child.zig");
+                            F.forEachChild(ctx.ast_ref, n, ctx) catch {};
+                        }
+                    }
+                }
+                pub fn visitList(ctx: *@This(), list_idx: u32) anyerror!void {
+                    if (list_idx == 0) return;
+                    const items = ctx.ast_ref.getNodeList(list_idx);
+                    for (items) |item| {
+                        if (item != 0) try ctx.visitNode(item);
+                        if (ctx.found != 0) return;
+                    }
+                }
+            };
+            var finder = FallbackFinder{ .ast_ref = &p.ast, .pos = cursorPos };
+            const F = @import("../ast/for_each_child.zig");
+            F.forEachChild(&p.ast, sf, &finder) catch {};
+            if (finder.found == 0 and cursorPos > 0) {
+                finder = FallbackFinder{ .ast_ref = &p.ast, .pos = cursorPos - 1 };
+                F.forEachChild(&p.ast, sf, &finder) catch {};
+            }
+            if (finder.found == 0) {
+                finder = FallbackFinder{ .ast_ref = &p.ast, .pos = cursorPos + 1 };
+                F.forEachChild(&p.ast, sf, &finder) catch {};
+            }
+            if (finder.found != 0 and p.ast.getNodeKind(finder.found) != .SourceFile) {
+                node = finder.found;
+            } else {
+                if (self.tryJSDocQuickInfo(cursorPos)) |info| return info;
+                return "";
+            }
         }
 
         // Track the cursor node so downstream helpers can walk the AST to
