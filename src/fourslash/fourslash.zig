@@ -3060,7 +3060,14 @@ pub const FourslashTest = struct {
         // Track if this is an alias (imported symbol) — we'll prefix
         // the display with "(alias) " if so.
         const is_alias = (symObj.Flags & symbol.SymbolFlags.Alias) != 0;
-        if (std.mem.eql(u8, typeStr, "{}")) {
+        // Check if the type has call signatures (function-like). This covers
+        // both "{}" (empty object with call signatures) and "{ (): string }"
+        // (object with call signatures rendered by nodebuilder).
+        const type_has_call_sigs = blk: {
+            const sigs = c.getSignaturesOfType(sym_type, .Call);
+            break :blk sigs.len > 0;
+        };
+        if (std.mem.eql(u8, typeStr, "{}") or (type_has_call_sigs and (symObj.Flags & symbol.SymbolFlags.Function) != 0)) {
             // WORKAROUND: nodebuilder doesn't support functions yet, so typeToString returns {}.
             // Extract the function signature manually using checker APIs.
             // Only apply to Function symbols — Property symbols are handled
@@ -3464,11 +3471,11 @@ pub const FourslashTest = struct {
         }
 
         // Fallback for non-function symbols whose type has call/construct
-        // signatures but typeToString returns "{}". This happens for
-        // variables whose type is an object literal with call signatures,
-        // e.g., `const x: X` where `type X = { (): string }`.
+        // signatures but typeToString returns "{}" or "{ (): ... }".
+        // This happens for variables whose type is an object literal with
+        // call signatures, e.g., `const x: X` where `type X = { (): string }`.
         // Render as `(params) => retType` or `new (params) => retType`.
-        if (std.mem.eql(u8, typeStr, "{}") and
+        if ((std.mem.eql(u8, typeStr, "{}") or type_has_call_sigs) and
             (symObj.Flags & symbol.SymbolFlags.Function) == 0)
         {
             const call_sigs = c.getSignaturesOfType(sym_type, .Call);
