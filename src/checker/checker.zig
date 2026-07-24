@@ -3781,6 +3781,11 @@ pub const Checker = struct {
         return c.typesList.items[target].data;
     }
 
+    pub fn getTargetTypeDataPtr(c: *Checker, t: types.TypeIndex) *types.TypeData {
+        const target = c.getTargetType(t);
+        return &c.typesList.items[target].data;
+    }
+
     pub fn getTargetType(c: *Checker, t: types.TypeIndex) types.TypeIndex {
         if (t == 0 or t >= c.typesList.items.len) return t;
         const type_node = c.typesList.items[t];
@@ -15608,22 +15613,7 @@ pub const Checker = struct {
         _ = callChainFlags;
         _ = headMessage;
 
-        // For TaggedTemplateExpression, the "arguments" come from the template
-        // literal itself (strings + substitutions), not from an Arguments list.
-        // The Go implementation builds an arguments array from the template
-        // expression — for our purposes (argument arity check etc.) we just
-        // pass an empty list so the rest of resolveCall doesn't crash.
-        const argumentsList: ?u32 = blk: {
-            const node_data = c.binder.ast.getNode(node);
-            switch (node_data) {
-                .NewExpression => |n| break :blk n.Arguments,
-                .CallExpression => |n| break :blk n.Arguments,
-                .TaggedTemplateExpression => break :blk null,
-                else => break :blk null,
-            }
-        };
-        
-        const args = if ((argumentsList orelse 0) != 0) c.binder.ast.getNodeList(argumentsList.?) else &[_]u32{};
+        const args = c.getEffectiveCallArguments(node);
 
         // Skip argument arity checks in JS files. In JavaScript, functions
         // accept any number of arguments (extra args go into `arguments`).
@@ -15634,16 +15624,153 @@ pub const Checker = struct {
                 c.addDiagnostic(d);
             }
         }
-        
+
         for (args) |arg| {
             _ = c.checkExpressionAdHoc(arg) catch 0;
         }
-        
-        if (signatures.len > 0) {
+
+        if (signatures.len == 0) {
+            return c.unknownSignatureIndex;
+        }
+        if (signatures.len == 1) {
             return signatures[0];
         }
 
-        return c.unknownSignatureIndex;
+        // Overload resolution: pick the first signature whose arity matches
+        // and whose parameters are assignable from the argument types.
+        // Two passes: subtype relation first (more specific), then assignable.
+        var result: types.SignatureIndex = 0;
+        result = c.chooseOverloadByRelation(node, signatures, args, false);
+        if (result == 0) {
+            result = c.chooseOverloadByRelation(node, signatures, args, true);
+        }
+        if (result == 0) {
+            // Fall back to first signature.
+            return signatures[0];
+        }
+        return result;
+    }
+
+    /// Choose the first signature in `signatures` that is applicable to the
+    /// call arguments. When `use_assignable` is true, use the assignable
+    /// relation; otherwise use the strict subtype relation.
+    fn chooseOverloadByRelation(c: *Checker, node: ast_gen.NodeIndex, signatures: []const types.SignatureIndex, args: []const ast_gen.NodeIndex, use_assignable: bool) types.SignatureIndex {
+        _ = node;
+        for (signatures) |sig_idx| {
+            if (sig_idx == 0 or sig_idx >= c.signatures.items.len) continue;
+            const sig = &c.signatures.items[sig_idx];
+            const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+            const has_rest = (sig.flags & types.SignatureFlags.HasRestParameter) != 0;
+            const min_args: i32 = sig.minArgumentCount;
+            const arg_count: i32 = @intCast(args.len);
+            // Arity check: too many args (without rest) → skip.
+            if (!has_rest and arg_count > @as(i32, @intCast(params.len))) continue;
+            // Too few args → skip.
+            if (arg_count < min_args) continue;
+
+            // Get the signature's type parameters (for generic calls).
+            const type_params = if (sig.typeParametersLen > 0)
+                c.signatureTypeParameters.items[sig.typeParametersStart .. sig.typeParametersStart + sig.typeParametersLen]
+            else
+                &[_]types.TypeIndex{};
+
+            // Build a substitution map by inferring type arguments from the
+            // argument types. We do a simple inference: for each (arg, param)
+            // pair, if the param's type is a TypeParameter, record the arg's
+            // type as the inferred value.
+            var subst = std.AutoHashMap(ast_gen.SymbolIndex, types.TypeIndex).init(c.allocator);
+            defer subst.deinit();
+            if (type_params.len > 0) {
+                for (args, 0..) |arg, i| {
+                    if (i >= params.len) break;
+                    if (arg == 0) continue;
+                    const arg_type = c.checkExpressionAdHoc(arg) catch 0;
+                    if (arg_type == 0) continue;
+                    const param_sym = params[i];
+                    if (param_sym == 0 or param_sym >= c.binder.symbols.items.len) continue;
+                    const param_type = c.getTypeOfSymbol(param_sym) catch 0;
+                    if (param_type == 0 or param_type >= c.typesList.items.len) continue;
+                    // If the param's type is a TypeParameter, record the inference.
+                    if ((c.typesList.items[param_type].flags & types.TypeFlags.TypeParameter) != 0) {
+                        if (c.typesList.items[param_type].symbol) |tp_sym| {
+                            if (tp_sym != 0) {
+                                // Don't overwrite an existing inference with `any` (from
+                                // a failed inference on an earlier arg).
+                                const existing = subst.get(tp_sym);
+                                if (existing == null or existing.? == 0) {
+                                    subst.put(tp_sym, arg_type) catch {};
+                                }
+                            }
+                        }
+                    }
+                }
+                // Fill in missing type parameters with `unknown`.
+                for (type_params) |tp| {
+                    if (tp == 0 or tp >= c.typesList.items.len) continue;
+                    if (c.typesList.items[tp].symbol) |tp_sym| {
+                        if (tp_sym != 0) {
+                            const existing = subst.get(tp_sym);
+                            if (existing == null) {
+                                subst.put(tp_sym, c.unknownTypeIndex orelse (c.anyTypeIndex orelse 0)) catch {};
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check each argument's type is assignable to the (substituted)
+            // parameter type. If any arg fails, this signature isn't applicable.
+            var applicable = true;
+            for (args, 0..) |arg, i| {
+                if (i >= params.len) {
+                    // Rest parameter absorbs extra args.
+                    break;
+                }
+                if (arg == 0) continue;
+                const arg_type = c.checkExpressionAdHoc(arg) catch 0;
+                if (arg_type == 0) continue;
+                const param_sym = params[i];
+                if (param_sym == 0 or param_sym >= c.binder.symbols.items.len) continue;
+                var param_type = c.getTypeOfSymbol(param_sym) catch 0;
+                if (param_type == 0) continue;
+                // Substitute type parameters in the parameter type.
+                if (type_params.len > 0) {
+                    param_type = c.substituteTypeParams(param_type, &subst) catch param_type;
+                }
+                const ok = if (use_assignable)
+                    c.isTypeAssignableTo(arg_type, param_type)
+                else
+                    relater.isTypeRelatedTo(c, arg_type, param_type, &c.strictSubtypeRelation);
+                if (!ok) {
+                    applicable = false;
+                    break;
+                }
+            }
+
+            if (applicable) {
+                // If the signature is generic, instantiate it with the inferred
+                // type arguments so the resolved signature has substituted types.
+                if (type_params.len > 0) {
+                    var inferred_tas = std.ArrayListUnmanaged(types.TypeIndex).initCapacity(c.allocator, type_params.len) catch return sig_idx;
+                    defer inferred_tas.deinit(c.allocator);
+                    for (type_params) |tp| {
+                        if (tp == 0 or tp >= c.typesList.items.len) {
+                            inferred_tas.append(c.allocator, 0) catch {};
+                            continue;
+                        }
+                        const tas_sym = c.typesList.items[tp].symbol orelse 0;
+                        if (tas_sym != 0) {
+                            inferred_tas.append(c.allocator, subst.get(tas_sym) orelse 0) catch {};
+                        } else {
+                            inferred_tas.append(c.allocator, 0) catch {};
+                        }
+                    }
+                    return c.getSignatureInstantiation(sig_idx, inferred_tas.items, false, &.{});
+                }
+                return sig_idx;
+            }
+        }
+        return 0;
     }
 
     pub fn reorderCandidates(c: *Checker, signatures: []const types.SignatureIndex, callChainFlags: u32) types.TypeIndex {
@@ -21189,7 +21316,7 @@ pub const Checker = struct {
         const filled = c.fillMissingTypeArguments(typeArguments, type_params, 0, false);
         // Create mapper and instantiate.
         const mapper = mapper_pkg.createTypeMapper(c, type_params, filled);
-        return c.instantiateSignatureEx(sig, mapper, false);
+        return instantiateSignatureEx(c, sig, mapper, false);
     }
 
     pub fn cloneSignature(c: *Checker, sig: types.SignatureIndex) types.SignatureIndex {
@@ -22453,10 +22580,24 @@ pub const Checker = struct {
         return 0;
     }
 
-    pub fn instantiateSymbols(c: *Checker, symbols: *const symbol.SymbolTable, m: ast_gen.NodeIndex) types.TypeIndex {        _ = c;
+    pub fn instantiateSymbols(c: *Checker, symbols: *const symbol.SymbolTable, m: ast_gen.NodeIndex) types.TypeIndex {
+        _ = c;
         _ = symbols;
         _ = m;
         return 0;
+    }
+
+    /// Instantiate a slice of SymbolIndex values by cloning each symbol with
+    /// a new type derived from the mapper. Returns a new slice owned by the
+    /// checker's allocator.
+    pub fn instantiateSymbolSlice(c: *Checker, symbols: []const ast_gen.SymbolIndex, m: types.TypeMapperIndex) []const ast_gen.SymbolIndex {
+        _ = m; // Type substitution happens via mapper at access time; we keep the same symbol refs.
+        if (symbols.len == 0) return &[_]ast_gen.SymbolIndex{};
+        const result = c.allocator.alloc(ast_gen.SymbolIndex, symbols.len) catch return symbols;
+        for (symbols, 0..) |sym, i| {
+            result[i] = sym;
+        }
+        return result;
     }
 
     pub fn tryGetTypeFromTypeNode(c: *Checker, node: ast_gen.NodeIndex) ast_gen.NodeIndex {
@@ -25861,8 +26002,8 @@ pub const Checker = struct {
                 return c.binder.ast.getNodeList(ce.Arguments);
             },
             .NewExpression => |ne| {
-                if (ne.Arguments == 0) return &[_]ast_gen.NodeIndex{};
-                return c.binder.ast.getNodeList(ne.Arguments);
+                if (ne.Arguments == null or ne.Arguments.? == 0) return &[_]ast_gen.NodeIndex{};
+                return c.binder.ast.getNodeList(ne.Arguments.?);
             },
             .TaggedTemplateExpression => |tte| {
                 // First arg is the template strings array; remaining args
@@ -30564,18 +30705,17 @@ pub fn instantiateSignatureEx(c: *Checker, sigIdx: types.SignatureIndex, m: type
         currentMapper = mapper_pkg.combineTypeMappers(c, newMapper, currentMapper);
 
         for (freshTypeParameters) |tp| {
-            var tpData = &c.getTargetTypeData(tp).TypeParameter;
-            tpData.mapper = currentMapper;
+            c.getTargetTypeDataPtr(tp).TypeParameter.mapper = currentMapper;
         }
     }
 
     const sigParameters = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
-    const newParameters = c.instantiateSymbols(sigParameters, currentMapper) catch sigParameters;
+    const newParameters = c.instantiateSymbolSlice(sigParameters, currentMapper);
     const newThisParameter = if (sig.thisParameter) |tp| c.instantiateSymbol(tp, currentMapper) else null;
 
     const propagatingFlags = sig.flags & (types.SignatureFlags.HasRestParameter | types.SignatureFlags.HasLiteralTypes | types.SignatureFlags.Construct | types.SignatureFlags.Abstract | types.SignatureFlags.IsUntypedSignatureInJSFile | types.SignatureFlags.IsSignatureCandidateForOverloadFailure);
 
-    const resultIdx = c.newSignature(propagatingFlags, sig.declaration, freshTypeParameters, newThisParameter, newParameters, null, sig.minArgumentCount, (sig.flags & types.SignatureFlags.HasRestParameter) != 0, false);
+    const resultIdx = newSignature(c, propagatingFlags, sig.declaration, freshTypeParameters, newThisParameter, newParameters, null, sig.minArgumentCount, (sig.flags & types.SignatureFlags.HasRestParameter) != 0, false);
 
     var result = &c.signatures.items[resultIdx];
     result.target = sig.target orelse sigIdx;
