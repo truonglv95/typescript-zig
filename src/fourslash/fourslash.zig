@@ -1745,9 +1745,79 @@ pub const FourslashTest = struct {
             }
         }
 
-        // Append parameters (empty for now — full signature resolution
-        // would require resolving the construct signature).
-        out.appendSlice(aa, "()") catch {};
+        // Append parameters from the resolved construct signature.
+        // Get the construct signatures of the class type and resolve the
+        // one matching the NewExpression's arguments.
+        var ctor_sigs = c.getSignaturesOfType(class_type, .Construct);
+        // Fallback: if no construct signatures found, try the class symbol's
+        // constructor member.
+        if (ctor_sigs.len == 0) {
+            if (c.binder.symbolMembers.getPtr(sym)) |members| {
+                if (members.get("constructor")) |ctor_sym| {
+                    if (ctor_sym != 0) {
+                        ctor_sigs = c.getSignaturesOfSymbol(ctor_sym);
+                    }
+                }
+            }
+        }
+        // Fallback: look for a Constructor declaration in the class body.
+        // The constructor is a member of the class, not a declaration of
+        // the class symbol itself.
+        if (ctor_sigs.len == 0) {
+            if (c.binder.symbolMembers.getPtr(sym)) |members| {
+                // Iterate all members to find one with a Constructor declaration.
+                var member_it = members.iterator();
+                while (member_it.next()) |entry| {
+                    const member_sym = entry.value_ptr.*;
+                    if (member_sym == 0 or member_sym >= c.binder.symbols.items.len) continue;
+                    const member_obj = c.binder.symbols.items[member_sym];
+                    for (member_obj.Declarations.items) |decl| {
+                        if (decl != 0 and p.ast.getNodeKind(decl) == .Constructor) {
+                            const sig_idx2 = c.getSignatureFromDeclaration(decl);
+                            if (sig_idx2 != 0) {
+                                const start = c.resolvedSignaturesPool.items.len;
+                                c.resolvedSignaturesPool.append(c.allocator, sig_idx2) catch {};
+                                ctor_sigs = .{ .start = @intCast(start), .len = 1 };
+                                break;
+                            }
+                        }
+                    }
+                    if (ctor_sigs.len > 0) break;
+                }
+            }
+        }
+        if (ctor_sigs.len > 0) {
+            // Try to resolve the signature for this call expression.
+            const resolved_sig = c.getResolvedSignature(new_expr, null, .Normal);
+            var sig_idx: checker_module.types.SignatureIndex = c.resolvedSignaturesPool.items[ctor_sigs.start];
+            if (resolved_sig != 0 and resolved_sig < c.signatures.items.len) {
+                // Check if the resolved signature is one of the construct signatures.
+                var found = false;
+                for (0..ctor_sigs.len) |i| {
+                    if (c.resolvedSignaturesPool.items[ctor_sigs.start + i] == resolved_sig) {
+                        sig_idx = resolved_sig;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) sig_idx = c.resolvedSignaturesPool.items[ctor_sigs.start];
+            }
+            const sig = &c.signatures.items[sig_idx];
+            const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+            out.appendSlice(aa, "(") catch {};
+            for (params, 0..) |paramSym, i| {
+                if (i > 0) out.appendSlice(aa, ", ") catch {};
+                const paramObj = c.binder.symbols.items[paramSym];
+                const paramType = c.getTypeOfSymbol(paramSym) catch 0;
+                const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, HOVER_TYPE_FLAGS, null) else "any";
+                const param_question = self.getParamOptionalMarker(paramSym);
+                const pStr = std.fmt.allocPrint(aa, "{s}{s}: {s}", .{paramObj.Name, param_question, paramTypeStr}) catch "";
+                out.appendSlice(aa, pStr) catch {};
+            }
+            out.appendSlice(aa, ")") catch {};
+        } else {
+            out.appendSlice(aa, "()") catch {};
+        }
 
         // Append return type: ClassName<typeArgs>
         out.appendSlice(aa, ": ") catch {};
