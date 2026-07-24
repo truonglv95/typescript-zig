@@ -4253,7 +4253,40 @@ pub const FourslashTest = struct {
             // Try to find the parent symbol's name. Use the qualified name
             // (e.g., "M2.A") so properties inside namespaced types display
             // with the full namespace prefix.
-            const parent_prefix = self.getParentQualifiedNamePrefix(sym);
+            // For object literal properties, try to resolve via contextual type.
+            var parent_prefix = self.getParentQualifiedNamePrefix(sym);
+            if (parent_prefix.len == 0 and symObj.Declarations.items.len > 0) {
+                // Check if this property is inside an object literal that has
+                // a contextual type. If so, resolve the property from the
+                // contextual type to get the parent prefix (e.g., "I.").
+                const decl_node = symObj.Declarations.items[0];
+                if (decl_node != 0) {
+                    var cur = p.ast.getNodeParent(decl_node);
+                    while (cur != 0) {
+                        if (p.ast.getNodeKind(cur) == .ObjectLiteralExpression) {
+                            const ctx_type = c.getContextualType(cur, 0);
+                            if (ctx_type != 0 and ctx_type < c.typesList.items.len) {
+                                const prop_name = symObj.Name;
+                                if (c.getPropertyOfType(ctx_type, prop_name)) |ctx_prop| {
+                                    // Use the contextual property's parent prefix.
+                                    const ctx_prefix = self.getParentQualifiedNamePrefix(ctx_prop);
+                                    if (ctx_prefix.len > 0) {
+                                        parent_prefix = ctx_prefix;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        if (p.ast.getNodeKind(cur) == .SourceFile or
+                            p.ast.getNodeKind(cur) == .FunctionDeclaration or
+                            p.ast.getNodeKind(cur) == .FunctionExpression or
+                            p.ast.getNodeKind(cur) == .MethodDeclaration or
+                            p.ast.getNodeKind(cur) == .ArrowFunction or
+                            p.ast.getNodeKind(cur) == .Constructor) break;
+                        cur = p.ast.getNodeParent(cur);
+                    }
+                }
+            }
             if (parent_prefix.len > 0) {
                 out.appendSlice(aa, parent_prefix) catch {};
             }
