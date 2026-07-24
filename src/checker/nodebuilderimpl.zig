@@ -934,7 +934,19 @@ pub const NodeBuilderImpl = struct {
                 return createTypeNodeFromObjectType(b, typ);
             }
             if (objectFlags & types.ObjectFlags.ClassOrInterface != 0) {
-                return symbolToTypeReferenceNode(b, b.c.getSymbolOfType(typ), null);
+                // Include type arguments if the type has any (e.g., C<any>).
+                const type_args = b.c.getTypeArguments(typ);
+                const type_args_node = if (type_args.len > 0) blk: {
+                    var arg_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+                    defer arg_nodes.deinit(b.c.allocator);
+                    for (type_args) |arg| {
+                        const arg_node = b.typeToTypeNode(arg);
+                        if (arg_node == 0) return 0;
+                        arg_nodes.append(b.c.allocator, arg_node) catch return 0;
+                    }
+                    break :blk b.c.binder.ast.pushNodeList(arg_nodes.items) catch return 0;
+                } else null;
+                return symbolToTypeReferenceNode(b, b.c.getSymbolOfType(typ), type_args_node);
             }
         }
         if (typeData.data == .Array) {
