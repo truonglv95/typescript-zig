@@ -3470,13 +3470,17 @@ pub const FourslashTest = struct {
             }
         }
 
-        // Fallback for non-function symbols whose type has call/construct
-        // signatures but typeToString returns "{}" or "{ (): ... }".
-        // This happens for variables whose type is an object literal with
-        // call signatures, e.g., `const x: X` where `type X = { (): string }`.
+        // Fallback for non-function, non-variable, non-property symbols whose
+        // type has call/construct signatures but typeToString returns "{}" or
+        // "{ (): ... }". This happens for type aliases whose type is an object
+        // literal with call signatures, e.g., `type X = { (): string }`.
         // Render as `(params) => retType` or `new (params) => retType`.
+        // We exclude variables/properties/methods here because they have their
+        // own display paths that add the proper prefix (e.g., `var x: ...`).
+        const is_var_or_prop = (symObj.Flags & (symbol.SymbolFlags.FunctionScopedVariable | symbol.SymbolFlags.BlockScopedVariable | symbol.SymbolFlags.Property | symbol.SymbolFlags.GetAccessor | symbol.SymbolFlags.SetAccessor | symbol.SymbolFlags.Accessor | symbol.SymbolFlags.Method)) != 0;
         if ((std.mem.eql(u8, typeStr, "{}") or type_has_call_sigs) and
-            (symObj.Flags & symbol.SymbolFlags.Function) == 0)
+            (symObj.Flags & symbol.SymbolFlags.Function) == 0 and
+            !is_var_or_prop)
         {
             const call_sigs = c.getSignaturesOfType(sym_type, .Call);
             const ctor_sigs = c.getSignaturesOfType(sym_type, .Construct);
@@ -3768,10 +3772,11 @@ pub const FourslashTest = struct {
             // This handles function types, array types, and object types
             // that TypeToStringEx can't render.
             var display_type: []const u8 = typeStr;
-            // Trigger fallback for both "{}" and "any" when the variable has
-            // a FunctionType/ConstructorType type annotation. TypeToStringEx
-            // can't render these properly, so we format from the AST.
+            // Trigger fallback for "{}", "any", or types with call signatures
+            // (which typeToString renders as "{ (): ... }"). These cases
+            // need manual formatting from the AST or signatures.
             const should_try_fn_fallback = std.mem.eql(u8, typeStr, "{}") or
+                type_has_call_sigs or
                 (std.mem.eql(u8, typeStr, "any") and blk: {
                     if (symObj.Declarations.items.len == 0) break :blk false;
                     const decl_node = symObj.Declarations.items[0];
