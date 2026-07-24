@@ -3462,7 +3462,75 @@ pub const FourslashTest = struct {
                 }
             }
         }
-        
+
+        // Fallback for non-function symbols whose type has call/construct
+        // signatures but typeToString returns "{}". This happens for
+        // variables whose type is an object literal with call signatures,
+        // e.g., `const x: X` where `type X = { (): string }`.
+        // Render as `(params) => retType` or `new (params) => retType`.
+        if (std.mem.eql(u8, typeStr, "{}") and
+            (symObj.Flags & symbol.SymbolFlags.Function) == 0)
+        {
+            const call_sigs = c.getSignaturesOfType(sym_type, .Call);
+            const ctor_sigs = c.getSignaturesOfType(sym_type, .Construct);
+            if (call_sigs.len > 0 and ctor_sigs.len == 0) {
+                // Render as function type: (params) => retType
+                const sigIdx = c.resolvedSignaturesPool.items[call_sigs.start];
+                if (sigIdx < c.signatures.items.len) {
+                    const sig = &c.signatures.items[sigIdx];
+                    const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+                    var out = std.ArrayListUnmanaged(u8).empty;
+                    const aa = self.arena.allocator();
+                    out.appendSlice(aa, "(") catch {};
+                    for (params, 0..) |paramSym, i| {
+                        if (i > 0) out.appendSlice(aa, ", ") catch {};
+                        const paramObj = c.binder.symbols.items[paramSym];
+                        const paramType = c.getTypeOfSymbol(paramSym) catch 0;
+                        const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, HOVER_TYPE_FLAGS, null) else "any";
+                        const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+                        out.appendSlice(aa, pStr) catch {};
+                    }
+                    out.appendSlice(aa, ") => ") catch {};
+                    const retType = c.getReturnTypeOfSignature(sig);
+                    const retTypeStr = if (retType != 0) c.typeToString(retType, 0, HOVER_TYPE_FLAGS, null) else "any";
+                    out.appendSlice(aa, retTypeStr) catch {};
+                    if (call_sigs.len > 1) {
+                        const overloads_str = std.fmt.allocPrint(aa, " (+{d} overload{s})", .{ call_sigs.len - 1, if (call_sigs.len - 1 == 1) "" else "s" }) catch "";
+                        out.appendSlice(aa, overloads_str) catch {};
+                    }
+                    return out.toOwnedSlice(aa) catch "";
+                }
+            }
+            if (ctor_sigs.len > 0 and call_sigs.len == 0) {
+                // Render as constructor type: new (params) => retType
+                const sigIdx = c.resolvedSignaturesPool.items[ctor_sigs.start];
+                if (sigIdx < c.signatures.items.len) {
+                    const sig = &c.signatures.items[sigIdx];
+                    const params = c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+                    var out = std.ArrayListUnmanaged(u8).empty;
+                    const aa = self.arena.allocator();
+                    out.appendSlice(aa, "new (") catch {};
+                    for (params, 0..) |paramSym, i| {
+                        if (i > 0) out.appendSlice(aa, ", ") catch {};
+                        const paramObj = c.binder.symbols.items[paramSym];
+                        const paramType = c.getTypeOfSymbol(paramSym) catch 0;
+                        const paramTypeStr = if (paramType != 0) c.typeToString(paramType, 0, HOVER_TYPE_FLAGS, null) else "any";
+                        const pStr = std.fmt.allocPrint(aa, "{s}: {s}", .{paramObj.Name, paramTypeStr}) catch "";
+                        out.appendSlice(aa, pStr) catch {};
+                    }
+                    out.appendSlice(aa, ") => ") catch {};
+                    const retType = c.getReturnTypeOfSignature(sig);
+                    const retTypeStr = if (retType != 0) c.typeToString(retType, 0, HOVER_TYPE_FLAGS, null) else "any";
+                    out.appendSlice(aa, retTypeStr) catch {};
+                    if (ctor_sigs.len > 1) {
+                        const overloads_str = std.fmt.allocPrint(aa, " (+{d} overload{s})", .{ ctor_sigs.len - 1, if (ctor_sigs.len - 1 == 1) "" else "s" }) catch "";
+                        out.appendSlice(aa, overloads_str) catch {};
+                    }
+                    return out.toOwnedSlice(aa) catch "";
+                }
+            }
+        }
+
         if ((symObj.Flags & symbol.SymbolFlags.FunctionScopedVariable) != 0) {
             var is_param = false;
             if (symObj.Declarations.items.len > 0) {
