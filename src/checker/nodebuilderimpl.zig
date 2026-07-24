@@ -630,6 +630,100 @@ pub const NodeBuilderImpl = struct {
             member_nodes.append(b.c.allocator, member) catch return 0;
         }
 
+        // Render call signatures as CallSignature nodes.
+        // For an object type like `{ (): string }`, this produces `(): string`
+        // which the printer renders as `() => string`.
+        const call_sigs = b.c.resolvedSignaturesPool.items[members.callSignaturesStart .. members.callSignaturesStart + members.callSignaturesLen];
+        for (call_sigs) |sig_idx| {
+            if (sig_idx == 0 or sig_idx >= b.c.signatures.items.len) continue;
+            const sig = &b.c.signatures.items[sig_idx];
+            const params_slice = b.c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+            // Build parameter nodes.
+            var param_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+            defer param_nodes.deinit(b.c.allocator);
+            for (params_slice) |param_sym| {
+                if (param_sym == 0) continue;
+                const param_type = b.c.getTypeOfSymbol(param_sym) catch 0;
+                const param_type_node = if (param_type != 0) b.typeToTypeNode(param_type) else createKeywordTypeNode(b, .AnyKeyword);
+                const param_name = if (param_sym < b.c.binder.symbols.items.len) b.c.binder.symbols.items[param_sym].Name else "arg";
+                const name_node = createPropertyNameNode(b, param_name);
+                const param = b.c.binder.ast.pushNode(.{
+                    .Parameter = .{
+                        .Flags = synthesizedFlags(),
+                        .Symbol = 0,
+                        .modifiers = null,
+                        .modifierFlags = 0,
+                        .DotDotDotToken = null,
+                        .name = name_node,
+                        .QuestionToken = null,
+                        .Type = param_type_node,
+                        .Initializer = null,
+                    },
+                }) catch return 0;
+                param_nodes.append(b.c.allocator, param) catch return 0;
+            }
+            const params_list = b.c.binder.ast.pushNodeList(param_nodes.items) catch return 0;
+            // Build return type node.
+            const ret_type = b.c.getReturnTypeOfSignature(sig);
+            const ret_type_node = if (ret_type != 0) b.typeToTypeNode(ret_type) else createKeywordTypeNode(b, .VoidKeyword);
+            const call_sig = b.c.binder.ast.pushNode(.{
+                .CallSignature = .{
+                    .Flags = synthesizedFlags(),
+                    .Symbol = 0,
+                    .TypeParameters = null,
+                    .Parameters = params_list,
+                    .Type = ret_type_node,
+                    .FullSignature = null,
+                },
+            }) catch return 0;
+            member_nodes.append(b.c.allocator, call_sig) catch return 0;
+        }
+
+        // Render construct signatures as ConstructSignature nodes.
+        const ctor_sigs = b.c.resolvedSignaturesPool.items[members.constructSignaturesStart .. members.constructSignaturesStart + members.constructSignaturesLen];
+        for (ctor_sigs) |sig_idx| {
+            if (sig_idx == 0 or sig_idx >= b.c.signatures.items.len) continue;
+            const sig = &b.c.signatures.items[sig_idx];
+            const params_slice = b.c.signatureParameters.items[sig.parametersStart .. sig.parametersStart + sig.parametersLen];
+            var param_nodes = std.ArrayListUnmanaged(ast_gen.NodeIndex).empty;
+            defer param_nodes.deinit(b.c.allocator);
+            for (params_slice) |param_sym| {
+                if (param_sym == 0) continue;
+                const param_type = b.c.getTypeOfSymbol(param_sym) catch 0;
+                const param_type_node = if (param_type != 0) b.typeToTypeNode(param_type) else createKeywordTypeNode(b, .AnyKeyword);
+                const param_name = if (param_sym < b.c.binder.symbols.items.len) b.c.binder.symbols.items[param_sym].Name else "arg";
+                const name_node = createPropertyNameNode(b, param_name);
+                const param = b.c.binder.ast.pushNode(.{
+                    .Parameter = .{
+                        .Flags = synthesizedFlags(),
+                        .Symbol = 0,
+                        .modifiers = null,
+                        .modifierFlags = 0,
+                        .DotDotDotToken = null,
+                        .name = name_node,
+                        .QuestionToken = null,
+                        .Type = param_type_node,
+                        .Initializer = null,
+                    },
+                }) catch return 0;
+                param_nodes.append(b.c.allocator, param) catch return 0;
+            }
+            const params_list = b.c.binder.ast.pushNodeList(param_nodes.items) catch return 0;
+            const ret_type = b.c.getReturnTypeOfSignature(sig);
+            const ret_type_node = if (ret_type != 0) b.typeToTypeNode(ret_type) else createKeywordTypeNode(b, .AnyKeyword);
+            const ctor_sig = b.c.binder.ast.pushNode(.{
+                .ConstructSignature = .{
+                    .Flags = synthesizedFlags(),
+                    .Symbol = 0,
+                    .TypeParameters = null,
+                    .Parameters = params_list,
+                    .Type = ret_type_node,
+                    .FullSignature = null,
+                },
+            }) catch return 0;
+            member_nodes.append(b.c.allocator, ctor_sig) catch return 0;
+        }
+
         // Render index signatures as IndexSignature nodes.
         // Index infos are stored in resolvedIndexInfosPool; the actual data
         // (keyType, valueType, etc.) is accessed via the IndexInfo struct.
